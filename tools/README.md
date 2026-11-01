@@ -58,3 +58,7 @@ From Mac mini:
 The run first tests the source code, finds installed Ollama models, verifies the exact Primate source SHA and eight fixed 8-cue windows, then uses local GPU Ollama to generate the four model/prompt arms. It **will NOT download models**; if the subtitle-tuned model isn't installed or more than one matches, the preflight fails and reports available names. To choose manually, pass a second argument with the exact `ollama list` model ID. No changes to old checkpoints, published subtitles, videos, live worker or queue.
 
 The private JSON lands in Mac mini Downloads. **Never put movie dialogue/model output in public GitHub.** Upload it here for assessment using the pre-registered meaning/tone/fluency/readability rubric, then record the aggregated scorecard and final decision in the GitHub run ledger. Historical `natural_8` 40-cue sample is NOT a valid fresh baseline because older checkpoints were generated under broken SRT batching.
+
+## Model-native subtitle-tuned Gemma experiment (Benchmark 002)
+
+After reading `benchmarks/EXPERIMENT_002.md`, run from Mac mini `bash tools/run_native_subtitle_benchmark.sh optiplex@YOUR_TAILSCALE_IP`. The script tests a **single installed pinned model** with its developer's single-segment prompt on the same 64 English cues used in Benchmark 001; no imports, GPU installations or modifications to subtitles/checkpoints. It holds the normal worker locks. A private JSON is copied to Mac mini Downloads for manual EN/JA review. Do not commit it.
