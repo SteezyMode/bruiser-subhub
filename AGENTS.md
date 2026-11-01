@@ -33,6 +33,12 @@ Owner explicitly requested **no more disproportionate work on individual movie e
 
 The shipped `service.render_clip()` used positional indexes on SQLite rows. Actual columns begin with job_id, so the model batch input was malformed (`job_id / cue_id / end_ms`). A fix changes to named `timing`/`english` fields, locally renumbers batches and remaps model output back to original cue IDs. This may explain observed `Malformed SRT block` and singleton-heavy fallback. **Merged GitHub code is not a live server deployment.** Verify a real batch against `bruiser_auto.parse_srt` after the worker is idle; do not rewrite existing checkpoints.
 
+## Practical language-quality target (owner clarified November 1)
+
+Target **~8/10 enjoyable Japanese subtitles, clearly better than generic SubtitleCat-style ML output**, rather than professional Netflix 10/10. **Do not sanitize profanity, sexual references, insults, violent threats, slang or sarcasm.** Match social register, speaker intention and tone. Shorten awkward phrasing and filler only while preserving important nuance and punchlines. Favor meaning over word-for-word idioms. A hard character threshold must never delete meaning or block a good line.
+
+An optional `natural_8` profile supplements the existing model system prompt; default production behavior remains unchanged. Benchmark it privately on actual fixed English cues before selecting it for the worker. Synthetic unit tests and character counts cannot establish native Japanese quality.
+
 ## Current development priority
 
 Obtain a representative full-film EN/JA editorial QA packet from the existing checkpoints, review concrete meaning/naturalness failures, then compare improvements to the Gemma prompt/context on a fixed evaluation set. Avoid imposing an unproven automatic scoring gate. The read-only `review_sampler.py` supports that process; it does not substitute for an editor.
