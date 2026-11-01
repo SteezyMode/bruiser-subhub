@@ -29,7 +29,11 @@
 
 **Next action:** Benchmark 001 is complete, but trained tuned model did not receive its documented native prompt. Compare the installed tuned model in that format on the same difficult cues, then conduct human/native Japanese review and make a practical model/pipeline choice. Do not force multi-pass or automate a second model on all jobs without net-quality evidence. The 2,026 detected ready-source candidates are a separate queue-ingestion milestone after the quality decision.
 
-## Benchmark 002 — PR #16 merged (`fa819341`), 83 synthetic tests passed; real local model run pending
+## Benchmark 002 — COMPLETE (real local Ollama, 2026-11-02 JST); see RESULTS_002.md
+
+**Result:** 64/64 accepted, zero recognizable format artifacts, 6 over 14 characters/sec, median 6.8 characters/sec, 56.37 model-call seconds, 64 successful calls. Unblinded qualitative review saw useful handling of threats, insults and instructions, but material slang/accusation errors and overly long fast dialogue. **Not independently rated 8/10.** Full measured report: [RESULTS_002.md](RESULTS_002.md). Its system style and context/runtime settings were chosen by us rather than a literal model-card replay. Eight within-group context gaps exceeded eight seconds.
+
+## Historical preregistration record: Benchmark 002 (PR #16)
 
 - Design: [EXPERIMENT_002.md](EXPERIMENT_002.md) — SAME 64 English cues as Benchmark 001, but the **already installed** tuned Gemma e4b receives the developer's native `[CURRENT_SOURCE]` with up to two prior source/translation pairs.
 - One Ollama call per cue (64 calls), with no retry and no other model. Context from generated translations in the SAME eight-cue window only; no original Japanese fed into the model.
@@ -39,3 +43,9 @@
 | Model/native method | Valid / 64 | Format flags | Median chars/s | Inference seconds | Human quality decision |
 |---|---:|---:|---:|---:|---|
 | Tuned Gemma e4b native previous/current prompt | Pending | Pending | Pending | Pending | Not reviewed |
+
+## Benchmark 003 — PRE-REGISTERED, no Ollama run yet
+
+- Frozen design: [EXPERIMENT_003.md](EXPERIMENT_003.md). Same model and 64 English cues as 001/002. Two *near-literal card-style* arms with one prior source/translation pair: A always allows the previous clean immediate cue, B drops it only when there is more than an 8-second gap. This is one controlled experimental variable **within** Benchmark 003.
+- Uses developer-style `STYLE: neutral`, Ollama at temperature 0, context 1,344, generation limit 256; pins model digest, reads checkpoints RO and uses worker locks. **No automatic Japanese quality claims.**
+- Result: **PENDING**. After private owner run, record exact numeric metrics, interpret semantic/idiom/tone changes and decide whether additional prompt tweaking is worthwhile; user does NOT want indefinite benchmarking.
