@@ -58,3 +58,16 @@
 | Same, drop previous after >8s silence | 64 | 0 | 6.85 | 52.57s | Not measured | Do not deploy rule |
 
 **Highest-value next task:** have the Japanese-speaking household viewer watch 10–15 minutes with only the existing machine Japanese track, record intelligibility/awkwardness/timecodes. After that, make one model/pipeline decision before resuming guarded library source extraction and queueing the 2,026 ready-source candidates. Multi-pass remains optional and must show net benefit on actual errors.
+
+## Benchmark 004 — official Google TranslateGemma 4B (PRE-REGISTERED, not yet run)
+
+- Protocol: [EXPERIMENT_004.md](EXPERIMENT_004.md), frozen before model installation. A truly different model, not a Gemma4 prompt tweak. Official `translategemma:4b` is **Gemma 3, 4.3B, Q4_K_M, ~3.3 GB**, with recommended **single user** translation prompt and two blank lines before the input text.
+- Google receives 64 prior frozen English anchor cues plus 16 **new held-out** cues (8 near 515; 8 near 625); existing pinned subtitle-tuned Gemma4 receives only the 16 new held-out cues through its own validated Benchmark 002 native format. **96 private outputs**, real EN/JA assessment needed.
+- Model installation/download (~3.3 GB) is explicit in the Mac mini runner *after* frozen source verification. Do not confuse GitHub merge, offline unit test success, and actual owner-side run.
+- No production translator, checkpoint, media, or subtitle changes. Even if this model is superior, wait for Japanese-only viewing before whole-library rollout.
+- **Current result: PENDING.**
+
+| Arm | New source cues | Prior anchor cues | JA valid | Formatting flags | Human language/tone verdict |
+|---|---:|---:|---|---|---|
+| Google TranslateGemma 4B official prompt | 16 | 64 | — | — | Not tested |
+| Existing tuned Gemma4 E4B native protocol | 16 | 0 | — | — | Not tested |
