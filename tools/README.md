@@ -62,3 +62,11 @@ The private JSON lands in Mac mini Downloads. **Never put movie dialogue/model o
 ## Model-native subtitle-tuned Gemma experiment (Benchmark 002)
 
 After reading `benchmarks/EXPERIMENT_002.md`, run from Mac mini `bash tools/run_native_subtitle_benchmark.sh optiplex@YOUR_TAILSCALE_IP`. The script tests a **single installed pinned model** with its developer's single-segment prompt on the same 64 English cues used in Benchmark 001; no imports, GPU installations or modifications to subtitles/checkpoints. It holds the normal worker locks. A private JSON is copied to Mac mini Downloads for manual EN/JA review. Do not commit it.
+
+## Controlled strict-model-card follow-up (Benchmark 003)
+
+Read the preregistered `benchmarks/EXPERIMENT_003.md` first. Run from Mac mini:
+
+    bash tools/run_model_card_003.sh optiplex@YOUR_TAILSCALE_IP
+
+The two arms use the **same pinned installed subtitle-Gemma, identical model-card-style system and native one-cue format, the same 64 source cues and identical Ollama options**. Only difference: one arm omits previous-context pairs if the gap is greater than eight seconds. All model outputs stay in a private create-only JSON copied to Downloads; no changes to queue, checkpoint, Japanese SRT, videos or live engine. Never commit private dialogue to GitHub. After real native-Japanese review, record the outcome and make a production decision rather than endless prompt tuning.
