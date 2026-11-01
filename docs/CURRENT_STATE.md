@@ -29,6 +29,14 @@ Offline validation: **32 synthetic/mock tests passing locally**; GitHub Actions 
 
 The publisher previously archived and removed selected old Bruiser tracks, including `Bruiser Japanese Editorial v1`; it did not guard against an independent `.ja.srt` sidecar. A tested change merged in PR #3 makes publishing create-only, refuses duplicate Japanese/editorial sidecars, and never deletes previous subtitle tracks. A `diagnose_blocked.py` tool queries the live SQLite database **read-only** to report exhausted cues and stored job hold reasons; use `--show-text` for private cue-level context only. **Merged as PR #3**, commit `1f54506a` (2026-11-01); **not deployed** to OptiPlex. 32/32 synthetic offline tests passed locally and GitHub Actions passed on the PR branch.
 
+## November 1 engineering progress — merged, not deployed
+
+- **PR #6 merged:** repaired the real malformed-SRT batch bug in `service.render_clip()`. SQLite row offsets accidentally emitted `job_id/cue_id/end_ms` instead of a valid SRT header/timing/English dialogue. Fixed to use named fields, local prompt IDs and mapping back to exact original IDs. This matches the previously reported `Malformed SRT block` retry logs. Offline mock-backed adapter tests pass, but the actual server's legacy parser and model output still require verification.
+- **PR #7 merged:** added `tools/deploy_batch_fix.sh` and `tools/collect_review.sh` for one-command, guarded install and private English/Japanese quality sample. The installer checks both worker locks, verifies the installed legacy parser with real DB rows, refuses unexpected host code SHA, backs up service.py and does not touch checkpoints/media. Review collector is read-only and exports 80 cues.
+- **37 synthetic tests** expected (32 preexisting + 3 adapter + 2 installer), CI passed for both PRs. Tests and GitHub merges are **not live deployment or semantic translation proof**.
+
+**Next concrete action on the Mac mini:** from `~/Downloads/bruiser-subhub-repo`, `git pull --ff-only`, then `bash tools/collect_review.sh optiplex@HOST` to get real film EN/JA evidence, and `bash tools/deploy_batch_fix.sh optiplex@HOST` to install only if idle. If the guarded installer refuses, diagnose rather than bypass its checks. Upload private quality JSON to chat, never commit it to GitHub.
+
 ## Critical limitations / unresolved questions
 
 - Live subtitle quality, per-film finish status, translation speed and resource usage still require **actual server evidence**. Offline mocks prove mechanics only.
