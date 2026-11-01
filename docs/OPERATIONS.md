@@ -1,0 +1,45 @@
+# Local operation, inspection, and rollout
+
+The known OptiPlex deployment is **not yet a portable install**. Commands below are for the owner on the server. Never put the media paths, logs, or exported subtitle content into Git.
+
+## Safe read-only checks
+
+```bash
+python3 ~/bruiser-pilot/subhub1/main.py --root ~/bruiser-pilot/subhub1-state status
+pgrep -af 'bruiser-pilot/subhub1/main.py' || true
+ollama ps
+```
+
+`status` opens the existing runtime database using the 1.0 Store class; use a read-only DB snapshot or the independent review tool if strict no-mutation access is required. A visible model or HTTP 200 only proves a process is present, not that a film has completed or was translated correctly.
+
+## Read-only editorial QA
+
+From a checkout that includes `review_sampler.py` (run on the server or against a safe copy of the SQLite state):
+
+```bash
+python3 review_sampler.py --root ~/bruiser-pilot/subhub1-state --job JOB_ID
+```
+
+This prints **only counts and mechanical flags**. Export an EN/JA/context sample explicitly:
+
+```bash
+python3 review_sampler.py --root ~/bruiser-pilot/subhub1-state \
+  --job JOB_ID --count 60 --out ~/bruiser-pilot/subhub1-state/review/JOB_ID.editorial.json
+```
+
+For every cue use `--all`. This tool opens SQLite in read-only mode, makes no model calls, does not publish, and refuses to overwrite existing output. JSON includes user-owned/private subtitle text and must never be committed or uploaded publicly. `number_review`/`negation_review`/`reading_speed_review` are **editorial prompts only**, not verified errors.
+
+## Deployment safety contract
+
+1. Verify no active worker and record current process state; do not kill an active translation for a code update.
+2. Record deployed source hashes and current commit; back up source, deployment config, and SQLite state consistently (include WAL/SHM only via a proper SQLite backup API or while fully stopped).
+3. Run the offline tests against the candidate checkout. Complete one test translation/quality comparison before swapping the Gemma adapter.
+4. Replace only necessary source files atomically. **Do not** use `launch.sh` to upgrade. Do not reset/import jobs during upgrades.
+5. Verify `status`, sample review, and publishing protection, then document success and rollback instructions in `docs/CURRENT_STATE.md`.
+
+## Runtime boundaries
+
+- `main.py` runs the queue, checkpointing, model calls, and optional advisory HY pass.
+- `service.py` owns DB, validation, prompt adapter, publisher and review CSV.
+- `review_sampler.py` reads the DB separately in SQLite read-only mode, exports no information unless `--out` is explicitly supplied.
+- Host has been observed running Gemma translation and desktop usage concurrently; always respect resource limits rather than assuming GPU availability.
