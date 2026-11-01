@@ -78,7 +78,7 @@ class CorruptHoldTests(unittest.TestCase):
         before=self.db.cn.execute('SELECT COUNT(*) FROM events').fetchone()[0]
         results=scan.scan(self.root,s)
         self.assertEqual(len(results),1)
-        self.assertEqual(results[0][-2:]],([1],[1]))
+        self.assertEqual(results[0][-2:],([1],[1]))
         self.assertEqual(self.db.cn.execute('SELECT COUNT(*) FROM events').fetchone()[0],before)
 
 if __name__=='__main__':
