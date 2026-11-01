@@ -11,7 +11,7 @@
 | 2026-11-01 | Fresh Gemma e4b with `natural_8` prompt, five 8-cue windows | 40/40 results in 26.07 sec total reported model-call time (8.58/4.18/4.13/4.63/4.55 sec). Some idiom and brevity improvements | Adequate overall quality. It introduced serious errors: undirected exclamation instead of a directed insult; sex joke removed; rhetorical accusation turned into open question; speaker turn removed |
 | 2026-11-01 | Read-only video/subtitle census | 13,199 video files, 4.14 TB video, 2,026 English-text+English-audio candidates, 442 detected JA, 268 OCR candidates, 4,670 missing English source, 5,764 audio unverified, 29 metadata failures | That all 2,026 can be translated immediately or that most of 5,764 are non-English |
 
-## Benchmark 001: PRE-REGISTERED, waiting for host model run
+## Benchmark 001: PR #14 merged (`acad684f`), GitHub CI passed; waiting for real host model run
 
 - Procedure: [EXPERIMENT_001.md](EXPERIMENT_001.md); frozen 8x8 cue selection and 2-model x 2-profile matched arms.
 - Aim: test **genuinely different local models** and new `faithful_8` (no sanitized slang or meaning loss), rather than indefinite prompt-only tweaks.
