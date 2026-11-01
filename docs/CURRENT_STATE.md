@@ -56,6 +56,14 @@ Owner explicitly permits multi-model or selective multi-pass systems **if qualit
 
 **PR #16 merged (`fa819341`), 83 synthetic tests passed on Python 3.11 and 3.12; NOT RUN against Ollama:** [EXPERIMENT_002](../benchmarks/EXPERIMENT_002.md) tests the **installed** third-party 17slever17 subtitle-tuned Gemma e4b with its documented `[CURRENT_SOURCE]` / optional `[PREVIOUS_SOURCE]` and `[PREVIOUS_TRANSLATION]`, on the **same 64 Primate cues** as Benchmark 001. No mass translation, DB/SRT/media edits or new download. Up to two preceding results within an eight-cue window are model-generated and only successful clean results form context. One call per cue; model-call timings are not directly comparable with the prior 8-call batch benchmark. The only native-model decision is from actual semantic review after a real private run. Multi-pass/multi-model ideas remain optional and must show net benefit. Run `bash tools/run_native_subtitle_benchmark.sh optiplex@100.121.156.34` from the Mac mini checkout after merging this PR; upload private JSON for review; summarize numeric results and decision into RUN_LEDGER.
 
+## Current measured conclusion — model native protocol and strict-card follow-up (2026-11-02)
+
+Benchmark 002 **ran** on the OptiPlex and completed 64/64 Japanese outputs in 56.37 cumulative call seconds with **0 formatting artifacts**, median 6.8 Japanese chars/sec and 6 cues >14 chars/sec. Several violent/profane lines and instructions were accurate, but slang, ambiguous idioms and short display timings remain unreliable; no native Japanese 8/10 rating. Full public non-copyrighted measured record: `benchmarks/RESULTS_002.md`.
+
+After auditing the author's actual Hugging Face model card, we confirmed Benchmark 002 follows its **core native CURRENT_SOURCE/PREVIOUS_... format**, but **not a literal reference configuration**: extra adult-horror style text, up to two previous pairs, 4096 context/320 generation tokens instead of example 1344/256, and Ollama rather than llama.cpp. Eight within-window prior cues were over 8 seconds apart (four much longer), potentially misleading scene context. No evidence these variables improve results.
+
+**Benchmark 003, PR under development, NOT RUN:** two arms on same model/cues with minimal model-card wording/one prior pair and identical settings. The only *between-arm* change is suppressing prior context beyond an 8-second gap. Pre-registered in `benchmarks/EXPERIMENT_003.md`. This is a **bounded experiment** to decide single-pass feasibility, not a commitment to another long prompt iteration or multi-model architecture. Do not modify live translator, checkpoint DB, or existing media. User requested that lessons/results be permanently written to GitHub before further experiments.
+
 ## Source of truth
 
 - GitHub `main`: versioned **development baseline** for SubHub 1.0, not proof of server installation state or a portable installer.

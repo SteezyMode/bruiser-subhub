@@ -34,6 +34,10 @@ Read `benchmarks/RESULTS_001.md` and `benchmarks/RUN_LEDGER.md` before comparing
 
 Read `benchmarks/EXPERIMENT_002.md` before new model or prompt work: the user approved **one native-format test** of already-installed subtitle-tuned Gemma e4b using the same 64 English cues as Benchmark 001. Use single CURRENT_SOURCE and up to two previous generated source/translation pairs (not historical Japanese), observe exact frozen model ID. This experiment is **not** a commitment to a multipass architecture. Keep all movie dialogue/model results private and log structural metrics + adjudicated conclusions in public `benchmarks/RUN_LEDGER.md` only after actual execution.
 
+## Latest model-spec audit and bounded experiment
+
+Benchmark 002 successfully used developer-style `CURRENT_SOURCE` and previous pairs, **but not strictly the card's minimal settings**. See `benchmarks/RESULTS_002.md` for exact measured 64-cue outcome, eight stale-context transitions and model/runtime differences. No actual 8/10 certification. Before making further prompt changes read `benchmarks/EXPERIMENT_003.md`: two arms use the same literal-ish card prompt, one prior pair and fixed generation settings; the *only* within-experiment difference is an 8-second stale-context cutoff. Both remain read-only Ollama tests. After benchmark 003 and short native Japanese viewing review, favor choosing a practical single-pass workflow; multi-pass remains optional only with proven net gain. Stop unnecessary prompt churn.
+
 ## Working practice
 
 1. Recover context from GitHub: source + `docs/CURRENT_STATE.md` + open issues/PRs. Check if the user has newer live status; never infer that the last known worker is still running.
