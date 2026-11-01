@@ -63,6 +63,14 @@ PR #8 merged as commit 116d64bc. GitHub Actions passed. Source-aware short-cue v
 
 A **private JSON manifest** (not in GitHub) specifies six reviewed edits: five missing cues across Heretic, Birth/Rebirth, Hokum, Strange Darling, Whistle, plus correcting the existing Heretic "A." label. The exact English and Japanese dialogue belongs only in that private manifest. On execution, tools/repair_pilot.sh verifies the installed source blob, locks, new validator, current cue text, existing source SHA and prior Japanese, then backs up SQLite, applies only these edits, and safely publishes fully completed jobs. Whistle still has 237 additional untranslated cues; this recovery does not start a worker. The Descent must remain untouched. Real Primate EN/JA review file remains unprovided; translation quality is still unverified.
 
+## 2026-11-01 22:01 JST — recovery attempted; guarded deployment aborted
+
+Owner ran `bash tools/repair_pilot.sh ... ~/Downloads/bruiser-subhub-private-repairs-20261101.json`. The **42 offline tests passed**, but the **actual host update stopped safely before changing production**:
+
+`SAFE ABORT: RuntimeError Live service.py differs from known installed version (896b245357a9e3b1d72e7be83cd5268108d8da20); refusing overwrite`
+
+Root cause: `tools/deploy_validator.py` erroneously expected Git blob `691286...` (the pre-batch-fix version). The observed live SHA `896b245...` exactly matches `service.py` in main at commit `7cb3b8b` (the previously installed valid batch-fix version). **No live validator update, manual recovery, or publishing happened in the failed run.** A small follow-up PR fixes the expected hash, with a dedicated regression test. After CI and merge, retry the **same** Mac mini `git pull --ff-only` and `bash tools/repair_pilot.sh` command with the already downloaded private JSON. Do not reset checkpoints or modify the server by hand.
+
 ## Critical limitations / unresolved questions
 
 - Live subtitle quality, per-film finish status, translation speed and resource usage still require **actual server evidence**. Offline mocks prove mechanics only.
