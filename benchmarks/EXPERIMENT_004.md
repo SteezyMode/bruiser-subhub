@@ -1,6 +1,6 @@
 # Benchmark 004 — Google TranslateGemma 4B using the officially documented prompt
 
-**Status: PRE-REGISTERED, NOT RUN against the user's Ollama.** This experiment tests a substantively different model, rather than changing Gemma 4 prompts yet again. Previous results: [001](RESULTS_001.md), [002](RESULTS_002.md), [003](RESULTS_003.md).
+**Method was PRE-REGISTERED before running. Real Ollama inference is now COMPLETE.** See [RESULTS_004.md](RESULTS_004.md) for measured findings; the original protocol below is preserved. This experiment tests a substantively different model, rather than changing Gemma 4 prompts yet again. Previous results: [001](RESULTS_001.md), [002](RESULTS_002.md), [003](RESULTS_003.md).
 
 ## Question
 
@@ -54,4 +54,4 @@ Private EN/JA data must never be committed to this public GitHub repository. Pub
 
 ## Real results
 
-**PENDING. Synthetic tests cannot establish Ollama availability or Japanese linguistic quality.**
+**COMPLETE: 96/96 responses, no detected formatting artifacts.** The held-out native-model comparison favors subtitle-tuned E4B for naturalness/semantic fidelity; Google has important tone/slang and meaning errors. Full measured report and limitations: [RESULTS_004.md](RESULTS_004.md). No native Japanese viewer score.

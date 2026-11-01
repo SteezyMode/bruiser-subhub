@@ -2,6 +2,10 @@
 
 **Read this file, `docs/CURRENT_STATE.md`, and `docs/OPERATIONS.md` before proposing or changing code.** Treat the checked-in source as authoritative for implemented behavior; ask for a fresh read-only status snapshot before claiming anything about the live OptiPlex service.
 
+## Current definitive experiment findings (read before new model work)
+
+**Benchmark 004 COMPLETED with owner's uploaded private outputs (2026-11-02 JST).** Read `benchmarks/RESULTS_004.md` and `benchmarks/RUN_LEDGER.md`. Official Google TranslateGemma4B Gemma3 Q4_K_M gave 80/80 valid structural outputs but significantly more awkward, formal, too-dense Japanese and serious meaning/slang errors. On the **same sixteen previously-unseen cues**, Google median 9.0 Japanese chars/sec; tuned 17slever17 subtitle Gemma4 E4B native profile median 6.6, both with two >14 chars/sec; tuned generally more semantically faithful and natural, but still has errors. No independent native Japanese grade, therefore not 8/10-certified. **The Google trial is completed, not pending; do NOT propose or re-run it without new evidence.** All benchmark code ran in scratch and did not switch the live translation engine. Preferred provisional candidate is tuned E4B's native CURRENT_SOURCE/previous-pairs prompt of Benchmark 002, not legacy multi-cue JSON. Owner dislikes circular prompt tests and individual-film fixes. Next: watch a short film section with Japanese-only subtitles, obtain viewer feedback, then safe new-job library scale; multipass only if controlled net benefit.
+
 ## Mission
 
 **Read [GOAL.md](GOAL.md) first.** The user and his wife need to watch their existing nearly 6 TB English-language media library with natural, accurate Japanese subtitles. Dual subtitle playback is already solved. Subtitle downloads have been insufficient. The free, local *result* matters; SubHub may shrink or disappear if existing software works better. Do not optimize for product differentiation, dashboard polish, or preserving custom code. OptiPlex NOW integration is optional and not relevant to the immediate goal.
