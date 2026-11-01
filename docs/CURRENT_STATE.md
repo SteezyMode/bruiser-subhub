@@ -42,6 +42,12 @@ The publisher previously archived and removed selected old Bruiser tracks, inclu
 
 Read [free/local workflow audit](PERSONAL_USE_AUDIT_2026-11-01.md) before implementing major changes. **The goal is best free EN→JA subtitles for one household**, not product differentiation. Compare the already-installed free alternatives and translation models using a private A/B benchmark before extending the custom engine. For 2026 tool research, Subtitle Edit 5.2, Sublarr, Lingarr and TranslateGemma are relevant; do not conflate tool availability with proven superior output. No production changes were made during this audit.
 
+## Translation batch corruption found during real-code audit (2026-11-01)
+
+`service.render_clip()` constructed a supposed batch SRT with `r[0],r[1],r[4]` from SQLite `cues` rows. Those indices mean **job_id, cue_id, end_ms**, not SRT cue/timing/dialogue. This directly matches the user's repeated `ValueError: Malformed SRT block` events in Strange Darling. The legacy batch parser failed, and the singleton fallback likely completed much of the movie without context. The new fix uses explicitly named columns, numbers prompt-local cues 1..N, and maps replies back to original cue IDs. Offline tests prove serializer+mapping; **real Ollama output quality not yet tested**. Do not assert the historical 3 published films have high-quality Japanese without editorial review. **Do not deploy until the current worker is idle**.
+
+The project's actual user goal is [GOAL.md](../GOAL.md): good free local Japanese subs for almost 6 TB of family media, without maintenance overhead; dual subtitles already handled. SubHub is expendable if another free solution is better.
+
 ## Next action sequence
 
 1. Read-only inspect actual missing-cue errors for Heretic/Birth-Rebirth/Hokum and confirm The Descent's stored publication hold reason, without disturbing the active worker. Then inspect a completed film's subtitle cue alignment. **Do not restart a running worker.**
