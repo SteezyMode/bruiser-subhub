@@ -42,6 +42,10 @@ Benchmark 002 successfully used developer-style `CURRENT_SOURCE` and previous pa
 
 Benchmark 003 has **run on the user's Ollama** and its private 128-output JSON was reviewed: both arms 64/64 returned, zero format artifacts, 7 over 14 JA chars/sec, median 6.85; 8s stale-context cutoff changed 6/64 outputs with no compelling net benefit. Full result in `benchmarks/RESULTS_003.md`; community/author/model memory/japanese subtitle research in `benchmarks/COMMUNITY_RESEARCH_2026-11-02.md`. Do **not** rerun prompt micro-tuning, switch to bigger weights on the 6GB card without a supported reason, invent speaker names, treat Japanese as low-resource, or install multiple models by default. Japanese tier-1 trained; harder features are English slang, voice/register/omission, short timings. No native-speaker 8/10 evaluation yet. Highest-value next step: real Japanese-only short film viewing report, then proceed to guarded library processing or one substantive model/context intervention if genuinely needed.
 
+## Frozen distinct-model test (Benchmark 004)
+
+Before proposing any more prompt settings or multiple-model architecture, read `benchmarks/EXPERIMENT_004.md` and `benchmarks/RUN_LEDGER.md`. Owner explicitly approved one trial of Google's **official Gemma 3 TranslateGemma 4B Q4_K_M** using Ollama's documented language-specific single-user prompt, **not** the legacy Gemma4 batch prompt or custom profanity profile. Compare old 64 frozen anchor cues and two 8-cue held-out windows at IDs 515/625 with 16 corresponding fresh subtitle-tuned Gemma4 native outputs; privately evaluate actual semantic intent/sexual slang/profanity/fluency/readability. No model availability or quality is proven until owner runs command. No production changes, no mass retranslation, no hypothetical 8/10 grades. Model download is an explicit ~3.3GB owner-side action after source verification.
+
 ## Working practice
 
 1. Recover context from GitHub: source + `docs/CURRENT_STATE.md` + open issues/PRs. Check if the user has newer live status; never infer that the last known worker is still running.

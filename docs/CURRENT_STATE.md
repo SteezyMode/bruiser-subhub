@@ -72,6 +72,14 @@ After auditing the author's actual Hugging Face model card, we confirmed Benchma
 
 **Decision: stop prompt and 8s-context microtuning.** Ask intended Japanese-speaking viewer to watch 10–15 minutes uninterrupted with an already published machine Japanese subtitle, *without English subtitles*, then note actual comprehension, profanity/tone/readability and distracting mistakes with timecodes. If usable, promote a cautious tested single-pass workflow and proceed with safe batch of English-source candidate library; if not, make ONE substantive comparison using verified scene/speaker glossary or different small model, possibly selective reviewer only if net improvement proven. Avoid hyper-fixating on another individual movie or forcing two-model architecture. All 13,199-video census results remain relevant.
 
+## Approved next experiment — Google TranslateGemma 4B model-native (Benchmark 004)
+
+Owner explicitly asked to test the **official** `translategemma:4b`, not another Gemma 4 E4B prompt/quantization tweak. It is Gemma3-based 4.3B Q4_K_M (~3.3GB), different from the existing 17slever17 subtitle-specific Gemma4 E4B Q4_K_XL. Full preregistered plan: `benchmarks/EXPERIMENT_004.md`. Its **exact official Ollama prompt** uses one user message, English (en) to Japanese (ja), two blank lines before source, no system prompt, extra profile or stale context; default top_k/top_p/temp retained. Applies only num_ctx=4096 and num_predict=256 operational caps.
+
+**Benchmark 004 NOT RUN YET:** 64 prior frozen English cues plus 16 new held-out cues centered at 515/625 translated by Google; 16 new held-out cues also translated fresh through the existing tuned Gemma4 native 002 protocol. Total 96 outputs for analysis (new 16 head-to-head is the primary test). Runner checks source SHA BEFORE any download, downloads Google model only if missing (~3.3GB), verifies Ollama model ID/family/quant and existing tuned model, writes private results without touching live service/database/sidecar/media. The user runs `cd ~/Downloads/bruiser-subhub-repo && git pull --ff-only && bash tools/run_translategemma_004.sh optiplex@100.121.156.34` only once ready. No change to GPU availability or existing pilot subtitles claimed.
+
+**Do not keep designing multiple prompt trials if this proves mediocre.** Choose the best practical single-pass model after Japanese-language review; optional selective multipass only on demonstrated benefit. 13,199 videos and 2,026 source candidates remain scale target after quality decision.
+
 ## Source of truth
 
 - GitHub `main`: versioned **development baseline** for SubHub 1.0, not proof of server installation state or a portable installer.
