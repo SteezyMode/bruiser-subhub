@@ -14,6 +14,16 @@ Daily-use, local-first subtitle translation for a personal media library: Englis
 
 **PR #12 merged (`ce7bd2ad`), Python 3.11/3.12 CI passed; the census has not yet been run on the OptiPlex:** `tools/library_census.py` uses file metadata and ffprobe stream headers only; recognizes English text sidecars/embedded, Japanese sidecars/embedded, image subtitles needing OCR, and missing source tracks. `tools/library_census.sh HOST` runs it over SSH without installing or editing anything and reports totals. An optional private `--out` JSON contains filenames; do not commit it. Census does not queue or translate anything, and classification is conservative (unrecognized tracks need review). GitHub merge ≠ server deployment; this is a streamed read-only utility.
 
+## Next quality experiment — adult tone, idioms, readable Japanese (2026-11-01)
+
+The user wants subtitles **substantially better than generic SubtitleCat translations, approximately 8/10**, not Netflix-spec perfection. Preserve **uncensored** slang, profanity, sex, threats, violence, humor, and character voice. Avoid literal idioms and overlong subtitles; shorten filler rather than censoring the line. Soft character-per-second guidance is advisory only.
+
+Existing *Primate* 80-cue English/Japanese private packet was reviewed: several clear literal/idiomatic errors and lengthy translations (e.g., cue 207: 28 nonspace Japanese chars over 1.218 seconds; cue 35: 24 over 1.218 seconds; cue 380: 28 over 1.697 seconds). Structural scan cannot detect them. This is a deliberately risk-enriched sample, not a representative failure rate for all 741 cues.
+
+**Under development in this PR:** optional `natural_8` localization guidance appended after legacy `build_prompt` instructions, covering adult tone and soft reading budgets; default translation prompt unchanged. `tools/benchmark_localization.py` compares a few real consecutive source windows with existing checkpointed Japanese using real Ollama and no DB/media writes. `tools/compare_primate_style.sh` stages the code in a separate scratch folder on OptiPlex and copies the PRIVATE results to Mac mini Downloads. The benchmark checks both worker locks and refuses to run if a worker is active. Benchmark output is not a rating until reviewed.
+
+**After merge:** complete the media census (3,000+ ffprobe headers reported so far; final count not yet supplied). Run the small A/B test against the corrected batch path, inspect meaning, tone, naturalness and readability, and only then consider safely enabling a profile for new translations. Do not retranslate published titles automatically or expand scope to another single-film repair.
+
 ## Source of truth
 
 - GitHub `main`: versioned **development baseline** for SubHub 1.0, not proof of server installation state or a portable installer.
