@@ -69,7 +69,7 @@ Owner ran `bash tools/repair_pilot.sh ... ~/Downloads/bruiser-subhub-private-rep
 
 `SAFE ABORT: RuntimeError Live service.py differs from known installed version (896b245357a9e3b1d72e7be83cd5268108d8da20); refusing overwrite`
 
-Root cause: `tools/deploy_validator.py` erroneously expected Git blob `691286...` (the pre-batch-fix version). The observed live SHA `896b245...` exactly matches `service.py` in main at commit `7cb3b8b` (the previously installed valid batch-fix version). **No live validator update, manual recovery, or publishing happened in the failed run.** A small follow-up PR fixes the expected hash, with a dedicated regression test. After CI and merge, retry the **same** Mac mini `git pull --ff-only` and `bash tools/repair_pilot.sh` command with the already downloaded private JSON. Do not reset checkpoints or modify the server by hand.
+Root cause: `tools/deploy_validator.py` erroneously expected Git blob `691286...` (the pre-batch-fix version). The observed live SHA `896b245...` exactly matches `service.py` in main at commit `7cb3b8b` (the previously installed valid batch-fix version). **No live validator update, manual recovery, or publishing happened in the failed run.** **PR #9 merged** (`e5072695`) after GitHub Actions passed. The expected hash was corrected and three offline regression tests were added. This is **not yet deployed** to OptiPlex. Retry the **same** Mac mini `git pull --ff-only` and `bash tools/repair_pilot.sh` command with the already downloaded private JSON. Do not reset checkpoints or modify the server by hand.
 
 ## Critical limitations / unresolved questions
 
