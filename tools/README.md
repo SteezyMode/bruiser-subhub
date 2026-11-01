@@ -70,3 +70,11 @@ Read the preregistered `benchmarks/EXPERIMENT_003.md` first. Run from Mac mini:
     bash tools/run_model_card_003.sh optiplex@YOUR_TAILSCALE_IP
 
 The two arms use the **same pinned installed subtitle-Gemma, identical model-card-style system and native one-cue format, the same 64 source cues and identical Ollama options**. Only difference: one arm omits previous-context pairs if the gap is greater than eight seconds. All model outputs stay in a private create-only JSON copied to Downloads; no changes to queue, checkpoint, Japanese SRT, videos or live engine. Never commit private dialogue to GitHub. After real native-Japanese review, record the outcome and make a production decision rather than endless prompt tuning.
+
+## Benchmark 004 — Google TranslateGemma native prompt
+
+Read `benchmarks/EXPERIMENT_004.md`. After checkout pull, run **once** on Mac mini:
+
+    bash tools/run_translategemma_004.sh optiplex@YOUR_TAILSCALE_IP
+
+This intentionally installs/downloads **official** `translategemma:4b` Q4_K_M (~3.3 GB) on the OptiPlex if absent, **only after** confirming the private source cue SHA and 64+16 selection. It verifies official model ID/family/quantization, then calls the model under Ollama's own prompt guide, not a Gemma4 batch prompt. Uses existing tuned subtitle model for fresh comparison on 16 held-out cues; everything runs in an isolated directory and holds the usual worker locks. No changes to production code, subtitles, media or SQLite checkpoints. Private EN/JA results copied to Downloads should be attached to the chat and **never committed to public GitHub**.
