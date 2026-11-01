@@ -84,6 +84,16 @@ Actual observed results:
 
 **Merged PR #10 (CI passed; not installed on server):** `tools/diagnose_invalid_ja.py` loads the *installed* validator and scans the live SQLite DB read-only to print invalid cue IDs. `tools/check_heretic.sh HOST` pipes it over SSH without updating the server or launching Ollama. Next collect output, verify precise old/new text, then decide how to safely permit correction of a `publish_hold` with exact reason `Incomplete or malformed Japanese` without changing protected editorial jobs. Separately the Primate 80-cue private EN/JA sample is still awaited for actual quality review.
 
+## November 1 — Heretic cue 60 machine-output contamination (owner-confirmed)
+
+Read-only installed-validator diagnostic found Heretic 1609/1609 translated, `publish_hold` for exactly **one malformed cue, #60**. Its source is a two-speaker exchange mentioning eight or nine people. The stored Japanese begins as a plausible but mangled response then includes raw assistant-generated JSON, a tool-call marker, and an unrelated translations object. This is **actual model-output contamination in a persisted checkpoint**, not an unfinished translation. The publisher correctly refused to emit an SRT. The exact private dialogue belongs outside the public repository.
+
+**Targeted recovery PR:** extend private manifest recovery only for jobs with `publish_hold` and exact reason `Incomplete or malformed Japanese`. Require original source hash, English text, actual old Japanese prefix, a `<tool_call|>` corruption marker, evidence existing text fails the installed validator, and proof there is exactly one invalid cue. Both worker locks, SQLite backup, transaction and existing create-only sidecar protection still apply. Refuse editorial/protected holds. No rerun of Gemma, no retries, no resets or edit of other cues.
+
+**Additional audit tool:** `tools/scan_checkpoint_contamination.py` opens all current checkpoints read-only, loads the installed validator, prints suspicious cue IDs, and does not expose movie dialogue or change anything. It catches obvious JSON/tool-call artifacts, not fluent mistranslations. Run it before trusting other published tracks.
+
+**Next:** after PR CI and merge, obtain the private one-cue manifest (not committed to GitHub), run `bash tools/repair_heretic_hold.sh HOST /path/to/manifest.json` from Mac mini. Verify Heretic published and other films are structurally clean; upload the separate existing Primate EN/JA review JSON for actual quality judgment. Historical 6/10 published before this repair.
+
 ## Critical limitations / unresolved questions
 
 - Live subtitle quality, per-film finish status, translation speed and resource usage still require **actual server evidence**. Offline mocks prove mechanics only.
