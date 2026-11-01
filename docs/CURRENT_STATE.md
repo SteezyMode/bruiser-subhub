@@ -57,6 +57,12 @@ The Descent is 829/829 but held because an **existing approved Bruiser Japanese 
 
 The owner has already collected a private 80-cue Primate EN/JA review packet on the Mac mini but has **not attached that packet to the chat**. Do not confuse the diagnostic log with the quality sample. Obtain the JSON for linguistic review.
 
+## November 1 recovery tooling — PR #8 merged, not yet deployed
+
+PR #8 merged as commit 116d64bc. GitHub Actions passed. Source-aware short-cue validator and guarded private-manifest repair tool are on main, but owner has **not yet run** the recovery command on the OptiPlex. The previously deployed malformed-SRT batch fix remains installed (see earlier note), and existing subtitle files are unaffected.
+
+A **private JSON manifest** (not in GitHub) specifies six reviewed edits: five missing cues across Heretic, Birth/Rebirth, Hokum, Strange Darling, Whistle, plus correcting the existing Heretic "A." label. The exact English and Japanese dialogue belongs only in that private manifest. On execution, tools/repair_pilot.sh verifies the installed source blob, locks, new validator, current cue text, existing source SHA and prior Japanese, then backs up SQLite, applies only these edits, and safely publishes fully completed jobs. Whistle still has 237 additional untranslated cues; this recovery does not start a worker. The Descent must remain untouched. Real Primate EN/JA review file remains unprovided; translation quality is still unverified.
+
 ## Critical limitations / unresolved questions
 
 - Live subtitle quality, per-film finish status, translation speed and resource usage still require **actual server evidence**. Offline mocks prove mechanics only.
