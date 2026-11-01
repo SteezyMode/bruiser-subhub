@@ -297,9 +297,9 @@ def translation_call(base,selected,memory,model=GEMMA,style=None):
         if [c.id for c in cues]!=local_ids:raise RuntimeError('Legacy prompt parser mismatch')
         system,payload=core.build_prompt(cues,0,len(cues)-1,memory)
         chosen=style if style is not None else os.environ.get('SUBHUB_LOCALIZATION_STYLE','baseline')
-        if chosen=='natural_8':
+        if chosen in ('natural_8','faithful_8'):
             from localization_policy import enhance_system
-            system=enhance_system(system,selected)
+            system=enhance_system(system,selected,profile=chosen)
         elif chosen!='baseline':
             raise ValueError('Unknown localization style: '+str(chosen))
         result=core.call_ollama(OLLAMA,model,system,payload,local_ids,240)
