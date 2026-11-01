@@ -12,7 +12,10 @@ import sys
 import time
 
 # GitHub blob SHA of already-deployed November 1 batch-fix service.py.
-EXPECTED_OLD_GIT_BLOB='691286b716a28eecddb368e05dd1433bc92a9053'
+# Verified against the batch-fix service.py from main at commit 7cb3b8b
+# (the version actually installed on OptiPlex on 2026-11-01).
+# 691286... was the pre-batch-fix blob and must NOT be used here.
+EXPECTED_OLD_GIT_BLOB='896b245357a9e3b1d72e7be83cd5268108d8da20'
 
 
 def blob(p):
