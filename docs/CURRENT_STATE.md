@@ -47,6 +47,16 @@ The command did **not** start a translation run, rewrite existing checkpoints, p
 
 **Immediate next step:** owner uploads that Primate editorial JSON to the private chat to assess translation fidelity, naturalness, compression, and context. Then compare the old singleton-heavy output with a properly batched result on a *fixed* subset, never overwriting editorial subtitles. Read-only inspect the three one-cue failures and Descent's stored hold reason using `diagnose_blocked.py` before attempting targeted recovery. HY optional.
 
+## November 1 diagnostic: isolated cue failures confirmed
+
+The owner supplied a read-only diagnose_blocked.py --show-text log. Four nearly finished movies each have a single exhausted cue, all after 5 singleton errors ("Invalid singleton fallback result"): Heretic (1608/1609), Birth/Rebirth (1130/1131), Hokum (1285/1286), Strange Darling (845/846). A fifth, Whistle, is 995/1233 with only one exhausted cue and 237 additional lines not attempted yet. Failed source cues were short letter labels, uppercase acronyms/names, a numeric countdown, and abbreviated speech. **Rejected model responses were not retained**, so script validation is a plausible cause, not proof.
+
+The Descent is 829/829 but held because an **existing approved Bruiser Japanese sidecar differs**. The owner confirms a prior human-edited localization exists. It must not be overwritten; no legacy subtitle cleanup is authorized. The log was a user-supplied snapshot, not an independent server read.
+
+**Recovery fix under review:** make the validator source-aware for exact 1–2-letter initials and numeral-only countdowns while rejecting untranslated sentences. Supply a private-manifest, source-hash-checked correction tool. Private source dialogue and repairs do not go in GitHub. The guarded installer upgrades only a byte-exact known source while both worker locks are free; recovery backs up SQLite, changes only listed cues, publishes fully completed titles if safe, and leaves remaining Whistle cues queued.
+
+The owner has already collected a private 80-cue Primate EN/JA review packet on the Mac mini but has **not attached that packet to the chat**. Do not confuse the diagnostic log with the quality sample. Obtain the JSON for linguistic review.
+
 ## Critical limitations / unresolved questions
 
 - Live subtitle quality, per-film finish status, translation speed and resource usage still require **actual server evidence**. Offline mocks prove mechanics only.
