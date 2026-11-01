@@ -59,8 +59,9 @@ class NativeSubtitleBenchTests(unittest.TestCase):
             _,groups=n.preflight(self.root,{n.MODEL:n.MODEL_ID})
         self.assertEqual(len(groups),8)
         self.assertEqual(sum(len(g) for g in groups),64)
-        with self.assertRaisesRegex(ValueError,'Frozen subtitle model'):
-            n.preflight(self.root,{n.MODEL:'new-digest'})
+        with patch.object(m,'SOURCE_SHA',self.source_sha):
+            with self.assertRaisesRegex(ValueError,'Frozen subtitle model'):
+                n.preflight(self.root,{n.MODEL:'new-digest'})
         with self.assertRaisesRegex(ValueError,'source SHA changed'):
             n.preflight(self.root,{n.MODEL:n.MODEL_ID})
 
