@@ -35,3 +35,20 @@ python3 ~/bruiser-pilot/subhub1/main.py --root ~/bruiser-pilot/subhub1-state sta
 ```
 
 See [docs/roadmap.md](docs/roadmap.md) for safe next steps and [docs/security.md](docs/security.md) for privacy boundaries.
+
+
+## Editorial quality review (read-only, no model calls)
+
+The independent `review_sampler.py` selects dialogue across a film, prioritizing mechanical review cases such as numbers, negation, formatting and reading speed. It includes neighboring English cues for human context review. It **does not judge translations, edit checkpoints, call HY, or gate publication**.
+
+```bash
+python3 review_sampler.py --root ~/bruiser-pilot/subhub1-state --job JOB_ID
+python3 review_sampler.py --root ~/bruiser-pilot/subhub1-state --job JOB_ID \
+  --count 60 --out ~/bruiser-pilot/subhub1-state/review/JOB_ID.editorial.json
+```
+
+The first command prints summary counts only; the second explicitly creates a local JSON review packet. Exports contain private subtitle dialogue and must never be committed. See [docs/OPERATIONS.md](docs/OPERATIONS.md).
+
+## Resuming development
+
+Start with [AGENTS.md](AGENTS.md), [docs/CURRENT_STATE.md](docs/CURRENT_STATE.md), and open pull requests. Keep that handoff document updated as code is merged and deployed. **A GitHub commit is not an OptiPlex deployment.**
