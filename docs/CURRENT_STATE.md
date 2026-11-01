@@ -38,6 +38,10 @@ The publisher previously archived and removed selected old Bruiser tracks, inclu
 - Heuristic review flags and HY output **are not semantic correctness scores**.
 - No authenticated remote API or stable OptiPlex NOW integration yet; do not expose dashboard publicly.
 
+## Personal-use architecture review (2026-11-01)
+
+Read [free/local workflow audit](PERSONAL_USE_AUDIT_2026-11-01.md) before implementing major changes. **The goal is best free EN→JA subtitles for one household**, not product differentiation. Compare the already-installed free alternatives and translation models using a private A/B benchmark before extending the custom engine. For 2026 tool research, Subtitle Edit 5.2, Sublarr, Lingarr and TranslateGemma are relevant; do not conflate tool availability with proven superior output. No production changes were made during this audit.
+
 ## Next action sequence
 
 1. Read-only inspect actual missing-cue errors for Heretic/Birth-Rebirth/Hokum and confirm The Descent's stored publication hold reason, without disturbing the active worker. Then inspect a completed film's subtitle cue alignment. **Do not restart a running worker.**
