@@ -1,5 +1,7 @@
 # Engineering priorities
 
+**Actual mission is [GOAL.md](../GOAL.md).** Deliver free, natural Japanese subs across the household's existing media; the custom code is expendable. Dual-subtitle playback is already handled.
+
 ## First: understand the production translation outcomes
 
 1. Inspect current queue, cue completion, isolated errors and published sidecars; do not infer success from HTTP 200 or a loaded model.
