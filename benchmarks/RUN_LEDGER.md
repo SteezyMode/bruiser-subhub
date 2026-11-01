@@ -44,7 +44,7 @@
 |---|---:|---:|---:|---:|---|
 | Tuned Gemma e4b native previous/current prompt | Pending | Pending | Pending | Pending | Not reviewed |
 
-## Benchmark 003 — PRE-REGISTERED, no Ollama run yet
+## Benchmark 003 — PR #17 merged (`2e798852`), 89 offline tests passed; real Ollama run pending
 
 - Frozen design: [EXPERIMENT_003.md](EXPERIMENT_003.md). Same model and 64 English cues as 001/002. Two *near-literal card-style* arms with one prior source/translation pair: A always allows the previous clean immediate cue, B drops it only when there is more than an 8-second gap. This is one controlled experimental variable **within** Benchmark 003.
 - Uses developer-style `STYLE: neutral`, Ollama at temperature 0, context 1,344, generation limit 256; pins model digest, reads checkpoints RO and uses worker locks. **No automatic Japanese quality claims.**
