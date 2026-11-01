@@ -51,8 +51,49 @@ def cue_hints(rows):
     return "\n".join(hints)
 
 
-def enhance_system(system, rows):
+
+
+FAITHFUL_GUIDANCE = """MEANING-FIRST ADULT JAPANESE SUBTITLES (faithful_8 experiment):
+Your first job is complete, accurate, spoken Japanese, not shorter output.
+PRIORITY ORDER: 1) meaning and speaker intent; 2) adult tone/character voice;
+3) natural idiomatic Japanese; 4) concision within the time available.
+Do NOT censor or sanitize sex, profanity, violence, insults, threats, jokes,
+and slang. An insult directed AT someone must remain an insult AT that person,
+not a generic frustrated exclamation. Sexual teasing must remain explicitly
+sexual, neither a euphemistic ordinary request nor an exaggerated slur.
+Keep each speaker turn: don't drop a second speaker, shouted interruption,
+direct address, question, or urgent request merely to shorten a subtitle.
+Preserve who acts on whom, negation, past/present/future, and the conversational
+speech act (rhetorical question, accusation, refusal, threat, teasing, apology).
+Do not change a rhetorical accusation into a neutral information question.
+Do not fabricate relationship details such as cheating from an ambiguous label.
+Replace English idioms with their natural Japanese MEANING, not a word-for-word
+calque. Avoid stiff subtitles, generic politeness, or invented gendered voice.
+Readability matters: drop safe fillers, repetitions or padding while preserving
+meaning, punchlines and intensity. Do not omit essential words to meet a
+character-count target. Never deliberately overlengthen a line either.
+Use proper newline-separated speaker turns when necessary; don't prepend
+a dash to every single-speaker line or insert arbitrary slash separators.
+Keep the EXACT original cue ID and JSON/response schema; return translations
+only, with no notes or tool-output fragments.
+"""
+
+
+def duration_hints(rows):
+    """Advisory duration only; no per-cue character budget in faithful_8."""
+    return '\n'.join(
+        f"local cue {i}: {duration_seconds(row):.1f}s on screen"
+        for i, row in enumerate(rows, 1)
+    )
+
+def enhance_system(system, rows, profile='natural_8'):
     """Keep legacy structured-prompt instructions intact; append guidance."""
     if not isinstance(system, str):
         raise TypeError("Legacy system prompt must be a string")
-    return system + "\n\n" + GUIDANCE + "\nDISPLAY-TIME HINTS (advisory only):\n" + cue_hints(rows)
+    if profile == 'natural_8':
+        return system + "\n\n" + GUIDANCE + "\nDISPLAY-TIME HINTS (advisory only):\n" + cue_hints(rows)
+    if profile == 'faithful_8':
+        return (system + "\n\n" + FAITHFUL_GUIDANCE +
+                "\nDISPLAY DURATION (advisory, not a character limit):\n" +
+                duration_hints(rows))
+    raise ValueError('Unknown localization profile: '+str(profile))
