@@ -20,6 +20,12 @@ Owner explicitly requested **no more disproportionate work on individual movie e
 - Do not restart active translation, alter SQLite checkpoints, or run `launch.sh` as an upgrade command. `launch.sh` imports jobs and starts inference.
 - Keep media, SRT contents, local SQLite, checkpoint snapshots, IPs, server logs, tokens, and translation memory out of GitHub. Only synthetic examples in tests.
 
+## Do not re-run prompt experiments without checking the ledger
+
+Before any further model, prompt, or language-quality change, read `benchmarks/RUN_LEDGER.md` and the frozen methodology `benchmarks/EXPERIMENT_001.md`. Owner explicitly requested proper A/B controls and permanent GitHub records. Historical published cues are not a fair baseline: they were partially created through a broken SRT batch path. **Fresh baseline, same source, same adapter, same batch sizes, different models/profiles** is the test.
+
+Don't select a model/profile based solely on speed, compression or syntactic validity. Record actual outputs privately, evaluate meaning and unsanitized character voice, record public conclusions with source/model digests and dates. No copyrighted film dialogue or private EN/JA output may be committed to public GitHub.
+
 ## Working practice
 
 1. Recover context from GitHub: source + `docs/CURRENT_STATE.md` + open issues/PRs. Check if the user has newer live status; never infer that the last known worker is still running.

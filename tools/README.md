@@ -45,3 +45,16 @@ After the separate library census finishes and **no translation worker is active
 The benchmark stages an isolated source copy under `~/bruiser-pilot/subhub-benchmark/`; it never replaces the live engine. It takes up to five nonoverlapping 8-cue windows near review-interest cue IDs `35,71,207,380,465`. The existing Japanese checkpoint is the baseline; the `natural_8` prompt is sent to the existing local Ollama model, using 8 consecutive cues for scene context. The program holds both normal translation worker locks to avoid simultaneous jobs. It will use the RTX 3050 for local model inference; schedule when convenient. This is **not GPU-free**, unlike the library census.
 
 The private comparison JSON is copied to Mac mini `~/Downloads`. Upload it to the private chat for direct EN/JA review and qualitative judgment. It may contain copyrighted subtitle excerpts, so never commit it to the public repository. Erroring batches remain visible as missing candidates; no singleton retry loops or media publishing. Do not turn the new profile on globally until the A/B output is reviewed.
+
+## Frozen two-model quality experiment (Benchmark 001)
+
+See `benchmarks/EXPERIMENT_001.md` and `benchmarks/RUN_LEDGER.md` before proposing another prompt change.
+
+From Mac mini:
+
+    git pull --ff-only
+    bash tools/run_model_benchmark.sh optiplex@YOUR_TAILSCALE_IP
+
+The run first tests the source code, finds installed Ollama models, verifies the exact Primate source SHA and eight fixed 8-cue windows, then uses local GPU Ollama to generate the four model/prompt arms. It **will NOT download models**; if the subtitle-tuned model isn't installed or more than one matches, the preflight fails and reports available names. To choose manually, pass a second argument with the exact `ollama list` model ID. No changes to old checkpoints, published subtitles, videos, live worker or queue.
+
+The private JSON lands in Mac mini Downloads. **Never put movie dialogue/model output in public GitHub.** Upload it here for assessment using the pre-registered meaning/tone/fluency/readability rubric, then record the aggregated scorecard and final decision in the GitHub run ledger. Historical `natural_8` 40-cue sample is NOT a valid fresh baseline because older checkpoints were generated under broken SRT batching.
