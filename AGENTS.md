@@ -11,7 +11,7 @@ Bruiser SubHub is a daily-use, **local English → Japanese subtitle localizatio
 - Primary translation: local Ollama / Gemma 4 e4b, currently through the legacy `bruiser_auto.py` adapter. **Preserve working prompt behavior** until a measured A/B benchmark supports replacing it.
 - HY-MT2: **optional, sampled, advisory**. It can be misleading. Never require HY approval to publish or automatically replace Japanese with HY suggestions.
 - Preserve original cue identity/timing. Do not fabricate Japanese for missing cues.
-- Existing human/editorial Japanese subtitles must not be overwritten. No destructive library scans or migrations without explicit approval and rollback plan.
+- Existing human/editorial Japanese subtitles must not be overwritten, removed, or silently superseded by an extra machine track. An existing independent Japanese or editorial sidecar must cause a safe publication hold; no automated cleanup of legacy subtitle files. No destructive library scans or migrations without explicit approval and rollback plan.
 - The live pilot runs separately from this Git repository. Creating a PR or changing `main` **does not deploy** to the server.
 - Do not restart active translation, alter SQLite checkpoints, or run `launch.sh` as an upgrade command. `launch.sh` imports jobs and starts inference.
 - Keep media, SRT contents, local SQLite, checkpoint snapshots, IPs, server logs, tokens, and translation memory out of GitHub. Only synthetic examples in tests.

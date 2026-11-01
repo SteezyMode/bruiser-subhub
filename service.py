@@ -15,7 +15,6 @@ import json
 import os
 from pathlib import Path
 import re
-import shutil
 import sqlite3
 import subprocess
 import sys
@@ -503,41 +502,49 @@ def validate_publish(store:Store,job):
 
 
 def publish_job(store:Store,job,apply=False):
-    """Only one active Bruiser Japanese track. Backup then safely replace own files.
+    """Create-only Japanese sidecar; preserve all pre-existing subtitle files.
 
-    No deletion of generic .ja.srt, .en.srt, or embedded subtitles. Only a
-    strict finite set of previous Bruiser tracks for this same release.
+    An existing independent Japanese or human/editorial subtitle is a reason
+    to hold *publication*, not erase, archive, overwrite, or supersede it.
+    This intentionally leaves legacy Bruiser draft tracks untouched.
     """
     video,rows=validate_publish(store,job)
-    result=render_srt([(r['cue_id'],r['timing'],r['start_ms'],r['end_ms'],r['english']) for r in rows],{str(r['cue_id']):r['japanese'] for r in rows})
+    result=render_srt([(r['cue_id'],r['timing'],r['start_ms'],r['end_ms'],r['english']) for r in rows],
+                      {str(r['cue_id']):r['japanese'] for r in rows})
     target=video.with_name(video.stem+'.Bruiser Japanese.ja.srt')
-    obsolete=[video.with_name(video.stem+s) for s in (
-        '.Bruiser Draft.ja.srt','.Bruiser Bilingual Draft.en.srt',
-        '.Bruiser Bilingual.en.srt','.Bruiser Japanese Editorial v1.ja.srt',
-        '.Bruiser Bilingual Editorial v1.en.srt')]
-    if any(p.is_symlink() for p in [target]+obsolete):raise RuntimeError('Unexpected symlink in Bruiser tracks')
-    if not apply:return (target,'dry-run')
-    archive=store.root/'track-backups'/job['id']/dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%S.%fZ')
-    if target.is_file() and target.read_bytes()!=result:
-        raise RuntimeError('Existing approved Bruiser Japanese differs; manual editorial promotion required')
-    changes=[p for p in [target]+obsolete if p.is_file()]
-    if changes:
-        archive.mkdir(parents=True,exist_ok=False)
-        for p in changes:
-            dest=archive/p.name
-            shutil.copy2(p,dest)
-            if sha(dest.read_bytes())!=sha(p.read_bytes()):raise RuntimeError('Backup checksum mismatch')
-    if target.is_file() and target.read_bytes()!=result:
-        raise RuntimeError('Existing approved Bruiser Japanese differs; manual editorial promotion required')
-    if target.is_file() and target.read_bytes()==result:
-        pass
-    else:
-        # Atomic replacement avoids a missing active subtitle if a write fails.
-        atomic(target,result)
-    for p in obsolete:
-        if p.is_file():p.unlink()
-    store.cn.execute('UPDATE jobs SET published_sha=?,status=?,updated=? WHERE id=?',(sha(result),'published',stamp(),job['id']))
-    store.event(job['id'],'published','Japanese-only; old Bruiser tracks archived')
+    if target.is_symlink():
+        raise RuntimeError('Existing Bruiser Japanese path is a symlink; publication refused')
+    if target.exists() and (not target.is_file() or target.read_bytes()!=result):
+        raise RuntimeError('Existing Bruiser Japanese differs; manual editorial promotion required')
+
+    # Explicitly recognize older hand-edited subtitles, not just our current
+    # output name. Matching is restricted to sidecars of this one film.
+    # Never follow any link or touch an existing editorial/JA track.
+    prefix=video.stem.casefold()+'.'
+    protected=[]
+    for sidecar in video.parent.iterdir():
+        name=sidecar.name.casefold()
+        if sidecar==target or not name.startswith(prefix) or not name.endswith('.srt'):
+            continue
+        suffix=name[len(prefix):]
+        japanese_tag = re.search(r'(^|[._\[\] -])(?:ja|jp|jpn|japanese)(?=$|[._\[\] -])', suffix)
+        if 'editorial' in suffix or japanese_tag:
+            if sidecar.exists() or sidecar.is_symlink():
+                protected.append(sidecar.name)
+    if protected:
+        raise RuntimeError('Existing Japanese/editorial sidecar(s) require review; no automatic publication: '
+                           + ', '.join(sorted(protected)[:3]))
+    if not apply:
+        return (target,'dry-run')
+    if not target.exists():
+        # O_EXCL refuses an unanticipated concurrent file creation. No
+        # archival or deletion of pre-existing subtitles is performed.
+        fd=os.open(target,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o644)
+        with os.fdopen(fd,'wb') as out:
+            out.write(result);out.flush();os.fsync(out.fileno())
+    store.cn.execute('UPDATE jobs SET published_sha=?,status=?,updated=? WHERE id=?',
+                     (sha(result),'published',stamp(),job['id']))
+    store.event(job['id'],'published','Japanese-only sidecar; existing subtitle files preserved')
     return (target,'published')
 
 

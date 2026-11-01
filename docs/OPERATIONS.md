@@ -43,3 +43,21 @@ For every cue use `--all`. This tool opens SQLite in read-only mode, makes no mo
 - `service.py` owns DB, validation, prompt adapter, publisher and review CSV.
 - `review_sampler.py` reads the DB separately in SQLite read-only mode, exports no information unless `--out` is explicitly supplied.
 - Host has been observed running Gemma translation and desktop usage concurrently; always respect resource limits rather than assuming GPU availability.
+
+## Read-only blocked-title diagnostics (GitHub code only)
+
+The GitHub checkout contains a diagnostic that opens the existing SQLite database
+in read-only mode, including the live WAL snapshot. It does not load models or
+change jobs. Run on the OptiPlex against the **checkout's** script, never by
+overwriting a running worker:
+
+```bash
+python3 diagnose_blocked.py --root ~/bruiser-pilot/subhub1-state
+python3 diagnose_blocked.py --root ~/bruiser-pilot/subhub1-state --show-text
+```
+
+The default command prints exhausted cue IDs and stored error messages, plus
+job hold reasons (especially The Descent). The optional text mode includes
+private English/Japanese dialogue excerpts and should not be published to GitHub.
+A hold is not proof an editorial track caused it until the job's last_error
+is inspected. Existing human-authored subtitles must stay untouched.

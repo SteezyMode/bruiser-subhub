@@ -117,6 +117,50 @@ class SubHubTests(unittest.TestCase):
                 with self.assertRaises(RuntimeError):s.publish_job(st,j,apply=True)
             self.assertEqual(existing.read_text(),'approved human translation')
         finally:st.cn.close();d.cleanup()
+    def test_old_editorial_sidecar_blocks_auto_publish_without_any_cleanup(self):
+        d,st,j=fixture(3)
+        try:
+            video=Path(j['video']);video.write_bytes(b'movie')
+            editorial=video.with_name(video.stem+'.Bruiser Japanese Editorial v1.ja.srt')
+            editorial.write_text('Personal translation',encoding='utf-8')
+            draft=video.with_name(video.stem+'.Bruiser Draft.ja.srt')
+            draft.write_text('Older draft',encoding='utf-8')
+            st.record_japanese(j['id'],{str(i):'こんにちは' for i in range(1,4)})
+            with patch.object(s,'secure_video'), patch.object(s,'audio_language',return_value='eng'):
+                with self.assertRaisesRegex(RuntimeError,'Existing Japanese/editorial'):
+                    s.publish_job(st,j,apply=True)
+            self.assertEqual(editorial.read_text(),'Personal translation')
+            self.assertEqual(draft.read_text(),'Older draft')
+            self.assertFalse(video.with_name(video.stem+'.Bruiser Japanese.ja.srt').exists())
+        finally:st.cn.close();d.cleanup()
+
+    def test_generic_japanese_sidecar_blocks_duplicate_auto_publish(self):
+        d,st,j=fixture(3)
+        try:
+            video=Path(j['video']);video.write_bytes(b'movie')
+            original=video.with_name(video.stem+'.ja.srt')
+            original.write_text('Existing manual localization',encoding='utf-8')
+            st.record_japanese(j['id'],{str(i):'こんにちは' for i in range(1,4)})
+            with patch.object(s,'secure_video'), patch.object(s,'audio_language',return_value='eng'):
+                with self.assertRaisesRegex(RuntimeError,'Existing Japanese/editorial'):
+                    s.publish_job(st,j,apply=True)
+            self.assertEqual(original.read_text(),'Existing manual localization')
+        finally:st.cn.close();d.cleanup()
+
+    def test_legacy_drafts_survive_automatic_publish(self):
+        d,st,j=fixture(3)
+        try:
+            video=Path(j['video']);video.write_bytes(b'movie')
+            older=video.with_name(video.stem+'.Bruiser Bilingual Draft.en.srt')
+            older.write_text('Legacy subtitle for archive',encoding='utf-8')
+            st.record_japanese(j['id'],{str(i):'こんにちは' for i in range(1,4)})
+            with patch.object(s,'secure_video'), patch.object(s,'audio_language',return_value='eng'):
+                dst,state=s.publish_job(st,j,apply=True)
+            self.assertEqual(state,'published')
+            self.assertTrue(dst.is_file())
+            self.assertEqual(older.read_text(),'Legacy subtitle for archive')
+        finally:st.cn.close();d.cleanup()
+
     def test_memory_scope_and_approved_only(self):
         with tempfile.TemporaryDirectory() as d:
             base=Path(d);p=base/'subhub-household/approved-memory.jsonl';p.parent.mkdir(parents=True)
