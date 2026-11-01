@@ -20,6 +20,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import unicodedata
 from urllib.request import Request, urlopen
 
 GEMMA = 'gemma4:e4b-it-qat'
@@ -297,12 +298,35 @@ def translation_call(base,selected,memory,model=GEMMA):
         return {str(r['cue_id']):core.preserve_tags(cues[n].text,result[n+1]) for n,r in enumerate(selected)}
 
 
-def acceptable_ja(text):
-    if not isinstance(text,str) or not 0<len(text.strip())<800 or not JP_RE.search(text):return False
+def acceptable_ja(text,english=None):
+    """Accept Japanese script plus a narrow set of legitimate subtitle exceptions.
+
+    Roman initials and numeral countdowns may be correct Japanese subtitles.
+    Without the source text these exceptions are intentionally rejected, so
+    a model cannot pass off ordinary untranslated English as localization.
+    """
+    if not isinstance(text,str) or not 0<len(text.strip())<800:return False
     bad=('<tool_call','<｜hy_', '[Translation note]', '訳注:',
          '翻訳の説明', '注：この', 'Explanation:', 'As an AI', 'I translated', 'Note:')
-    return not any(v in text for v in bad)
-
+    if any(v in text for v in bad):return False
+    if JP_RE.search(text):return True
+    if not isinstance(english,str):return False
+    en=unicodedata.normalize('NFKC',english).strip()
+    ja=unicodedata.normalize('NFKC',text).strip()
+    # A, B, RC etc. can be kept as initials; EMS or full English speech cannot.
+    raw_en=re.sub(r'[\s.!?。！？…]+','',en)
+    raw_ja=re.sub(r'[\s.!?。！？…]+','',ja)
+    if re.fullmatch(r'[A-Z]{1,2}',raw_en) and raw_en==raw_ja:
+        return True
+    words={'zero':0,'one':1,'two':2,'three':3,'four':4,'five':5,
+           'six':6,'seven':7,'eight':8,'nine':9,'ten':10}
+    source_tokens=re.findall(r'[A-Za-z]+|\d+',en)
+    if not source_tokens or not all(t.isdigit() or t.lower() in words for t in source_tokens):
+        return False
+    source_nums=[int(t) if t.isdigit() else words[t.lower()] for t in source_tokens]
+    if not re.fullmatch(r'[\s\d,、.。…-]+',ja):return False
+    target_nums=[int(t) for t in re.findall(r'\d+',ja)]
+    return source_nums==target_nums
 
 def single_direct(base,source,memory):
     """Independent singleton fallback when structured prompt repeatedly fails.
@@ -324,7 +348,7 @@ def single_direct(base,source,memory):
     answer=res.get('message',{}).get('content','').strip()
     if answer.startswith('```') and answer.endswith('```'):
         answer='\n'.join(answer.splitlines()[1:-1]).strip()
-    if not acceptable_ja(answer):raise ValueError('Invalid singleton fallback result')
+    if not acceptable_ja(answer,source['english']):raise ValueError('Invalid singleton fallback result')
     return answer
 
 
@@ -349,7 +373,7 @@ def translate_window(store:Store,base:Path,job,window,call=translation_call,max_
                 break
             except Exception as ex:
                 error=f'{type(ex).__name__}: {str(ex)[:140]}'
-        if len(part)==1 and (result is None or not isinstance(result,dict) or not acceptable_ja(result.get(str(part[0]['cue_id'])))) and call is translation_call:
+        if len(part)==1 and (result is None or not isinstance(result,dict) or not acceptable_ja(result.get(str(part[0]['cue_id'])),part[0]['english'])) and call is translation_call:
             try:
                 direct=single_direct(base,part[0],recall_memory(base,job['scope'],part))
                 result={str(part[0]['cue_id']):direct}
@@ -358,7 +382,7 @@ def translate_window(store:Store,base:Path,job,window,call=translation_call,max_
                 error=f'Singleton fallback {type(ex).__name__}: {str(ex)[:140]}'
         if result is not None:
             if not isinstance(result,dict):result={}
-            good={str(r['cue_id']):result[str(r['cue_id'])] for r in part if str(r['cue_id']) in result and acceptable_ja(result[str(r['cue_id'])])}
+            good={str(r['cue_id']):result[str(r['cue_id'])] for r in part if str(r['cue_id']) in result and acceptable_ja(result[str(r['cue_id'])],r['english'])}
             if good:store.record_japanese(job['id'],good);saved+=len(good)
             remain=[r for r in part if str(r['cue_id']) not in good]
             if remain:error='Unusable/missing Japanese response'
@@ -503,7 +527,7 @@ def validate_publish(store:Store,job):
     parsed=parse_srt(source)
     cues=store.rows(job['id'])
     if len(parsed)!=len(cues):raise RuntimeError('Source cue count changed')
-    if any(not r['japanese'] or not acceptable_ja(r['japanese']) for r in cues):raise RuntimeError('Incomplete or malformed Japanese')
+    if any(not r['japanese'] or not acceptable_ja(r['japanese'],r['english']) for r in cues):raise RuntimeError('Incomplete or malformed Japanese')
     if any((a[0],a[1],a[2],a[3],a[4])!=(b['cue_id'],b['timing'],b['start_ms'],b['end_ms'],b['english']) for a,b in zip(parsed,cues)):
         raise RuntimeError('Source subtitle time/text mismatch')
     return video,cues
