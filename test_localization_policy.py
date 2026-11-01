@@ -74,6 +74,28 @@ class LocalizationPolicyTests(unittest.TestCase):
                     s.translation_call(Path(self.tmp.name),self.rows,'')
         self.assertEqual(len(received),1)
 
+    def test_faithful_8_has_no_soft_character_quota_and_preserves_adult_intent(self):
+        received=[]
+        with patch.dict(sys.modules,{'bruiser_auto':self.stub(received)}):
+            s.translation_call(Path(self.tmp.name),self.rows,'',style='faithful_8')
+        system=received[0]['system']
+        self.assertIn('MEANING-FIRST ADULT JAPANESE SUBTITLES',system)
+        self.assertIn('directed AT someone',system)
+        self.assertIn('Sexual teasing must remain explicitly',system)
+        self.assertIn('rhetorical accusation',system)
+        self.assertIn('Keep each speaker turn',system)
+        self.assertNotIn('soft ~11 Japanese chars',system)
+        self.assertIn('local cue 1: 1.2s on screen',system)
+        self.assertEqual(received[0]['payload'],'structured payload')
+
+    def test_explicit_faithful_8_does_not_change_default_prompt(self):
+        received=[]
+        with patch.dict(sys.modules,{'bruiser_auto':self.stub(received)}):
+            with patch.dict(os.environ,{'SUBHUB_LOCALIZATION_STYLE':'baseline'}):
+                s.translation_call(Path(self.tmp.name),self.rows,'',style='faithful_8')
+                s.translation_call(Path(self.tmp.name),self.rows,'')
+        self.assertIn('MEANING-FIRST',received[0]['system'])
+        self.assertEqual(received[1]['system'],'BASE SYSTEM INSTRUCTIONS')
     def test_no_hard_truncation_and_no_db_mutation(self):
         note=lp.enhance_system('schema',self.rows)
         self.assertIn('SOFT guidance, not limits',note)
