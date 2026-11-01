@@ -1,6 +1,6 @@
 # Benchmark 001 — controlled local EN→JA subtitle quality test
 
-**Status: PRE-REGISTERED, NOT YET RUN ON OLLAMA.** This plan is fixed before examining candidate model outputs. Source: existing private Primate SRT checkpoint. No copyrighted dialogue, media or subtitles belong in this public repository.
+**Original protocol was PRE-REGISTERED before the run. Actual local inference is now COMPLETE; see [RESULTS_001.md](RESULTS_001.md).** This plan is fixed before examining candidate model outputs. Source: existing private Primate SRT checkpoint. No copyrighted dialogue, media or subtitles belong in this public repository.
 
 ## Decision we are testing
 
@@ -60,4 +60,4 @@ Upload the private JSON to the conversation for a blinded/manual review. **Never
 
 ## Results ledger
 
-**Pending actual host run.** Record once output is observed, NOT now. See `benchmarks/RUN_LEDGER.md`. No model quality claims from synthetic unit tests.
+**Completed real host run.** See `benchmarks/RESULTS_001.md` and `benchmarks/RUN_LEDGER.md` for measured outcomes and the important model-native-prompt limitation. No human/native-speaker quality rating is yet established.
