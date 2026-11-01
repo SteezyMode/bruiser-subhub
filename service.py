@@ -76,7 +76,13 @@ def render_srt(rows,translations):
 
 
 def render_clip(rows):
-    return ('\n\n'.join(f'{r[0]}\n{r[1]}\n{r[4]}' for r in rows)+'\n').encode('utf-8')
+    """Render SQLite cues as valid locally numbered SRT for the legacy parser.
+
+    SQLite rows start with job_id: positional indices silently produced
+    'job ID / cue ID / end_ms' instead of SRT. Use named fields and local
+    cue numbers, then restore original IDs when saving translations.
+    """
+    return ('\n\n'.join(f"{n}\n{r['timing']}\n{r['english']}" for n,r in enumerate(rows,1))+'\n').encode('utf-8')
 
 
 def atomic(path:Path, data:bytes):
@@ -282,11 +288,13 @@ def translation_call(base,selected,memory,model=GEMMA):
         path=Path(td)/'clip.srt'
         path.write_bytes(render_clip(selected))
         cues=core.parse_srt(str(path))
-        ids=[r['cue_id'] for r in selected]
-        if [c.id for c in cues]!=ids:raise RuntimeError('Legacy prompt parser mismatch')
+        local_ids=list(range(1,len(selected)+1))
+        if [c.id for c in cues]!=local_ids:raise RuntimeError('Legacy prompt parser mismatch')
         system,payload=core.build_prompt(cues,0,len(cues)-1,memory)
-        result=core.call_ollama(OLLAMA,model,system,payload,ids,240)
-        return {str(r['cue_id']):core.preserve_tags(cues[n].text,result[r['cue_id']]) for n,r in enumerate(selected)}
+        result=core.call_ollama(OLLAMA,model,system,payload,local_ids,240)
+        # The model sees 1..N local IDs. Persist against the original cue
+        # IDs, which may be 509, 510 or non-contiguous after empty sources.
+        return {str(r['cue_id']):core.preserve_tags(cues[n].text,result[n+1]) for n,r in enumerate(selected)}
 
 
 def acceptable_ja(text):
