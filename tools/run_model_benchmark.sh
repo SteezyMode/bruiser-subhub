@@ -2,6 +2,7 @@
 set -euo pipefail
 HOST="${1:?Usage: bash tools/run_model_benchmark.sh optiplex@HOST [challenger-model-name-or-auto]}"
 CHALLENGER="${2:-auto}"
+[[ "$CHALLENGER" =~ ^[A-Za-z0-9._/:+-]+$ ]] || { echo "Invalid Ollama model name" >&2; exit 2; }
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 python3 -m unittest discover -p 'test_*.py' -q
