@@ -11,7 +11,7 @@ Daily-use, local-first subtitle translation for a personal media library: Englis
 - GitHub `main`: versioned **development baseline** for SubHub 1.0, not proof of server installation state or a portable installer.
 - Server: known pilot source at `~/bruiser-pilot/subhub1`, SQLite/runtime state at `~/bruiser-pilot/subhub1-state` (separate from Git).
 - Earlier household worker: separate legacy `~/bruiser-pilot/subhub-household` state and translation memory. Do not delete/overwrite it.
-- The last reported live snapshot showed a worker `main.py --root ... run --mode all ... --hy-sample 48 --publish`, a local dashboard on port 8686, and `gemma4:e4b-it-qat` loaded on the RTX 3050. **Current live status and per-film outcomes are unverified.**
+- **User-reported live snapshot, 2026-11-01:** `status` showed **3/10 published** (Primate, 28 Years Later, Obsession); **3 with one exhausted/untranslated cue each** (Heretic 1608/1609, Birth/Rebirth 1130/1131, Hokum 1285/1286); The Descent 829/829 with `publish_hold`; Strange Darling still translating at 510/846; Whistle and A Nightmare on Elm Street queued. HY 0 across all titles. Hardware report: peak GPU 74°C, CPU 83°C, ~44.476 GPU Wh estimated. The user confirmed The Descent had earlier collaboratively authored Japanese subtitles predating this dashboard. **The actual stored `publish_hold` reason is not yet verified**; don't assume it comes from the editorial track without reading `jobs.last_error`. This is a historical snapshot, not a live feed.
 
 ## Verified engineering features in checked-in 1.0 source
 
@@ -25,6 +25,10 @@ Daily-use, local-first subtitle translation for a personal media library: Englis
 
 Offline validation: **27 synthetic/mock tests passing locally**; GitHub Actions also ran the test suite. Neither establishes real-world Japanese translation quality.
 
+## Next code change: editorial preservation and blocker diagnostics
+
+The publisher previously archived and removed selected old Bruiser tracks, including `Bruiser Japanese Editorial v1`; it did not guard against an independent `.ja.srt` sidecar. A tested change in the pending preservation PR makes publishing create-only, refuses duplicate Japanese/editorial sidecars, and never deletes previous subtitle tracks. A `diagnose_blocked.py` tool queries the live SQLite database **read-only** to report exhausted cues and stored job hold reasons; use `--show-text` for private cue-level context only. **This change is not deployed to the OptiPlex by merging the PR.** 32 synthetic offline tests pass locally in the preservation patch workspace; rerun CI after merge.
+
 ## Critical limitations / unresolved questions
 
 - Live subtitle quality, per-film finish status, translation speed and resource usage still require **actual server evidence**. Offline mocks prove mechanics only.
@@ -36,7 +40,7 @@ Offline validation: **27 synthetic/mock tests passing locally**; GitHub Actions 
 
 ## Next action sequence
 
-1. Read-only inspect actual server status and any completed film's subtitle cue alignment. **Do not restart a running worker.**
+1. Read-only inspect actual missing-cue errors for Heretic/Birth-Rebirth/Hokum and confirm The Descent's stored publication hold reason, without disturbing the active worker. Then inspect a completed film's subtitle cue alignment. **Do not restart a running worker.**
 2. Export a local editorial packet with `review_sampler.py`, select 60 representative/problematic cues, evaluate source against Japanese with a human-language pass.
 3. Save a tiny **synthetic** regression suite for structural bugs; keep real copyrighted film dialogue and private data outside Git.
 4. Benchmark prompt/context modifications using a fixed, private set. Compare naturalness, meaning, names, negation, brevity, failures and throughput before changing the primary adapter.
