@@ -30,6 +30,10 @@ Don't select a model/profile based solely on speed, compression or syntactic val
 
 Read `benchmarks/RESULTS_001.md` and `benchmarks/RUN_LEDGER.md` before comparing further models. Real 256-output Benchmark 001 complete: 14 recognized formatting anomalies despite all outputs passing current Japanese validator; no native speaker score or certified 8/10 result. The tuned Gemma 4 Sub model was tested using a GENERIC batch-JSON prompt, not the model author's recommended previous-context/current-segment native prompt. Do not call it a fair model-native comparison or reject the tuned model without testing that format. Official Google TranslateGemma is a different, untested family. Multipass is **optional** and must show net fidelity improvement rather than become an assumed architecture.
 
+## Frozen next experiment
+
+Read `benchmarks/EXPERIMENT_002.md` before new model or prompt work: the user approved **one native-format test** of already-installed subtitle-tuned Gemma e4b using the same 64 English cues as Benchmark 001. Use single CURRENT_SOURCE and up to two previous generated source/translation pairs (not historical Japanese), observe exact frozen model ID. This experiment is **not** a commitment to a multipass architecture. Keep all movie dialogue/model results private and log structural metrics + adjudicated conclusions in public `benchmarks/RUN_LEDGER.md` only after actual execution.
+
 ## Working practice
 
 1. Recover context from GitHub: source + `docs/CURRENT_STATE.md` + open issues/PRs. Check if the user has newer live status; never infer that the last known worker is still running.
