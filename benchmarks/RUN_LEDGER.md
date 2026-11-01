@@ -44,8 +44,17 @@
 |---|---:|---:|---:|---:|---|
 | Tuned Gemma e4b native previous/current prompt | Pending | Pending | Pending | Pending | Not reviewed |
 
-## Benchmark 003 — PR #17 merged (`2e798852`), 89 offline tests passed; real Ollama run pending
+## Benchmark 003 — COMPLETED, real Ollama comparison and decision
 
-- Frozen design: [EXPERIMENT_003.md](EXPERIMENT_003.md). Same model and 64 English cues as 001/002. Two *near-literal card-style* arms with one prior source/translation pair: A always allows the previous clean immediate cue, B drops it only when there is more than an 8-second gap. This is one controlled experimental variable **within** Benchmark 003.
-- Uses developer-style `STYLE: neutral`, Ollama at temperature 0, context 1,344, generation limit 256; pins model digest, reads checkpoints RO and uses worker locks. **No automatic Japanese quality claims.**
-- Result: **PENDING**. After private owner run, record exact numeric metrics, interpret semantic/idiom/tone changes and decide whether additional prompt tweaking is worthwhile; user does NOT want indefinite benchmarking.
+- Pre-registered design: [EXPERIMENT_003.md](EXPERIMENT_003.md); actual numeric results, interpretation and decision: **[RESULTS_003.md](RESULTS_003.md)**. User supplied private 128-result JSON (2026-11-02 JST); all dialogue/output remains private.
+- 64/64 accepted in each arm, zero recognized formatting artifacts, seven >14 JA chars/sec in each, median 6.85 JA chars/sec each. Always previous: 56 contexts and 55.81 model-call seconds. Gap>8 seconds: 48 contexts and 52.57 model-call seconds.
+- Eight cue contexts were suppressed by gap cutoff. **Six out of 64 candidate Japanese texts changed** (4 direct, 2 propagated); no consistent net quality gain. Both arms still mishandled colloquial slang and high-density exchanges; strict card wording degraded a past-tense denial previously handled correctly by Benchmark 002.
+- **Decision: do not deploy arbitrary gap gating or keep tweaking microparameters.** Benchmark 002 remains the more promising *provisional* native single-pass version, but no real native-speaker 8/10 rating exists. No movie/subtitle/checkpoint/production service was changed by any comparison.
+- **Read [COMMUNITY_RESEARCH_2026-11-02.md](COMMUNITY_RESEARCH_2026-11-02.md)** for actual model author recommendations (Q4_K_XL, compact verified speaker/glossary context, Japanese Tier 1), constraints of 6GB VRAM, and cautious anecdotal community advice.
+
+| Arm | Valid / 64 | Format suspicions | Median JA chars/sec | Model-call time | Native viewer grade | Decision |
+|---|---:|---:|---:|---:|---|---|
+| Tuned E4B, strict card, immediate previous pair | 64 | 0 | 6.85 | 55.81s | Not measured | No improvement |
+| Same, drop previous after >8s silence | 64 | 0 | 6.85 | 52.57s | Not measured | Do not deploy rule |
+
+**Highest-value next task:** have the Japanese-speaking household viewer watch 10–15 minutes with only the existing machine Japanese track, record intelligibility/awkwardness/timecodes. After that, make one model/pipeline decision before resuming guarded library source extraction and queueing the 2,026 ready-source candidates. Multi-pass remains optional and must show net benefit on actual errors.
