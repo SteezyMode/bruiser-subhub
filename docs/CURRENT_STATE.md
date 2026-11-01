@@ -71,6 +71,19 @@ Owner ran `bash tools/repair_pilot.sh ... ~/Downloads/bruiser-subhub-private-rep
 
 Root cause: `tools/deploy_validator.py` erroneously expected Git blob `691286...` (the pre-batch-fix version). The observed live SHA `896b245...` exactly matches `service.py` in main at commit `7cb3b8b` (the previously installed valid batch-fix version). **No live validator update, manual recovery, or publishing happened in the failed run.** **PR #9 merged** (`e5072695`) after GitHub Actions passed. The expected hash was corrected and three offline regression tests were added. This is **not yet deployed** to OptiPlex. Retry the **same** Mac mini `git pull --ff-only` and `bash tools/repair_pilot.sh` command with the already downloaded private JSON. Do not reset checkpoints or modify the server by hand.
 
+## 2026-11-01 — confirmed live repair, one publication hold remains
+
+The owner ran the corrected `tools/repair_pilot.sh` on OptiPlex after pulling PR #9. **45 offline tests passed.** The guarded validator deployment succeeded and backed up the previous live service.py at `~/bruiser-pilot/subhub1/service.py.before-validator-20261101T130858Z`. All 6 private corrections passed dry-run matching and were applied after SQLite backup `~/bruiser-pilot/subhub1-state/backups/manual-cue-repair-20261101T130859.496126Z.sqlite3`.
+
+Actual observed results:
+- **Birth/Rebirth** 1131/1131, **Hokum** 1286/1286, **Strange Darling** 846/846: all newly **published** beside media.
+- **Heretic** 1609/1609 after repairing two labels: `PUBLISH HOLD: Incomplete or malformed Japanese`. Validator rejects at least one other checkpointed Japanese cue. **Do not retranslate film**. Inspect exact invalid cue(s).
+- **Whistle** 996/1233 now queued; 237 cues remain unattempted. No worker was started by the repair tool.
+- **The Descent** has existing approved human-edited subtitles and remains protected; no changes.
+- Earlier published Primate, 28 Years Later, Obsession were unaffected. Thus **six published films total** as of this owner report (3 earlier + 3 new), although no independent current status command has been run.
+
+**Pending diagnostic PR:** `tools/diagnose_invalid_ja.py` loads the *installed* validator and scans the live SQLite DB read-only to print invalid cue IDs. `tools/check_heretic.sh HOST` pipes it over SSH without updating the server or launching Ollama. Next collect output, verify precise old/new text, then decide how to safely permit correction of a `publish_hold` with exact reason `Incomplete or malformed Japanese` without changing protected editorial jobs. Separately the Primate 80-cue private EN/JA sample is still awaited for actual quality review.
+
 ## Critical limitations / unresolved questions
 
 - Live subtitle quality, per-film finish status, translation speed and resource usage still require **actual server evidence**. Offline mocks prove mechanics only.
