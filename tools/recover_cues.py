@@ -51,15 +51,36 @@ def verified_corrections(store,manifest,s):
         seen.add((jid,ident))
         job=store.cn.execute('SELECT * FROM jobs WHERE id=?',(jid,)).fetchone()
         if job is None:raise RuntimeError('Unknown job: '+jid)
-        if job['status'] in ('published','publish_hold','hold'):
+        if job['status'] in ('published','hold'):
             raise RuntimeError('Refusing to edit a protected or already published job: '+jid)
+        repairing_corrupt_hold = job['status']=='publish_hold'
+        if repairing_corrupt_hold and job['last_error'] != 'Incomplete or malformed Japanese':
+            raise RuntimeError('Protected publication hold is not an invalid-Japanese hold: '+jid)
         if s.sha(Path(job['source_path']).read_bytes())!=job['source_sha']:
             raise RuntimeError('Source subtitle changed since checkpoint: '+jid)
         cue=store.cn.execute('SELECT * FROM cues WHERE job_id=? AND cue_id=?',(jid,ident)).fetchone()
         if cue is None:raise RuntimeError('Missing cue record: '+jid+' '+str(ident))
         if cue['english']!=entry.get('english'):
             raise RuntimeError('English cue mismatch; manifest is stale: '+jid+' '+str(ident))
-        if cue['japanese']!=entry.get('previous_japanese'):
+        if repairing_corrupt_hold:
+            # A machine-contaminated cue may be much longer than terminal
+            # output, so require both a nontrivial verified prefix and a
+            # specific artifact marker; never rely on the marker alone.
+            prefix=entry.get('previous_japanese_prefix')
+            marker=entry.get('corruption_marker')
+            old_text=cue['japanese']
+            if (not isinstance(prefix,str) or len(prefix)<12
+                or not isinstance(marker,str) or marker not in ('<tool_call|>','<tool_call>')):
+                raise RuntimeError('Invalid explicit corrupt-output evidence: '+jid+' '+str(ident))
+            if (not isinstance(old_text,str) or not old_text.startswith(prefix)
+                or marker not in old_text or s.acceptable_ja(old_text,cue['english'])):
+                raise RuntimeError('Stored Japanese does not match reviewed corruption: '+jid+' '+str(ident))
+            # Only repair a hold with exactly the one known malformed cue.
+            invalid=[r['cue_id'] for r in store.rows(jid)
+                     if not r['japanese'] or not s.acceptable_ja(r['japanese'],r['english'])]
+            if invalid != [ident]:
+                raise RuntimeError('Other invalid cues require review before repair: '+repr(invalid[:8]))
+        elif cue['japanese']!=entry.get('previous_japanese'):
             raise RuntimeError('Japanese cue changed since review: '+jid+' '+str(ident))
         translated=entry.get('japanese')
         if not s.acceptable_ja(translated,cue['english']):
