@@ -82,7 +82,7 @@ Actual observed results:
 - **The Descent** has existing approved human-edited subtitles and remains protected; no changes.
 - Earlier published Primate, 28 Years Later, Obsession were unaffected. Thus **six published films total** as of this owner report (3 earlier + 3 new), although no independent current status command has been run.
 
-**Pending diagnostic PR:** `tools/diagnose_invalid_ja.py` loads the *installed* validator and scans the live SQLite DB read-only to print invalid cue IDs. `tools/check_heretic.sh HOST` pipes it over SSH without updating the server or launching Ollama. Next collect output, verify precise old/new text, then decide how to safely permit correction of a `publish_hold` with exact reason `Incomplete or malformed Japanese` without changing protected editorial jobs. Separately the Primate 80-cue private EN/JA sample is still awaited for actual quality review.
+**Merged PR #10 (CI passed; not installed on server):** `tools/diagnose_invalid_ja.py` loads the *installed* validator and scans the live SQLite DB read-only to print invalid cue IDs. `tools/check_heretic.sh HOST` pipes it over SSH without updating the server or launching Ollama. Next collect output, verify precise old/new text, then decide how to safely permit correction of a `publish_hold` with exact reason `Incomplete or malformed Japanese` without changing protected editorial jobs. Separately the Primate 80-cue private EN/JA sample is still awaited for actual quality review.
 
 ## Critical limitations / unresolved questions
 
