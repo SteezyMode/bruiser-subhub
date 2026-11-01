@@ -44,6 +44,14 @@ Owner requested a **proper controlled experiment and a permanent public GitHub r
 
 **Next action:** owner runs once and uploads the private JSON for actual semantic/tone rating. Commit only benchmark metadata, summarized anonymized numerical findings and decision to GitHub, never actual private dialogue or outputs. Do not start library-scale automation until comparison is judged; then turn the 2,026 candidate subtitle sources into a safe verified queue.
 
+## Benchmark 001 completed — native-prompt caveat and optional multipass (2026-11-02 JST)
+
+**256 private EN→JA outputs reviewed structurally (64 shared cues x 4 arms).** Both Gemma e4b models gave 64/64 Japanese-character-accepted responses per arm, 32 successful model calls. Recognizable output debris: ordinary Gemma baseline 0, ordinary Gemma `faithful_8` 2, subtitle-tuned baseline 6, tuned `faithful_8` 6. Numeric metrics, real model IDs, hashes and cautious editorial observations are in `benchmarks/RESULTS_001.md`; no film dialogue committed. No arm has passed an independent native-Japanese 8/10 review.
+
+**Critical benchmarking caveat:** the third-party subtitle-tuned model was forced through the legacy *multi-cue JSON* adapter, whereas its own model card trains on `[PREVIOUS_SOURCE]`, `[PREVIOUS_TRANSLATION]`, `[CURRENT_SOURCE]` with only the current segment translated. The results **do not rule out the tuned model**; test it once with its native input format on same difficult cues before choosing. The distinct official Google `TranslateGemma` (Gemma 3 family) was not tested.
+
+Owner explicitly permits multi-model or selective multi-pass systems **if quality data supports them**, but rejects unnecessary complexity. Treat a selective second pass as an experiment requiring proven net benefit. Don't globally deploy or retranslate published subtitles solely on the current model comparison. The earlier cinema benchmark remains a risk-enriched test and not representative of the whole 13,199-video library.
+
 ## Source of truth
 
 - GitHub `main`: versioned **development baseline** for SubHub 1.0, not proof of server installation state or a portable installer.
