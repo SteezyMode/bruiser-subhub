@@ -25,3 +25,13 @@ Upload that local JSON into the private chat for a **real Japanese quality audit
 ## Next decision
 
 Evaluate fidelity, naturalness, slang/nuance and Japanese readability on this sample. Compare a new properly batched model response on the *same* private sample after confirming the server is idle. The fixed adapter can then be assessed against existing singleton-heavy output and alternatives. HY remains optional.
+
+## Whole-library metadata inventory (read-only)
+
+Run on the Mac mini:
+
+    bash tools/library_census.sh optiplex@YOUR_TAILSCALE_IP
+
+This streams a Python script over SSH; it does not install it, edit state, queue translations, download subtitles, or use Ollama. It walks `/mnt/BigDisk/Video` and `/mnt/2TB/Plex Expansion`, reading only filenames, file sizes and ffprobe stream headers. Embedded-text English, image-only English, existing Japanese, non-English or unknown audio and missing-source categories are counted separately. The result is **provisional** if language tags or sidecar filenames are missing or inconsistent.
+
+To explicitly save a private per-file candidate inventory on the OptiPlex, run `python3 tools/library_census.py --root ... --root ... --out /path/to/private.json` from a checkout on that server. The file holds personal media filenames and **must not** be committed to GitHub. Use the summary first. No jobs are automatically imported.

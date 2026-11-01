@@ -6,6 +6,14 @@
 
 Daily-use, local-first subtitle translation for a personal media library: English source cues → natural Japanese Gemma translation → safely checkpointed, structurally validated `.ja.srt` sidecar; optional diagnostic HY sample.
 
+## Active priority — household library scale, not film-by-film repairs (2026-11-01)
+
+**Latest owner-reported live outcome:** 7/10 pilot films published. Heretic repaired/published at 1609/1609 after one corrupted cue was replaced; the read-only after-scan found **0 Japanese validator failures and 0 recognized tool/JSON artifact markers across all 10 jobs**. The Descent remains publish-held intentionally because an approved Japanese subtitle already exists. Whistle remains queued at 996/1233, and A Nightmare on Elm Street is queued at 0/946. 53 synthetic tests passed on the Mac mini. **This is structural integrity only, not a Japanese-language quality grade.**
+
+**Owner directive:** STOP hyper-focusing on Heretic or single-film edge cases. Do not add another per-title repair unless a systemic flaw prevents larger-scale use. Next two results to deliver: (1) real qualitative EN/JA comparison using the private 80-cue Primate packet already on the Mac mini; (2) a library-wide read-only census of English text source and existing Japanese coverage, then develop/use the simplest safe library-wide ingestion route. The 6 TB library is the goal, not 10 pilot movies.
+
+**New development in this PR:** `tools/library_census.py` uses file metadata and ffprobe stream headers only; recognizes English text sidecars/embedded, Japanese sidecars/embedded, image subtitles needing OCR, and missing source tracks. `tools/library_census.sh HOST` runs it over SSH without installing or editing anything and reports totals. An optional private `--out` JSON contains filenames; do not commit it. Census does not queue or translate anything, and classification is conservative (unrecognized tracks need review). GitHub merge ≠ server deployment; this is a streamed read-only utility.
+
 ## Source of truth
 
 - GitHub `main`: versioned **development baseline** for SubHub 1.0, not proof of server installation state or a portable installer.

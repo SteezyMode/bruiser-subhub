@@ -6,6 +6,10 @@
 
 **Read [GOAL.md](GOAL.md) first.** The user and his wife need to watch their existing nearly 6 TB English-language media library with natural, accurate Japanese subtitles. Dual subtitle playback is already solved. Subtitle downloads have been insufficient. The free, local *result* matters; SubHub may shrink or disappear if existing software works better. Do not optimize for product differentiation, dashboard polish, or preserving custom code. OptiPlex NOW integration is optional and not relevant to the immediate goal.
 
+## Current directive after the 10-film pilot
+
+Owner explicitly requested **no more disproportionate work on individual movie edge cases**. Latest report: seven of ten pilot films published, The Descent protected due to existing approved Japanese subtitles, Whistle and Nightmare queued, and the structural contamination scan clean. The next priority is **quality evaluation and library-scale coverage**. Work should produce concrete watchable outcomes for the ~6 TB library, not endless repairs or new dashboards. See the top of `docs/CURRENT_STATE.md` before proposing any engineering.
+
 ## Non-negotiable decisions
 
 - Primary translation: local Ollama / Gemma 4 e4b, currently through the legacy `bruiser_auto.py` adapter. **Preserve working prompt behavior** until a measured A/B benchmark supports replacing it.
