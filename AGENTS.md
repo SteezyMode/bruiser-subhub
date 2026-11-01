@@ -4,7 +4,7 @@
 
 ## Mission
 
-Bruiser SubHub is a daily-use, **local English → Japanese subtitle localization service** for a personal media server, not a dashboard project. Primary value is accurate, natural, context-sensitive Japanese with durable per-cue progress and safe media publishing. A future OptiPlex NOW integration is optional; keep the translation engine and its release lifecycle independent.
+**Read [GOAL.md](GOAL.md) first.** The user and his wife need to watch their existing nearly 6 TB English-language media library with natural, accurate Japanese subtitles. Dual subtitle playback is already solved. Subtitle downloads have been insufficient. The free, local *result* matters; SubHub may shrink or disappear if existing software works better. Do not optimize for product differentiation, dashboard polish, or preserving custom code. OptiPlex NOW integration is optional and not relevant to the immediate goal.
 
 ## Non-negotiable decisions
 
@@ -24,6 +24,10 @@ Bruiser SubHub is a daily-use, **local English → Japanese subtitle localizatio
 4. Keep `docs/CURRENT_STATE.md` current with decisions, tested functionality, unresolved risks, and *next action*; distinguish **developed**, **merged**, and **deployed**.
 5. Explicitly state whether a feature was tested against Ollama/media. Mock-based tests cannot establish translation quality.
 6. Provide exact, reversible deployment instructions only after confirming the live worker is idle and the user wants a deploy.
+
+## Urgent translation pipeline defect (found 2026-11-01)
+
+The shipped `service.render_clip()` used positional indexes on SQLite rows. Actual columns begin with job_id, so the model batch input was malformed (`job_id / cue_id / end_ms`). A fix changes to named `timing`/`english` fields, locally renumbers batches and remaps model output back to original cue IDs. This may explain observed `Malformed SRT block` and singleton-heavy fallback. **Merged GitHub code is not a live server deployment.** Verify a real batch against `bruiser_auto.parse_srt` after the worker is idle; do not rewrite existing checkpoints.
 
 ## Current development priority
 
