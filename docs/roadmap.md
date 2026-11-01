@@ -2,7 +2,14 @@
 
 **Actual mission is [GOAL.md](../GOAL.md).** Deliver free, natural Japanese subs across the household's existing media; the custom code is expendable. Dual-subtitle playback is already handled.
 
-## First: understand the production translation outcomes
+## Current phase: scale the household library without another one-film debugging cycle
+
+1. Obtain/review the existing **private Primate English/Japanese 80-cue sample**. Rate meaning, naturalness, speaker consistency, and readability; structural checks are not proof of good subtitles. Test any better free local translator on the *same* material before replacing the engine.
+2. Run `tools/library_census.sh` read-only across both video roots. Categorize pre-existing Japanese, extractable English text, OCR-only sources, and titles missing English tracks. **Do not auto-queue from filename guesses.**
+3. Reuse existing discovery/extraction components (Sublarr, ffprobe, Subtitle Edit) where practical; make only the minimal reliable bridge from proven English SRT into the resumable translator. Preserve all edited Japanese and limit GPU use to idle periods.
+4. Resume the two queued pilot jobs when scheduling and translation quality are acceptable; do not block library progress on further Heretic-specific fixes.
+
+## Historical / subsequent: understand production translation outcomes
 
 1. Inspect current queue, cue completion, isolated errors and published sidecars; do not infer success from HTTP 200 or a loaded model.
 2. Export a representative translated film's EN/JA alignment for a *human* linguistic review. Cover dialogue, named entities, negation, register, timing and compression. Never treat HY backtranslation as ground truth.
