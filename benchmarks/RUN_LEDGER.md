@@ -28,3 +28,14 @@
 | Subtitle-tuned Gemma 4 e4b | faithful_8 | 64/64 | 6.85 | 51.37 s | 6 | Not independently rated |
 
 **Next action:** Benchmark 001 is complete, but trained tuned model did not receive its documented native prompt. Compare the installed tuned model in that format on the same difficult cues, then conduct human/native Japanese review and make a practical model/pipeline choice. Do not force multi-pass or automate a second model on all jobs without net-quality evidence. The 2,026 detected ready-source candidates are a separate queue-ingestion milestone after the quality decision.
+
+## Benchmark 002 — preregistered, local run pending
+
+- Design: [EXPERIMENT_002.md](EXPERIMENT_002.md) — SAME 64 English cues as Benchmark 001, but the **already installed** tuned Gemma e4b receives the developer's native `[CURRENT_SOURCE]` with up to two prior source/translation pairs.
+- One Ollama call per cue (64 calls), with no retry and no other model. Context from generated translations in the SAME eight-cue window only; no original Japanese fed into the model.
+- Status: **NOT RUN on Ollama**. The synthetic test suite does not measure semantic fidelity.
+- Future results must compare against Benchmark 001 on same IDs; judge meaning, idioms, profanity/sexual tone, omissions, and viewing speed before deciding whether an optional selective second pass is justified.
+
+| Model/native method | Valid / 64 | Format flags | Median chars/s | Inference seconds | Human quality decision |
+|---|---:|---:|---:|---:|---|
+| Tuned Gemma e4b native previous/current prompt | Pending | Pending | Pending | Pending | Not reviewed |
