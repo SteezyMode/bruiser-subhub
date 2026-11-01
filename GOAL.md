@@ -8,6 +8,12 @@ Good existing Japanese subtitles are often difficult to find and have already be
 
 Choose an English-language movie already in the library, press Play in Jellyfin, and have accurate, readable Japanese subtitles available—without needing to manually request translations, fix one-cue hangs, or babysit the system. Repeat that across the library in unattended batches.
 
+## Target quality: practical 8/10, not Netflix certification
+
+**Aim clearly above generic SubtitleCat machine translations**, not perfection.
+Keep the full emotional and conversational force: idioms, jokes, slang, profanity, sexual content, violence, threats, sarcasm, and insulting language. **Never sanitize, soften, or moralize away a character's words.** Avoid inventing extra crudity, too. Natural Japanese should communicate what the character *means*, not mechanically render the English words.
+Improve subtitle readability by removing filler, awkward calques, and redundant phrasing, not by cutting a threat, joke, punchline, or important meaning. Soft reading-speed guidance is useful; Netflix-style fixed counts and hard publication gates are not requirements. A comprehensible, fluent, unsanitized ~8/10 viewing experience is a success.
+
 ## Non-negotiable priorities
 
 1. **Translation quality first.** Fidelity, natural Japanese, character/scene context, brevity, correct negations/numbers/names; no fabricated dialogue.

@@ -281,8 +281,12 @@ def recall_memory(base:Path,scope:str,rows):
     return '\n'.join('Approved EN: '+v.get('english','')+'\nApproved JA: '+v.get('japanese','') for _,v in matches[:6])
 
 
-def translation_call(base,selected,memory,model=GEMMA):
-    """Adapter to the proven existing bruiser_auto prompt, with no private APIs."""
+def translation_call(base,selected,memory,model=GEMMA,style=None):
+    """Legacy adapter with optional, explicitly selected localization guidance.
+
+    Default is unchanged. A/B tests opt into 'natural_8' without altering
+    the running worker or previously checkpointed translations.
+    """
     if str(base) not in sys.path:sys.path.insert(0,str(base))
     import bruiser_auto as core
     with tempfile.TemporaryDirectory(prefix='subhub10-') as td:
@@ -292,6 +296,12 @@ def translation_call(base,selected,memory,model=GEMMA):
         local_ids=list(range(1,len(selected)+1))
         if [c.id for c in cues]!=local_ids:raise RuntimeError('Legacy prompt parser mismatch')
         system,payload=core.build_prompt(cues,0,len(cues)-1,memory)
+        chosen=style if style is not None else os.environ.get('SUBHUB_LOCALIZATION_STYLE','baseline')
+        if chosen=='natural_8':
+            from localization_policy import enhance_system
+            system=enhance_system(system,selected)
+        elif chosen!='baseline':
+            raise ValueError('Unknown localization style: '+str(chosen))
         result=core.call_ollama(OLLAMA,model,system,payload,local_ids,240)
         # The model sees 1..N local IDs. Persist against the original cue
         # IDs, which may be 509, 510 or non-contiguous after empty sources.

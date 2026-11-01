@@ -35,3 +35,13 @@ Run on the Mac mini:
 This streams a Python script over SSH; it does not install it, edit state, queue translations, download subtitles, or use Ollama. It walks `/mnt/BigDisk/Video` and `/mnt/2TB/Plex Expansion`, reading only filenames, file sizes and ffprobe stream headers. Embedded-text English, image-only English, existing Japanese, non-English or unknown audio and missing-source categories are counted separately. The result is **provisional** if language tags or sidecar filenames are missing or inconsistent.
 
 To explicitly save a private per-file candidate inventory on the OptiPlex, run `python3 tools/library_census.py --root ... --root ... --out /path/to/private.json` from a checkout on that server. The file holds personal media filenames and **must not** be committed to GitHub. Use the summary first. No jobs are automatically imported.
+
+## Real Japanese quality comparison: idioms, tone and reading comfort
+
+After the separate library census finishes and **no translation worker is active**, use:
+
+    bash tools/compare_primate_style.sh optiplex@YOUR_TAILSCALE_IP PRIMATE_JOB_ID
+
+The benchmark stages an isolated source copy under `~/bruiser-pilot/subhub-benchmark/`; it never replaces the live engine. It takes up to five nonoverlapping 8-cue windows near review-interest cue IDs `35,71,207,380,465`. The existing Japanese checkpoint is the baseline; the `natural_8` prompt is sent to the existing local Ollama model, using 8 consecutive cues for scene context. The program holds both normal translation worker locks to avoid simultaneous jobs. It will use the RTX 3050 for local model inference; schedule when convenient. This is **not GPU-free**, unlike the library census.
+
+The private comparison JSON is copied to Mac mini `~/Downloads`. Upload it to the private chat for direct EN/JA review and qualitative judgment. It may contain copyrighted subtitle excerpts, so never commit it to the public repository. Erroring batches remain visible as missing candidates; no singleton retry loops or media publishing. Do not turn the new profile on globally until the A/B output is reviewed.
