@@ -32,6 +32,18 @@ Existing *Primate* 80-cue English/Japanese private packet was reviewed: several 
 
 **Immediate highest-value next action:** review the private 40-cue A/B JSON against existing Japanese, especially cues 35, 71, 207, 380 and 465. Decide whether new profile improves meaning/idioms/tone/readability without censorship, before enabling it globally. Parallel library-scale path: distinguish unknown audio tags from non-English, verify actual usable EN text extraction for a small batch of candidates, then build guarded discovery+queue and preserve original tracks. No more one-film edge-case work unless systemic.
 
+## Active decision — frozen two-model translation quality experiment (2026-11-01)
+
+Owner requested a **proper controlled experiment and a permanent public GitHub record**, not another cycle of one-film debugging or changes driven by isolated prompt examples. Full test plan: `benchmarks/EXPERIMENT_001.md`; results ledger: `benchmarks/RUN_LEDGER.md`.
+
+**Current verified evidence:** 13,199 video / 4.14 TB census; 2,026 English-text+English-audio candidates; seven pilot films published. Existing `natural_8` trial returned 40/40 results but had notable semantic/tone regressions (altered rhetorical questions, softened a directed insult, eliminated sexual slang). Do not deploy `natural_8` just because it shortened output.
+
+**PRE-REGISTERED Benchmark 001, NOT RUN ON OLLAMA:** 64 fixed source cues from eight Primate dialogue windows; fixed source SHA; 2 distinct installed Ollama models (standard Gemma4 e4b vs subtitle-tuned Gemma4 e4b if unambiguously installed), each with the **same fresh baseline** and optional `faithful_8` meaning-first/unsanitized prompt. 4 arms x 64 cues = 256 candidate cue outputs. The test captures Ollama IDs/digests, adapter and profile hashes, batch times, validity and chars/sec, with private EN/JA output. User/assistant must then manually score semantic fidelity, adult tone, Japanese idiomaticity and viewing readability; don't infer quality from latency or validity.
+
+**Run command after this PR merges:** Mac mini `cd ~/Downloads/bruiser-subhub-repo && git pull --ff-only && bash tools/run_model_benchmark.sh optiplex@100.121.156.34`. The command stages independent scratch code, tests installed models, checks source SHA, holds both worker locks and runs local GPU inference. NO host translation queue, published SRT or checkpoint edits. If subtitle-tuned e4b model is missing or ambiguous, the command **fails closed**, prints the discovered names, and requires an explicit model choice rather than guessing/downloading.
+
+**Next action:** owner runs once and uploads the private JSON for actual semantic/tone rating. Commit only benchmark metadata, summarized anonymized numerical findings and decision to GitHub, never actual private dialogue or outputs. Do not start library-scale automation until comparison is judged; then turn the 2,026 candidate subtitle sources into a safe verified queue.
+
 ## Source of truth
 
 - GitHub `main`: versioned **development baseline** for SubHub 1.0, not proof of server installation state or a portable installer.
