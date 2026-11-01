@@ -19,7 +19,10 @@ import sys
 import time
 
 import service
-from benchmark_localization import get_rows, windows, locked_idle, cps, save_private
+try:
+    from benchmark_localization import get_rows, windows, locked_idle, cps, save_private
+except ModuleNotFoundError:
+    from tools.benchmark_localization import get_rows, windows, locked_idle, cps, save_private
 
 BENCHMARK_ID = 'primate-64cue-meaning-tone-v1'
 JOB_ID = 'primate-2026-1080p-amzn-web--ad1c564197'
