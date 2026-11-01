@@ -27,7 +27,7 @@ Offline validation: **32 synthetic/mock tests passing locally**; GitHub Actions 
 
 ## Next code change: editorial preservation and blocker diagnostics
 
-The publisher previously archived and removed selected old Bruiser tracks, including `Bruiser Japanese Editorial v1`; it did not guard against an independent `.ja.srt` sidecar. A tested change merged in PR #3 makes publishing create-only, refuses duplicate Japanese/editorial sidecars, and never deletes previous subtitle tracks. A `diagnose_blocked.py` tool queries the live SQLite database **read-only** to report exhausted cues and stored job hold reasons; use `--show-text` for private cue-level context only. **Merged as PR #3**, commit `1f54506a` (2026-11-01); **not deployed** to OptiPlex. 32/32 synthetic offline tests passed locally and GitHub Actions passed on the PR branch.
+The publisher previously archived and removed selected old Bruiser tracks, including `Bruiser Japanese Editorial v1`; it did not guard against an independent `.ja.srt` sidecar. A tested change merged in PR #3 makes publishing create-only, refuses duplicate Japanese/editorial sidecars, and never deletes previous subtitle tracks. A `diagnose_blocked.py` tool queries the live SQLite database **read-only** to report exhausted cues and stored job hold reasons; use `--show-text` for private cue-level context only. **Merged as PR #3**, commit `1f54506a` (2026-11-01); **PR #3 preservation behavior was part of the later deployed service.py batch fix; installed together on 2026-11-01.** 32/32 synthetic offline tests passed locally and GitHub Actions passed on the PR branch.
 
 ## November 1 engineering progress — merged, not deployed
 
@@ -36,6 +36,16 @@ The publisher previously archived and removed selected old Bruiser tracks, inclu
 - **37 synthetic tests** expected (32 preexisting + 3 adapter + 2 installer), CI passed for both PRs. Tests and GitHub merges are **not live deployment or semantic translation proof**.
 
 **Next concrete action on the Mac mini:** from `~/Downloads/bruiser-subhub-repo`, `git pull --ff-only`, then `bash tools/collect_review.sh optiplex@HOST` to get real film EN/JA evidence, and `bash tools/deploy_batch_fix.sh optiplex@HOST` to install only if idle. If the guarded installer refuses, diagnose rather than bypass its checks. Upload private quality JSON to chat, never commit it to GitHub.
+
+## Deployment update — confirmed from owner's 2026-11-01 Mac mini output
+
+**Batch SRT fix deployed** to the actual OptiPlex `/home/optiplex/bruiser-pilot/subhub1/service.py`. Owner ran `bash tools/deploy_batch_fix.sh optiplex@HOST` after pulling `main`; full 37-test suite passed, real installed `bruiser_auto.parse_srt` accepted a 12-cue SQLite-derived batch, both worker locks were acquired, and the tool reported:
+`INSTALLED service.py batch fix; backup: /home/optiplex/bruiser-pilot/subhub1/service.py.before-batchfix-20261101T124614Z`.
+The command did **not** start a translation run, rewrite existing checkpoints, publish subtitles, or retranslate old output. This is a user-reported command log, not an independent SSH inspection. Live `main.py` and old Japanese checkpoints remain unchanged.
+
+**Real editorial review sample collected privately on the Mac mini:** Primate 741/741 translated; 80 EN/JA cues sampled by `tools/collect_review.sh`; flags: negation 85, number 1, reading-speed 9, repeated-Japanese 16 (mechanical advisory counts over source cues, not verified errors). Private JSON was saved under `~/Downloads` on the Mac mini; **not attached to this chat yet, not reviewed linguistically, never commit to GitHub**.
+
+**Immediate next step:** owner uploads that Primate editorial JSON to the private chat to assess translation fidelity, naturalness, compression, and context. Then compare the old singleton-heavy output with a properly batched result on a *fixed* subset, never overwriting editorial subtitles. Read-only inspect the three one-cue failures and Descent's stored hold reason using `diagnose_blocked.py` before attempting targeted recovery. HY optional.
 
 ## Critical limitations / unresolved questions
 
