@@ -26,6 +26,10 @@ Before any further model, prompt, or language-quality change, read `benchmarks/R
 
 Don't select a model/profile based solely on speed, compression or syntactic validity. Record actual outputs privately, evaluate meaning and unsanitized character voice, record public conclusions with source/model digests and dates. No copyrighted film dialogue or private EN/JA output may be committed to public GitHub.
 
+## Latest translation benchmark caveat
+
+Read `benchmarks/RESULTS_001.md` and `benchmarks/RUN_LEDGER.md` before comparing further models. Real 256-output Benchmark 001 complete: 14 recognized formatting anomalies despite all outputs passing current Japanese validator; no native speaker score or certified 8/10 result. The tuned Gemma 4 Sub model was tested using a GENERIC batch-JSON prompt, not the model author's recommended previous-context/current-segment native prompt. Do not call it a fair model-native comparison or reject the tuned model without testing that format. Official Google TranslateGemma is a different, untested family. Multipass is **optional** and must show net fidelity improvement rather than become an assumed architecture.
+
 ## Working practice
 
 1. Recover context from GitHub: source + `docs/CURRENT_STATE.md` + open issues/PRs. Check if the user has newer live status; never infer that the last known worker is still running.
