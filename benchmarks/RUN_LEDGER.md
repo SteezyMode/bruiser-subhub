@@ -59,15 +59,17 @@
 
 **Highest-value next task:** have the Japanese-speaking household viewer watch 10–15 minutes with only the existing machine Japanese track, record intelligibility/awkwardness/timecodes. After that, make one model/pipeline decision before resuming guarded library source extraction and queueing the 2,026 ready-source candidates. Multi-pass remains optional and must show net benefit on actual errors.
 
-## Benchmark 004 — PR #19 merged (`632ab253`), 95 synthetic tests passed (3.11/3.12); REAL model run pending
+## Benchmark 004 — COMPLETE, real native-model comparison and decision (2026-11-02 JST)
 
-- Protocol: [EXPERIMENT_004.md](EXPERIMENT_004.md), frozen before model installation. A truly different model, not a Gemma4 prompt tweak. Official `translategemma:4b` is **Gemma 3, 4.3B, Q4_K_M, ~3.3 GB**, with recommended **single user** translation prompt and two blank lines before the input text.
-- Google receives 64 prior frozen English anchor cues plus 16 **new held-out** cues (8 near 515; 8 near 625); existing pinned subtitle-tuned Gemma4 receives only the 16 new held-out cues through its own validated Benchmark 002 native format. **96 private outputs**, real EN/JA assessment needed.
-- Model installation/download (~3.3 GB) is explicit in the Mac mini runner *after* frozen source verification. Do not confuse GitHub merge, offline unit test success, and actual owner-side run.
-- No production translator, checkpoint, media, or subtitle changes. Even if this model is superior, wait for Japanese-only viewing before whole-library rollout.
-- **Current result: PENDING.**
+- Frozen design: [EXPERIMENT_004.md](EXPERIMENT_004.md). **Real observed results: [RESULTS_004.md](RESULTS_004.md)**. Private uploaded JSON `primate-translategemma-004-20261101T165711Z.json`, generated 2026-11-02 01:59 JST, was examined; full copyrighted movie EN/JA text remains private.
+- Models: official Google `translategemma:4b`, Gemma3 4.3B Q4_K_M, Ollama ID `c49d986b0764`; existing tuned Gemma4 E4B Q4_K_XL ID `9ccfc3b07081`. Both native prompts; Google official single-translation user prompt, tuned subtitle model prior-context current-cue prompt.
+- 96/96 calls returned, all broad validator passes, no detected format artifacts. **Google 80**: median 9.15 JA chars/sec, 12 >14, 79.26 total model-call seconds. **New held-out 16** Google: median **9.0**, two >14, 12.99 model-call seconds; tuned native **same 16**: median **6.6**, two >14, 17.07 model-call seconds. Two models use different context and code paths; inference time is not a pure per-model speed ranking.
+- **Qualitative result:** Google's output repeatedly imposed formal Japanese in casual film dialogue and made substantive errors on meaning, slang, profanity, past-tense denial and temporary absence, plus invented actions and overlong timed lines. Tuned E4B more conversational and semantically sound on most of the new held-out cues, but was NOT flawless (catchphrase, command/subject drift). No native Japanese viewer score or certified 8/10 threshold.
+- **Decision:** DO NOT replace the movie translator with Google 4B or automatically use it as a critic. The already-tested **17slever17 tuned E4B under Benchmark 002's native prompt** remains the provisional choice; **this is not a production deployment**. Stop parameter-prompt microbenchmarks and get 10–15 minutes of actual Japanese-only viewing before promoting anything at scale. Multi-pass only if the viewer discovers a problem and a separate, controlled test shows net gain.
+- Next engineering milestone after practical viewing: safe new-job native translation path and guarded batch intake from the previously identified 2,026 English-source candidates, preserving existing human subtitles.
 
-| Arm | New source cues | Prior anchor cues | JA valid | Formatting flags | Human language/tone verdict |
-|---|---:|---:|---|---|---|
-| Google TranslateGemma 4B official prompt | 16 | 64 | — | — | Not tested |
-| Existing tuned Gemma4 E4B native protocol | 16 | 0 | — | — | Not tested |
+| Arm | Cues | Japanese accepted | Format flags | Median JA chars/sec | >14 JA chars/sec | Human/native viewer rating |
+|---|---:|---:|---:|---:|---:|---|
+| Google official TranslateGemma 4B (all) | 80 | 80 | 0 | 9.15 | 12 | Not measured |
+| Google 4B (held-out only) | 16 | 16 | 0 | 9.0 | 2 | Not measured |
+| Tuned subtitle Gemma4 E4B (same held-out) | 16 | 16 | 0 | 6.6 | 2 | Not measured |
