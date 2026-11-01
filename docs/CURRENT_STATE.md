@@ -23,11 +23,11 @@ Daily-use, local-first subtitle translation for a personal media library: Englis
 - Optional HY backtranslation **after** translation/publication. HY is diagnostic, never a gate.
 - `export-review` writes a full, local EN/JA/HY CSV. `review_sampler.py` adds prioritized/contextual editorial JSON exports from SQLite without inference or DB changes.
 
-Offline validation: **27 synthetic/mock tests passing locally**; GitHub Actions also ran the test suite. Neither establishes real-world Japanese translation quality.
+Offline validation: **32 synthetic/mock tests passing locally**; GitHub Actions also ran the test suite. Neither establishes real-world Japanese translation quality.
 
 ## Next code change: editorial preservation and blocker diagnostics
 
-The publisher previously archived and removed selected old Bruiser tracks, including `Bruiser Japanese Editorial v1`; it did not guard against an independent `.ja.srt` sidecar. A tested change in the pending preservation PR makes publishing create-only, refuses duplicate Japanese/editorial sidecars, and never deletes previous subtitle tracks. A `diagnose_blocked.py` tool queries the live SQLite database **read-only** to report exhausted cues and stored job hold reasons; use `--show-text` for private cue-level context only. **This change is not deployed to the OptiPlex by merging the PR.** 32 synthetic offline tests pass locally in the preservation patch workspace; rerun CI after merge.
+The publisher previously archived and removed selected old Bruiser tracks, including `Bruiser Japanese Editorial v1`; it did not guard against an independent `.ja.srt` sidecar. A tested change merged in PR #3 makes publishing create-only, refuses duplicate Japanese/editorial sidecars, and never deletes previous subtitle tracks. A `diagnose_blocked.py` tool queries the live SQLite database **read-only** to report exhausted cues and stored job hold reasons; use `--show-text` for private cue-level context only. **Merged as PR #3**, commit `1f54506a` (2026-11-01); **not deployed** to OptiPlex. 32/32 synthetic offline tests passed locally and GitHub Actions passed on the PR branch.
 
 ## Critical limitations / unresolved questions
 
