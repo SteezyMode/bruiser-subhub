@@ -24,6 +24,14 @@ Existing *Primate* 80-cue English/Japanese private packet was reviewed: several 
 
 **Next:** complete the media census (3,000+ ffprobe headers reported so far; final count not yet supplied). Run the small A/B test against the corrected batch path, inspect meaning, tone, naturalness and readability, and only then consider safely enabling a profile for new translations. Do not retranslate published titles automatically or expand scope to another single-film repair.
 
+## Live library census and natural_8 A/B results — November 1, 2026 (owner logs)
+
+**Read-only census finished across two configured media roots:** 13,199 video files / 4.14 TB video files scanned; 42 existing Japanese sidecars, 400 existing Japanese embedded tracks, 2,026 with detected English text and English audio metadata, 268 image-subtitle/OCR candidates, 4,670 with verified English audio but no detected usable English source, 5,764 with audio **not verified** as English (includes missing/undetermined tags and explicitly foreign language; do not treat them all as foreign-language films), 29 metadata probe failures. No per-title JSON was saved. These groups are conservative and unverified; quality and sidecar syntax are not established. In particular, no evidence yet that a meaningful fraction of the 5,764 have non-English audio versus absent language tags. **Do not blindly queue 2,026 jobs** without confirming English track extraction and existing human Japanese protection.
+
+**Isolated real Ollama A/B executed successfully:** 5 non-overlapping 8-cue Primate windows, 40/40 candidate results, windows 31–38, 67–74, 203–210, 376–383 and 461–468; per-window durations 8.58s, 4.18s, 4.13s, 4.63s, 4.55s (~26.07s total). Profile is `natural_8`, explicitly preserving profanity, violence, idioms, character voice while aiming for natural, readable Japanese; **no production deployment**, checkpoint or subtitle change. PRIVATE side-by-side A/B JSON was generated on Mac mini at `~/Downloads/primate-2026-1080p-amzn-web--ad1c564197.natural8-ab-20261101T135551Z.json`, **not uploaded to chat**. Prompt not yet qualified linguistically: 40 successful responses do not imply 40 good translations.
+
+**Immediate highest-value next action:** review the private 40-cue A/B JSON against existing Japanese, especially cues 35, 71, 207, 380 and 465. Decide whether new profile improves meaning/idioms/tone/readability without censorship, before enabling it globally. Parallel library-scale path: distinguish unknown audio tags from non-English, verify actual usable EN text extraction for a small batch of candidates, then build guarded discovery+queue and preserve original tracks. No more one-film edge-case work unless systemic.
+
 ## Source of truth
 
 - GitHub `main`: versioned **development baseline** for SubHub 1.0, not proof of server installation state or a portable installer.
