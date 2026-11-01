@@ -38,6 +38,10 @@ Read `benchmarks/EXPERIMENT_002.md` before new model or prompt work: the user ap
 
 Benchmark 002 successfully used developer-style `CURRENT_SOURCE` and previous pairs, **but not strictly the card's minimal settings**. See `benchmarks/RESULTS_002.md` for exact measured 64-cue outcome, eight stale-context transitions and model/runtime differences. No actual 8/10 certification. Before making further prompt changes read `benchmarks/EXPERIMENT_003.md`: two arms use the same literal-ish card prompt, one prior pair and fixed generation settings; the *only* within-experiment difference is an 8-second stale-context cutoff. Both remain read-only Ollama tests. After benchmark 003 and short native Japanese viewing review, favor choosing a practical single-pass workflow; multi-pass remains optional only with proven net gain. Stop unnecessary prompt churn.
 
+## Latest verified evidence and stop rule (Benchmark 003)
+
+Benchmark 003 has **run on the user's Ollama** and its private 128-output JSON was reviewed: both arms 64/64 returned, zero format artifacts, 7 over 14 JA chars/sec, median 6.85; 8s stale-context cutoff changed 6/64 outputs with no compelling net benefit. Full result in `benchmarks/RESULTS_003.md`; community/author/model memory/japanese subtitle research in `benchmarks/COMMUNITY_RESEARCH_2026-11-02.md`. Do **not** rerun prompt micro-tuning, switch to bigger weights on the 6GB card without a supported reason, invent speaker names, treat Japanese as low-resource, or install multiple models by default. Japanese tier-1 trained; harder features are English slang, voice/register/omission, short timings. No native-speaker 8/10 evaluation yet. Highest-value next step: real Japanese-only short film viewing report, then proceed to guarded library processing or one substantive model/context intervention if genuinely needed.
+
 ## Working practice
 
 1. Recover context from GitHub: source + `docs/CURRENT_STATE.md` + open issues/PRs. Check if the user has newer live status; never infer that the last known worker is still running.

@@ -1,6 +1,6 @@
 # Benchmark 003 — near-literal model-card configuration, controlled stale context
 
-**PRE-REGISTERED; real local model run NOT YET PERFORMED.** Read measured [RESULTS_002.md](RESULTS_002.md) and [RESULTS_001.md](RESULTS_001.md) first. Goal: assess whether the installed subtitle-tuned model can improve beyond Benchmark 002 by honoring the model author's minimal prompt and avoiding irrelevant old context. This is NOT a general reoptimization of the whole subtitle pipeline and NOT a multi-pass system.
+**The experiment was PRE-REGISTERED before the actual local model run. It is now COMPLETE; see [RESULTS_003.md](RESULTS_003.md).** Read measured [RESULTS_002.md](RESULTS_002.md) and [RESULTS_001.md](RESULTS_001.md) first. Goal: assess whether the installed subtitle-tuned model can improve beyond Benchmark 002 by honoring the model author's minimal prompt and avoiding irrelevant old context. This is NOT a general reoptimization of the whole subtitle pipeline and NOT a multi-pass system.
 
 ## Frozen inputs and model
 
@@ -38,4 +38,4 @@ The command runs offline tests, copies only benchmark scripts into a **separate 
 
 ## Result
 
-**NOT RUN AGAINST THE MODEL YET.** CI/unit tests demonstrate code mechanics, not Japanese subtitle quality.
+**Real model run complete**: 128/128 outputs, two arms, 64 source cues; see [RESULTS_003.md](RESULTS_003.md). Offline CI verified mechanics only; no independent Japanese-language viewing grade exists.
