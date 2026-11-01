@@ -8,7 +8,7 @@ Daily-use, local-first subtitle translation for a personal media library: Englis
 
 ## Source of truth
 
-- GitHub `main`: deployable **source baseline** for SubHub 1.0, not proof of server installation state.
+- GitHub `main`: versioned **development baseline** for SubHub 1.0, not proof of server installation state or a portable installer.
 - Server: known pilot source at `~/bruiser-pilot/subhub1`, SQLite/runtime state at `~/bruiser-pilot/subhub1-state` (separate from Git).
 - Earlier household worker: separate legacy `~/bruiser-pilot/subhub-household` state and translation memory. Do not delete/overwrite it.
 - The last reported live snapshot showed a worker `main.py --root ... run --mode all ... --hy-sample 48 --publish`, a local dashboard on port 8686, and `gemma4:e4b-it-qat` loaded on the RTX 3050. **Current live status and per-film outcomes are unverified.**
@@ -21,7 +21,9 @@ Daily-use, local-first subtitle translation for a personal media library: Englis
 - Source hash/time/cue validation and verified English audio check before publishing, preservation of existing editorial track.
 - `--publish` required for sidecar writes, per-run budget, temperature guards and single worker lock.
 - Optional HY backtranslation **after** translation/publication. HY is diagnostic, never a gate.
-- `export-review` writes a full, local EN/JA/HY CSV. `review_sampler.py` (on its development branch until merged) adds prioritized/contextual editorial JSON exports from SQLite without inference or DB changes.
+- `export-review` writes a full, local EN/JA/HY CSV. `review_sampler.py` adds prioritized/contextual editorial JSON exports from SQLite without inference or DB changes.
+
+Offline validation: **27 synthetic/mock tests passing locally**; GitHub Actions also ran the test suite. Neither establishes real-world Japanese translation quality.
 
 ## Critical limitations / unresolved questions
 
