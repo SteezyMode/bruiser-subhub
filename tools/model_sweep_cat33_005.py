@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import hashlib
+import importlib
 import json
 from pathlib import Path
 import statistics
@@ -35,6 +36,28 @@ QUANT='bitsandbytes_nf4_4bit_float16'
 MAX_NEW_TOKENS=512
 
 
+def tokenizer_dependency_versions(importer=importlib.import_module):
+    """Fail early on tokenizer dependencies before HF downloads or CUDA loading.
+
+    The final CAT tokenizer's Llama fast/slow conversion requires sentencepiece
+    AND Google's protobuf. Both are installed only in the isolated CAT venv.
+    """
+    versions={}
+    for name, module_name in (
+        ('sentencepiece','sentencepiece'),
+        ('protobuf','google.protobuf'),
+    ):
+        try:
+            module=importer(module_name)
+        except (ImportError,ModuleNotFoundError) as exc:
+            raise RuntimeError(
+                'Missing CAT tokenizer dependency '+name+
+                ' in isolated venv; reinstall tools/cat33_requirements_005.txt'
+            ) from exc
+        versions[name]=getattr(module,'__version__','unknown')
+    return versions
+
+
 def preflight(root):
     groups=dataset(root)
     try:
@@ -45,6 +68,7 @@ def preflight(root):
         import huggingface_hub
     except ImportError as exc:
         raise RuntimeError('Missing isolated Transformers/torch/bitsandbytes dependency: '+str(exc))
+    tokenizer_versions=tokenizer_dependency_versions()
     if not torch.cuda.is_available():
         raise RuntimeError('CUDA GPU not available; do not run slow unquantized CPU fallback')
     free,total=torch.cuda.mem_get_info()
@@ -56,6 +80,7 @@ def preflight(root):
         'accelerate':accelerate.__version__,
         'bitsandbytes':bitsandbytes.__version__,
         'huggingface_hub':huggingface_hub.__version__,
+        **tokenizer_versions,
     }
     return groups,versions,{'free_before_bytes':free,'total_bytes':total}
 
