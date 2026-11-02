@@ -2,12 +2,12 @@
 # Controlled multi-model sweep. Downloads only specific documented model tags.
 # Safe per-arm independent private outputs; failures never erase other results.
 set -euo pipefail
-HOST="${1:?Usage: bash tools/run_model_sweep_005.sh optiplex@HOST [small|all|tuned|cat7|hy7|google12]}"
+HOST="${1:?Usage: bash tools/run_model_sweep_005.sh optiplex@HOST [small|all|cat33|tuned|cat7|hy7|google12]}"
 MODE="${2:-all}"
 case "$MODE" in
-  all) ARMS=(tuned cat7 hy7 google12) ;;
-  small) ARMS=(tuned cat7 hy7) ;;
-  tuned|cat7|hy7|google12) ARMS=("$MODE") ;;
+  all) ARMS=(cat33 tuned cat7 hy7 google12) ;;
+  small) ARMS=(cat33 tuned cat7 hy7) ;;
+  cat33|tuned|cat7|hy7|google12) ARMS=("$MODE") ;;
   *) echo "Unknown model arm: $MODE" >&2; exit 2 ;;
 esac
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -31,6 +31,16 @@ echo "OTHER OLLAMA MODELS CURRENTLY LOADED:"
 ssh "$HOST" 'ollama ps || true'
 
 for ARM in "${ARMS[@]}"; do
+  if [ "$ARM" = cat33 ]; then
+    echo "=== CAT 3.3B FINAL — separate CUDA Transformers environment ==="
+    if bash tools/run_cat33_005.sh "$HOST" "$DEST"; then
+      printf 'cat33\tcomplete\n' >> "$DEST/STATUS.txt"
+    else
+      echo "CAT 3.3B failed or is blocked; continuing other models"
+      printf 'cat33\tBLOCKED or incomplete — see separate output\n' >> "$DEST/STATUS.txt"
+    fi
+    continue
+  fi
   case "$ARM" in
     tuned) MODEL='hf.co/17slever17/translate-gemma-4-sub-e4b-GGUF:Q4_K_XL' ;;
     cat7) MODEL='hf.co/mradermacher/CAT-Translate-7b-GGUF:Q4_K_M' ;;
