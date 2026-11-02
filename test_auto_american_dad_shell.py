@@ -24,5 +24,23 @@ class AutoShellTests(unittest.TestCase):
         self.assertNotIn('rm -rf',content)
 
 
+    def test_supervised_worker_repair_launcher_syntax_and_safety(self):
+        root=Path(__file__).resolve().parent
+        script=root/'tools/repair_american_dad_worker.sh'
+        p=subprocess.run(['bash','-n',str(script)],
+                         capture_output=True,text=True,timeout=10)
+        self.assertEqual(p.returncode,0,p.stderr)
+        body=script.read_text(encoding='utf8')
+        self.assertIn('american_dad_maintenance.py',body)
+        self.assertIn('enable_american_dad_timer.py',body)
+        self.assertIn('Type=exec',body)
+        self.assertIn('RuntimeMaxSec=11h',body)
+        self.assertIn('start --no-block',body)
+        self.assertNotIn('sudo ',body)
+        self.assertNotIn('systemctl restart',body)
+        self.assertNotIn('docker restart',body)
+        self.assertNotIn('rm -rf',body)
+        self.assertNotIn('pip install',body)
+
 if __name__=='__main__':
     unittest.main()

@@ -4,6 +4,20 @@
 
 Currently a local English-to-Japanese subtitle translation coordinator for a personal media server. **Public-source development repository; currently an OptiPlex-specific working pilot, not a portable installer.**
 
+## Repair interrupted American Dad background worker (2026-11-02)
+
+**Real host diagnosis:** the nightly user `Type=oneshot` service successfully selected S20, spawned an `american_dad_seasons.py` detached process, then exited. Its systemd cgroup ended too, terminating the season child before it could print or publish work. A successful launch PID was *not* successful translation. This revision replaces the maintenance launcher with **supervised foreground season execution** in a distinct systemd `Type=exec` service, Python unbuffered output, an 11-hour bound, and logs simultaneously in the journal and `american-dad-seasons.log`. The change upgrades only the **exact previously installed Bruiser unit**, saves its old content as a private backup and preserves all user timers and media services.
+
+On MacBook after merge:
+
+```bash
+cd ~/Downloads/bruiser-subhub-repo
+git pull --ff-only
+bash tools/repair_american_dad_worker.sh optiplex@YOUR_HOST
+```
+
+This stages two repaired scripts and requests a new service run for the already-selected season. It does not re-download Whisper, re-run the entire Jellyfin source inventory, change Gemma prompts, or touch any videos. The command outputs the live service status and journal. If the maintenance service is already working, it does not interrupt it.
+
 ## American Dad: automatically select a workable season, fill missing English locally
 
 **After the real Jellyfin scan:** 12,398 videos; 3,073 already have English text; 9,325 lack it. All 18 Season 8 attempts had no exact-provider hash match, and the later targeted subtitle download reported no usable English. To avoid picking an impossible season or asking you to fetch captions manually, use this one MacBook command:

@@ -1,5 +1,18 @@
 # Current state and next actions
 
+## 2026-11-02 — REAL S20 session launch died: systemd oneshot cgroup lifecycle fixed, needs host repair
+
+Owner confirmed maintenance selected American Dad Season 20 with **22/22 verified English source episodes** and spawned a background season translator PID 1259723 at 22:41 local, then reported service finished successfully. Subsequent host check showed PID **gone**, no `american_dad_seasons.py` or `daily_worker.py` process, and season log had **only a new S20 header, no SEASON_STARTED/progress**. Previous assistant's ad-hoc SQLite query failed `near "%"` because SQL single quotes were nested inside a Bash single-quoted remote command; that diagnostic error is not evidence of damaged SubHub database.
+
+Root cause code finding: `american_dad_maintenance.py` called `american_dad_seasons.start_background()` using `subprocess.Popen(start_new_session=True)` **inside** a user `Type=oneshot` service. That child stayed in the same systemd cgroup; systemd terminates leftover child processes when the oneshot unit stops. This deterministically explains the immediate loss of the child without Python tracebacks, although no kernel kill log has been retrieved. Do not blindly restart same bug.
+
+Fix PR: `tools/american_dad_maintenance.py` now calls `run_supervised`, which executes the same unchanged season campaign **synchronously in the foreground of the user service** with unbuffered live journal logging + persistent `american-dad-seasons.log` tee, preserving existing SubHub locks, GPU preflights, resumable checkpoints and create-only Japanese publisher. `tools/enable_american_dad_timer.py` upgrades the EXACT old on-host unit to `Type=exec`, `ExecStart=python3 -u`, `RuntimeMaxSec=11h`, `KillMode=control-group`, keeps previous 04:30 timer, CPUQuota 250%, 5GB memory cap, and saves exact old unit to `.service.before-supervised.bak`; refuses overwriting any differing user unit. `tools/repair_american_dad_worker.sh` stages ONLY those two fixes, installs the migration, starts one selected-season service run, and prints status without touching Jellyfin/Ollama/SubHub or model installations. Offline CI exercises lifecycle, log tee, exact migration backup, unknown-file refusal, and shell syntax. No host proof of the repaired service yet.
+
+MacBook command after merge:
+`cd ~/Downloads/bruiser-subhub-repo && git pull --ff-only && bash tools/repair_american_dad_worker.sh optiplex@YOUR_HOST`
+
+Next proof: user systemd service should remain **active/running** while its season worker works, then emit SEASON_STARTED / SEASON_SOURCE / SEASON_RESULT or a concrete SEASON_INTERRUPTED error, and eventually published JA. Don't claim working translation solely from service launch.
+
 ## 2026-11-02 — REAL library scan: 12,398 media files; all S08 missing. Auto-select season + local CPU ASR fallback implemented
 
 Owner ran `stock_english_sources.sh` on the real OptiPlex. **EN_STATUS: total 12,398, ready 3,073, missing 9,307, no_hash_match 18**. Those 18 are ALL American Dad S08 episodes; no automatic file-hash match. The new daily 03:30 local English-provider source timer reported **active**. Owner also ran targeted `fetch_american_dad_english.sh` for Season 8; **SEASON_NOT_STARTED no_usable_english_sources**. It still lacked English SRTs. Do not repeat failed S08 provider searches or ask user to manually configure Jellyfin. The user explicitly authorizes choosing a better-suited actual season and asks automation to strengthen the system.
