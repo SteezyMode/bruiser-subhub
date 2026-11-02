@@ -85,7 +85,7 @@ class Context008Tests(unittest.TestCase):
     def test_invalid_model_output_never_persists(self):
         with self.assertRaises(ValueError):
             e.cached_context('series','American Dad',[self.ep1],
-                 cache=self.manifest,ask=lambda *_:{'names':'Stan'})
+                 cache=self.manifest,ask=lambda *_,**kw:{'names':'Stan'})
         self.assertFalse((self.manifest/'series'/'american-dad.json').exists())
 
     def test_context_keeps_future_english_not_future_translations(self):
@@ -107,7 +107,7 @@ class Context008Tests(unittest.TestCase):
         before=manual.read_bytes()
         e.cached_context('series','American Dad',[self.ep1],
                          cache=self.manifest,
-                         ask=lambda *_:{'names':[],'terms':[],'notes':[],'caveats':[]})
+                         ask=lambda *_,**kw:{'names':[],'terms':[],'notes':[],'caveats':[]})
         self.assertEqual(e.override_note({'title':'American Dad'},root=self.manifest)['names'],
                          ['Roger => ロジャー'])
         self.assertEqual(manual.read_bytes(),before)
