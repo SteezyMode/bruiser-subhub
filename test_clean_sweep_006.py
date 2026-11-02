@@ -99,7 +99,11 @@ class Clean006Tests(unittest.TestCase):
         self.assertEqual(s.blind(self.out),0)
         self.assertEqual(s.blind(self.out),0)
         blind=self.out/'blind'
-        key=json.loads((blind/'IDENTITY_KEY_PRIVATE.json').read_text())
+        key=json.loads((self.out/'IDENTITY_KEY_PRIVATE.json').read_text())
+        self.assertFalse((blind/'IDENTITY_KEY_PRIVATE.json').exists())
+        self.assertTrue((blind/'s01'/'SCENE_PRIVATE.json').is_file())
+        scene_info=json.loads((blind/'s01'/'SCENE_PRIVATE.json').read_text())
+        self.assertGreater(scene_info['end_seconds'],scene_info['start_seconds'])
         self.assertEqual(set(key['mapping']),set(x['scene_id'] for x in scenes))
         self.assertEqual(set(key['mapping']['s01']),{'A','B'})
         first=(blind/'s01'/'option_A.srt')
@@ -108,7 +112,11 @@ class Clean006Tests(unittest.TestCase):
         self.assertIn('これは人工の日本語です。',first.read_text())
         self.assertFalse((blind/'s01'/'option_A.srt.json').exists())
         self.assertTrue((blind/'REVIEW_SCORES_PRIVATE.csv').exists())
-        self.assertTrue(s.summarize(self.out)['tuned_e4b']['complete'])
+        metrics=s.summarize(self.out)['tuned_e4b']
+        self.assertTrue(metrics['complete'])
+        self.assertEqual(metrics['accepted_japanese'],metrics['expected'])
+        self.assertEqual(metrics['model_call_errors'],0)
+        self.assertIn('NOT JUDGED',metrics['quality'])
 
     def test_blind_excludes_blocked_results(self):
         manifest=s.prepare(self.root,self.out)
@@ -124,7 +132,7 @@ class Clean006Tests(unittest.TestCase):
         s.store_exclusive(self.out/'arms'/'cat7'/'blocked.json',
                           {'reason':'invalid chat template'})
         self.assertEqual(s.blind(self.out),1)
-        self.assertFalse((self.out/'blind'/'IDENTITY_KEY_PRIVATE.json').exists())
+        self.assertFalse((self.out/'IDENTITY_KEY_PRIVATE.json').exists())
 
 if __name__=='__main__':
     unittest.main()
