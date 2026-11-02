@@ -1,8 +1,16 @@
 #!/usr/bin/env bash
 # Five complete American Dad episodes; no live worker deployment.
 set -euo pipefail
-if [ "$#" -ne 1 ]; then echo "Usage: bash tools/run_american_dad_pilot_009.sh optiplex@HOST" >&2; exit 2; fi
+if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
+  echo "Usage: bash tools/run_american_dad_pilot_009.sh optiplex@HOST [--cached-only]" >&2
+  exit 2
+fi
 HOST="$1"
+MODE="${2:-}"
+if [ -n "$MODE" ] && [ "$MODE" != "--cached-only" ]; then
+  echo "Unknown option: $MODE" >&2
+  exit 2
+fi
 ROOT="$(cd -- "$(dirname -- "$0")/.." && pwd)"
 cd "$ROOT"
 echo "=== OFFLINE REGRESSION TESTS ==="
@@ -17,9 +25,15 @@ scp -q tools/series_profiles/american_dad.json \
 RUN='python3 ~/bruiser-pilot/american-dad-pilot-009-code/american_dad_pilot_009.py'
 echo "=== FREEZE UP TO FIVE ELIGIBLE EPISODES, ENGLISH SOURCE ONLY ==="
 ssh "$HOST" "$RUN prepare --episodes 5"
-echo "=== PINNED GEMMA E4B: FULL EPISODES, CREATE-ONLY JAPANESE SIDECARS ==="
-ssh "$HOST" "$RUN run --episodes 5 --minutes 420 --publish" \
-  2>&1 | tee -a "$HOME/Downloads/american-dad-pilot-009.log"
+if [ "$MODE" = "--cached-only" ]; then
+  echo "=== FINISH CACHED JAPANESE: NO OLLAMA CALLS; CREATE-ONLY PILOT SIDECAR ==="
+  ssh "$HOST" "$RUN finalize-cached --episodes 5" \
+    2>&1 | tee -a "$HOME/Downloads/american-dad-pilot-009.log"
+else
+  echo "=== PINNED GEMMA E4B: FULL EPISODES, CREATE-ONLY JAPANESE SIDECARS ==="
+  ssh "$HOST" "$RUN run --episodes 5 --minutes 420 --publish" \
+    2>&1 | tee -a "$HOME/Downloads/american-dad-pilot-009.log"
+fi
 echo "=== STATUS ==="
 ssh "$HOST" "$RUN status"
 echo "Log: $HOME/Downloads/american-dad-pilot-009.log"
