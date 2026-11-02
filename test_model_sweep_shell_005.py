@@ -10,7 +10,8 @@ class SweepBashSyntaxTests(unittest.TestCase):
         if not shutil.which('bash'):
             self.skipTest('Bash unavailable')
         root=Path(__file__).resolve().parent
-        for path in ('tools/run_model_sweep_005.sh','tools/run_cat33_005.sh'):
+        for path in ('tools/run_model_sweep_005.sh','tools/run_cat33_005.sh',
+                     'tools/diagnose_model_sweep_005.sh'):
             with self.subTest(path=path):
                 result=subprocess.run(['bash','-n',str(root/path)],
                                       capture_output=True,text=True)
