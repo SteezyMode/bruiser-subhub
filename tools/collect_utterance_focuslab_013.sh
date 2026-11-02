@@ -12,10 +12,6 @@ umask 077
 mkdir -p "$HOME/Downloads"
 TMP="$(mktemp "$HOME/Downloads/.focuslab-013-private.XXXXXXXX.tar.gz")"
 trap 'rm -f -- "$TMP"' EXIT
-ssh "$HOST" 'python3 -' < "$ROOT/tools/utterance_focuslab_013.py" > /dev/null 2>&1 && {
- echo 'Unexpected side effect prevention: do not run generic script without export' >&2
- exit 1
-}
 ssh "$HOST" 'python3 ~/bruiser-pilot/utterance-focuslab-013-code/utterance_focuslab_013.py export' > "$TMP"
 tar -tzf "$TMP" >/dev/null
 DEST="$HOME/Downloads/american-dad-focuslab-013-review-$(date -u +%Y%m%dT%H%M%SZ).tar.gz"
