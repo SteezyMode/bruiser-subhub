@@ -28,6 +28,7 @@ ssh "$HOST" 'mkdir -p -m 700 ~/bruiser-pilot/american-dad-season-code'
 scp -q \
   tools/american_dad_seasons.py \
   tools/daily_japanese.py \
+  tools/subtitle_publish_gate.py tools/subtitle_quality_010.py \
   tools/daily_worker.py \
   tools/jellyfin_english_sources.py \
   "$HOST:~/bruiser-pilot/american-dad-season-code/"
