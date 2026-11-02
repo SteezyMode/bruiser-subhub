@@ -8,7 +8,7 @@
 
     cd ~/Downloads/bruiser-subhub-repo
     git pull --ff-only
-    bash tools/stock_english_sources.sh optiplex@100.121.156.34
+    bash tools/stock_english_sources.sh optiplex@YOUR_HOST
 
 This runs all offline tests, stages only isolated helpers under ~/bruiser-pilot/english-source-code on OptiPlex, and performs a full metadata inventory of Jellyfin Movies and Episodes. It may prompt one time for the EXISTING Jellyfin administrator username/password in the SSH terminal. The password is hidden and never stored or logged; only a private access token is kept (0600) at ~/.config/bruiser/jellyfin-english-source-auth.json.
 
@@ -18,7 +18,7 @@ The Mac command also attempts to enable a nightly *user-level systemd timer* for
 
 ## Monitor
 
-    ssh optiplex@100.121.156.34 \
+    ssh optiplex@YOUR_HOST \
       'python3 ~/bruiser-pilot/english-source-code/library_english_sources.py status'
 
 Aggregate metrics only:
@@ -29,12 +29,12 @@ Aggregate metrics only:
 
 A strictly metadata-only scan (no external provider calls):
 
-    ssh -tt optiplex@100.121.156.34 \
+    ssh -tt optiplex@YOUR_HOST \
       'python3 ~/bruiser-pilot/english-source-code/library_english_sources.py scan'
 
 A further explicitly bounded source search:
 
-    ssh -tt optiplex@100.121.156.34 \
+    ssh -tt optiplex@YOUR_HOST \
       'python3 ~/bruiser-pilot/english-source-code/library_english_sources.py fill --budget 10'
 
 ## Rules and scope
@@ -53,7 +53,7 @@ A further explicitly bounded source search:
 Use the already-built Season 8 Gemma translator:
 
     cd ~/Downloads/bruiser-subhub-repo
-    bash tools/run_american_dad_seasons.sh optiplex@100.121.156.34 8
+    bash tools/run_american_dad_seasons.sh optiplex@YOUR_HOST 8
 
 English acquisition across the entire library NEVER translates all titles into Japanese. Japanese remains a deliberately selected queue, starting with S08.
 
