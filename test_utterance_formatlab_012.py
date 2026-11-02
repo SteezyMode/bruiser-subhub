@@ -213,7 +213,7 @@ class Lab012(unittest.TestCase):
         self.experiment()
         baseline=self.recovery_state/'episodes'/'S19E10'/'pilot-recovered.ja.srt'
         baseline.write_bytes(baseline.read_bytes().replace(
-            b'00:00:00,000',b'00:00:01,000'))
+            b'00:00:00,000',b'00:00:00,100'))
         with self.assertRaisesRegex(RuntimeError,'timing differs'):
             lab.private_export(self.state,self.original_state,
                                self.recovery_state,self.profile,io.BytesIO())
