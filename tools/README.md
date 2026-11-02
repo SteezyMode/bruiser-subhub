@@ -106,3 +106,13 @@ Partial public findings and structural contamination caveat in `benchmarks/RESUL
 ## Benchmark 005 recovery after owner read-only diagnostics (2026-11-02)
 
 The tuned model is present and correct: `hf.co/...Q4_K_XL` is the tag; Ollama `quantization_level` is `Q4_K_M`. The false-negative model metadata check was fixed with the exact pinned ID and gemma4 family retained. CAT 3.3B **source/environment/CUDA preflight works**; its failure is later, exact traceback unobserved. After updating the MacBook checkout, run only the two missing arms with `bash tools/run_model_sweep_005.sh optiplex@100.121.156.34 missing`. This downloads NO new tuned model and does not rerun Hy7, CAT7 or Google12; CAT 3.3B may still download official HF weights through isolated venv. `cat33-run.log` saves actual stderr if it fails. Share the two new private model JSONs and/or redacted CAT log; then compare tuned vs HY7 on identical 64 cue IDs.
+
+## Benchmark 005 — paired tuned/HY results, final CAT memory-only retry
+
+Tuned subtitle-Gemma E4B now completed successfully (64/64, Q4_K_M reported quant despite Q4_K_XL tag). With HY7 on identical English/timecodes it is faster, less dense and preferred by the assistant's provisional cue-masked review in 26 versus 15 cues (23 ties), but both have real meaning errors. See `benchmarks/RESULTS_005_TUNED_HY_PAIRED.md`. **Only final CAT3.3 remains unfinished.** Its logs show `Under 3GB free VRAM` during preflight after tuned benchmark kept Ollama model resident; cannot assume exact GPU consumer without measuring.
+
+The updated CAT runner prints current Ollama-loaded models (`ollama ps`) and NVIDIA free VRAM before Python model loading. It does NOT terminate any other Ollama model, worker or desktop service. With no active translation/AI/game workloads and sufficient VRAM, run from MacBook:
+
+    bash tools/run_model_sweep_005.sh optiplex@100.121.156.34 cat33
+
+Mode `missing` is now also cat33-only, so none of the four successful arms are rerun. CAT3.3 Python packages remain isolated in its original venv. If its preflight fails, share private `cat33-run.log` and the current `ollama ps`; do not disable ongoing services just to get the benchmark through. Preserve all private model JSONs. No production source, SQLite, media, human Japanese or queued jobs changed.
