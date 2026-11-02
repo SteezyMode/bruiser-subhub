@@ -121,6 +121,30 @@ def current(root):
     return None
 
 
+def persist_choice(root,season,why):
+    if not isinstance(season,int) or not 1<=season<=40:
+        raise ValueError('Invalid season selection')
+    root=Path(root)
+    root.mkdir(mode=0o700,parents=True,exist_ok=True)
+    path=choice_file(root)
+    if path.is_symlink():raise RuntimeError('Unsafe selection path')
+    data={'schema':1,'season':season,
+          'selected_utc':datetime.now(timezone.utc).isoformat(),
+          'reason':why}
+    temporary=path.with_name(path.name+'.tmp-'+str(os.getpid()))
+    flags=os.O_WRONLY|os.O_CREAT|os.O_EXCL
+    fd=os.open(temporary,flags,0o600)
+    try:
+        with os.fdopen(fd,'w',encoding='utf8') as handle:
+            json.dump(data,handle,sort_keys=True)
+            handle.write('\n')
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary,path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def select(choices,root,save=False):
     old=current(root)
     sticky=next((c for c in choices if c['season']==old),None)
@@ -133,25 +157,7 @@ def select(choices,root,save=False):
         selected=rank(choices)
         why='best_real_english_coverage' if selected else 'no_viable_season'
     if selected and save:
-        root=Path(root)
-        root.mkdir(mode=0o700,parents=True,exist_ok=True)
-        path=choice_file(root)
-        if path.is_symlink():raise RuntimeError('Unsafe selection path')
-        data={'schema':1,'season':selected['season'],
-              'selected_utc':datetime.now(timezone.utc).isoformat(),
-              'reason':why}
-        temporary=path.with_name(path.name+'.tmp-'+str(os.getpid()))
-        flags=os.O_WRONLY|os.O_CREAT|os.O_EXCL
-        fd=os.open(temporary,flags,0o600)
-        try:
-            with os.fdopen(fd,'w',encoding='utf8') as handle:
-                json.dump(data,handle,sort_keys=True)
-                handle.write('\n')
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(temporary,path)
-        finally:
-            temporary.unlink(missing_ok=True)
+        persist_choice(root,selected['season'],why)
     return selected,why
 
 
