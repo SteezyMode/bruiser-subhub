@@ -1,5 +1,19 @@
 # Current state and next actions
 
+## 2026-11-02 — User's original goal restored: batch American Dad S08, optionally S09, using existing successful daily worker
+
+Previous response targeted S19/20 because they were earlier experimental pilot episodes—not because the household chose to watch those seasons. User challenged this; **the season must be user-selectable**, with Season **8** as the first actual requested viewing batch and Season **9** optional. **No model/format experiments, no dual-sub work, no unrelated movies.**
+
+New tools/american_dad_seasons.py plus tools/run_american_dad_seasons.sh: find actual American Dad S08E*/08x* filenames under approved media roots; print a READ-ONLY plan; verify existing Japanese across same-episode copies, verified English audio, embedded text or labeled EN SRT; queue and translate/publish one episode at a time using installed SubHub 1.0 main.run through existing daily_worker.py. Genuine episode checkpoints and already-published Japanese remain untouched. Explicit single-instance campaign lock, 480-minute/50-episode budget, pause detection; resuming the SAME command bypasses completed episodes, continues existing partial ones and skips irrecoverably held episodes. Unrelated queue jobs (including Bottoms) are not run. No fictional missing episodes or auto-created English sources.
+
+**Owner's MacBook command after merge:**
+
+    cd ~/Downloads/bruiser-subhub-repo
+    git pull --ff-only
+    bash tools/run_american_dad_seasons.sh optiplex@100.121.156.34 8
+
+If the user explicitly wants two seasons, append 9. Check ~/bruiser-pilot/subhub1-state/american-dad-seasons.log on the host. Do not claim host has run this campaign until real log verifies it. The current model's Japanese quality remains limited; the purpose is to publish actual season subtitles and watch them rather than endless isolated QA pilots. Full instructions: docs/AMERICAN_DAD_SEASON_BATCH.md.
+
 ## 2026-11-02 — Switch from format experiments to real daily household English→Japanese subtitles
 
 User clarified that **dual subtitles are already solved in Jellyfin** and matter only for audio that is neither English nor Japanese; **do not build dual subs**. The actual goal is nightly/regular **usable Japanese subtitles for English films and TV with partner**, rather than more numbered/JSON/utterance pilot research. Original v011/v012/v013 results stand as evidence of ~5.5–6/10 Japanese and limited E4B multi-cue reliability; stop experimental version churn.
