@@ -80,7 +80,7 @@ class Unit011(unittest.TestCase):
         self.assertTrue(sem.valid_speakers(en,'俺はここだ。\n俺も。'))
 
     def test_singleton_two_speaker_prompt_explicitly_preserves_both(self):
-        source=[row(1,0,1200,'- First person.\\n- Second person.')]
+        source=[row(1,0,1200,'- First person.\n- Second person.')]
         messages=v3.messages_for(source,source,[],'{}',None,None,1)
         self.assertIn('two explicitly dashed',messages[0]['content'])
         self.assertIn('each beginning',messages[0]['content'])
