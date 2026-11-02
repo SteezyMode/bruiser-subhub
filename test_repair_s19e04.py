@@ -30,7 +30,7 @@ class S19RepairTests(unittest.TestCase):
             self.video.stem+'.Bruiser Pilot Japanese.ja.srt')
         self.en=rows()
         original={str(r[0]):'自然な日本語です。' for r in self.en}
-        original['52']='それに次の台詞を余計に含めた長いロジャーの説明文がここに入っています。'
+        original['52']='先に全部説明してしまうけれど次の台詞を余計に含めた長いロジャーの説明文がここに入っています。'
         original['53']='次の台詞を余計に含めた長いロジャーの説明文がここに入っています。'
         original['54']='おかしな翻訳です。'
         self.ja=original
