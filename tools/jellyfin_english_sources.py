@@ -236,10 +236,10 @@ def pick(results,season,episode,video):
     return accepted[0]
 
 
-def process(roots,root,seasons,client,apply=False,start=False,
+def process(roots,root,requested,client,apply=False,start=False,
             discover_fn=seasons.discover,catalog_fn=jellyfin_episodes,
             stdout=print,background=seasons.start_background):
-    chosen_seasons=seasons.validate_seasons(seasons)
+    chosen_seasons=seasons.validate_seasons(requested)
     if start and not apply:
         raise ValueError('--start requires --apply')
     episode_paths=discover_fn(roots,chosen_seasons)
