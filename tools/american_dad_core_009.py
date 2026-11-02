@@ -47,7 +47,7 @@ def locks(base=BASE):
             handle=stack.enter_context(path.open('a+b'))
             try:fcntl.flock(handle.fileno(),fcntl.LOCK_EX|fcntl.LOCK_NB)
             except BlockingIOError as exc:
-                raise RuntimeError('Other subtitle worker active: no model call') from exc
+                raise RuntimeError('Another subtitle worker active: no model call') from exc
             stack.callback(fcntl.flock,handle.fileno(),fcntl.LOCK_UN)
         yield
 
