@@ -57,4 +57,6 @@ The uploaded status file explicitly says:
 3. Investigate CAT 7B template-specific packaging before any more CAT7 full-suite run; model's official card says the 7B template is special.
 4. Keep live SubHub Python, published subtitles and SQLite checkpoints unchanged; all private text stays outside GitHub. Do not force a multipass pipeline.
 
+**Follow-up update:** after the original 3-arm partial result, the tuned Gemma E4B control completed successfully on the same 64 English cues. Source/quantization metadata fix worked, and final CAT3.3 failed on *insufficient free VRAM during preflight*, not proven model loading incompatibility. Read the newer [RESULTS_005_TUNED_HY_PAIRED.md](RESULTS_005_TUNED_HY_PAIRED.md) for actual 4-of-5 progress, paired editorial screening and CAT-only retry. This original report is retained as an immutable historical snapshot of the first sweep. 
+
 **This is a partial data record, not a terminal experiment conclusion.**
