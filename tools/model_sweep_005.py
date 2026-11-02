@@ -160,6 +160,7 @@ def generate(key,english,history,post=ollama_post,tuned_call=native_call):
 def run_one(key,base,root,groups,translate=generate,max_seconds=1800):
     start=time.monotonic()
     entries=[];calls=[];stopped=None
+    consecutive_failures=0
     with locked_idle(base,root):
         for group in groups:
             history=[]
@@ -174,6 +175,7 @@ def run_one(key,base,root,groups,translate=generate,max_seconds=1800):
                 except Exception as exc:
                     error=type(exc).__name__+': '+str(exc)[:180]
                 elapsed=round(time.monotonic()-tick,2)
+                consecutive_failures=consecutive_failures+1 if error else 0
                 flags=structural_flags(answer)
                 valid=service.acceptable_ja(answer,row['english'])
                 entries.append({
@@ -190,6 +192,9 @@ def run_one(key,base,root,groups,translate=generate,max_seconds=1800):
                 if key=='tuned' and valid and not flags:
                     history.append({'cue_id':row['cue_id'],'english':row['english'],
                                     'candidate_japanese':answer})
+                if consecutive_failures>=3:
+                    stopped='three_consecutive_model_errors'
+                    break
             if stopped:
                 break
     return entries,calls,stopped
@@ -278,7 +283,10 @@ def main(argv=None):
     args=p.parse_args(argv)
     try:
         if not 60<=args.max_seconds<=14400:raise ValueError('max-seconds must be 60..14400')
-        execute(args.model,args.root,args.base,args.out,args.dry_run,args.max_seconds)
+        result=execute(args.model,args.root,args.base,args.out,args.dry_run,args.max_seconds)
+        if result is not None and not result['complete']:
+            print('INCOMPLETE benchmark; preserved partial private results.',file=sys.stderr)
+            return 1
     except (ValueError,OSError,RuntimeError) as err:
         p.error(str(err))
     return 0
