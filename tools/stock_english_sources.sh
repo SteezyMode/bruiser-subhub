@@ -16,7 +16,8 @@ echo '=== STAGE ISOLATED EN INVENTORY HELPERS (NO SERVICE REINSTALLS) ==='
 ssh "$HOST" 'mkdir -p -m 700 ~/bruiser-pilot/english-source-code'
 scp -q tools/library_english_sources.py tools/enable_english_source_timer.py \
   tools/jellyfin_english_sources.py tools/american_dad_seasons.py \
-  tools/daily_japanese.py tools/daily_worker.py \
+  tools/daily_japanese.py tools/subtitle_publish_gate.py \
+  tools/subtitle_quality_010.py tools/daily_worker.py \
   "$HOST:~/bruiser-pilot/english-source-code/"
 echo '=== INDEX ALL JELLYFIN MOVIES AND EPISODES; REQUEST UP TO 18 PERFECT EN MATCHES ==='
 echo 'One-time native Jellyfin admin login may be required; enter password only at hidden SSH prompt.'

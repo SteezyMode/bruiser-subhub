@@ -24,7 +24,8 @@ echo '=== VERIFY EXISTING REPO REGRESSIONS, NO GPU ==='
 python3 -m unittest discover -p 'test_*.py' -q
 echo '=== STAGE ONLY ISOLATED SEASON HELPERS, NEVER REPLACE SUBHUB ==='
 ssh "$HOST" 'mkdir -p -m 700 ~/bruiser-pilot/american-dad-season-code'
-scp -q tools/american_dad_seasons.py tools/daily_japanese.py tools/daily_worker.py \
+scp -q tools/american_dad_seasons.py tools/daily_japanese.py \
+  tools/subtitle_publish_gate.py tools/subtitle_quality_010.py tools/daily_worker.py \
   "$HOST:~/bruiser-pilot/american-dad-season-code/"
 REMOTE='python3 ~/bruiser-pilot/american-dad-season-code/american_dad_seasons.py'
 echo '=== ACTUAL FILES/EPISODES FOUND; EXISTING JA AND ENGLISH SOURCES ==='

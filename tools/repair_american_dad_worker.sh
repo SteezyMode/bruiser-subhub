@@ -15,7 +15,8 @@ cd "$ROOT"
 
 echo '=== REGRESSION TESTS FOR SERVICE LIFECYCLE ==='
 python3 -m unittest -q test_american_dad_maintenance \
-  test_enable_american_dad_timer test_american_dad_autopilot
+  test_enable_american_dad_timer test_american_dad_autopilot \
+  test_subtitle_publish_gate test_daily_worker test_american_dad_seasons
 echo '=== ENSURE AN EXISTING SUPERVISED RUN IS NOT INTERRUPTED ==='
 if ssh "$HOST" \
   'systemctl --user is-active --quiet bruiser-american-dad-maintenance.service'; then
@@ -23,9 +24,11 @@ if ssh "$HOST" \
   echo 'Review its journal and re-run this command after it finishes.'
   exit 0
 fi
-echo '=== STAGE ONLY FIXED OWNER-SIDE AUTOMATION HELPERS ==='
+echo '=== STAGE SUPERVISED WORKER AND JAPANESE READABILITY GATE ==='
 ssh "$HOST" 'mkdir -p -m 700 ~/bruiser-pilot/american-dad-auto-code'
 scp -q tools/american_dad_maintenance.py tools/enable_american_dad_timer.py \
+  tools/american_dad_seasons.py tools/daily_worker.py \
+  tools/subtitle_publish_gate.py tools/subtitle_quality_010.py \
   "$HOST:~/bruiser-pilot/american-dad-auto-code/"
 
 echo '=== UPGRADE THE EXACT KNOWN OLD USER UNIT, PRESERVING BACKUP ==='

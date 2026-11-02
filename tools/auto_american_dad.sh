@@ -21,6 +21,7 @@ scp -q \
   tools/enable_american_dad_timer.py \
   tools/american_dad_seasons.py \
   tools/daily_japanese.py \
+  tools/subtitle_publish_gate.py tools/subtitle_quality_010.py \
   tools/daily_worker.py \
   "$HOST:~/bruiser-pilot/american-dad-auto-code/"
 echo '=== AUTOMATICALLY SCORE EVERY REAL AMERICAN DAD SEASON ==='
