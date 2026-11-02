@@ -252,6 +252,26 @@ class LibraryInventoryTests(unittest.TestCase):
         counts=self.scan()
         self.assertGreaterEqual(counts['out_of_scope_or_missing'],2)
 
+    def test_interrupted_large_scan_preserves_committed_cache(self):
+        videos=[self.make('LongSeries/Show.S01E%03d.mkv'%i)
+                for i in range(1,102)]
+        catalog={str(video):{
+            'Type':'Episode','Id':'episode%04d'%n,'Path':str(video),
+            'Name':video.stem,'IndexNumber':n,'ParentIndexNumber':1}
+            for n,video in enumerate(videos,1)}
+        calls=[]
+        def probe(video):
+            calls.append(video)
+            if len(calls)==101:
+                raise KeyboardInterrupt()
+            return {'embedded_en':None,'audio_en':True}
+        with self.assertRaises(KeyboardInterrupt):
+            lib.scan(self.client,(self.media,),self.state,probe_fn=probe,
+                     catalog_fn=lambda client:catalog,log=lambda *x:None)
+        result=lib.report(self.state,log=lambda *x:None)
+        self.assertEqual(result['total'],100)
+        self.assertEqual(result['states']['missing'],100)
+
     def test_no_translation_engine_or_global_jellyfin_task_calls(self):
         self.scan()
         self.set_success(self.a)
