@@ -17,5 +17,14 @@ class SweepBashSyntaxTests(unittest.TestCase):
                                       capture_output=True,text=True)
                 self.assertEqual(result.returncode,0,result.stderr)
 
+    def test_missing_mode_targets_only_blocked_arms(self):
+        root=Path(__file__).resolve().parent
+        shell=(root/'tools/run_model_sweep_005.sh').read_text(encoding='utf-8')
+        self.assertIn('missing) ARMS=(tuned cat33)',shell)
+        self.assertIn('if [ "$ARM" = cat33 ]',shell)
+        self.assertIn('cat33-run.log',shell)
+        self.assertIn('$ARM-preflight.log',shell)
+        self.assertIn('$ARM-model-run.log',shell)
+
 if __name__=='__main__':
     unittest.main()
