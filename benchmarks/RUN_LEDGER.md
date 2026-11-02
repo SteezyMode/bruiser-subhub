@@ -190,3 +190,17 @@ Owner uploaded `american-dad-pilot-009.log` from the **REAL** host run. Frozen f
 Root code fault: original attempt loop only ever considered attempts 1 and 2, marked them failed in immutable error files, and silently skipped them on every rerun forever. PR #36 now has **four additional bounded rescue attempts 3–6** using a smaller current-English-only, 2-prior/2-following-context prompt for those *seven missing cues only*. Old unsuccessful reply files untouched; original 2,059 Japanese checkpoint bytes untouched; already published S19E03/E04 short circuit identical, no rerun, and only fully completed previously-held episodes can create new pilot JA sidecars. No production DB/worker edits, no model switch or user-provided English changes. A remaining failure lists numerical cue IDs in the log, without copyrighted English text. Local Mac log now appends rather than overwriting.
 
 After merged CI, one command from MacBook: `cd ~/Downloads/bruiser-subhub-repo && git pull --ff-only && bash tools/run_american_dad_pilot_009.sh optiplex@100.121.156.34`. **PR code doesn't mean the seven cues have actually translated yet.** Confirmation requires user host output. Next useful action after success = ordinary Jellyfin viewing of multiple full American Dad episodes, no assigned Natsuyo QA task.
+
+## 2026-11-02 — Final S19E01 cue 321 problem SOLVED IN CODE; owner cached-only publish still pending (PR #37)
+
+Owner's real SSH printed original English cue 321 with italicized fictional show title and ALL SIX saved model responses. The Japanese is present and adequate; exact blocker is `core.valid()` rejecting `</i>` as if it were unsafe HTML. Model output in attempts 1–2 has balanced `<i>...</i>`; attempts 3–6 have `<i lang="en">...</i>` and repeat the SAME softer Japanese translation. It is a false-positive **validator formatting failure**, not a tough translation or an inference crash. No more models or retry prompts required.
+
+PR #37 tests narrow safe SRT markup normalization/validation (only original-English-supported, balanced italics, `lang="en"` attribute canonicalized), deterministic recovery of the most repeated **existing saved** Japanese output from failed-attempt files, preserving all previously successful cues/errors/approved JA files unchanged, and creates only the final S19E01 pilot sidecar. Adds **cached-only** mode: no Ollama model calls, no model preflight, no context generation. Owner one command after merge from MacBook:
+
+```bash
+cd ~/Downloads/bruiser-subhub-repo
+git pull --ff-only
+bash tools/run_american_dad_pilot_009.sh optiplex@100.121.156.34 --cached-only
+```
+
+**REAL status before this command:** 4/5 American Dad episodes published; total 2,065/2,066 accepted. All already-published episodes are skipped as identical; only S19E01 cue 321 may need creation. CI success is not host success; require fresh run output to claim 5/5. User goal is ordinary Jellyfin viewing, not nine-way QA. Details: `docs/AMERICAN_DAD_PILOT_009_REAL_RUN_RECOVERY.md`.
