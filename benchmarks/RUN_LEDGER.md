@@ -82,6 +82,22 @@
 - WMT26 Oct 2026 video-subtitle research supports investigating real scene context and verified terminology, but its quantitative studies used **Chinese-source** languages, NOT EN→JA. Do not transpose scores. Multi-model candidate selection is optional only with proven net gain.
 - **Next recommendation remains continuous Japanese-only 10–15-minute viewing on a NEW native-E4B generated sample**, not another 64 random cues and not old pre-fix published outputs. After actual viewer comments, consider a SINGLE controlled CAT 3.3B or Hy-MT2 7B native-model comparison on fresh scenes if needed.
 
+## Benchmark 005 PARTIAL RESULTS — 2026-11-02 JST (real files, incomplete control)
+
+Actual owner-uploaded `STATUS.txt`, `model-sweep-005-{cat7,hy7,google12}-20261102T013757Z.json` examined. **Three completed 64-cue arms; tuned E4B control and FINAL CAT 3.3B BLOCKED, not tested.** Full public numeric and provisional assistant-only editorial analysis: [RESULTS_005_PARTIAL.md](RESULTS_005_PARTIAL.md). No private EN/JA dialogue has been committed.
+
+| Model | 64 cues returned/accepted | Role contamination | Median JA chars/sec | >14 chars/sec | Sum call time | Outcome |
+|---|---|---:|---:|---:|---:|---|
+| Hy-MT2 7B Q4_K_M | 64/64 | 0 | 7.45 | 1 | 81.96s | Strong provisional assistant-only reviewer preference |
+| Google TranslateGemma 12B Q4_K_M | 64/64 | 0 | 8.95 | 6 | 256.92s | Correct structure; more formal, slower; not proven better |
+| CAT-Translate 7B GGUF Q4_K_M | 64 attempted/59 valid | **16** | 10.05 | **21** | 81.83s | Real output has role/explanatory leakage; MUST audit distinct 7B chat template |
+| Existing tuned Gemma4 E4B | BLOCKED preflight | — | — | — | — | Essential same-cue control missing |
+| FINAL CAT 3.3B Transformers | BLOCKED/incomplete | — | — | — | — | Exact CUDA/venv failure not in uploaded status |
+
+A cue-shuffled, identity-masked **single-assistant** editorial pass on the 3 completed files found Hy tied or best on 61/64; uniquely best on 35, Google12 on 1, CAT7 on 2, and 26 ties. **This is NOT a native-Japanese watchability grade**, and translation-scenario preferences are subjective. The broad Japanese validator misses many of CAT7's actual role labels and translator notes. Original CAT7 model card explicitly requires a **special 7B chat template**, so do not attribute wrapper corruption to intrinsic final CAT weight quality without checking template packaging.
+
+**Next action (not rerun all arms):** owner runs `bash tools/diagnose_model_sweep_005.sh optiplex@100.121.156.34` from updated MacBook checkout, shares output. Diagnose exact tuned model ID/quantization and CAT3.3 CUDA venv; rerun only two blocked arms after targeted fixes, using the EXACT same 64 source cues. Preserve successful JSON files and score true paired tuned vs HY after that. No live SubHub changes.
+
 ## Benchmark 005 — PR #22 merged (`463231bc`), 107 offline tests passed; real model runs NOT YET PERFORMED
 
 - Methodology: [EXPERIMENT_005.md](EXPERIMENT_005.md); eight NEW contiguous eight-cue English windows centered at 91/127/175/235/303/343/543/691, under the prior immutable Primate English SRT SHA. A fresh **64-cue** sample per arm, disjoint from 001–004, five arms = at most 320 translated candidates.
