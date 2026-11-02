@@ -1,5 +1,11 @@
 # Current state and next actions
 
+## 2026-11-02 — v012 PRIVATE 24-utterance formatting experiment coded; real inference NOT yet run
+
+v011r1 recovered all 1,189 Japanese cues, but **5.5–6/10** approximate bilingual quality; only 8/370 newly handled units passed as whole grouped outputs and 362 needed individual-cue fallback. The existing pinned tuned E4B grouped path had repeated output-length caps. The next task is a controlled **24-utterance same-model A/B** of small forced JSON vs plain ID | JA lines, using 4 originally failed and 4 untouched groups per original E10/E11/E12 frozen episode. Both use the SAME temperature, 4096 context and **450 output tokens**, alternating arm order. Only one call per arm: maximum 48 calls. Result records immutable in NEW scratch directory only; original source, 1,189 approved JA, v011 manifests/checkpoints and live services/SQLite/media are untouched. Source/code/model hashes verified and resident-GPU worker locks retained.
+
+After PR merge, MacBook launch: `cd ~/Downloads/bruiser-subhub-repo && git pull --ff-only && bash tools/run_utterance_formatlab_012.sh optiplex@100.121.156.34`. Summary appears in `~/Downloads/american-dad-formatlab-012.log`; rerun unchanged to resume only missing calls. After all 48 attempted: `bash tools/collect_utterance_formatlab_012.sh optiplex@100.121.156.34`, upload PRIVATE EN/JA paired archive comparing existing accepted JA baseline with both alternatives. The pilot alone does NOT prove semantic progress or justify mass translation. Canonical engineering guide: `docs/UTTERANCE_FORMATLAB_012.md`. No new model tournament.
+
 ## 2026-11-02 — REAL v011r1 recovery verified: 1,189/1,189 published; semantic quality NOT improved
 
 Owner supplied private EN/JA recovery archive from S19E10 (372), E11 (409), E12 (408); all **1,189 English/Japanese cue IDs and timestamps** verified identical, and published JA sidecars byte-equal to private drafts. Original **757** v011 accepted cues reused; **zero unresolved structural QA flags**, four >18 JA visible chars/s warnings, one postpass repair, and **45/45 English two-speaker cues** retain a distinct Japanese line per speaker. Operational recovery **succeeded**.
