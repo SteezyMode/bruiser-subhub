@@ -21,6 +21,7 @@ import os
 from pathlib import Path
 import re
 import sys
+import unicodedata
 from urllib.request import Request, urlopen
 
 import service
@@ -32,7 +33,7 @@ CACHE=Path.home()/'bruiser-pilot/context-cache'
 SOURCE_EXT=('.en.srt','.eng.srt','.english.srt')
 EPISODE_RE=re.compile(r'(?i)(?:s(?P<season>\d{1,2})e(?P<ep>\d{1,3})|(?P<season2>\d{1,2})x(?P<ep2>\d{1,3}))')
 GENERIC_DIRS=re.compile(r'(?i)^(season|series|disc|disk|episode|tv|shows|television|media|video|videos|anime)(?:[\s._-]*\d+)?$')
-SAFE=re.compile(r'[^a-z0-9]+')
+SAFE=re.compile(r'[^\w]+',re.UNICODE)
 LIMIT=2_000_000
 MAX_SERIES_SOURCES=3
 
@@ -42,7 +43,7 @@ def digest(data):
 
 
 def slug(value):
-    v=SAFE.sub('-',value.casefold()).strip('-')
+    v=SAFE.sub('-',unicodedata.normalize('NFKC',value).casefold()).strip('-_')
     if not v:
         raise ValueError('Cannot identify a series or movie')
     return v[:90]
