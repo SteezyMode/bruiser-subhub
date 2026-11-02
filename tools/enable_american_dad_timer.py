@@ -30,10 +30,11 @@ TimeoutStartSec=120min
 # The ORIGINAL unit was deployed on the host on 2026-11-02.
 # Upgrade only that known exact unit; never clobber custom user units.
 SERVICE=(LEGACY_SERVICE
+    .replace('Type=oneshot','Type=exec')
     .replace('ExecStart=/usr/bin/python3 %h/',
              'ExecStart=/usr/bin/python3 -u %h/')
     .replace('TimeoutStartSec=120min',
-             'TimeoutStartSec=11h')
+             'RuntimeMaxSec=11h')
     .replace('NoNewPrivileges=true',
              'NoNewPrivileges=true\nKillMode=control-group'))
 TIMER=f"""[Unit]
