@@ -248,12 +248,11 @@ def one(state,item,group,row,profile,ask=core.call):
 def tally(state,info):
     result={'schema':SCHEMA,'expected_calls':MAX_CALLS,
             'completed_calls':0,'valid_cues':0,'failed_cues':0,
-            'complete_utterances':0,'mechanical_qa_held':0,
+            'complete_utterances':0,
             'failure_categories':{}}
     for item in info['selected']:
         docs=[]
         for cue in item['cue_ids']:
-            rowkey={'0':cue} # marker to keep no reliance on non-frozen paths
             path=(Path(state)/'groups'/item['episode']/
                   ('%05d-%05d-focus-%05d.json'%(
                      item['cue_ids'][0],item['cue_ids'][-1],cue)))
