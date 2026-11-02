@@ -52,7 +52,7 @@ class Diagnostic011(unittest.TestCase):
                     'model_id':'known-model','count':len(self.rows)}
         (self.state/'manifest.json').write_text(json.dumps({
             'schema':diag.SCHEMA,'pipeline_sha':self.fingerprint,
-            'episodes':[self.entry]}))
+            'model_id':'known-model','episodes':[self.entry]}))
         # Ensure at least three independent units in test fixture.
         self.assertGreaterEqual(len(self.groups),3)
         self.good=self.groups[0]
