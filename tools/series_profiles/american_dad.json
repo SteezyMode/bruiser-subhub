@@ -1,0 +1,67 @@
+{
+  "schema": "bruiser-series-bible-v1",
+  "series": "American Dad!",
+  "provenance": "Small, manually curated baseline; advisory context only. English episode subtitles are authoritative. NOT a claim to have reviewed every episode or Internet lore.",
+  "recurring_people": [
+    {
+      "name": "Stan Smith",
+      "ja_hint": "スタン",
+      "guide": "Father in Smith family; CIA agent; often overconfident, forceful and ridiculous."
+    },
+    {
+      "name": "Francine Smith",
+      "ja_hint": "フランシーン",
+      "guide": "Stan's wife; direct, funny, sometimes impulsive. Avoid defaulting to stiff/formal Japanese."
+    },
+    {
+      "name": "Hayley Smith",
+      "ja_hint": "ヘイリー",
+      "guide": "Stan and Francine's adult daughter; outspoken and often skeptical of Stan."
+    },
+    {
+      "name": "Steve Smith",
+      "ja_hint": "スティーブ",
+      "guide": "Stan and Francine's teenage son; often awkward, sensitive and enthusiastic."
+    },
+    {
+      "name": "Roger",
+      "ja_hint": "ロジャー",
+      "guide": "Alien living with the Smiths; frequently uses costumes, aliases, personalities and different voices. NEVER automatically replace his episode-specific alias with 'Roger'."
+    },
+    {
+      "name": "Klaus",
+      "ja_hint": "クラウス",
+      "guide": "Talking goldfish with a human personality; typically dry, needy or absurd."
+    },
+    {
+      "name": "Jeff Fischer",
+      "ja_hint": "ジェフ",
+      "guide": "Hayley's partner/husband; usually laid-back."
+    },
+    {
+      "name": "Snot",
+      "ja_hint": "スノット",
+      "guide": "One of Steve's friends."
+    },
+    {
+      "name": "Barry",
+      "ja_hint": "バリー",
+      "guide": "One of Steve's friends."
+    },
+    {
+      "name": "Toshi",
+      "ja_hint": "トシ",
+      "guide": "One of Steve's friends; may speak Japanese depending on scene."
+    }
+  ],
+  "translation_policy": [
+    "Translate the actual English dialogue into naturally spoken Japanese for an adult comedy.",
+    "Preserve jokes, insults, profanity, sexuality, sarcasm and deliberately crude humor without sanitizing or adding harsher content.",
+    "Prioritize conveying a punchline or intent over literal word correspondence; concise localization is welcome.",
+    "Never invent an identity, narrator, context, or relationship for a line based solely on this series bible.",
+    "Do not apply a standard character voice to an unidentified speaker. Roger's alias and persona may vary within an episode.",
+    "Do not translate show-specific names as generic nouns when the episode clearly uses them as names.",
+    "If episode dialogue conflicts with this background, always follow the episode.",
+    "Translate only the requested current cue; nearby prior and future English lines are context, not additional output."
+  ]
+}
