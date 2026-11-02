@@ -92,10 +92,25 @@ def queue_jobs(root):
 
 def inspect(copies,known,fetch=False,
             probe_fn=intake.probe,source_fn=intake.source):
-    """Avoid duplicate Japanese for ANY available copy of the episode."""
+    """Avoid redundant JA across ANY copy, including embedded tracks.
+
+    Scan ALL copies for existing JA before selecting one English source:
+    otherwise a first English copy could hide a second already-Japanese copy.
+    """
     for video in copies:
         if intake.already_ja(video):
             return {'kind':'already_japanese','video':video}
+    metadata={}
+    rejection=Counter()
+    for video in copies:
+        try:
+            info=probe_fn(video)
+            metadata[video]=info
+            if info.get('ja'):
+                return {'kind':'already_japanese_embedded','video':video}
+        except (OSError,ValueError,RuntimeError,
+                subprocess.SubprocessError,UnicodeError):
+            rejection['source_or_metadata_error']+=1
     # Avoid translating alternate copies when any is already published.
     for video in copies:
         job=known.get(str(video))
@@ -105,12 +120,8 @@ def inspect(copies,known,fetch=False,
         job=known.get(str(video))
         if job:
             return {'kind':'existing_job','video':video,'job':job}
-    rejection=Counter()
-    for video in copies:
+    for video,info in metadata.items():
         try:
-            info=probe_fn(video)
-            if info.get('ja'):
-                return {'kind':'already_japanese_embedded','video':video}
             if not info.get('audio_en'):
                 rejection['audio_not_verified_english']+=1
                 continue
@@ -130,7 +141,6 @@ def inspect(copies,known,fetch=False,
             rejection['source_or_metadata_error']+=1
     return {'kind':'needs_english_or_review',
             'reasons':dict(rejection)}
-
 
 @contextlib.contextmanager
 def campaign_lock(root):
