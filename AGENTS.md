@@ -16,6 +16,10 @@ Real data in `benchmarks/RESULTS_005_PARTIAL.md`: Hy7, Google12, CAT7 each ran s
 
 One new `tools/diagnose_model_sweep_005.sh HOST` read-only command diagnoses both failed arms. Once user supplies output, fix precise compatibility cause and rerun JUST missing arms; don't redownload/retranslate successful HY/Google/CAT arms. All full film dialogue and unblinded model responses stay private. No production deployment or 8/10 native-Japanese score is established.
 
+## Benchmark 005 diagnostic resolution: do not repeat all 5 arms
+
+User supplied exact **read-only** model/CUDA diagnostic logs. Tuned E4B false-positive block was caused by MODEL TAG ending `Q4_K_XL` while installed Ollama `/api/show` reports actual `Q4_K_M`, with unchanged correct ID `9ccfc3b07081`, family `gemma4`. Benchmark `FAMILY['tuned']` now pins actual reported quant + exact ID + family. Do not download/requantize the model. Final CAT 3.3B's isolated CUDA environment has all correct imports and source preflight succeeded, ~5.7GiB free GPU memory; **the real failure is after preflight but unknown** until actual error log. The selective `missing` runner mode only executes `tuned` and `cat33`, saving CAT stderr to private `cat33-run.log`. Previous Hy7/Google12/CAT7 complete results must NOT be rerun; wait for new 64-cue tuned control before claiming HY beats it. Do not touch live SubHub.
+
 ## Mission
 
 **Read [GOAL.md](GOAL.md) first.** The user and his wife need to watch their existing nearly 6 TB English-language media library with natural, accurate Japanese subtitles. Dual subtitle playback is already solved. Subtitle downloads have been insufficient. The free, local *result* matters; SubHub may shrink or disappear if existing software works better. Do not optimize for product differentiation, dashboard polish, or preserving custom code. OptiPlex NOW integration is optional and not relevant to the immediate goal.

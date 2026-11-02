@@ -98,6 +98,14 @@ A cue-shuffled, identity-masked **single-assistant** editorial pass on the 3 com
 
 **Next action (not rerun all arms):** owner runs `bash tools/diagnose_model_sweep_005.sh optiplex@100.121.156.34` from updated MacBook checkout, shares output. Diagnose exact tuned model ID/quantization and CAT3.3 CUDA venv; rerun only two blocked arms after targeted fixes, using the EXACT same 64 source cues. Preserve successful JSON files and score true paired tuned vs HY after that. No live SubHub changes.
 
+## Follow-up diagnostic finding — Benchmark 005 blocked arms (2026-11-02)
+
+Owner ran **read-only** `tools/diagnose_model_sweep_005.sh` on OptiPlex (Ollama 0.32.1). **Tuned control root cause:** expected tag suffix `Q4_K_XL` versus actual `/api/show` `quantization_level=Q4_K_M`. Model itself is correct, same pinned `9ccfc3b07081` ID, `gemma4` family, 7.52B metadata. The benchmark test, not the installed model, rejected it. Source fix pins exact ID + real reported Q4_K_M + family; no model repull or productive system changes.
+
+**Final CAT3.3 diagnostics:** exact frozen English source validated; isolated Torch 2.9.0+cu128, Transformers 4.57.3, Accelerate 1.12.0, bitsandbytes 0.48.2, huggingface_hub 0.36.0 all import; CUDA available, GPU free ~5719 MiB and 201 GB free disk. Its source+environment preflight succeeds. **Actual after-preflight model load/inference error still unknown** because the previous run's stderr was not uploaded. Must capture real error rather than guess.
+
+**One selective rerun after fix:** `bash tools/run_model_sweep_005.sh optiplex@100.121.156.34 missing`, which runs ONLY tuned and CAT3.3. The earlier 3 complete private JSON files remain valid. Local result folder includes `cat33-run.log`, `tuned-preflight.log` and `tuned-model-run.log`; only successful arms can be blindly combined with earlier result files. No public movie dialogue or production switch.
+
 ## Benchmark 005 — PR #22 merged (`463231bc`), 107 offline tests passed; real model runs NOT YET PERFORMED
 
 - Methodology: [EXPERIMENT_005.md](EXPERIMENT_005.md); eight NEW contiguous eight-cue English windows centered at 91/127/175/235/303/343/543/691, under the prior immutable Primate English SRT SHA. A fresh **64-cue** sample per arm, disjoint from 001–004, five arms = at most 320 translated candidates.

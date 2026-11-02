@@ -42,7 +42,12 @@ BENCHMARK_ID='primate-64-new-cues-native-model-sweep-v1'
 # from all 001–004 benchmark sets including 511–518 and 621–628.
 CENTERS=(91,127,175,235,303,343,543,691)
 FAMILY={
-    'tuned':{'model':SUB_MODEL,'kind':'native','quant':'Q4_K_XL','download_gb':0},
+    # Important: the upstream tag includes Q4_K_XL, but the ACTUAL pinned
+    # installed Ollama model ID 9ccfc3b07081 reports Q4_K_M via /api/show.
+    # Pin real reported quant + model family AND the exact model ID; never
+    # silently rename/requantize/re-download the known working control.
+    'tuned':{'model':SUB_MODEL,'kind':'native','quant':'Q4_K_M',
+             'family':'gemma4','source_tag_quant':'Q4_K_XL','download_gb':0},
     'cat7':{'model':'hf.co/mradermacher/CAT-Translate-7b-GGUF:Q4_K_M',
             'kind':'cat','quant':'Q4_K_M','download_gb':4.6},
     'hy7':{'model':'hf.co/tencent/Hy-MT2-7B-GGUF:Q4_K_M',
@@ -112,6 +117,7 @@ def model_metadata(key,found,post=ollama_post):
     return {
         'name':name,'ollama_id':found[name],'family':details.get('family'),
         'parameter_size':details.get('parameter_size'),'quantization':q,
+        'source_tag_quant':spec.get('source_tag_quant'),
         'template_sha256':hashlib.sha256(str(obj.get('template','')).encode()).hexdigest(),
         'parameters':obj.get('parameters'),
     }

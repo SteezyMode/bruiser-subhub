@@ -29,6 +29,12 @@ The owner ran the approved five-arm test from **MacBook Air** (repo was not init
 
 **Do not change live SubHub, published Japanese, source checkpoint DB, movie files or start thousands of jobs.** Need a fair paired HY7-vs-tuned run on same 64 cues, native Japanese viewer assessment of continuous sample, then controlled new-job ingestion. Research/benchmarks are separate from production. No personal film dialogue in public GitHub.
 
+## Benchmark 005 diagnostics now resolved in part (2026-11-02 JST)
+
+**User's read-only OptiPlex logs explained tuned E4B block completely:** installed `hf.co/17slever17/translate-gemma-4-sub-e4b-GGUF:Q4_K_XL` is the exact pinned ID `9ccfc3b07081`, gemma4 family, 7.52B, but Ollama `/api/show` reports `Q4_K_M` as the quant level despite tag suffix Q4_K_XL. The Benchmark 005 harness was overly strict about tag-vs-runtime quant; fix in `tools/model_sweep_005.py` pins actual Q4_K_M, correct family and unchanged exact ID. **No re-download, re-quantization or live translator change.**
+
+**Final CAT 3.3B remains blocked only AFTER preflight:** Torch 2.9.0+cu128, Transformers 4.57.3, Accelerate 1.12.0, bitsandbytes 0.48.2, HF Hub 0.36.0 all import, CUDA GPU has ~5719 MiB free; source and environment tests pass. Could be model download/loading/inference; no traceback from prior run yet, so **DO NOT guess or patch a purported fault**. New targeted run `bash tools/run_model_sweep_005.sh optiplex@100.121.156.34 missing` tests **only tuned and CAT3.3** and captures all CAT failure output to private `cat33-run.log`. The CAT model check may download official weights. Preserve previously finished HY7/CAT7/Google12 result JSONs. Need paired HY7 vs tuned before choosing any winner. No production subtitles, database checkpoints or worker scripts changed.
+
 ## The project in one sentence
 
 Daily-use, local-first subtitle translation for a personal media library: English source cues → natural Japanese Gemma translation → safely checkpointed, structurally validated `.ja.srt` sidecar; optional diagnostic HY sample.

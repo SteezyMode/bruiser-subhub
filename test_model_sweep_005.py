@@ -86,7 +86,8 @@ class Sweep005Tests(unittest.TestCase):
         def post(endpoint,payload,timeout=30):
             quant=next(v['quant'] for v in s.FAMILY.values()
                        if v['model']==payload['model'])
-            family='gemma3' if payload['model']=='translategemma:12b' else 'mistral'
+            family=('gemma3' if payload['model']=='translategemma:12b' else
+                    'gemma4' if payload['model']==s.SUB_MODEL else 'mistral')
             return {'details':{'family':family,
                                'quantization_level':quant,
                                'parameter_size':'7B'},
@@ -95,6 +96,27 @@ class Sweep005Tests(unittest.TestCase):
             item=s.model_metadata(key,found,post=post)
             self.assertEqual(item['quantization'],s.FAMILY[key]['quant'])
             self.assertTrue(item['template_sha256'])
+        # Real OptiPlex finding: source GGUF tag says Q4_K_XL,
+        # /api/show reports Q4_K_M; the exact pinned ID is unchanged.
+        self.assertEqual(s.FAMILY['tuned']['source_tag_quant'],'Q4_K_XL')
+        self.assertEqual(s.FAMILY['tuned']['quant'],'Q4_K_M')
+        tuned=s.model_metadata('tuned',found,post=post)
+        self.assertEqual(tuned['ollama_id'],s.SUB_MODEL_ID)
+        self.assertEqual(tuned['family'],'gemma4')
+        self.assertEqual(tuned['quantization'],'Q4_K_M')
+        self.assertEqual(tuned['source_tag_quant'],'Q4_K_XL')
+        def wrong_tuned_family(endpoint,payload,timeout=30):
+            x=post(endpoint,payload,timeout)
+            x['details']['family']='gemma3'
+            return x
+        with self.assertRaisesRegex(ValueError,'Wrong model architecture'):
+            s.model_metadata('tuned',found,post=wrong_tuned_family)
+        def wrong_tuned_quant(endpoint,payload,timeout=30):
+            x=post(endpoint,payload,timeout)
+            x['details']['quantization_level']='Q8_0'
+            return x
+        with self.assertRaisesRegex(ValueError,'Quantization mismatch'):
+            s.model_metadata('tuned',found,post=wrong_tuned_quant)
         with self.assertRaisesRegex(ValueError,'Not installed'):
             s.model_metadata('hy7',{},post=post)
         with self.assertRaisesRegex(ValueError,'digest changed'):
