@@ -79,6 +79,14 @@ class Unit011(unittest.TestCase):
         self.assertFalse(sem.valid_speakers(en,'俺もここにいる。'))
         self.assertTrue(sem.valid_speakers(en,'俺はここだ。\n俺も。'))
 
+    def test_singleton_two_speaker_prompt_explicitly_preserves_both(self):
+        source=[row(1,0,1200,'- First person.\\n- Second person.')]
+        messages=v3.messages_for(source,source,[],'{}',None,None,1)
+        self.assertIn('two explicitly dashed',messages[0]['content'])
+        self.assertIn('each beginning',messages[0]['content'])
+        repair=v3.messages_for(source,source,[],'{}',None,None,2)
+        self.assertIn('two explicitly dashed',repair[0]['content'])
+
     def test_source_partition_never_changes_order_or_timing(self):
         rows=[row(i,(i-1)*1300,i*1300,('The sentence continues' if i%3 else 'to a stop.'))
               for i in range(1,74)]
