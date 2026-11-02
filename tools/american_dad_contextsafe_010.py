@@ -259,10 +259,11 @@ def generate_episode(entry,profile,series_note,state=STATE,roots=intake.ROOTS,
             'remaining_leak_flags':len(final_flags),
             'remaining_severe_density':len(still_severe),
             'warning_over_18_cps':sum(x['high_density'] for x in final_density.values())}
-    report_path=folder/'quality-v2.json'
+    report_bytes=json.dumps(report,sort_keys=True,ensure_ascii=False).encode('utf8')
+    report_path=folder/('quality-v2-'+intake.sha(report_bytes)[:14]+'.json')
     if report_path.exists():
         if core.load(report_path)!=report:
-            raise RuntimeError('Frozen quality record changed; no silent rewrite')
+            raise RuntimeError('Hash-identical quality report content mismatch')
     else:
         core.save(report_path,report)
     print('QUALITY',json.dumps(report,ensure_ascii=False),flush=True)
