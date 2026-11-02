@@ -186,6 +186,24 @@ def existing_jobs(root):
     return {x[0] for x in rows}
 
 
+def pending_daily(root):
+    """Resume one previously queued household title before adding another.
+
+    Never count old legacy jobs or irrecoverable holds as active daily work.
+    Read the live WAL snapshot using SQLite mode=ro without DB initialization.
+    """
+    db=Path(root)/'jobs.sqlite3'
+    if not db.is_file() or db.is_symlink():
+        return None
+    with sqlite3.connect('file:'+str(db)+'?mode=ro',
+                         uri=True,timeout=6) as cn:
+        items=cn.execute(
+            "SELECT id,status FROM jobs WHERE id LIKE 'daily-%' "
+            "ORDER BY created,id").fetchall()
+    return next(({'id':jid,'status':status} for jid,status in items
+                 if status in ('queued','translating','translated')),None)
+
+
 def cursor_read(root,roots):
     path=Path(root)/CURSOR
     if not path.exists() and not path.is_symlink():
@@ -344,6 +362,20 @@ def daily(roots=service.SOURCE_ROOTS,root=DEFAULT_STATE,
     roots=ensure_roots(roots)
     if not 1<=probes<=200: raise ValueError('Probe budget must be 1..200')
     if start and not apply:raise ValueError('--start requires --apply')
+    pending=pending_daily(root)
+    if pending:
+        print('DAILY_PENDING',pending['id'],pending['status'],
+              'continuing_existing_title_first',flush=True)
+        if not apply:
+            print('DAILY_RESULT preview_existing_job__no_changes',flush=True)
+            return 'pending_preview'
+        if start:
+            print('DAILY_WORKER',start_worker(root,pending['id'],worker,launcher),
+                  flush=True)
+            print('DAILY_RESULT existing_job_resumed__not_yet_published',flush=True)
+            return 'resumed'
+        print('DAILY_RESULT existing_job_pending__no_new_title',flush=True)
+        return 'pending'
     candidate,last,counts=next_ready(roots,root,probes,probe_fn,source_fn)
     print('DAILY_SCAN',json.dumps(counts,sort_keys=True),flush=True)
     if candidate is None:
