@@ -20,6 +20,8 @@ scp -q service.py localization_policy.py \
   tools/benchmark_native_subtitles.py tools/benchmark_translategemma_004.py \
   tools/analyze_model_benchmark.py tools/model_sweep_005.py \
   "$HOST:~/bruiser-pilot/subhub-benchmark/"
+echo "=== SOURCE PREFLIGHT BEFORE ANY MODEL DOWNLOAD ==="
+ssh "$HOST" "python3 ~/bruiser-pilot/subhub-benchmark/model_sweep_005.py --model tuned --out ~/bruiser-pilot/subhub1-state/review/never-created-source-only.json --source-only"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 DEST="$HOME/Downloads/model-sweep-005-$STAMP"
 mkdir -p -m 700 "$DEST"
