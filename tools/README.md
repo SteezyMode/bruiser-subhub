@@ -122,3 +122,17 @@ Owner's last private log confirmed that CUDA/VRAM and frozen source checks PASSE
     bash tools/run_model_sweep_005.sh optiplex@100.121.156.34 cat33
 Save and share either the private CAT result JSON or `cat33-run.log` on any new failure. Do not restart other 4 completed arms. Decision and method stop rules: `benchmarks/DECISION_RECORD_2026-11-02.md`.
 
+
+## Benchmark 005 CLOSED, 006 fresh source discovery (2026-11-02)
+
+Final CAT3.3 HF NF4 output was COMPLETE: 64/64, median 6.8 chars/sec, 1 >14, 28.27 seconds generation calls excluding one-time model download/load; all five 005 arms now have REAL results but no native-viewer grade. `benchmarks/RESULTS_005_COMPLETE.md` contains immutable IDs/technical metrics. Do not rerun *Primate* lines or choose a winner from assistant subjective rankings. Address CAT3.3's recorded `attention_mask` warning in the future frozen 006 runner.
+
+Read-only new-source inventory on MacBook:
+
+```bash
+cd ~/Downloads/bruiser-subhub-repo
+git pull --ff-only
+bash tools/inventory_sources_006.sh optiplex@100.121.156.34
+```
+
+This sends the inventory script through SSH stdin (no remote script staging), opens OptiPlex SQLite `mode=ro`, and prints job IDs/source hashes, English cue count/timeline span only. Primate's already-reviewed English SHA is excluded from eligibility. It does NOT read/view any subtitles, movie paths, Japanese contents, download/load models or modify source DB/media. Inventory alone does not establish title diversity or purity. Need three unrelated NEW EN sources and one untouched confirmation title, then freeze the corpus and run the native Japanese-blind review per `benchmarks/PROTOCOL_006_INDEPENDENT_HOLDOUT.md`.
