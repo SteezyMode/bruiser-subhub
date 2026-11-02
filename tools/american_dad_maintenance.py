@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+from datetime import datetime, timezone
 import hashlib
 import json
 import os
@@ -134,11 +135,62 @@ def asr_subprocess(video,executable=ASR_ENV,script=ASR_SCRIPT,
     return status=='published_en_draft'
 
 
+class _Tee:
+    """Write worker diagnostics to both user journal and persistent log."""
+    def __init__(self,streams):
+        self.streams=tuple(streams)
+
+    def write(self,value):
+        for stream in self.streams:
+            stream.write(value)
+        return len(value)
+
+    def flush(self):
+        for stream in self.streams:
+            stream.flush()
+
+
+def run_supervised(root,selected,max_episodes,minutes,executor=seasons.execute):
+    """RUN the translation in the foreground of the user systemd service.
+
+    A detached Popen inherits its parent service's cgroup: when a Type=oneshot
+    maintenance service stops, systemd kills its descendants. start_new_session
+    does NOT create another cgroup. This deliberately waits for the existing
+    translation campaign so systemd supervises its entire lifetime.
+    """
+    root=Path(root)
+    root.mkdir(mode=0o700,parents=True,exist_ok=True)
+    log=root/'american-dad-seasons.log'
+    if log.is_symlink():
+        raise RuntimeError('Unsafe American Dad campaign log')
+    with log.open('a',encoding='utf8',buffering=1) as out:
+        out.write('\n=== '+datetime.now(timezone.utc).isoformat()+
+                  '; supervised season '+','.join(map(str,selected))+' ===\n')
+        out.flush()
+        terminal_out=sys.stdout
+        terminal_err=sys.stderr
+        tee_stdout=_Tee((terminal_out,out))
+        tee_stderr=_Tee((terminal_err,out))
+        with contextlib.redirect_stdout(tee_stdout):
+            with contextlib.redirect_stderr(tee_stderr):
+                print('SEASON_SUPERVISED','running_in_systemd_foreground',
+                      'seasons',','.join(map(str,selected)),flush=True)
+                result=executor(
+                    intake.service.SOURCE_ROOTS,root,selected,
+                    max_episodes=max_episodes,minutes=minutes)
+                print('SEASON_SUPERVISED_RESULT',
+                      json.dumps(result,sort_keys=True),flush=True)
+    return {'mode':'systemd_foreground',
+            'log':str(log),'outcomes':result.get('outcomes',{})}
+
+
 def run_once(roots,root,now=None,iter_videos=intake.video_files,
              probe_fn=intake.probe,asr_run=asr_subprocess,
-             launch=seasons.start_background,log=print):
+             launch=None,log=print):
     """Do not overlap with active season worker, pause marker or a second self."""
     now=int(now or time.time())
+    if launch is None:
+        launch=run_supervised
     root=Path(root)
     root.mkdir(mode=0o700,parents=True,exist_ok=True)
     if (root/'PAUSE').exists():
@@ -182,7 +234,7 @@ def run_once(roots,root,now=None,iter_videos=intake.video_files,
     if ready:
         try:
             job=launch(root,(s,),50,480)
-            log('AUTO_MAINTENANCE_TRANSLATION_STARTED',json.dumps(job,sort_keys=True))
+            log('AUTO_MAINTENANCE_TRANSLATION_RUN',json.dumps(job,sort_keys=True))
             return 'started'
         except (RuntimeError,OSError) as exc:
             log('AUTO_MAINTENANCE_TRANSLATION_HELD',type(exc).__name__)
