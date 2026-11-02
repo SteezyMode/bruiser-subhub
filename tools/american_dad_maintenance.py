@@ -39,10 +39,17 @@ def fallback(coverage):
     """If no season has EN, prefer original S08; never choose absent season."""
     existing=[x for x in coverage if x['total']>=6 and x['blocked']>=1]
     if not existing:return None
+    best=sorted(existing,key=lambda x:(
+        -x['new']-x['resume'],
+        -x['viewable_with_translation'],
+        -(x['viewable_with_translation']/x['total']),
+        x['season']))[0]
+    # If even one season has usable English, don't throw that head start
+    # away by choosing S08 with zero sources purely from historical inertia.
+    if best['new']+best['resume']>0:
+        return best
     first=next((x for x in existing if x['season']==8),None)
-    if first:return first
-    return sorted(existing,key=lambda x:(
-        -x['viewable_with_translation'],-x['total'],x['season']))[0]
+    return first or best
 
 
 def choose_and_persist(coverage,root):
