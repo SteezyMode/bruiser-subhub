@@ -56,7 +56,7 @@ class FocusLab013(unittest.TestCase):
         self.assertIn('CONTEXT_ONLY_EN = ',messages[-1]['content'])
         return '日本語%dです。'%int(cue[1])
 
-    def run(self,ask=None):
+    def execute_pilot(self,ask=None):
         return focus.run(1,self.new_state,self.fixture.original_state,
                          self.fixture.state,self.fixture.profile,
                          self.fixture.recovery_state,ask or self.fake_ask,
@@ -81,7 +81,7 @@ class FocusLab013(unittest.TestCase):
             if p.is_file()})
 
     def test_18_single_cue_calls_only_save_new_private_checkpoints(self):
-        result=self.run()
+        result=self.execute_pilot()
         self.assertEqual(result['expected_calls'],18)
         self.assertEqual(result['completed_calls'],18)
         self.assertEqual(result['valid_cues'],18)
@@ -93,7 +93,7 @@ class FocusLab013(unittest.TestCase):
             str(p):p.read_bytes() for p in self.fixture.original_state.rglob('*')
             if p.is_file()})
         once=len(self.calls)
-        self.assertEqual(self.run(),result)
+        self.assertEqual(self.execute_pilot(),result)
         self.assertEqual(len(self.calls),once)
 
     def test_bounded_failed_cue_attempt_is_not_retried_on_resume(self):
@@ -127,7 +127,7 @@ class FocusLab013(unittest.TestCase):
         self.assertNotEqual(one[-1]['content'],two[-1]['content'])
 
     def test_private_archive_keeps_ja_english_only_in_private_output(self):
-        self.run()
+        self.execute_pilot()
         buffer=io.BytesIO()
         stats=focus.export(self.new_state,self.fixture.original_state,
                            self.fixture.state,self.fixture.profile,
