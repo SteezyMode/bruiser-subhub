@@ -253,6 +253,15 @@ class FrozenRescue(unittest.TestCase):
             exporter.collect(self.original_state,self.rescue_state,
                              service.parse_srt)
 
+    def test_bad_rendering_cannot_renumber_or_publish_a_japanese_track(self):
+        malformed=b'1\n00:00:00,000 --> 00:00:01,000\n日本語の字幕です。\n'
+        with patch.object(rescue.service,'render_srt',return_value=malformed):
+            result=self.execute()[0]
+        self.assertEqual(result['state'],'held')
+        self.assertFalse(rescue.sidecar(self.video).exists())
+        self.assertFalse((self.rescue_state/'episodes'/self.entry['episode']/
+                          'pilot-recovered.ja.srt').exists())
+
     def test_wrapper_never_stages_original_frozen_modules(self):
         script=Path(__file__).resolve().parent/'tools/run_utterance_rescue_011.sh'
         process=subprocess.run(['bash','-n',str(script)],capture_output=True,text=True)
