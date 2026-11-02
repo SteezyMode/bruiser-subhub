@@ -1,5 +1,13 @@
 # Current state and next actions
 
+## 2026-11-02 — REAL American Dad five-episode contextual canary runner BUILT, NOT HOST-RUN (PR #35)
+
+Owner explicitly chose: stop microclip tests, choose provisional subtitle-tuned Gemma E4B, translate **several complete American Dad episodes**, and just WATCH them normally. No separate Natsuyo rating work. Following generic Context Engine 008, a complete **scratch-only five-episode runner** exists: `tools/american_dad_intake_009.py`, `american_dad_core_009.py`, `american_dad_pilot_009.py`, and owner MacBook launch `tools/run_american_dad_pilot_009.sh optiplex@100.121.156.34`. Source of truth: `docs/AMERICAN_DAD_VIEWING_PILOT_009.md`.
+
+It scans known media mounts, verifies English-primary audio, extracts embedded EN text subtitles or EN sidecars, SKIPS existing Japanese sidecars or embedded Japanese, freezes a private 5-episode manifest with source hashes, uses tuned Gemma E4B pinned ID `9ccfc3b07081`, creates local auto-series/episode notes through Context Engine 008 and includes neighboring 4+4 EN cues. Checkpoints per cue, bounded retries, both existing worker locks. ONLY complete tracks are written to new distinctive create-only pilot JA SRTs beside media for Jellyfin; the live SubHub worker, SQLite, queue, source video and existing human Japanese tracks are NEVER edited. All inputs/translations remain private. First useful validation = watching several full episodes in ordinary use; no more nine-model comparisons.
+
+**Important:** Github unit tests with synthetic data do NOT mean host inference/deployment. Until user runs the command, no new episodes translated by PR #35. On first run, may find fewer than five qualifying EN-source episodes; explicitly report this rather than fake success. The user can rerun the identical command to resume checkpointed accepted lines. A complete run log stays on MacBook `~/Downloads/american-dad-pilot-009.log`. Do not ask Natsuyo to perform bespoke blind QA.
+
 **Last context refresh: 2026-11-01 (JST).** This is a GitHub handoff, not live server telemetry. Update after each meaningful engineering PR/deploy. Public repository: `SteezyMode/bruiser-subhub`.
 
 ## Current decision and CAT tokenizer incident (2026-11-02)
