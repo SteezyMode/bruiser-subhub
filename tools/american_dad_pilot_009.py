@@ -67,8 +67,12 @@ def verify(entry,roots=intake.ROOTS):
         raise RuntimeError('Original video changed since frozen intake')
     if intake.existing_ja(video):
         raise RuntimeError('Already has Japanese sidecar; cannot publish')
-    if intake.tracks(video)!=entry['track']:
+    track=intake.tracks(video)
+    if track!=entry['track']:
         raise RuntimeError('Subtitle stream/audio changed after intake')
+    current_english,_=intake.extract(video,track)
+    if intake.sha(current_english)!=entry['source_sha']:
+        raise RuntimeError('Original English subtitles changed since intake')
     data=Path(entry['source_path']).read_bytes()
     if intake.sha(data)!=entry['source_sha']:
         raise RuntimeError('Frozen source SHA changed')
