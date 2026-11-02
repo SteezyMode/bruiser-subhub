@@ -86,4 +86,16 @@ done
 echo
 echo "=== MODEL SWEEP REPORT ==="
 cat "$DEST/STATUS.txt"
+echo
+echo "=== TRYING A BLINDED REVIEW PACK (only complete, matching arms) ==="
+shopt -s nullglob
+RESULTS=("$DEST"/model-sweep-005-*.json)
+if [ "${#RESULTS[@]}" -ge 2 ]; then
+  if python3 tools/blind_model_sweep_005.py "${RESULTS[@]}" \
+    --out "$DEST/BLIND_REVIEW.json" --key "$DEST/BLIND_IDENTITY_KEY.json"; then
+    echo "Blind review is ready; keep the identity key hidden during language scoring."
+  else
+    echo "Blinding skipped; one arm may be incomplete/mismatched. Individual model results are retained."
+  fi
+fi
 echo "Files in $DEST contain PRIVATE English and Japanese film dialogue. Do not commit to GitHub."
