@@ -46,14 +46,14 @@ class AutoSeasonTests(unittest.TestCase):
         self.started.append((root,seasons,max_episodes,minutes))
         return {'pid':123,'log':'synthetic'}
 
-    def run(self,start=False):
+    def auto_run(self,start=False):
         return auto.autopilot(
             (self.video_root,),self.state,start=start,
             iter_videos=lambda roots:self.videos,probe_fn=self.probe,
             launcher=self.launch,log=lambda *x:self.logged.append(x))
 
     def test_choose_real_available_season_not_user_example_missing_s08(self):
-        selected=self.run(start=True)
+        selected=self.auto_run(start=True)
         self.assertIsNotNone(selected)
         self.assertEqual(selected['season'],20)
         self.assertEqual(selected['new'],8)
@@ -65,14 +65,14 @@ class AutoSeasonTests(unittest.TestCase):
         self.assertTrue(any(x[0]=='AUTO_SEASON_COVERAGE' for x in self.logged))
 
     def test_plan_never_writes_selection_or_launches(self):
-        selected=self.run(start=False)
+        selected=self.auto_run(start=False)
         self.assertEqual(selected['season'],20)
         self.assertFalse(self.started)
         self.assertFalse((self.state/auto.SELECTION).exists())
 
     def test_nothing_eligible_no_phantom_translation(self):
         self.english.clear()
-        self.assertIsNone(self.run(start=True))
+        self.assertIsNone(self.auto_run(start=True))
         self.assertFalse(self.started)
         self.assertFalse((self.state/auto.SELECTION).exists())
         self.assertTrue(any(x[0]=='AUTO_SEASON_NOT_STARTED' for x in self.logged))
@@ -94,10 +94,10 @@ class AutoSeasonTests(unittest.TestCase):
         self.assertIsNone(auto.rank(sample))
 
     def test_sticky_campaign_does_not_jump_between_seasons_during_progress(self):
-        self.run(start=True) # season 20
+        self.auto_run(start=True) # season 20
         self.english.update(v for v in self.videos if 'S12' in v.name)
         self.started.clear()
-        selected=self.run(start=True)
+        selected=self.auto_run(start=True)
         self.assertEqual(selected['season'],20)
         self.assertEqual(self.started[0][1],(20,))
         self.assertTrue(any(x[0]=='AUTO_SEASON_SELECTED' and
@@ -105,10 +105,10 @@ class AutoSeasonTests(unittest.TestCase):
                         for x in self.logged))
 
     def test_finished_campaign_allows_new_season_selection(self):
-        self.run(start=True)
+        self.auto_run(start=True)
         self.english=set(v for v in self.videos if 'S12' in v.name)
         self.started.clear()
-        chosen=self.run(start=True)
+        chosen=self.auto_run(start=True)
         self.assertEqual(chosen['season'],12)
         self.assertEqual(self.started[0][1],(12,))
 
