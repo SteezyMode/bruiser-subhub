@@ -226,6 +226,32 @@ class FrozenRescue(unittest.TestCase):
         self.assertEqual(result['state'],'held')
         self.assertEqual(target.read_bytes(),b'an existing subtitle')
 
+    def test_private_bilingual_export_requires_published_byte_identity(self):
+        import io
+        import tarfile
+        from tools import collect_utterance_rescue_review_011 as exporter
+        with self.assertRaisesRegex(RuntimeError,'No fully published'):
+            exporter.collect(self.original_state,self.rescue_state,
+                             service.parse_srt)
+        result=self.execute()[0]
+        self.assertEqual(result['state'],'published_new_recovery')
+        out=io.BytesIO()
+        exporter.stream(self.original_state,self.rescue_state,
+                        out,service.parse_srt)
+        with tarfile.open(fileobj=io.BytesIO(out.getvalue()),mode='r:gz') as tar:
+            eid=self.entry['episode']
+            self.assertIn(eid+'/source.en.srt',tar.getnames())
+            self.assertIn(eid+'/recovered.ja.srt',tar.getnames())
+            self.assertEqual(tar.extractfile(eid+'/source.en.srt').read(),
+                             self.source.read_bytes())
+            index=json.load(tar.extractfile('INDEX.json'))
+            self.assertTrue(index['episodes'][0]['published_identical'])
+            self.assertNotIn(str(self.video.parent),str(index))
+        rescue.sidecar(self.video).write_bytes(b'corrupt published file')
+        with self.assertRaisesRegex(RuntimeError,'does not match'):
+            exporter.collect(self.original_state,self.rescue_state,
+                             service.parse_srt)
+
     def test_wrapper_never_stages_original_frozen_modules(self):
         script=Path(__file__).resolve().parent/'tools/run_utterance_rescue_011.sh'
         process=subprocess.run(['bash','-n',str(script)],capture_output=True,text=True)
