@@ -11,7 +11,10 @@ must produce a separate versioned track; never truncate dialogue blindly.
 from __future__ import annotations
 
 from collections import Counter
+import os
+from pathlib import Path
 import re
+import tempfile
 
 try:
     import subtitle_quality_010 as q
@@ -105,3 +108,61 @@ def assert_publishable(rows):
             f'{report["flagged_cues"]}/{report["cues_checked"]} cues; '
             f'{issues}; first_ids={ids}')
     return report
+
+
+
+def publish_atomically(store,job,original_publisher,service_module,apply):
+    """Retain native preflight yet make final create-only JA crash-safe.
+
+    Native SubHub 1.0 currently opens final .ja.srt with O_EXCL and streams
+    bytes to it. A power loss during that write could leave an incomplete
+    file that blocks subsequent retries. Stage and fsync a hidden tempfile,
+    then hard-link it into place as a single create-only directory operation.
+    SQLite job is marked published ONLY after full file availability.
+    Existing approved/legacy JA protection is validated by native service.
+    """
+    if not apply:
+        return original_publisher(store,job,apply=False)
+    # This executes all existing source/audio/JA-media-sidecar protections.
+    target,_=original_publisher(store,job,apply=False)
+    target=Path(target)
+    rows=store.rows(job['id'])
+    result=service_module.render_srt(
+        [(r['cue_id'],r['timing'],r['start_ms'],r['end_ms'],r['english'])
+         for r in rows],
+        {str(r['cue_id']):r['japanese'] for r in rows},
+    )
+    if target.is_symlink():
+        raise RuntimeError('Refuse symlinked Japanese target')
+    if not target.exists():
+        fd,tmp=tempfile.mkstemp(
+            prefix='.'+target.name+'.staging-',suffix='.tmp',
+            dir=str(target.parent))
+        tmp=Path(tmp)
+        try:
+            with os.fdopen(fd,'wb') as handle:
+                handle.write(result)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.chmod(tmp,0o644)
+            try:
+                os.link(tmp,target,follow_symlinks=False)
+            except FileExistsError:
+                if target.is_symlink() or not target.is_file() or target.read_bytes()!=result:
+                    raise RuntimeError('Concurrent Japanese target differs; no overwrite')
+            # Directory entry durability before the database says published.
+            with os.fdopen(os.open(target.parent,os.O_RDONLY|os.O_DIRECTORY)) as directory:
+                os.fsync(directory.fileno())
+        finally:
+            tmp.unlink(missing_ok=True)
+    elif not target.is_file() or target.read_bytes()!=result:
+        raise RuntimeError('Existing Japanese target differs; no overwrite')
+
+    store.cn.execute(
+        'UPDATE jobs SET published_sha=?,status=?,updated=? WHERE id=?',
+        (service_module.sha(result),'published',
+         service_module.stamp(),job['id']))
+    store.event(job['id'],'published',
+                'QA-verified, create-only, atomic Japanese sidecar; '
+                'existing subtitles preserved')
+    return target,'published'
