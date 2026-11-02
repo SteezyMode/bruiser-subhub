@@ -2,6 +2,10 @@
 
 **Read this file, `docs/CURRENT_STATE.md`, and `docs/OPERATIONS.md` before proposing or changing code.** Treat the checked-in source as authoritative for implemented behavior; ask for a fresh read-only status snapshot before claiming anything about the live OptiPlex service.
 
+## Canonical translation architecture and failure record — 2026-11-02
+Read `benchmarks/DECISION_RECORD_2026-11-02.md` FIRST; it supersedes older model-churn proposals. Provisional design is ONE native 17slever17 tuned Gemma4 E4B pass on NEW jobs, not mandatory two-model translation. Hy-MT2 7B fixes some meaning errors but does not consistently win and BOTH models missed a physical-action meaning. A second selective pass has NO proven semantic trigger or net benefit yet. The 26 tuned / 15 HY / 23 tied cue comparisons are one assistant's preferences, NOT a native Japanese 8/10 grade. No production translator has been switched.
+The NEW owner CAT3.3 log after fixing VRAM: ~5803MiB free, source/CUDA preflight passed; tokenizer failed before weights/inference because `sentencepiece` and `protobuf` were omitted from its isolated Python environment. Both now pinned in `tools/cat33_requirements_005.txt` and validated in preflight with tests. Do NOT repeat VRAM analysis, rerun completed model arms or install globally. CAT3.3 is the only remaining model; then Japanese-only continuous viewing, second film and a production decision.
+
 ## Actual Benchmark 005 paired conclusion and remaining CAT GPU gate (2026-11-02)
 
 Read `benchmarks/RESULTS_005_TUNED_HY_PAIRED.md` before model claims: **tuned E4B real control now PASSED** (64/64) on same SHA-verified English/timecodes as Hy7 (64/64), Google12 and CAT7. Tuned median JA chars/s 6.6 (0 >14), sum model-call seconds 61.98; HY7 median 7.45 (1 >14), 81.96s. ONE assistant, per-cue identity-masked editorial preferences favor tuned 26 vs HY 15 with 23 ties, **NOT predeclared 10-point native Japanese score**. Both make a critical physical-grip semantic error. HY better on some slang/calling/name cues; tuned better overall idiomatic dialogue. Do NOT silently promote any production model yet.

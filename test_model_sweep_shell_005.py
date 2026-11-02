@@ -30,5 +30,15 @@ class SweepBashSyntaxTests(unittest.TestCase):
         self.assertIn('memory.free',cat)
         self.assertIn('Do not automatically unload models',cat)
 
+    def test_cat_final_pins_tokenizer_dependencies_and_stages_them(self):
+        root=Path(__file__).resolve().parent
+        requirements=(root/'tools/cat33_requirements_005.txt').read_text()
+        self.assertIn('sentencepiece==0.2.2',requirements)
+        self.assertIn('protobuf==6.33.6',requirements)
+        self.assertIn('transformers==4.57.3',requirements)
+        runner=(root/'tools/run_cat33_005.sh').read_text()
+        self.assertIn('tools/cat33_requirements_005.txt',runner)
+        self.assertIn(' -r ~/bruiser-pilot/subhub-benchmark/cat33_requirements_005.txt',runner)
+
 if __name__=='__main__':
     unittest.main()

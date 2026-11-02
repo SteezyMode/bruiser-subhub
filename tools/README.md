@@ -116,3 +116,9 @@ The updated CAT runner prints current Ollama-loaded models (`ollama ps`) and NVI
     bash tools/run_model_sweep_005.sh optiplex@100.121.156.34 cat33
 
 Mode `missing` is now also cat33-only, so none of the four successful arms are rerun. CAT3.3 Python packages remain isolated in its original venv. If its preflight fails, share private `cat33-run.log` and the current `ollama ps`; do not disable ongoing services just to get the benchmark through. Preserve all private model JSONs. No production source, SQLite, media, human Japanese or queued jobs changed.
+
+## CAT3.3 tokenizer-dependency recovery (2026-11-02)
+Owner's last private log confirmed that CUDA/VRAM and frozen source checks PASSED, but the HF tokenizer required `sentencepiece` and `protobuf`; both were absent in the CAT venv. The pinned `tools/cat33_requirements_005.txt` now installs both in isolation and source preflight checks them. No global Python changes, no live worker deployment, no model re-download by default. The final candidate can be retried alone from MacBook after `git pull --ff-only`:
+    bash tools/run_model_sweep_005.sh optiplex@100.121.156.34 cat33
+Save and share either the private CAT result JSON or `cat33-run.log` on any new failure. Do not restart other 4 completed arms. Decision and method stop rules: `benchmarks/DECISION_RECORD_2026-11-02.md`.
+
