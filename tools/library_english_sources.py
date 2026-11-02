@@ -379,8 +379,8 @@ def fill(client,roots,state=STATE,search_budget=10,now=None,
                             'jellyfin_metadata_mismatch',RECHECK_S)
                     counts['numbering_conflict']+=1
                     continue
-                route='/Items/'+quote(row['jellyfin_id'],safe='')+
-                      '/RemoteSearch/Subtitles/eng'
+                route=('/Items/'+quote(row['jellyfin_id'],safe='')+
+                       '/RemoteSearch/Subtitles/eng')
                 results=client.get(route)
                 subtitle=choose(results,row)
                 if not subtitle:
