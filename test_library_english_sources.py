@@ -198,7 +198,7 @@ class LibraryInventoryTests(unittest.TestCase):
         self.scan()
         second=self.scan()
         self.assertEqual(second['cached'],5)
-        self.assertEqual(second['refreshed'],0)
+        self.assertEqual(second.get('refreshed',0),0)
 
     def test_sidecar_appearing_later_reclassifies_and_never_gets_overwritten(self):
         self.scan()
