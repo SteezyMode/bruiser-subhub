@@ -82,6 +82,38 @@ def verify(entry,roots=intake.ROOTS):
     return video,rows
 
 
+def recover_saved_italic_reply(folder, cue_id, english, source_sha):
+    """Rescue a previously rejected translated cue with *only* safe SRT italics.
+
+    Keep the old failed-attempt files immutable; choose a reproducible modal
+    reply from the old attempts. No new model calls, no guessing Japanese text.
+    """
+    counts={}
+    first_attempt={}
+    for attempt in range(1,7):
+        prior=Path(folder)/'errors'/('%05d-%d.json'%(cue_id,attempt))
+        if not prior.is_file():
+            continue
+        item=core.load(prior)
+        if item.get('cue_id')!=cue_id:
+            raise RuntimeError('Existing failed attempt identity changed')
+        if item.get('error')!='Invalid Japanese/format':
+            continue
+        clean=core.normalized_srt_markup(item.get('reply'),english)
+        if clean is None or '<i>' not in clean or not core.valid(clean,english):
+            continue
+        counts[clean]=counts.get(clean,0)+1
+        first_attempt.setdefault(clean,attempt)
+    if not counts:
+        return None
+    # Prefer a repeated identical model output, then earlier attempt.
+    chosen=sorted(counts,key=lambda x:(-counts[x],first_attempt[x]))[0]
+    return {'cue_id':cue_id,'source_sha':source_sha,
+            'model_id':core.MODEL_ID,'japanese':chosen,'valid':True,
+            'seconds':0,'recovered_from_saved_attempt':
+            first_attempt[chosen],'recovery':'validated_source_srt_italics'}
+
+
 def translate(entry,curated,series_note,state=core.STATE,roots=intake.ROOTS,
               ask=core.call,publish=False,deadline=None):
     state=Path(state)
@@ -112,13 +144,19 @@ def translate(entry,curated,series_note,state=core.STATE,roots=intake.ROOTS,
         else:
             if deadline is not None and time.monotonic()>=deadline:
                 break
-            item=None
+            item=recover_saved_italic_reply(folder,cue_id,english,entry['source_sha'])
+            if item is not None:
+                core.save(good,item)
+                print('RECOVERED',episode,'cue',cue_id,
+                      'from saved source-supported SRT italics; no model call',flush=True)
             # Attempts 1-2: original frozen pilot prompt.
             # Attempts 3-6: smaller, context-light rescue prompts.
             # Each attempt is create-only and prior failures are retained.
             # Resuming after the first full run skips 1-2 and works ONLY
             # on cues with no accepted Japanese checkpoint.
             for attempt in (1,2,3,4,5,6):
+                if item is not None:
+                    break
                 error_file=folder/'errors'/('%05d-%d.json'%(cue_id,attempt))
                 if error_file.exists():
                     continue
@@ -134,6 +172,9 @@ def translate(entry,curated,series_note,state=core.STATE,roots=intake.ROOTS,
                              if attempt<=2
                              else core.recovery_prompt(rows,index,previous,attempt))
                     text=ask(request)
+                    normalized=core.normalized_srt_markup(text,english)
+                    if normalized is not None:
+                        text=normalized
                     if not core.valid(text,english):
                         error='Invalid Japanese/format'
                 except Exception as exc:
