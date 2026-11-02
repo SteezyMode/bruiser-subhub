@@ -15,7 +15,7 @@ scp -q service.py localization_policy.py \
   tools/benchmark_localization.py tools/model_benchmark.py \
   tools/benchmark_native_subtitles.py tools/benchmark_translategemma_004.py \
   tools/analyze_model_benchmark.py tools/model_sweep_005.py \
-  tools/model_sweep_cat33_005.py \
+  tools/model_sweep_cat33_005.py tools/cat33_requirements_005.txt \
   "$HOST:~/bruiser-pilot/subhub-benchmark/"
 
 FILE="model-sweep-005-cat33-final-$STAMP.json"
@@ -28,7 +28,7 @@ ssh "$HOST" 'df -h ~ | tail -1'
 VENV='~/bruiser-pilot/subhub-cat33-venv'
 ssh "$HOST" 'python3 -m venv ~/bruiser-pilot/subhub-cat33-venv'
 echo "=== Installing pinned inference packages IN ISOLATED venv only ==="
-ssh "$HOST" '~/bruiser-pilot/subhub-cat33-venv/bin/python -m pip install --disable-pip-version-check --no-input "torch==2.9.0" "transformers==4.57.3" "accelerate==1.12.0" "bitsandbytes==0.48.2" "huggingface-hub==0.36.0"'
+ssh "$HOST" '~/bruiser-pilot/subhub-cat33-venv/bin/python -m pip install --disable-pip-version-check --no-input -r ~/bruiser-pilot/subhub-benchmark/cat33_requirements_005.txt'
 
 CMD="~/bruiser-pilot/subhub-cat33-venv/bin/python ~/bruiser-pilot/subhub-benchmark/model_sweep_cat33_005.py --out ~/bruiser-pilot/subhub1-state/review/$FILE --max-seconds 3600"
 echo "=== READ-ONLY GPU residency check just before CAT inference ==="
