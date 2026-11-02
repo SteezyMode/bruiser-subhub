@@ -11,7 +11,7 @@ One MacBook command scans **all Jellyfin movies and episodes** for English text 
 ```bash
 cd ~/Downloads/bruiser-subhub-repo
 git pull --ff-only
-bash tools/stock_english_sources.sh optiplex@100.121.156.34
+bash tools/stock_english_sources.sh optiplex@YOUR_HOST
 ```
 
 The first pass allows at most 18 provider searches; automatic daily passes allow only 5. **American Dad S08 is first in the source queue.** Source acquisition never triggers library-wide Japanese translation; run the established S08-only translator separately after English sources are ready. If a provider offers no exact match, the video remains queued rather than receiving an uncertain subtitle. No existing caption or Jellyfin configuration is overwritten. See [full instructions](docs/ENGLISH_SOURCE_INVENTORY.md). Live provider coverage is unverified until the OptiPlex runs this.
