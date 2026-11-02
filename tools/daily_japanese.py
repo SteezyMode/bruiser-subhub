@@ -160,12 +160,12 @@ def source(video,meta,runner=subprocess.run):
     if not 12<len(content)<=MAX_BYTES:
         raise RuntimeError('English SRT outside safe byte limits')
     rows=service.parse_srt(content)
-    if not MIN_CUES<=len(rows)<=MAX_CUES:
-        raise RuntimeError('Unusual English subtitle cue count')
     # Legacy service.render_srt renumbers non-contiguous IDs, which can
     # silently shift their time correspondence. Hold instead of publishing.
     if [r[0] for r in rows]!=list(range(1,len(rows)+1)):
         raise RuntimeError('Sparse English SRT cue IDs need normalized source')
+    if not MIN_CUES<=len(rows)<=MAX_CUES:
+        raise RuntimeError('Unusual English subtitle cue count')
     return content,len(rows),origin
 
 
@@ -305,28 +305,42 @@ def queue_one(record,roots,root,probe_fn=probe):
             # Enforce the installed service's canonical media-root policy too.
             service.secure_video(record['video'])
             return store.add(record['id'],record['video'],record['raw'],
-                             'eng',scope='daily',priority=20)
+                             'eng',scope='daily',priority=-20)
         finally:
             store.cn.close()
 
 
-def start_worker(root,worker=HOST_CODE/'main.py',runner=subprocess.run):
-    worker=Path(worker)
+def start_worker(root,job,worker=None,launcher=None):
+    """Start ONLY the selected job, never the other legacy queued titles.
+
+    This is a tiny isolated wrapper around installed main.run(), not a new
+    translation engine. The child keeps its own two worker locks and thermal
+    safeguards. Never claim publication until status says published.
+    """
+    import subprocess as sp
+    worker=Path(worker or Path(__file__).with_name('daily_worker.py'))
     if worker.is_symlink() or not worker.is_file():
-        raise RuntimeError('Existing SubHub 1.0 worker missing; queue saved but not started')
-    command=[sys.executable,str(worker),'--root',str(root),'start',
-             '--mode','translate','--skip-hy','--publish',
-             '--max-minutes','120','--max-titles','1']
-    result=runner(command,capture_output=True,text=True,timeout=20)
-    if result.returncode:
-        raise RuntimeError('SubHub worker start command failed; queue remains saved')
-    return result.stdout.strip()
+        raise RuntimeError('Daily single-title worker missing; job remains queued')
+    if not re.fullmatch(r'[a-z0-9][a-z0-9-]{1,100}',job):
+        raise RuntimeError('Unsafe queued daily job ID')
+    log=Path(root)/'daily-worker.log'
+    with log.open('a',encoding='utf8') as out:
+        out.write('\n=== '+service.stamp()+'; job '+job+' ===\n')
+        out.flush()
+        command=[sys.executable,str(worker),
+                 '--root',str(root),'--job-id',job]
+        if launcher is None:
+            p=sp.Popen(command,stdin=sp.DEVNULL,stdout=out,stderr=sp.STDOUT,
+                       start_new_session=True,cwd=str(worker.parent))
+        else:
+            p=launcher(command,out)
+    return 'STARTED daily single-title PID '+str(p.pid)+' log '+str(log)
 
 
 def daily(roots=service.SOURCE_ROOTS,root=DEFAULT_STATE,
           apply=False,start=False,probes=30,
           probe_fn=probe,source_fn=source,worker=None,
-          runner=subprocess.run):
+          launcher=None):
     roots=ensure_roots(roots)
     if not 1<=probes<=200: raise ValueError('Probe budget must be 1..200')
     if start and not apply:raise ValueError('--start requires --apply')
@@ -350,7 +364,7 @@ def daily(roots=service.SOURCE_ROOTS,root=DEFAULT_STATE,
     print('DAILY_QUEUED',candidate['id'],
           'existing_SubHub_1.0_job',flush=True)
     if start:
-        result=start_worker(root,worker or HOST_CODE/'main.py',runner)
+        result=start_worker(root,candidate['id'],worker,launcher)
         print('DAILY_WORKER',result,flush=True)
         print('DAILY_RESULT queued_and_worker_started__not_yet_published',flush=True)
         return 'started'
