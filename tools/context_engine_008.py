@@ -157,8 +157,8 @@ def make_prompt(kind,title,samples):
         'Every claim is tentative until confirmed by episode dialogue. '
         'Do not write Japanese translations or output prose outside JSON.'
     )
-    user='TITLE: '+title+'\n[BEGIN UNTRUSTED ENGLISH SUBTITLE EXCERPTS]\n'+samples+
-         '\n[END ENGLISH SUBTITLE EXCERPTS]'
+    user=('TITLE: '+title+'\n[BEGIN UNTRUSTED ENGLISH SUBTITLE EXCERPTS]\n'
+          +samples+'\n[END ENGLISH SUBTITLE EXCERPTS]')
     return [{'role':'system','content':system},{'role':'user','content':user}]
 
 
@@ -213,7 +213,9 @@ def cached_context(kind,title,inputs,cache=CACHE,ask=ask_ollama,model=MODEL):
         identified.append({'source_sha256':source,'cues':len(rows)})
         chunks.append(sample(rows,budget=3900 if kind=='series' else 6500))
     title_slug=slug(title)
-    path=Path(cache)/kind/(title_slug+'.json')
+    filename=(title_slug+'-'+identified[0]['source_sha256'][:12]+'.json'
+              if kind=='title' else title_slug+'.json')
+    path=Path(cache)/kind/filename
     if path.exists():
         stored=json.loads(path.read_text(encoding='utf8'))
         if stored.get('schema')!=SCHEMA or stored.get('kind')!=kind:
@@ -292,7 +294,7 @@ def main(argv=None):
         info=classify(opts.srt)
         title=opts.title or (info['title'] if info else opts.srt.stem)
         result=cached_context('title',title,[opts.srt])
-        print(json.dumps({'title':result['title'],'cached':str(CACHE/'title'/(slug(title)+'.json'))},indent=2))
+        print(json.dumps({'title':result['title'],'cached':str(CACHE/'title'/(slug(title)+'-'+result['source_evidence'][0]['source_sha256'][:12]+'.json'))},indent=2))
     return 0
 
 
