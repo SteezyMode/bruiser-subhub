@@ -44,6 +44,34 @@ class FinalCatAndBlindTests(unittest.TestCase):
         self.assertEqual(cat.QUANT,'bitsandbytes_nf4_4bit_float16')
         self.assertEqual(cat.MAX_NEW_TOKENS,512)
 
+    def test_cat_tokenizer_dependency_preflight_fails_before_downloads(self):
+        # These two modules were missing in the actual owner-run log.
+        class Stub:
+            __version__='test-version'
+        expected=['sentencepiece','google.protobuf']
+        found=[]
+        def importer(name):
+            found.append(name)
+            return Stub()
+        got=cat.tokenizer_dependency_versions(importer=importer)
+        self.assertEqual(found,expected)
+        self.assertEqual(got,{'sentencepiece':'test-version',
+                              'protobuf':'test-version'})
+        def absent(name):
+            if name=='sentencepiece':
+                raise ModuleNotFoundError('simulated missing sentencepiece')
+            return Stub()
+        with self.assertRaisesRegex(RuntimeError,
+                                    'Missing CAT tokenizer dependency sentencepiece'):
+            cat.tokenizer_dependency_versions(importer=absent)
+        def no_protobuf(name):
+            if name=='google.protobuf':
+                raise ImportError('simulated missing protobuf')
+            return Stub()
+        with self.assertRaisesRegex(RuntimeError,
+                                    'Missing CAT tokenizer dependency protobuf'):
+            cat.tokenizer_dependency_versions(importer=no_protobuf)
+
     def test_final_cat_64_fake_outputs_and_no_sqlite_modification(self):
         groups=self.groups()
         before=(self.root/'jobs.sqlite3').stat().st_size
