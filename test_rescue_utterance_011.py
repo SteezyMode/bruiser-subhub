@@ -230,6 +230,7 @@ class FrozenRescue(unittest.TestCase):
         import io
         import tarfile
         from tools import collect_utterance_rescue_review_011 as exporter
+        rescue.frozen(self.original_state,self.rescue_state,self.profile)
         with self.assertRaisesRegex(RuntimeError,'No fully published'):
             exporter.collect(self.original_state,self.rescue_state,
                              service.parse_srt)
