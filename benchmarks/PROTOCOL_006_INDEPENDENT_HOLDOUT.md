@@ -91,3 +91,8 @@ A separate **bilingual spot-check** can target viewer-reported comprehension bre
 - CAT3.3 currently running on owner's OptiPlex remains **unaffected** by drafting this protocol. No new model calls, deployments, downloads or production writes are authorized by creating this document.
 
 **Implementation readiness:** This document is a pre-registered methodology, **not a claim that new unseen titles or scores are already selected**. Model runtime verification, private scene selector, playback exports and blind review scoring tools must be implemented/tested as separate reproducible components BEFORE actual 006 inference; no unvetted "one command runs all" promise.
+
+
+## Actual execution harness (post-preregistration)
+
+`tools/run_clean_sweep_006.sh HOST` performs the registered 006 data freeze, all 10 model calls and private blind SRT export in ONE foreground host-initiated command. `tools/clean_sweep_006.py` can resume the same frozen manifest/cues after interruption. Source-selection rules realized: hash-ranked eligible source SHA among existing read-only jobs with 3 test titles + 1 unused holdout, 5-minute nonoverlapping windows, 4–6 scenes, >=200 English cue records, no Primate, no historical JA context; output remains private. Native-model interface/config differs by model by design; no server-level quality metric can replace independent viewer ratings. The run may mark certain arms compatibility-blocked; do not replace their model with another silently or include them in blind review. Actual host runs must still be executed by user from MacBook; offline tests are NOT real inference.
