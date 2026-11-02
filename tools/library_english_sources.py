@@ -215,6 +215,7 @@ def scan(client,roots,state=STATE,probe_fn=intake.probe,
     raw=catalog_fn(client)
     counts=Counter()
     seen=set()
+    committed=0
     with lock(state),database(state) as db:
         for _path,item in raw.items():
             video=get_video(item,roots)
@@ -281,6 +282,13 @@ def scan(client,roots,state=STATE,probe_fn=intake.probe,
                  0 if new else old['next_search'],
                  '' if new else old['last_result'],now,now))
             counts[status]+=1
+            committed+=1
+            # Persist progress in batches. A dropped SSH connection should not
+            # force a multi-thousand-title ffprobe pass to restart from zero.
+            if committed%100==0:
+                db.commit()
+                log('EN_INVENTORY_PROGRESS','catalog_items',committed,
+                    'cached',counts['cached'],'missing',counts['missing'])
         # Keep history for absent Jellyfin paths, but never search them.
         counts['catalog_eligible_paths']=len(seen)
         counts['jellyfin_items']=len(raw)
