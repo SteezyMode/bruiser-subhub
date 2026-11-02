@@ -73,3 +73,11 @@
 | Google official TranslateGemma 4B (all) | 80 | 80 | 0 | 9.15 | 12 | Not measured |
 | Google 4B (held-out only) | 16 | 16 | 0 | 9.0 | 2 | Not measured |
 | Tuned subtitle Gemma4 E4B (same held-out) | 16 | 16 | 0 | 6.6 | 2 | Not measured |
+
+## November 2, 2026 — new model and subtitle-method research (NOT a benchmark)
+
+- Read [MODEL_RADAR_2026-11-02.md](MODEL_RADAR_2026-11-02.md) before suggesting further model downloads. Two genuinely new English→Japanese families: **CyberAgent CAT-Translate 3.3B/7B** (Japanese–English specialist; final-model GGUF must be verified) and **Tencent Hy-MT2 7B Q4_K_M** (4.62 GB, context/glossary capable). Both untested as primary translation models on this host.
+- IMPORTANT historical correction: `kaelri/hy-mt2:1.8b` was already genuinely used in prior Japanese→English *backtranslation QA*, compared with Index-Translate 2B; do **not** treat those as never tested or confuse QA quality with English→Japanese primary quality.
+- TranslateGemma 12B (8.1 GB) needs CPU offload on 6GB GPU; do not assume 12B solves failures of tested official 4B. Third-generation PLaMo Translate service updated Oct 7; local third-gen weights were **announced as future**, not verified available.
+- WMT26 Oct 2026 video-subtitle research supports investigating real scene context and verified terminology, but its quantitative studies used **Chinese-source** languages, NOT EN→JA. Do not transpose scores. Multi-model candidate selection is optional only with proven net gain.
+- **Next recommendation remains continuous Japanese-only 10–15-minute viewing on a NEW native-E4B generated sample**, not another 64 random cues and not old pre-fix published outputs. After actual viewer comments, consider a SINGLE controlled CAT 3.3B or Hy-MT2 7B native-model comparison on fresh scenes if needed.
