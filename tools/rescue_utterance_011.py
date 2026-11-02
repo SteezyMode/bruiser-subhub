@@ -379,6 +379,13 @@ def run_episode(entry,profile,state,identity,roots,ask,publish,deadline,
         return {'episode':eid,'state':'held_for_quality',
                 'unresolved_ids':unresolved,'units':counts}
     output=service.render_srt(rows,final)
+    # An English SRT may contain an empty numbered placeholder. The shared
+    # renderer renumbers rows, so explicitly verify every ID and timestamp
+    # BEFORE either saving a draft or publishing. No silent off-by-one drift.
+    rendered=service.parse_srt(output)
+    if (len(rendered)!=len(rows) or
+        any(a[:4]!=b[:4] for a,b in zip(rows,rendered))):
+        raise RuntimeError('Rendered JA cue IDs/timestamps drifted; no publication')
     if draft.exists() or draft.is_symlink():
         if draft.is_symlink() or draft.read_bytes()!=output:
             raise RuntimeError('Private recovered JA differs from saved draft')
