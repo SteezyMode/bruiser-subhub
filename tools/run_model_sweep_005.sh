@@ -35,7 +35,7 @@ ssh "$HOST" 'ollama ps || true'
 for ARM in "${ARMS[@]}"; do
   if [ "$ARM" = cat33 ]; then
     echo "=== CAT 3.3B FINAL — separate CUDA Transformers environment ==="
-    if bash tools/run_cat33_005.sh "$HOST" "$DEST"; then
+    if bash tools/run_cat33_005.sh "$HOST" "$DEST" 2>&1 | tee "$DEST/cat33-run.log"; then
       printf 'cat33\tcomplete\n' >> "$DEST/STATUS.txt"
     else
       echo "CAT 3.3B failed or is blocked; continuing other models"
@@ -67,13 +67,13 @@ for ARM in "${ARMS[@]}"; do
       continue
     fi
   fi
-  if ! ssh "$HOST" "$CMD --dry-run"; then
+  if ! ssh "$HOST" "$CMD --dry-run" 2>&1 | tee "$DEST/$ARM-preflight.log"; then
     echo "BLOCKED: model metadata/source preflight; continuing"
     printf '%s\tBLOCKED preflight\n' "$ARM" >> "$DEST/STATUS.txt"
     continue
   fi
   STATUS='complete'
-  if ! ssh "$HOST" "$CMD"; then
+  if ! ssh "$HOST" "$CMD" 2>&1 | tee "$DEST/$ARM-model-run.log"; then
     STATUS='failed-or-partial'
     echo "Model arm stopped or failed. Attempting to retrieve private partial result."
   fi
