@@ -113,17 +113,27 @@ def translate(entry,curated,series_note,state=core.STATE,roots=intake.ROOTS,
             if deadline is not None and time.monotonic()>=deadline:
                 break
             item=None
-            for attempt in (1,2):
+            # Attempts 1-2: original frozen pilot prompt.
+            # Attempts 3-6: smaller, context-light rescue prompts.
+            # Each attempt is create-only and prior failures are retained.
+            # Resuming after the first full run skips 1-2 and works ONLY
+            # on cues with no accepted Japanese checkpoint.
+            for attempt in (1,2,3,4,5,6):
                 error_file=folder/'errors'/('%05d-%d.json'%(cue_id,attempt))
                 if error_file.exists():
                     continue
+                if deadline is not None and time.monotonic()>=deadline:
+                    break
                 started=time.monotonic()
                 text=None
                 error=None
                 try:
-                    text=ask(core.prompt(rows,index,previous,curated,
-                                         core.note_text(series_note),
-                                         core.note_text(episode_note)))
+                    request=(core.prompt(rows,index,previous,curated,
+                                          core.note_text(series_note),
+                                          core.note_text(episode_note))
+                             if attempt<=2
+                             else core.recovery_prompt(rows,index,previous,attempt))
+                    text=ask(request)
                     if not core.valid(text,english):
                         error='Invalid Japanese/format'
                 except Exception as exc:
@@ -131,8 +141,12 @@ def translate(entry,curated,series_note,state=core.STATE,roots=intake.ROOTS,
                 if error is None:
                     item={'cue_id':cue_id,'source_sha':entry['source_sha'],
                           'model_id':core.MODEL_ID,'japanese':text,
-                          'valid':True,'seconds':round(time.monotonic()-started,2)}
+                          'valid':True,'seconds':round(time.monotonic()-started,2),
+                          'attempt':attempt}
                     core.save(good,item)
+                    if attempt>2:
+                        print('RECOVERED',episode,'cue',cue_id,
+                              'on rescue attempt',attempt,flush=True)
                     break
                 core.save(error_file,{'cue_id':cue_id,'error':error,
                                       'reply':text})
