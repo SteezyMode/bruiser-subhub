@@ -54,7 +54,7 @@ class Unit011(unittest.TestCase):
         self.assertIn('Reply',blob.replace('Respond','Reply'))
 
     def test_json_mapping_and_gated_density(self):
-        group=[row(7,0,2000,'This begins'),
+        group=[row(7,0,500,'This begins'),
                row(8,2200,4300,'the new thought.')]
         valid=json.dumps({'7':'思いは始まる。','8':'新しい考えだ。'})
         self.assertEqual(set(sem.parse_unit_reply(valid,group,v3.accepted)),{'7','8'})
