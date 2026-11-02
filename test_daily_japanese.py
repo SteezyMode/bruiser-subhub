@@ -110,6 +110,7 @@ class DailyIntakeTests(unittest.TestCase):
                 self.assertEqual(self.probed[-1],self.v2)
             finally:p.unlink()
         self.probed.clear()
+        self.extracted.clear()
         self.meta['ja']=True
         self.assertEqual(self.daily(probes=2),'no_ready')
         self.assertEqual(self.extracted,[])
@@ -191,21 +192,21 @@ class DailyIntakeTests(unittest.TestCase):
 
     def test_worker_is_only_started_explicitly_after_successful_queue_add(self):
         calls=[]
-        def start(command,**kwargs):
+        def launch(command,out):
             calls.append(command)
-            return SimpleNamespace(returncode=0,stdout='STARTED detached PID 123\n')
-        worker=self.tmp/'installed_main.py'
+            return SimpleNamespace(pid=123)
+        worker=self.tmp/'daily_worker.py'
         worker.write_bytes(b'print("no execution in test")')
         with patch.object(day,'HOST_CODE',self.tmp),patch.object(
              service,'OLD_WORKER_LOCK',self.old_lock),patch.object(
              service,'SOURCE_ROOTS',(self.media,)):
             self.assertEqual(day.daily((self.media,),self.root,apply=True,
                 start=True,probes=4,probe_fn=self.probe,
-                source_fn=self.source,worker=worker,runner=start),'started')
+                source_fn=self.source,worker=worker,launcher=launch),'started')
         self.assertEqual(len(calls),1)
-        self.assertEqual(calls[0][-2:],['--max-titles','1'])
-        self.assertIn('--skip-hy',calls[0])
-        self.assertIn('--publish',calls[0])
+        self.assertEqual(calls[0][-2:],['--job-id',day.job_id(self.v1)])
+        self.assertEqual(Path(calls[0][1]),worker)
+        self.assertTrue((self.root/'daily-worker.log').is_file())
         self.assertEqual(list(self.media.glob('*.ja.srt')),[])
 
     def test_status_ro_only_and_deterministic_job_id(self):
