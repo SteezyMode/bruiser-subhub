@@ -1,5 +1,13 @@
 # Current state and next actions
 
+## 2026-11-02 — American Dad S08 source gap: use native Jellyfin/Subbuzz, not stopped Sublarr
+
+Owner confirmed all **18 S08 files have English audio but no EN SRT/embedded text or JA**. Actual service audit showed **jellyfin.service and caddy.service are active; Jellyfin port 8096; Sublarr Docker exited 137**. Do not ask user to configure Sublarr or 18 provider downloads manually. Jellyfin's existing subtitle-provider API can search/download per episode, and Subbuzz had previously been installed.
+
+New isolated `tools/jellyfin_english_sources.py` and `tools/fetch_american_dad_english.sh` automate the missing acquisition step by using a **one-time existing Jellyfin ADMIN login privately on the OptiPlex** (hidden password; private 0600 cached token). For **only requested American Dad seasons (default S08)**, map real paths exactly to Jellyfin item IDs; verify library season/episode numbering, accept only English SRT releases with hash match or matching American Dad S08E## provider title; use Jellyfin's own per-episode subtitle search/download endpoints; confirm real EN SRT beside video; then launch **unchanged existing** SubHub season runner. Never trigger the all-library scheduled task, restart services or modify accepted JA.
+
+MacBook after merge: `cd ~/Downloads/bruiser-subhub-repo && git pull --ff-only && bash tools/fetch_american_dad_english.sh optiplex@100.121.156.34 8`. User shouldn't need to configure Jellyfin providers one-by-one; if actual plugin search/permissions fail, report the relevant real blocker and consider local audio speech transcription for only those episodes. Host has NOT YET run the new helper or established provider coverage. Docs: `docs/AMERICAN_DAD_JELLYFIN_SOURCES.md`.
+
 ## 2026-11-02 — User's original goal restored: batch American Dad S08, optionally S09, using existing successful daily worker
 
 Previous response targeted S19/20 because they were earlier experimental pilot episodes—not because the household chose to watch those seasons. User challenged this; **the season must be user-selectable**, with Season **8** as the first actual requested viewing batch and Season **9** optional. **No model/format experiments, no dual-sub work, no unrelated movies.**
