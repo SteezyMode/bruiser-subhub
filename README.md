@@ -4,6 +4,20 @@
 
 Currently a local English-to-Japanese subtitle translation coordinator for a personal media server. **Public-source development repository; currently an OptiPlex-specific working pilot, not a portable installer.**
 
+## Japanese subtitle readability gate, safe resume after power loss
+
+The owner found repeatedly unreadable Japanese subtitles while watching American Dad S19E04. The existing pilot audit already showed copied-ahead future dialogue and extreme reading density. New `tools/subtitle_publish_gate.py` now gates the actual selected-season worker's final publication: it rejects severe overlength, copied future dialogue, more than two lines, and excessive line/cue width. A held episode preserves completed SQLite cue checkpoints and stops the season rather than processing 21 more poor-quality episodes. QA-approved Japanese SRTs now use a **fsynced temporary file and atomic create-only hardlink**, so loss of power during publication cannot expose a half-written final subtitle. Existing approved Japanese and the faulty v009 S19E04 pilot are unchanged.
+
+**Use the existing repair command** after CI/merge; it now deploys the systemd lifecycle fix AND the quality gate together:
+
+```bash
+cd ~/Downloads/bruiser-subhub-repo
+git pull --ff-only
+bash tools/repair_american_dad_worker.sh optiplex@YOUR_HOST
+```
+
+MacBook shutdown after the host service launches doesn't stop OptiPlex translation; OptiPlex power loss stops model work but safely committed SQLite cue batches persist and resume on a later timer run, assuming the disk remains healthy and user systemd manager runs. The in-flight cue/model call may be repeated. **No actual new S20 Japanese SRT has been verified yet**; expect the first episode to be held if output violates the gate. See [quality and shutdown details](docs/JAPANESE_READABILITY_AND_RESUME.md).
+
 ## Repair interrupted American Dad background worker (2026-11-02)
 
 **Real host diagnosis:** the nightly user `Type=oneshot` service successfully selected S20, spawned an `american_dad_seasons.py` detached process, then exited. Its systemd cgroup ended too, terminating the season child before it could print or publish work. A successful launch PID was *not* successful translation. This revision replaces the maintenance launcher with **supervised foreground season execution** in a distinct systemd `Type=exec` service, Python unbuffered output, an 11-hour bound, and logs simultaneously in the journal and `american-dad-seasons.log`. The change upgrades only the **exact previously installed Bruiser unit**, saves its old content as a private backup and preserves all user timers and media services.
