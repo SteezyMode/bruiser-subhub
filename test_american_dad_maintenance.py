@@ -64,6 +64,16 @@ class MaintenanceTests(unittest.TestCase):
         self.assertIn('S08E01',self.asr[0].name)
         self.assertEqual(self.launches[0][1],(8,))
 
+    def test_partial_real_english_season_beats_zero_source_season(self):
+        for video in self.videos:
+            self.em[video]['embedded_en']=None
+        one=next(video for video in self.videos if 'S20E01' in video.name)
+        self.em[one]['embedded_en']=3
+        self.assertEqual(self.once(),'started')
+        self.assertEqual(m.auto.current(self.state),20)
+        self.assertIn('S20E02',self.asr[0].name)
+        self.assertEqual(self.launches[0][1],(20,))
+
     def test_failed_first_asr_is_deferred_and_not_retried(self):
         for video in self.videos:
             self.em[video]['embedded_en']=None
