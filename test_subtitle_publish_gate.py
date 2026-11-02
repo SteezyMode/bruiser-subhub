@@ -30,8 +30,6 @@ class PublishGateTests(unittest.TestCase):
         self.video.write_bytes(b'example video')
         self.state=self.root/'state'
         self.jid='daily-american-dad-s20e01-001122334455'
-        with service.Store(self.state) as _unused:
-            pass
 
     def setup_store(self,translations=None):
         store=service.Store(self.state)
