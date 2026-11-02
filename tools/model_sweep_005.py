@@ -229,10 +229,13 @@ def safe_sysinfo(run=subprocess.run):
     return data
 
 
-def execute(key,root,base,out,dry_run=False,max_seconds=1800):
+def execute(key,root,base,out,dry_run=False,max_seconds=1800,source_only=False):
     if key not in FAMILY:
         raise ValueError('Unknown model arm: '+key)
     groups=dataset(root)
+    if source_only:
+        print('SOURCE PREFLIGHT OK: ',SOURCE_SHA, '64 NEW cue IDs; zero downloads or model calls')
+        return None
     if not dry_run and Path(out).exists():
         raise FileExistsError('Refusing to overwrite private result: '+str(out))
     found=installed_models()
@@ -279,11 +282,12 @@ def main(argv=None):
     p.add_argument('--root',type=Path,default=Path.home()/'bruiser-pilot/subhub1-state')
     p.add_argument('--out',type=Path,required=True)
     p.add_argument('--dry-run',action='store_true')
+    p.add_argument('--source-only',action='store_true')
     p.add_argument('--max-seconds',type=int,default=1800)
     args=p.parse_args(argv)
     try:
         if not 60<=args.max_seconds<=14400:raise ValueError('max-seconds must be 60..14400')
-        result=execute(args.model,args.root,args.base,args.out,args.dry_run,args.max_seconds)
+        result=execute(args.model,args.root,args.base,args.out,args.dry_run,args.max_seconds,args.source_only)
         if result is not None and not result['complete']:
             print('INCOMPLETE benchmark; preserved partial private results.',file=sys.stderr)
             return 1
