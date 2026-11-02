@@ -11,7 +11,8 @@ class SweepBashSyntaxTests(unittest.TestCase):
             self.skipTest('Bash unavailable')
         root=Path(__file__).resolve().parent
         for path in ('tools/run_model_sweep_005.sh','tools/run_cat33_005.sh',
-                     'tools/diagnose_model_sweep_005.sh'):
+                     'tools/diagnose_model_sweep_005.sh',
+                     'tools/inventory_sources_006.sh'):
             with self.subTest(path=path):
                 result=subprocess.run(['bash','-n',str(root/path)],
                                       capture_output=True,text=True)
@@ -39,6 +40,14 @@ class SweepBashSyntaxTests(unittest.TestCase):
         runner=(root/'tools/run_cat33_005.sh').read_text()
         self.assertIn('tools/cat33_requirements_005.txt',runner)
         self.assertIn(' -r ~/bruiser-pilot/subhub-benchmark/cat33_requirements_005.txt',runner)
+
+    def test_006_inventory_runs_script_from_stdin_without_remote_staging(self):
+        root=Path(__file__).resolve().parent
+        shell=(root/'tools/inventory_sources_006.sh').read_text()
+        self.assertIn("ssh \"$HOST\"",shell)
+        self.assertIn('< tools/inventory_sources_006.py',shell)
+        self.assertNotIn('scp ',shell)
+        self.assertNotIn('mkdir ',shell)
 
 if __name__=='__main__':
     unittest.main()
