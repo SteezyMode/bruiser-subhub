@@ -189,7 +189,7 @@ def first_attempt_already_failed(old_state,entry,group):
     return found>0
 
 
-def translate_unit(group,rows,staged,profile,entry,state,identity,ask):
+def translate_unit(group,rows,staged,profile,entry,state,identity,ask,original_state=OLD_STATE):
     """Recover without ever repeating a known failed original group attempt."""
     eid=entry['episode']
     path=unit_path(state,eid,group)
@@ -198,7 +198,7 @@ def translate_unit(group,rows,staged,profile,entry,state,identity,ask):
         return cached,'reused_recovery'
     previous=[staged[str(x[0])] for x in rows
               if x[0]<group[0][0] and str(x[0]) in staged][-1:]
-    was_failed=first_attempt_already_failed(OLD_STATE,entry,group)
+    was_failed=first_attempt_already_failed(original_state,entry,group)
     if len(group)>1 and not was_failed:
         # Only one normal structured group call for groups never previously tried.
         # A length-cap or mapping error immediately falls back to isolated cues.
@@ -338,7 +338,7 @@ def run_episode(entry,profile,state,identity,roots,ask,publish,deadline,
             results.update(previous)
         else:
             recovered,mode=translate_unit(group,rows,results,profile,entry,
-                                         state,identity,ask)
+                                         state,identity,ask,original_state)
             if recovered is None:
                 counts['held_units']+=1
             else:
