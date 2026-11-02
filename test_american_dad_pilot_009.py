@@ -138,6 +138,40 @@ class AmericanDad009Tests(unittest.TestCase):
             errors=list((self.output/'episodes'/info['episode']/'errors').glob('*.json'))
             self.assertEqual(len(errors),24)
 
+    def test_embedded_english_subtitle_extraction_uses_exact_stream(self):
+        mapped=[]
+        def fake_runner(cmd,**kwargs):
+            mapped.append(cmd)
+            return SimpleNamespace(stdout=english_srt(154))
+        raw,rows=intake.extract(self.video,{'kind':'embedded','index':3},
+                                runner=fake_runner)
+        self.assertEqual(len(rows),154)
+        self.assertIn('0:3',mapped[0])
+        self.assertEqual(raw,english_srt(154))
+
+    def test_new_human_ja_sidecar_between_plan_and_inference_blocks(self):
+        with patch.object(intake,'tracks',return_value=self.track):
+            entry=pilot.freeze(5,(self.root,),self.output,self.profile)['episodes'][0]
+            human=self.video.with_name(self.video.stem+'.ja.srt')
+            human.write_bytes(b'Human-localized Japanese subtitle')
+            before=human.read_bytes()
+            with patch.object(core,'note',return_value=None):
+                with self.assertRaisesRegex(RuntimeError,'Already has Japanese'):
+                    pilot.translate(entry,'{}',None,self.output,(self.root,),
+                                    lambda _:self.fail('Unexpected model call'),True)
+        self.assertEqual(human.read_bytes(),before)
+        self.assertFalse(intake.pilot_path(self.video).exists())
+
+    def test_one_command_shell_has_valid_bash_syntax(self):
+        import subprocess
+        script=Path(__file__).resolve().parent/'tools/run_american_dad_pilot_009.sh'
+        result=subprocess.run(['bash','-n',str(script)],capture_output=True,text=True)
+        self.assertEqual(result.returncode,0,result.stderr)
+        body=script.read_text(encoding='utf8')
+        self.assertIn('--episodes 5',body)
+        self.assertIn('--publish',body)
+        self.assertNotIn('systemctl restart',body)
+
     def test_exclusive_worker_lock_contends(self):
         import fcntl
         holder=self.base/'subhub1-state'/'run.lock'
