@@ -95,7 +95,7 @@ class Sweep005Tests(unittest.TestCase):
             item=s.model_metadata(key,found,post=post)
             self.assertEqual(item['quantization'],s.FAMILY[key]['quant'])
             self.assertTrue(item['template_sha256'])
-        with self.assertRaisesRegex(ValueError,'not installed'):
+        with self.assertRaisesRegex(ValueError,'Not installed'):
             s.model_metadata('hy7',{},post=post)
         with self.assertRaisesRegex(ValueError,'digest changed'):
             s.model_metadata('tuned',{s.SUB_MODEL:'unknown'},post=post)
