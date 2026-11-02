@@ -5,6 +5,7 @@ import contextlib
 import fcntl
 import json
 import os
+import re
 from pathlib import Path
 from urllib.request import Request,urlopen
 import service
@@ -183,7 +184,42 @@ def recovery_prompt(rows,index,previous,mode=3):
     return [{'role':'system','content':basic},{'role':'user','content':user}]
 
 
+def normalized_srt_markup(text, english):
+    """Preserve standard SRT italics ONLY, never accept arbitrary model HTML.
+
+    The source must itself contain italic markup. A model-emitted
+    <i lang="en"> marker can be reduced to valid SRT <i>, preserving
+    the exact model wording, source timecode and italicized show name.
+    """
+    if not isinstance(text,str) or not isinstance(english,str):
+        return None
+    if '<' not in text and '>' not in text:
+        return text
+    if not re.search(r'<i(?:\\s|>)',english,re.IGNORECASE):
+        return None
+    text=re.sub(r'<i\\s+lang\\s*=\\s*(["\\\'])en\\1\\s*>',
+                '<i>',text,flags=re.IGNORECASE)
+    tags=re.findall(r'<[^>]*>',text)
+    if not tags or any(tag not in ('<i>','</i>') for tag in tags):
+        return None
+    depth=0
+    for tag in tags:
+        depth+=1 if tag=='<i>' else -1
+        if depth<0 or depth>1:
+            return None
+    if depth!=0:
+        return None
+    naked=re.sub(r'</?i>','',text)
+    if '<' in naked or '>' in naked:
+        return None
+    return text
+
+
 def valid(text,english):
-    return (service.acceptable_ja(text,english) and len(text)<300 and
-            not text.lstrip().startswith((chr(96),'{','[CURRENT_','訳：','翻訳：')) and
-            '<|' not in text and '</' not in text)
+    clean=normalized_srt_markup(text,english)
+    if clean is None:
+        return False
+    visible=re.sub(r'</?i>','',clean)
+    return (service.acceptable_ja(visible,english) and len(clean)<300 and
+            not visible.lstrip().startswith((chr(96),'{','[CURRENT_','訳：','翻訳：')) and
+            '<|' not in clean and '</' not in visible)
