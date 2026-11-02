@@ -8,6 +8,11 @@
 
 **Decision:** DO NOT switch to Google 4B as movie primary and DO NOT install/enforce multipass. Benchmark 002's previously tested tuned Gemma E4B native interface remains the best provisional candidate for **new translation work**, **but was NOT installed as production worker** by these benchmark PRs. No existing subtitles/queue/checkpoints modified. Pause the model/prompt loop. **Next actionable evidence:** 10–15 minutes of actual Japanese-only playback with intended viewer and comments on comprehension, line density, insults/slang/tone. After that, if sufficiently usable, implement a guarded, non-destructive native-model new-job worker and resume library scale (2,026 English-source candidates out of 13,199 videos scanned). If inadequate, one material alternative backed by controlled quality results; selective multipass optional, not default.
 
+
+## Research update — modern local Japanese translation options (2026-11-02)
+
+Model radar has been researched and recorded in `benchmarks/MODEL_RADAR_2026-11-02.md` (**research only, no GPU test/download**). CAT-Translate 3.3B (Japanese↔English specialist) and Hy-MT2 7B Q4_K_M are genuine new candidates; verify final-model quantization and native chat format for CAT, and 6GB VRAM availability for HY 7B. **Do not repeat `kaelri/hy-mt2:1.8b` Japanese→English QA test** or confuse it with a new primary 7B EN→JA trial. TranslateGemma 12B is CPU-offload-only on this host, PLaMo Translate 3 new local weights still planned. WMT26 video-subtitle results support scene context/terminology but investigated Chinese-source language directions, not EN→JA. Owner's next practical gate is actual Japanese viewing of a continuous fresh native-E4B subtitle scene before spending further time on model comparisons. No production changes.
+
 ## The project in one sentence
 
 Daily-use, local-first subtitle translation for a personal media library: English source cues → natural Japanese Gemma translation → safely checkpointed, structurally validated `.ja.srt` sidecar; optional diagnostic HY sample.
