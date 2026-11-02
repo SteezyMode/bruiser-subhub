@@ -4,6 +4,18 @@
 
 Currently a local English-to-Japanese subtitle translation coordinator for a personal media server. **Public-source development repository; currently an OptiPlex-specific working pilot, not a portable installer.**
 
+## Watch American Dad — selectable season batch
+
+The priority now is actual season subtitles for watching together, **starting with Season 8**, not more translation-format research. One MacBook command scans the real media library, skips episodes with existing Japanese, and runs the existing SubHub translator serially for all eligible episodes. It can resume an interrupted season:
+
+```bash
+cd ~/Downloads/bruiser-subhub-repo
+git pull --ff-only
+bash tools/run_american_dad_seasons.sh optiplex@100.121.156.34 8
+```
+
+For two seasons, append `9`. See [American Dad season-batch instructions](docs/AMERICAN_DAD_SEASON_BATCH.md). The current model's translation-quality limitations still apply; completed subtitles should be assessed by watching.
+
 ## Use it for one movie at a time
 
 After updating the MacBook checkout:
