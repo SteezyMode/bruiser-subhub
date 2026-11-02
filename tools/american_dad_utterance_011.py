@@ -154,12 +154,19 @@ def checkpoint(path, entry, group):
 def messages_for(rows,group,previous,profile,series_note,episode_note,attempt):
     i=next(i for i,r in enumerate(rows) if r[0]==group[0][0])
     if len(group)==1:
-        return quality.cue_messages(rows,i,previous,
+        messages=quality.cue_messages(rows,i,previous,
             series_note=core.note_text(series_note),
             title_note=core.note_text(episode_note),
             series_bible=core.compact_profile(profile),
             style='idiomatic unsanitized Japanese for adult animation',
             repair=attempt>1)
+        if semantic.speaker_turn_count(group[0][4])>=2:
+            messages[0]['content']+=(
+                ' IMPORTANT: CURRENT_ENGLISH contains two explicitly dashed '
+                'speakers. Preserve BOTH distinct turns, in source order, '
+                'as two separate short Japanese lines, each beginning "- ". '
+                'Do not fuse two speakers into one Japanese sentence.')
+        return messages
     prior_en = [r[4] for r in rows[max(0,i-2):i]]
     return semantic.unit_messages(
         group,prior_en=prior_en,prior_ja=previous[-1:],
