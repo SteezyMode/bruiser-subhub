@@ -2,6 +2,11 @@
 
 **Read this file, `docs/CURRENT_STATE.md`, and `docs/OPERATIONS.md` before proposing or changing code.** Treat the checked-in source as authoritative for implemented behavior; ask for a fresh read-only status snapshot before claiming anything about the live OptiPlex service.
 
+## 2026-11-02 — Generic library Context Engine 008 IMPLEMENTED (not yet integrated/deployed)
+
+User asked whether an American Dad-style show bible can be AUTOMATED for the full library. **Yes: the tested reusable `tools/context_engine_008.py` provides real code**. Reads explicit English-tagged SRT sidecars (no embedded-sub extractor yet); classifies TV series/episodes or films; generates compact JSON series bibles from 2–3 sampled English episodes with local Ollama (`gemma4:e4b-it-qat`), creates per-episode/movie source-hashed notes, caches files privately and create-only, offers previous/current/NEXT English cue context, and reads separately maintained manual corrections. No paid API or Internet required. Full explanation: `docs/CONTEXT_ENGINE_008.md`.
+
+**Not implemented yet:** integrating this generic context into the production translator and into a 5-episode American Dad pilot, automatic embedded English subtitle intake/Jellyfin provider IDs, automatic draft publication. No live translation job or source scan has been executed by this PR. Do not claim the library is indexed, show bibles for all 6TB exist, or that five American Dad episodes have been generated. NEXT actual user goal: non-destructive five-episode American Dad full-subtitle pilot with this context, no more 9-model blind scene tests; human JA and existing sidecars always protected.
 ## Latest: PRIVATE full output archive audited, Hy1.8 exact causes found (2026-11-02)
 
 Owner uploaded `subhub-006-review.tar.gz` with frozen 273-cue English/JA raw files for nine completed models and incomplete Hy1.8. All 2,457 returned Japanese outputs were parsed and checked mechanically, and **38 source/scene-sensitive cues received assistant-only exploratory EN↔JA spot checks**. Full public aggregate notes: `benchmarks/RESULTS_006_ASSISTANT_SCREEN_LIMITED.md`; raw movie dialogue, private flags, per-cue comparison and blind SRTs MUST stay private.
