@@ -102,6 +102,22 @@ def note_text(record):
                      for k in ('names','terms','notes','caveats'))[:1250]
 
 
+def compact_profile(profile):
+    """Use a bounded readable character guide, never a truncated JSON fragment."""
+    try:
+        data=json.loads(profile)
+        lines=[]
+        for person in data.get('recurring_people',[])[:12]:
+            name=str(person.get('name',''))[:50]
+            kana=str(person.get('ja_hint',''))[:30]
+            guide=str(person.get('guide',''))[:155]
+            if name:
+                lines.append(name+' / '+kana+': '+guide)
+        return '\n'.join(lines)[:2200]
+    except (ValueError,TypeError,AttributeError):
+        return str(profile)[:2000]
+
+
 def prompt(rows,index,previous,profile,series_note,episode_note):
     part=context.cue_context(rows,index)
     system=(
@@ -113,7 +129,7 @@ def prompt(rows,index,previous,profile,series_note,episode_note):
         'Never assume speaker identity without dialogue evidence. Earlier '
         'and future dialogue are context ONLY. Reply with ONLY the Japanese '
         'of CURRENT_ENGLISH; no labels, commentary or alternative versions.\n'
-        '[CURATED_BIBLE]\n'+profile[:1600]+'\n[/CURATED_BIBLE]\n'
+        '[CURATED_BIBLE]\n'+compact_profile(profile)+'\n[/CURATED_BIBLE]\n'
         '[AUTO_SHOW]\n'+series_note[:950]+'\n[/AUTO_SHOW]\n'
         '[AUTO_EPISODE]\n'+episode_note[:950]+'\n[/AUTO_EPISODE]'
     )
