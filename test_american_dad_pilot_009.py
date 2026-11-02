@@ -268,6 +268,29 @@ class AmericanDad009Tests(unittest.TestCase):
             self.assertIn('<i>Langley Dollar Listings</i>',
                           intake.pilot_path(self.video).read_text(encoding='utf8'))
 
+    def test_cached_only_finished_episode_does_not_call_ollama_or_notes(self):
+        with patch.object(intake,'tracks',return_value=self.track):
+            entry=pilot.freeze(5,(self.root,),self.output,self.profile)['episodes'][0]
+            rows=intake.extract(self.video,self.track)[1]
+            folder=self.output/'episodes'/entry['episode']
+            for row in rows:
+                core.save(folder/'cues'/('%05d.json'%row[0]),{
+                    'cue_id':row[0], 'source_sha':entry['source_sha'],
+                    'model_id':core.MODEL_ID, 'japanese':'日本語字幕。',
+                    'valid':True,'seconds':0.01})
+            with patch.object(core,'preflight',
+                              side_effect=AssertionError('Ollama preflight forbidden')):
+                with patch.object(core,'note',
+                                  side_effect=AssertionError('Context model forbidden')):
+                    result=pilot.run(episodes=5,publish=True,minutes=1,
+                                     state=self.output,roots=(self.root,),
+                                     profile=self.profile,base=self.base,
+                                     ask=lambda *args,**kwargs:
+                                         self.fail('No model calls in cached-only'),
+                                     cached_only=True)
+            self.assertEqual(result[0]['state'],'published_new_pilot')
+            self.assertTrue(intake.pilot_path(self.video).is_file())
+
     def test_rescue_prompt_only_translates_current_and_limits_context(self):
         _,rows=intake.extract(self.video,self.track)
         for mode in (3,4,5,6):
@@ -311,6 +334,8 @@ class AmericanDad009Tests(unittest.TestCase):
         self.assertIn('--episodes 5',body)
         self.assertIn('--publish',body)
         self.assertNotIn('systemctl restart',body)
+        self.assertIn('--cached-only',body)
+        self.assertIn('finalize-cached',body)
 
     def test_exclusive_worker_lock_contends(self):
         import fcntl
