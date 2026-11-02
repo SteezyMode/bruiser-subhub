@@ -66,6 +66,9 @@ def run_one(root,job_id,base=None,worker=None):
                       'cues',report['cues_checked'],
                       'speed_warnings',report['warnings'].get('fast',0),
                       flush=True)
+                return gate.publish_atomically(
+                    active_store,active_job,original_publisher,
+                    service,apply=True)
             return original_publisher(active_store,active_job,apply=apply)
         try:
             service.publish_job=guarded_publish
