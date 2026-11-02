@@ -4,6 +4,18 @@
 
 Currently a local English-to-Japanese subtitle translation coordinator for a personal media server. **Public-source development repository; currently an OptiPlex-specific working pilot, not a portable installer.**
 
+## American Dad: automatically select a workable season, fill missing English locally
+
+**After the real Jellyfin scan:** 12,398 videos; 3,073 already have English text; 9,325 lack it. All 18 Season 8 attempts had no exact-provider hash match, and the later targeted subtitle download reported no usable English. To avoid picking an impossible season or asking you to fetch captions manually, use this one MacBook command:
+
+```bash
+cd ~/Downloads/bruiser-subhub-repo
+git pull --ff-only
+bash tools/auto_american_dad.sh optiplex@YOUR_HOST
+```
+
+It automatically checks the actual American Dad audio/subtitle tracks and existing Japanese sidecars across all seasons, selects the most watchable not-yet-translated season, and uses the already-tested Gemma E4B campaign. For remaining gaps it installs a separate local **CPU-only faster-whisper** English transcription fallback and creates **draft** English SRTs one episode per night at low resource priority, then resumes the selected-season Japanese translation. This is **not** another model/prompt experiment and does not translate the rest of Jellyfin. New ASR subtitles can contain misheard jokes and names; first actual episode needs viewing review. The code is tested offline but real provider/model performance requires a live host run. See [automatic season instructions](docs/AMERICAN_DAD_AUTOPILOT.md).
+
 ## Library-wide English subtitle inventory (permanent source shelf)
 
 One MacBook command scans **all Jellyfin movies and episodes** for English text subtitle coverage, searches only missing sources through the existing installed Jellyfin subtitle providers, saves **only exact file-hash-matched English SRTs**, and enables a conservatively throttled daily user timer when possible:
