@@ -136,7 +136,54 @@ class AmericanDad009Tests(unittest.TestCase):
             self.assertEqual(result['state'],'incomplete')
             self.assertFalse(intake.pilot_path(self.video).exists())
             errors=list((self.output/'episodes'/info['episode']/'errors').glob('*.json'))
-            self.assertEqual(len(errors),24)
+            self.assertEqual(len(errors),72)
+
+    def test_recover_only_missing_cue_reuses_150_accepted_cues(self):
+        # Mirrors owner: two failed attempts were recorded during initial run,
+        # but 150 completed lines MUST NOT be regenerated on resume.
+        with patch.object(intake,'tracks',return_value=self.track):
+            entry=pilot.freeze(5,(self.root,),self.output,self.profile)['episodes'][0]
+            raw,rows=intake.extract(self.video,self.track)
+            folder=self.output/'episodes'/entry['episode']
+            for row in rows:
+                if row[0]==6:
+                    continue
+                core.save(folder/'cues'/('%05d.json'%row[0]),{
+                    'cue_id':row[0], 'source_sha':entry['source_sha'],
+                    'model_id':core.MODEL_ID,'japanese':'元の訳です。',
+                    'valid':True,'seconds':0.03
+                })
+            original=(folder/'cues'/'00005.json').read_bytes()
+            for n in (1,2):
+                core.save(folder/'errors'/('00006-%d.json'%n),{
+                    'cue_id':6,'error':'Invalid Japanese/format','reply':'no Japanese'
+                })
+            previous_error=(folder/'errors'/'00006-2.json').read_bytes()
+            seen=[]
+            def rescue(messages):
+                seen.append(messages)
+                return '回復した訳です。'
+            with patch.object(core,'note',return_value=None):
+                result=pilot.translate(entry,'{}',None,self.output,(self.root,),
+                                       rescue,True)
+            self.assertEqual(result['state'],'published_new_pilot')
+            self.assertEqual(len(seen),1)
+            self.assertIn('CURRENT:',seen[0][1]['content'])
+            self.assertTrue((folder/'cues'/'00006.json').is_file())
+            self.assertEqual(core.load(folder/'cues'/'00006.json')['attempt'],3)
+            self.assertEqual((folder/'cues'/'00005.json').read_bytes(),original)
+            self.assertEqual((folder/'errors'/'00006-2.json').read_bytes(),previous_error)
+            self.assertTrue(intake.pilot_path(self.video).is_file())
+
+    def test_rescue_prompt_only_translates_current_and_limits_context(self):
+        _,rows=intake.extract(self.video,self.track)
+        for mode in (3,4,5,6):
+            messages=core.recovery_prompt(rows,5,['already Japanese'],mode)
+            self.assertEqual(len(messages),2)
+            self.assertIn(rows[5][4],messages[1]['content'])
+            self.assertIn('ONLY',messages[0]['content'])
+        with self.assertRaises(ValueError):
+            core.recovery_prompt(rows,5,[],7)
 
     def test_embedded_english_subtitle_extraction_uses_exact_stream(self):
         mapped=[]

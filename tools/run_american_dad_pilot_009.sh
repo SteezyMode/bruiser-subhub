@@ -19,7 +19,7 @@ echo "=== FREEZE UP TO FIVE ELIGIBLE EPISODES, ENGLISH SOURCE ONLY ==="
 ssh "$HOST" "$RUN prepare --episodes 5"
 echo "=== PINNED GEMMA E4B: FULL EPISODES, CREATE-ONLY JAPANESE SIDECARS ==="
 ssh "$HOST" "$RUN run --episodes 5 --minutes 420 --publish" \
-  2>&1 | tee "$HOME/Downloads/american-dad-pilot-009.log"
+  2>&1 | tee -a "$HOME/Downloads/american-dad-pilot-009.log"
 echo "=== STATUS ==="
 ssh "$HOST" "$RUN status"
 echo "Log: $HOME/Downloads/american-dad-pilot-009.log"

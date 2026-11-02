@@ -144,6 +144,45 @@ def prompt(rows,index,previous,profile,series_note,episode_note):
     return [{'role':'system','content':system},{'role':'user','content':user}]
 
 
+
+def recovery_prompt(rows,index,previous,mode=3):
+    """Fresh, deliberately simpler prompt for previously failed current cue only.
+
+    Modes 3-6 are a finite recovery budget, not a new benchmark/model switch.
+    The source/clock and all previously accepted Japanese remain fixed.
+    """
+    part=context.cue_context(rows,index,before=2,after=2)
+    current=part['current_english']
+    basic=(
+        'Translate the English subtitle CURRENT into one natural, concise Japanese '
+        'subtitle. This is adult animated comedy. Preserve the actual meaning, '
+        'speaker intent, numbers, jokes and vulgarity; no invented information. '
+        'Names or tiny English fragments may require Japanese katakana or a '
+        'natural equivalent. Output ONLY the translated CURRENT cue, not the '
+        'surrounding dialogue, with no labels, quotes, JSON or explanations.'
+    )
+    if mode in (3,5):
+        before=' / '.join(part['previous_english'])[-260:]
+        after=' / '.join(part['following_english'])[:260]
+        user=(
+            'Previous English for context ONLY: '+before+'\n'
+            'CURRENT: '+current+'\n'
+            'Following English for context ONLY: '+after+'\n'
+            'Japanese subtitle for CURRENT only:'
+        )
+    elif mode in (4,6):
+        basic+=(
+            ' If the line is an interjection, sound effect or standalone '
+            'proper name, choose a short natural Japanese rendering. '
+            'Never return untranslated English unless it is an appropriate '
+            'short name/initial. Do not embellish.'
+        )
+        user='CURRENT ENGLISH SUBTITLE:\n'+current+'\nJAPANESE:'
+    else:
+        raise ValueError('Only predeclared recovery modes 3..6')
+    return [{'role':'system','content':basic},{'role':'user','content':user}]
+
+
 def valid(text,english):
     return (service.acceptable_ja(text,english) and len(text)<300 and
             not text.lstrip().startswith((chr(96),'{','[CURRENT_','訳：','翻訳：')) and

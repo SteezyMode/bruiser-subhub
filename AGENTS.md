@@ -1,5 +1,13 @@
 # Bruiser SubHub — developer/assistant handoff
 
+## ACTUAL first American Dad pilot completed (2026-11-02), 7-cue stuck retry now FIXED (PR #36)
+
+Owner uploaded `american-dad-pilot-009.log` from the **REAL** host run. Frozen five-episode local context/tuned E4B pilot processed **2,066** cues. 2,059 got accepted Japanese (99.66% by structural check, NOT native-language quality). S19E03 (394/394) and S19E04 (392/392) published separate create-only `Bruiser Pilot Japanese.ja.srt` files alongside videos. S19E01 (398/400), S19E05 (355/359), S19E06 (520/521) correctly withheld output: exactly **7 cues unaccepted**. **NO need to retranslate 2,059 good cue checkpoints or run another 10-model benchmark.** See `docs/AMERICAN_DAD_PILOT_009_REAL_RUN_RECOVERY.md`.
+
+Root code fault: original attempt loop only ever considered attempts 1 and 2, marked them failed in immutable error files, and silently skipped them on every rerun forever. PR #36 now has **four additional bounded rescue attempts 3–6** using a smaller current-English-only, 2-prior/2-following-context prompt for those *seven missing cues only*. Old unsuccessful reply files untouched; original 2,059 Japanese checkpoint bytes untouched; already published S19E03/E04 short circuit identical, no rerun, and only fully completed previously-held episodes can create new pilot JA sidecars. No production DB/worker edits, no model switch or user-provided English changes. A remaining failure lists numerical cue IDs in the log, without copyrighted English text. Local Mac log now appends rather than overwriting.
+
+After merged CI, one command from MacBook: `cd ~/Downloads/bruiser-subhub-repo && git pull --ff-only && bash tools/run_american_dad_pilot_009.sh optiplex@100.121.156.34`. **PR code doesn't mean the seven cues have actually translated yet.** Confirmation requires user host output. Next useful action after success = ordinary Jellyfin viewing of multiple full American Dad episodes, no assigned Natsuyo QA task.
+
 ## 2026-11-02 — REAL American Dad five-episode contextual canary runner BUILT, NOT HOST-RUN (PR #35)
 
 Owner explicitly chose: stop microclip tests, choose provisional subtitle-tuned Gemma E4B, translate **several complete American Dad episodes**, and just WATCH them normally. No separate Natsuyo rating work. Following generic Context Engine 008, a complete **scratch-only five-episode runner** exists: `tools/american_dad_intake_009.py`, `american_dad_core_009.py`, `american_dad_pilot_009.py`, and owner MacBook launch `tools/run_american_dad_pilot_009.sh optiplex@100.121.156.34`. Source of truth: `docs/AMERICAN_DAD_VIEWING_PILOT_009.md`.
