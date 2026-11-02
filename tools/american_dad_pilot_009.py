@@ -162,8 +162,13 @@ def translate(entry,curated,series_note,state=core.STATE,roots=intake.ROOTS,
             print(episode,str(index+1)+'/'+str(len(rows)),
                   'unaccepted='+str(failures),flush=True)
     if len(accepted)!=len(rows):
+        # No copyrighted dialogue, only numerical cue identifiers. This
+        # makes a future owner log actionable without private-file archaeology.
+        remaining=[row[0] for row in rows if str(row[0]) not in accepted]
         return {'episode':episode,'state':'incomplete',
-                'accepted':len(accepted),'expected':len(rows)}
+                'accepted':len(accepted),'expected':len(rows),
+                'missing_cue_ids':remaining[:20],
+                'missing_total':len(remaining)}
     output=service.render_srt(rows,accepted)
     draft=folder/'pilot.ja.srt'
     if draft.exists():
