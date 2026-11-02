@@ -78,7 +78,7 @@ class FinalCatAndBlindTests(unittest.TestCase):
                 'entries':[{
                     'cue_id':row['cue_id'],
                     'english':row['english'],'timing':row['timing'],
-                    'candidate_japanese':f'{arm}の文。',
+                    'candidate_japanese':'自然な日本語です。',
                 } for row in cues]
             })
         pack,key=blind.build(data)
