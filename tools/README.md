@@ -136,3 +136,14 @@ bash tools/inventory_sources_006.sh optiplex@100.121.156.34
 ```
 
 This sends the inventory script through SSH stdin (no remote script staging), opens OptiPlex SQLite `mode=ro`, and prints job IDs/source hashes, English cue count/timeline span only. Primate's already-reviewed English SHA is excluded from eligibility. It does NOT read/view any subtitles, movie paths, Japanese contents, download/load models or modify source DB/media. Inventory alone does not establish title diversity or purity. Need three unrelated NEW EN sources and one untouched confirmation title, then freeze the corpus and run the native Japanese-blind review per `benchmarks/PROTOCOL_006_INDEPENDENT_HOLDOUT.md`.
+
+
+## Run FULL clean Benchmark 006 in one command (no additional setup diagnostics)
+
+From MacBook, after pulling merged PR #30:
+```bash
+cd ~/Downloads/bruiser-subhub-repo
+git pull --ff-only
+bash tools/run_clean_sweep_006.sh optiplex@100.121.156.34
+```
+It stages scripts only in the OptiPlex scratch benchmark folder; never installs/restarts the production SubHub worker. Uses the EXISTING isolated CAT3.3 CUDA venv with sentencepiece/protobuf already installed. It auto-downloads missing authorized Ollama candidate weights, chooses and freezes 3 new private sources and one confirmation holdout, translates same >=200 English cues with each of TEN model-native workflows, and safely resumes existing private per-cue results if restarted. Experimental output is copied to MacBook `~/Downloads/benchmark006-private/subhub-benchmark-006`. Share `COUNTS.json` + `STATUS.txt` for technical progress; keep source/JA and `IDENTITY_KEY_PRIVATE.json` private. Send ONLY `blind/` option SRT and blind score CSV to Japanese reviewer; do not show model identities until scores are submitted. Untranslated/failed arms are marked blocked, not ranked poorly. Real source selection and model inference require owner's explicit command: GitHub CI tests alone verify no GPU quality.
