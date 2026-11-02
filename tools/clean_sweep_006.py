@@ -21,14 +21,24 @@ import sys
 import time
 
 import service
-from benchmark_localization import locked_idle, cps
-from benchmark_native_subtitles import native_call, native_messages
-from benchmark_translategemma_004 import google_prompt
-from model_sweep_005 import (
-    ollama_post, HY_OPTIONS, HY_PROMPT, CAT_PROMPT, GOOGLE_OPTIONS
-)
-from model_benchmark import installed_models
-from analyze_model_benchmark import structural_flags
+try:
+    from benchmark_localization import locked_idle, cps
+    from benchmark_native_subtitles import native_call, native_messages
+    from benchmark_translategemma_004 import google_prompt
+    from model_sweep_005 import (
+        ollama_post, HY_OPTIONS, HY_PROMPT, CAT_PROMPT, GOOGLE_OPTIONS
+    )
+    from model_benchmark import installed_models
+    from analyze_model_benchmark import structural_flags
+except ModuleNotFoundError:
+    from tools.benchmark_localization import locked_idle, cps
+    from tools.benchmark_native_subtitles import native_call, native_messages
+    from tools.benchmark_translategemma_004 import google_prompt
+    from tools.model_sweep_005 import (
+        ollama_post, HY_OPTIONS, HY_PROMPT, CAT_PROMPT, GOOGLE_OPTIONS
+    )
+    from tools.model_benchmark import installed_models
+    from tools.analyze_model_benchmark import structural_flags
 
 ROOT=Path.home()/'bruiser-pilot/subhub1-state'
 BASE=Path.home()/'bruiser-pilot'
@@ -78,6 +88,17 @@ def store_exclusive(path, obj):
     with os.fdopen(fd,'w',encoding='utf-8') as fp:
         json.dump(obj,fp,ensure_ascii=False,indent=2)
         fp.write('\n')
+        fp.flush()
+        os.fsync(fp.fileno())
+
+
+def store_text_exclusive(path, text):
+    """Write actual .srt bytes privately; never replace an existing review file."""
+    path=Path(path)
+    path.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
+    fd=os.open(path,os.O_CREAT|os.O_EXCL|os.O_WRONLY|os.O_NOFOLLOW,0o600)
+    with os.fdopen(fd,'w',encoding='utf-8') as fp:
+        fp.write(text)
         fp.flush()
         os.fsync(fp.fileno())
 
@@ -475,7 +496,7 @@ def run_arm(arm, out=OUT, root=ROOT, base=BASE, max_seconds=7200):
 def blind(out=OUT):
     data=load_manifest(out)
     summary=summarize(out)
-    complete=[k for k in ROSTER if summary[k]['complete']]
+    complete=[k for k in ROSTER if summary[k]['complete'] and not summary[k]['blocked']]
     if len(complete)<2:
         print('At least 2 FULL model outputs needed; no blind pack yet.')
         return 1
@@ -501,9 +522,8 @@ def blind(out=OUT):
                                                cue['cue_id']).read_text())
                 value=record['candidate_japanese'] or '[NO SUBTITLE]'
                 parts.append(str(i)+'\n'+cue['timing']+'\n'+value+'\n')
-            store_exclusive(scene_dir/(f'option_{label}.srt.json'),
-                {'note':'JSON-wrapped SRT to keep create-only file contract',
-                 'srt':'\n'.join(parts)})
+            store_text_exclusive(scene_dir/(f'option_{label}.srt'),
+                                 '\n'.join(parts))
             ratings.append({
                 'scene':scene['scene_id'],'option':label,
                 'watchability_1to5':'','natural_japanese_1to5':'',
