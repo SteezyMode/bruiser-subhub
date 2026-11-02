@@ -115,7 +115,7 @@ def recover_saved_italic_reply(folder, cue_id, english, source_sha):
 
 
 def translate(entry,curated,series_note,state=core.STATE,roots=intake.ROOTS,
-              ask=core.call,publish=False,deadline=None):
+              ask=core.call,publish=False,deadline=None,cached_only=False):
     state=Path(state)
     episode=entry['episode']
     folder=state/'episodes'/episode
@@ -127,8 +127,9 @@ def translate(entry,curated,series_note,state=core.STATE,roots=intake.ROOTS,
             return {'episode':episode,'state':'already_published_identical'}
         raise RuntimeError('Existing Japanese pilot file differs: do not replace')
     video,rows=verify(entry,roots)
-    episode_note=core.note('title','American Dad '+episode,
-                           [Path(entry['source_path'])],state,ask)
+    episode_note=(None if cached_only else
+                  core.note('title','American Dad '+episode,
+                            [Path(entry['source_path'])],state,ask))
     previous=[]
     accepted={}
     failures=0
@@ -155,7 +156,7 @@ def translate(entry,curated,series_note,state=core.STATE,roots=intake.ROOTS,
             # Resuming after the first full run skips 1-2 and works ONLY
             # on cues with no accepted Japanese checkpoint.
             for attempt in (1,2,3,4,5,6):
-                if item is not None:
+                if item is not None or cached_only:
                     break
                 error_file=folder/'errors'/('%05d-%d.json'%(cue_id,attempt))
                 if error_file.exists():
@@ -229,23 +230,26 @@ def translate(entry,curated,series_note,state=core.STATE,roots=intake.ROOTS,
 
 
 def run(episodes=5,publish=False,minutes=420,state=core.STATE,
-        roots=intake.ROOTS,profile=core.PROFILE,ask=core.call,base=core.BASE):
+        roots=intake.ROOTS,profile=core.PROFILE,ask=core.call,base=core.BASE,
+        cached_only=False):
     manifest=freeze(episodes,roots,state,profile)
     curated=Path(profile).read_text(encoding='utf8')
     deadline=time.monotonic()+minutes*60
     finished=[]
     with core.locks(base):
-        if ask is core.call:
+        if not cached_only and ask is core.call:
             core.preflight()
-        series=core.note('series','American Dad',
-                         [Path(x['source_path']) for x in manifest['episodes'][:3]],
-                         state,ask)
+        series=(None if cached_only else
+                core.note('series','American Dad',
+                          [Path(x['source_path']) for x in manifest['episodes'][:3]],
+                          state,ask))
         for entry in manifest['episodes']:
             if time.monotonic()>=deadline:
                 print('Wall budget reached; private cue checkpoints retained',flush=True)
                 break
             try:
-                result=translate(entry,curated,series,state,roots,ask,publish,deadline)
+                result=translate(entry,curated,series,state,roots,ask,publish,deadline,
+                                 cached_only=cached_only)
             except Exception as exc:
                 result={'episode':entry['episode'],'state':'held',
                         'reason':type(exc).__name__+': '+str(exc)[:230]}
@@ -272,7 +276,7 @@ def status(state=core.STATE):
 
 def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('action',choices=('prepare','run','status'))
+    p.add_argument('action',choices=('prepare','run','status','finalize-cached'))
     p.add_argument('--episodes',type=int,default=5)
     p.add_argument('--publish',action='store_true')
     p.add_argument('--minutes',type=int,default=420)
@@ -283,6 +287,10 @@ def main(argv=None):
         freeze(args.episodes)
     elif args.action=='status':
         print(json.dumps(status(),ensure_ascii=False,indent=2))
+    elif args.action=='finalize-cached':
+        # Only preexisting candidate Japanese and old checkpoints are read;
+        # no Ollama preflight, note generation, or translation calls.
+        run(args.episodes,True,args.minutes,cached_only=True)
     else:
         run(args.episodes,args.publish,args.minutes)
     return 0
