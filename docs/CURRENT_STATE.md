@@ -1,5 +1,18 @@
 # Current state and next actions
 
+## 2026-11-02 — Implement permanent Jellyfin English-source inventory; strict perfect-match auto-download
+
+Owner explicitly chose to scan the ENTIRE Jellyfin library for English subtitles instead of repeating missing-source failures per TV season. Requested design: reuse Jellyfin providers, auto-attach only truly perfect matches, preserve existing tracks, prioritize American Dad S08, and keep Gemma translation opt-in for selected titles. This is functional intake infrastructure, not another translation-format experiment.
+
+New isolated module `tools/library_english_sources.py` queries ALL Jellyfin Movie and Episode entries, restricts to the two existing trusted host media roots, checks real English sidecars and Jellyfin embedded text subtitles (ffprobe fallback when stream data absent), and persists a private SQLite inventory with file/sidecar fingerprints, cooldowns and attempts. Scans never call subtitle providers. Fills require Jellyfin `IsHashMatch=true`, EN + SRT + non-forced, and no contradicting episode numbers. Queue priority S08 first; 18 bounded searches initial; subsequent no-match retry 7d, error 1d; HTTP 429/503 stops promptly; matched providers save through Jellyfin's existing per-item API and real external SRT validated before marking ready. Some Jellyfin-only internal downloads may remain blocked for SubHub until an external EN source exists.
+
+New `tools/stock_english_sources.sh` runs offline tests, stages only isolated code, invokes one-time private Jellyfin login if needed, inventories the full Jellyfin catalog, fetches 18 strict matches, prints aggregate progress, and invokes `tools/enable_english_source_timer.py` to attempt a separate low-rate 03:30 local daily *user* timer (5 provider searches/day). It reports timer activation accurately and does not use sudo or change system services. Library-wide translation is **never** scheduled. Existing season 8 translator command remains separate and unchanged; user should rerun once English sources arrive.
+
+MacBook after merge:
+`cd ~/Downloads/bruiser-subhub-repo && git pull --ff-only && bash tools/stock_english_sources.sh optiplex@YOUR_HOST`
+
+Host has NOT yet run this inventory; GitHub CI only tests offline behavior. First live results decide whether existing providers actually supply hash-matched English to S08; otherwise speech-to-text fallback is next. See `docs/ENGLISH_SOURCE_INVENTORY.md`.
+
 ## 2026-11-02 — American Dad S08 source gap: use native Jellyfin/Subbuzz, not stopped Sublarr
 
 Owner confirmed all **18 S08 files have English audio but no EN SRT/embedded text or JA**. Actual service audit showed **jellyfin.service and caddy.service are active; Jellyfin port 8096; Sublarr Docker exited 137**. Do not ask user to configure Sublarr or 18 provider downloads manually. Jellyfin's existing subtitle-provider API can search/download per episode, and Subbuzz had previously been installed.
