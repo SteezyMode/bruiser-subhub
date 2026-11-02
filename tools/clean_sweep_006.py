@@ -273,18 +273,38 @@ def summarize(out=OUT):
     summary={}
     for arm in ROSTER:
         good=0
+        accepted=0
+        flags=0
+        errors=0
+        slow=0
+        seconds=0.0
         for scene in scenes:
             for cue in scene['cues']:
                 file=record_path(out,arm,scene['scene_id'],cue['cue_id'])
                 if file.is_file():
                     try:
                         obj=json.loads(file.read_text(encoding='utf-8'))
-                        if obj['cue_id']==cue['cue_id'] and obj['scene_id']==scene['scene_id']:
+                        if (obj['cue_id']==cue['cue_id'] and
+                            obj['scene_id']==scene['scene_id'] and
+                            obj['manifest_sha256']==data['manifest_sha256']):
                             good+=1
-                    except (OSError,ValueError,KeyError):
+                            accepted+=bool(obj.get('valid_japanese'))
+                            flags+=bool(obj.get('flags'))
+                            errors+=bool(obj.get('error'))
+                            slow+=bool((obj.get('chars_per_second') or 0)>14)
+                            seconds+=float(obj.get('wall_seconds') or 0)
+                    except (OSError,ValueError,KeyError,TypeError):
                         pass
-        summary[arm]={'recorded':good,'expected':expected,'complete':good==expected,
-                      'blocked':(Path(out)/'arms'/arm/'blocked.json').exists()}
+        blocked=(Path(out)/'arms'/arm/'blocked.json').exists()
+        summary[arm]={
+            'recorded':good,'expected':expected,
+            'complete':good==expected and not blocked,
+            'blocked':blocked,'accepted_japanese':accepted,
+            'format_flagged':flags,'model_call_errors':errors,
+            'over_14_cps':slow,
+            'sum_generation_wall_seconds':round(seconds,2),
+            'quality':'NOT JUDGED. Native Japanese blinded viewer required.',
+        }
     return summary
 
 
@@ -501,7 +521,8 @@ def blind(out=OUT):
         print('At least 2 FULL model outputs needed; no blind pack yet.')
         return 1
     folder=Path(out)/'blind'
-    keyfile=folder/'IDENTITY_KEY_PRIVATE.json'
+    # Never include the answer key in the folder sent to the Japanese viewer.
+    keyfile=Path(out)/'IDENTITY_KEY_PRIVATE.json'
     if keyfile.exists():
         print('Existing frozen blind key retained; no reblinding.')
         return 0
@@ -513,6 +534,12 @@ def blind(out=OUT):
         labels=list(complete)
         rng.shuffle(labels)
         key[scene['scene_id']]={}
+        store_exclusive(scene_dir/'SCENE_PRIVATE.json',{
+            'scene_id':scene['scene_id'],'job_id':scene['job_id'],
+            'start_seconds':round(scene['start_ms']/1000,1),
+            'end_seconds':round(scene['end_ms']/1000,1),
+            'note':'Model identities are hidden; use original film audio and this SRT',
+        })
         for index,arm in enumerate(labels):
             label=chr(ord('A')+index)
             key[scene['scene_id']][label]=arm
@@ -537,7 +564,8 @@ def blind(out=OUT):
         writer=csv.DictWriter(fp,fieldnames=ratings[0].keys())
         writer.writeheader();writer.writerows(ratings)
     print('BLIND PACK READY:',folder,'COMPLETE MODELS:',len(complete))
-    print('DO NOT OPEN IDENTITY_KEY_PRIVATE.json BEFORE RATINGS ARE LOCKED.')
+    print('KEY IS SEPARATE:',keyfile,'— DO NOT SHARE WITH REVIEWER.')
+    print('Only send blind/ folder to the Japanese viewer. Lock scores first.')
     return 0
 
 
