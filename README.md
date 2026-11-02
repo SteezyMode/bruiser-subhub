@@ -4,6 +4,18 @@
 
 Currently a local English-to-Japanese subtitle translation coordinator for a personal media server. **Public-source development repository; currently an OptiPlex-specific working pilot, not a portable installer.**
 
+## Library-wide English subtitle inventory (permanent source shelf)
+
+One MacBook command scans **all Jellyfin movies and episodes** for English text subtitle coverage, searches only missing sources through the existing installed Jellyfin subtitle providers, saves **only exact file-hash-matched English SRTs**, and enables a conservatively throttled daily user timer when possible:
+
+```bash
+cd ~/Downloads/bruiser-subhub-repo
+git pull --ff-only
+bash tools/stock_english_sources.sh optiplex@100.121.156.34
+```
+
+The first pass allows at most 18 provider searches; automatic daily passes allow only 5. **American Dad S08 is first in the source queue.** Source acquisition never triggers library-wide Japanese translation; run the established S08-only translator separately after English sources are ready. If a provider offers no exact match, the video remains queued rather than receiving an uncertain subtitle. No existing caption or Jellyfin configuration is overwritten. See [full instructions](docs/ENGLISH_SOURCE_INVENTORY.md). Live provider coverage is unverified until the OptiPlex runs this.
+
 ## Get American Dad English sources from existing Jellyfin first
 
 If the Season 8 plan shows all 18 episodes missing English subtitles, use Jellyfin's **existing** subtitle providers automatically, then launch the established season translator:
