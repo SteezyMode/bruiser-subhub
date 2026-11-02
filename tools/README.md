@@ -78,3 +78,17 @@ Read `benchmarks/EXPERIMENT_004.md`. After checkout pull, run **once** on Mac mi
     bash tools/run_translategemma_004.sh optiplex@YOUR_TAILSCALE_IP
 
 This intentionally installs/downloads **official** `translategemma:4b` Q4_K_M (~3.3 GB) on the OptiPlex if absent, **only after** confirming the private source cue SHA and 64+16 selection. It verifies official model ID/family/quantization, then calls the model under Ollama's own prompt guide, not a Gemma4 batch prompt. Uses existing tuned subtitle model for fresh comparison on 16 held-out cues; everything runs in an isolated directory and holds the usual worker locks. No changes to production code, subtitles, media or SQLite checkpoints. Private EN/JA results copied to Downloads should be attached to the chat and **never committed to public GitHub**.
+
+## Benchmark 005 — all viable November 2026 translation models
+
+See `benchmarks/EXPERIMENT_005.md`. It freezes 64 previously unseen source-hashed Primate cues, runs the currently tuned E4B baseline and three Ollama Q4 alternatives, and runs the actual FINAL CAT 3.3B via isolated CUDA Transformers (NOT old beta GGUF). Run on Mac mini when server GPU is idle:
+
+```bash
+cd ~/Downloads/bruiser-subhub-repo
+git pull --ff-only
+bash tools/run_model_sweep_005.sh optiplex@100.121.156.34 all
+```
+
+Optional: `small` omits 12B CPU offload; `tuned`, `cat33`, `cat7`, `hy7`, `google12` individually isolate a problematic arm. This is **an explicit permission to download models** (total disk/downloads easily >25GB) and set up a separate pinned CUDA/PyTorch virtual environment in `~/bruiser-pilot/subhub-cat33-venv`. Does not upgrade live SubHub's Python, overwrite subtitles, modify source SQLite or launch job queue.
+
+Each successful arm writes a private JSON in `~/Downloads/model-sweep-005-<timestamp>/`. After two or more compatible complete outputs, the wrapper automatically produces `BLIND_REVIEW.json` with shuffled A–E labels per cue and a separate `BLIND_IDENTITY_KEY.json`. Review actual dialogue without viewing the key first; score semantic 4, tone 2, fluency 2 and readability 2; log critical errors, then reveal. Keep both and every raw model JSON PRIVATE, never commit movie dialogue to GitHub. Known external limitations: Hy7 GGUF may require newer STQ support; CAT3.3 final bitsandbytes CUDA may be unavailable; Google12 Q4 requires CPU/RAM offload. Mark those arm runs blocked rather than silently substituting a different model.
