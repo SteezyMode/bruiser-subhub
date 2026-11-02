@@ -185,31 +185,30 @@ def recovery_prompt(rows,index,previous,mode=3):
 
 
 def normalized_srt_markup(text, english):
-    """Preserve standard SRT italics ONLY, never accept arbitrary model HTML.
+    """Allow only balanced SRT italics when source English was italicized.
 
-    The source must itself contain italic markup. A model-emitted
-    <i lang="en"> marker can be reduced to valid SRT <i>, preserving
-    the exact model wording, source timecode and italicized show name.
+    A model-generated <i lang="en"> is normalized to valid SRT <i>.
+    Other HTML, unbalanced/nested tags, unsupported attributes are rejected.
     """
-    if not isinstance(text,str) or not isinstance(english,str):
+    if not isinstance(text, str) or not isinstance(english, str):
         return None
     if '<' not in text and '>' not in text:
         return text
-    if not re.search(r'<i(?:\\s|>)',english,re.IGNORECASE):
+    if not re.search(r'<i(?:\s|>)', english, re.IGNORECASE):
         return None
-    text=re.sub(r'<i\\s+lang\\s*=\\s*(["\\\'])en\\1\\s*>',
-                '<i>',text,flags=re.IGNORECASE)
-    tags=re.findall(r'<[^>]*>',text)
-    if not tags or any(tag not in ('<i>','</i>') for tag in tags):
+    text = re.sub(r"""<i\s+lang\s*=\s*(["'])en\1\s*>""",
+                  '<i>', text, flags=re.IGNORECASE)
+    tags = re.findall(r'<[^>]*>', text)
+    if not tags or any(t not in ('<i>', '</i>') for t in tags):
         return None
-    depth=0
+    depth = 0
     for tag in tags:
-        depth+=1 if tag=='<i>' else -1
-        if depth<0 or depth>1:
+        depth += 1 if tag == '<i>' else -1
+        if depth < 0 or depth > 1:
             return None
-    if depth!=0:
+    if depth:
         return None
-    naked=re.sub(r'</?i>','',text)
+    naked = re.sub(r'</?i>', '', text)
     if '<' in naked or '>' in naked:
         return None
     return text
