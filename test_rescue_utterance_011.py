@@ -254,7 +254,7 @@ class FrozenRescue(unittest.TestCase):
                              service.parse_srt)
 
     def test_bad_rendering_cannot_renumber_or_publish_a_japanese_track(self):
-        malformed=b'1\n00:00:00,000 --> 00:00:01,000\n日本語の字幕です。\n'
+        malformed='1\n00:00:00,000 --> 00:00:01,000\n日本語の字幕です。\n'.encode('utf8')
         with patch.object(rescue.service,'render_srt',return_value=malformed):
             result=self.execute()[0]
         self.assertEqual(result['state'],'held')
