@@ -2,10 +2,13 @@
 # Controlled multi-model sweep. Downloads only specific documented model tags.
 # Safe per-arm independent private outputs; failures never erase other results.
 set -euo pipefail
-HOST="${1:?Usage: bash tools/run_model_sweep_005.sh optiplex@HOST [small|all|cat33|tuned|cat7|hy7|google12]}"
+HOST="${1:?Usage: bash tools/run_model_sweep_005.sh optiplex@HOST [missing|small|all|cat33|tuned|cat7|hy7|google12]}"
 MODE="${2:-all}"
+# Use "missing" to recover only the two blocked arms from 2026-11-02.
+# Existing 3 successful private JSON files remain valid; no remodelling or re-download.
 case "$MODE" in
   all) ARMS=(cat33 tuned cat7 hy7 google12) ;;
+  missing) ARMS=(tuned cat33) ;;  # Do NOT rerun completed CAT7/HY7/Google12.
   small) ARMS=(cat33 tuned cat7 hy7) ;;
   cat33|tuned|cat7|hy7|google12) ARMS=("$MODE") ;;
   *) echo "Unknown model arm: $MODE" >&2; exit 2 ;;
