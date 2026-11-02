@@ -13,6 +13,11 @@ from pathlib import Path
 import re
 import sys
 
+try:
+    import subtitle_publish_gate as gate
+except ModuleNotFoundError:
+    from tools import subtitle_publish_gate as gate
+
 HOST_CODE=Path.home()/'bruiser-pilot/subhub1'
 if HOST_CODE.is_dir():
     sys.path.insert(0,str(HOST_CODE))
@@ -45,7 +50,28 @@ def run_one(root,job_id,base=None,worker=None):
             max_gpu_c=82,max_cpu_c=85,hy_sample=0,
             sample_seconds=15,publish=True,skip_hy=True)
         work=worker or main.run
-        work(store,base or HOST_CODE,root,args)
+        # The existing native SubHub 1.0 main.run invokes main.s.publish_job.
+        # Interpose ONLY for this selected daily worker process, never edit
+        # installed service.py or previously published sidecars.
+        if main.s is not service:
+            raise RuntimeError('Unexpected different SubHub service modules')
+        original_publisher=service.publish_job
+        def guarded_publish(active_store,active_job,apply=False):
+            if active_job['id']!=job_id:
+                raise RuntimeError('Publication scope widened beyond selected job')
+            if apply and gate.is_american_dad(active_job['video']):
+                _video,rows=service.validate_publish(active_store,active_job)
+                report=gate.assert_publishable(rows)
+                print('JA_READABILITY_GATE_PASS',job_id,
+                      'cues',report['cues_checked'],
+                      'speed_warnings',report['warnings'].get('fast',0),
+                      flush=True)
+            return original_publisher(active_store,active_job,apply=apply)
+        try:
+            service.publish_job=guarded_publish
+            work(store,base or HOST_CODE,root,args)
+        finally:
+            service.publish_job=original_publisher
         current=store.jobs()[0]
         status=current['status']
         print('DAILY_SINGLE_JOB_RESULT',job_id,status,
