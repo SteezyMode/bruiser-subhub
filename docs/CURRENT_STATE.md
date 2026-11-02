@@ -1,5 +1,11 @@
 # Current state and next actions
 
+## 2026-11-03 — Actual versioned S19E04 Japanese readability repair (independent of S20 publishing)
+
+After user's real playback complaint and known five-episode EN/JA audit, issue #56 tracks the low-quality v009 pilot. PR #57 already merged a general S20 publication gate plus crash-safe final JA writes, but the existing S19E04 sidecar remains too long/unfixed. New single-purpose `tools/repair_s19e04.py` finds exactly one source S19E04 with original published `Bruiser Pilot Japanese.ja.srt`, requires 1:1 English/JA cue/time alignment, persists immutable original source+JA fingerprint manifest, flags excessive length/future leaks plus known cue #54 idiom error, and asks the already-pinned local subtitle-tuned Gemma E4B to retranslate **only flagged cues**, with no raw future dialogue in repair prompts. Accepts only no-overflow/no-leak replacements, checkpoints each accepted cue with atomic private writes, and publishes a separate create-only `Bruiser Readability Repair v1 Japanese.ja.srt` alongside the preserved original only if whole-episode QA passes. Otherwise held without public sidecar. No new model or provider. A transient user systemd job survives MacBook shutdown; OptiPlex power loss requires rerunning same script to resume per-cue checkpoints. No automatic nightly repair timer. Offline regressions cover original safety and crash resume.
+
+After PR merge, MacBook one command: `cd ~/Downloads/bruiser-subhub-repo && git pull --ff-only && bash tools/run_s19e04_repair.sh optiplex@YOUR_HOST`. This has NOT yet run against real host media; actual episode may hold or publish depending on quality. Docs: `docs/S19E04_VERSIONED_REPAIR.md`.
+
 ## 2026-11-03 — STARTED real JA readability gate + power-loss safe selected-season publication
 
 Owner watching American Dad S19E04 confirms existing v009 Japanese subtitle sidecars are repeatedly far too long to read; earlier private paired 009 audit already showed S19E04 392 cues, 10 future-overlap flags, 6 exact-copy cases, 6 >20 chars/s, most egregiously cue #52 at ~2:43 ~61 visible Japanese chars/s. Those Japanese SRT files and all earlier backups are untouched.
