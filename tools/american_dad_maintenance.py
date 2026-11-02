@@ -150,6 +150,7 @@ def run_once(roots,root,now=None,iter_videos=intake.video_files,
             'missing',chosen['blocked'])
         catalog=auto.discover(roots,iter_videos=iter_videos)
         candidate=next_missing(catalog,s,root,now,probe_fn=probe_fn)
+        asr_succeeded=False
         if candidate:
             episode,video=candidate
             log('ASR_CANDIDATE','S%02dE%02d'%episode,
@@ -162,11 +163,14 @@ def run_once(roots,root,now=None,iter_videos=intake.video_files,
                     'retry_after_days',3)
             else:
                 log('ASR_SOURCE_READY','S%02dE%02d'%episode)
-        # Refresh availability after possible ASR; skips all already-published JA.
-        updated=auto.coverage(roots,root,iter_videos=iter_videos,
-                              probe_fn=probe_fn,log=lambda *x:None)
-        active=next((c for c in updated if c['season']==s),None)
-        ready=active and (active['new']+active['resume'])
+                # Verify only the episode that just changed; avoid probing the
+                # entire 400-video show a second time every night.
+                fresh=auto.classify(catalog[episode],seasons.queue_jobs(root),
+                                    probe_fn=probe_fn)
+                asr_succeeded=(fresh in auto.TRANSLATABLE)
+                if not asr_succeeded:
+                    log('ASR_DEFERRED','source_not_usable_by_subhub')
+        ready=chosen['new']+chosen['resume']+int(asr_succeeded)
     # Release lock BEFORE invoking start_background, which takes it itself.
     if ready:
         try:
