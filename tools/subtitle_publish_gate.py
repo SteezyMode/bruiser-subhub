@@ -151,8 +151,11 @@ def publish_atomically(store,job,original_publisher,service_module,apply):
                 if target.is_symlink() or not target.is_file() or target.read_bytes()!=result:
                     raise RuntimeError('Concurrent Japanese target differs; no overwrite')
             # Directory entry durability before the database says published.
-            with os.fdopen(os.open(target.parent,os.O_RDONLY|os.O_DIRECTORY)) as directory:
-                os.fsync(directory.fileno())
+            directory_fd=os.open(target.parent,os.O_RDONLY|os.O_DIRECTORY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
         finally:
             tmp.unlink(missing_ok=True)
     elif not target.is_file() or target.read_bytes()!=result:
