@@ -12,7 +12,7 @@ import subprocess
 import sys
 
 UNIT='bruiser-american-dad-maintenance'
-SERVICE=f"""[Unit]
+LEGACY_SERVICE=f"""[Unit]
 Description=Bruiser American Dad English source + selected-season subtitle maintenance
 After=network-online.target
 
@@ -27,6 +27,15 @@ IOSchedulingClass=idle
 NoNewPrivileges=true
 TimeoutStartSec=120min
 """
+# The ORIGINAL unit was deployed on the host on 2026-11-02.
+# Upgrade only that known exact unit; never clobber custom user units.
+SERVICE=(LEGACY_SERVICE
+    .replace('ExecStart=/usr/bin/python3 %h/',
+             'ExecStart=/usr/bin/python3 -u %h/')
+    .replace('TimeoutStartSec=120min',
+             'TimeoutStartSec=11h')
+    .replace('NoNewPrivileges=true',
+             'NoNewPrivileges=true\nKillMode=control-group'))
 TIMER=f"""[Unit]
 Description=Local English ASR source fallback for selected American Dad season
 
@@ -41,14 +50,39 @@ WantedBy=timers.target
 """
 
 
-def ensure_unit(root,name,contents):
+def ensure_unit(root,name,contents,legacy=None):
     path=root/name
     if path.is_symlink():
         raise RuntimeError('Unsafe unit symlink')
     if path.exists():
-        if not path.is_file() or path.read_text(encoding='utf8')!=contents:
+        if not path.is_file():
+            raise RuntimeError('User systemd unit must be a regular file')
+        existing=path.read_text(encoding='utf8')
+        if existing==contents:
+            return 'unchanged'
+        if legacy is None or existing!=legacy:
             raise RuntimeError('Existing distinct systemd unit must not be overwritten')
-        return 'unchanged'
+        # Preserve the exact previously deployed unit before applying a
+        # new supervised-only revision. No reload or restart until after.
+        backup=root/(name+'.before-supervised.bak')
+        if backup.is_symlink():
+            raise RuntimeError('Unsafe unit backup symlink')
+        if backup.exists():
+            if not backup.is_file() or backup.read_text(encoding='utf8')!=legacy:
+                raise RuntimeError('Existing unit backup differs')
+        else:
+            os.link(path,backup,follow_symlinks=False)
+        temp=root/(name+'.supervised-'+str(os.getpid())+'.tmp')
+        fd=os.open(temp,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+        try:
+            with os.fdopen(fd,'w',encoding='utf8') as out:
+                out.write(contents)
+                out.flush()
+                os.fsync(out.fileno())
+            os.replace(temp,path)
+        finally:
+            temp.unlink(missing_ok=True)
+        return 'upgraded_supervised'
     fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
     try:
         with os.fdopen(fd,'w',encoding='utf8') as out:
@@ -65,7 +99,7 @@ def enable(home=None,runner=subprocess.run,log=print):
     root.mkdir(parents=True,exist_ok=True,mode=0o700)
     if root.is_symlink():
         raise RuntimeError('Unsafe user systemd path')
-    a=ensure_unit(root,UNIT+'.service',SERVICE)
+    a=ensure_unit(root,UNIT+'.service',SERVICE,legacy=LEGACY_SERVICE)
     b=ensure_unit(root,UNIT+'.timer',TIMER)
     for cmd in (
         ['systemctl','--user','daemon-reload'],
@@ -76,7 +110,7 @@ def enable(home=None,runner=subprocess.run,log=print):
         if result.returncode:
             log('AUTO_TIMER_NOT_ACTIVE','systemd_user_unavailable')
             return False
-    log('AUTO_TIMER_ACTIVE','04:30_local_nightly',
+    log('AUTO_TIMER_ACTIVE','04:30_local_nightly','supervised_foreground',
         'one_cpu_only_ASR_episode_per_run','service',a,'timer',b)
     return True
 
