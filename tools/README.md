@@ -92,3 +92,13 @@ bash tools/run_model_sweep_005.sh optiplex@100.121.156.34 all
 Optional: `small` omits 12B CPU offload; `tuned`, `cat33`, `cat7`, `hy7`, `google12` individually isolate a problematic arm. This is **an explicit permission to download models** (total disk/downloads easily >25GB) and set up a separate pinned CUDA/PyTorch virtual environment in `~/bruiser-pilot/subhub-cat33-venv`. Does not upgrade live SubHub's Python, overwrite subtitles, modify source SQLite or launch job queue.
 
 Each successful arm writes a private JSON in `~/Downloads/model-sweep-005-<timestamp>/`. After two or more compatible complete outputs, the wrapper automatically produces `BLIND_REVIEW.json` with shuffled A–E labels per cue and a separate `BLIND_IDENTITY_KEY.json`. Review actual dialogue without viewing the key first; score semantic 4, tone 2, fluency 2 and readability 2; log critical errors, then reveal. Keep both and every raw model JSON PRIVATE, never commit movie dialogue to GitHub. Known external limitations: Hy7 GGUF may require newer STQ support; CAT3.3 final bitsandbytes CUDA may be unavailable; Google12 Q4 requires CPU/RAM offload. Mark those arm runs blocked rather than silently substituting a different model.
+
+## Benchmark 005: diagnosing blocked controls and preserving logs
+
+Owner-run real status on 2026-11-02: Hy7, CAT7 and Google12 generated private JSON; **tuned was blocked in preflight**, **FINAL CAT3.3 was blocked/incomplete**. Before re-running models, use from MacBook checkout:
+
+    bash tools/diagnose_model_sweep_005.sh optiplex@100.121.156.34
+
+Read-only inspection prints actual tuned `ollama list` ID, `/api/show` model family/quantization, the model-sweep tuned preflight error, and the isolated CAT3.3 venv import/CUDA checks. Does NOT pull weights, send inference, change services or write subtitles/DB. Share full terminal diagnostic to investigate exact blockers. On later runs the runner now saves per-arm stderr/stdout into PRIVATE `*-preflight.log`, `*-model-run.log`, `cat33-run.log` while still streaming to terminal. Never commit private dialogue or logs to GitHub.
+
+Partial public findings and structural contamination caveat in `benchmarks/RESULTS_005_PARTIAL.md`. The original CAT7 final model specifically requires its own chat template; current GGUF via Ollama leaked `assistant` into 16/64 cues despite only two format warnings. Do not trust the general publisher validator.
