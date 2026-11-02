@@ -49,7 +49,7 @@ class Quality010Unit(unittest.TestCase):
         self.assertTrue(q.length_risk('非常に長すぎる字幕が一瞬で出て今すぐ消えるのは読み切れない',
                                        0,500)['severe_density'])
         self.assertEqual(q.visible_chars('<i>こんにちは</i>'),5)
-        self.assertEqual(q.visible_chars('{\an8}　こんにちは '),5)
+        self.assertEqual(q.visible_chars('{\\an8}　こんにちは '),5)
 
     def test_detects_long_future_cue_repeated_early_not_common_names(self):
         future='あとで全員に会って話すことにしようよ'
@@ -173,8 +173,7 @@ class AmericanDad010Integration(unittest.TestCase):
         self.assertFalse(v2.sidecar(self.video).exists())
         self.assertTrue(result['unresolved_ids'])
         folder=self.state/'episodes'/item['episode']
-        self.assertTrue((folder/'quality-v2-'+
-                         intake.sha(''.encode())[:0]).parent.exists())
+        self.assertGreaterEqual(len(list(folder.glob('quality-v2-*.json'))),1)
 
     def test_existing_published_track_never_overwritten(self):
         item=self.freeze()['episodes'][0]
