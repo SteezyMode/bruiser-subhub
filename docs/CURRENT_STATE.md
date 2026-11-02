@@ -9,7 +9,7 @@ New isolated module `tools/library_english_sources.py` queries ALL Jellyfin Movi
 New `tools/stock_english_sources.sh` runs offline tests, stages only isolated code, invokes one-time private Jellyfin login if needed, inventories the full Jellyfin catalog, fetches 18 strict matches, prints aggregate progress, and invokes `tools/enable_english_source_timer.py` to attempt a separate low-rate 03:30 local daily *user* timer (5 provider searches/day). It reports timer activation accurately and does not use sudo or change system services. Library-wide translation is **never** scheduled. Existing season 8 translator command remains separate and unchanged; user should rerun once English sources arrive.
 
 MacBook after merge:
-`cd ~/Downloads/bruiser-subhub-repo && git pull --ff-only && bash tools/stock_english_sources.sh optiplex@100.121.156.34`
+`cd ~/Downloads/bruiser-subhub-repo && git pull --ff-only && bash tools/stock_english_sources.sh optiplex@YOUR_HOST`
 
 Host has NOT yet run this inventory; GitHub CI only tests offline behavior. First live results decide whether existing providers actually supply hash-matched English to S08; otherwise speech-to-text fallback is next. See `docs/ENGLISH_SOURCE_INVENTORY.md`.
 
