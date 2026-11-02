@@ -243,12 +243,13 @@ def category(error):
     if 'length cap' in t: return 'length_cap'
     if isinstance(error,json.JSONDecodeError):return 'invalid_json'
     if 'json' in t:return 'invalid_json'
-    if 'keys' in t or 'line count' in t or 'reordered' in t or 'id' in t:
-        return 'id_mapping_or_count'
-    if 'numbered' in t:return 'invalid_line_format'
-    if 'invalid japanese' in t or 'non-text' in t:return 'invalid_japanese'
+    if 'invalid japanese' in t or 'non-text' in t or 'speaker-turn' in t:
+        return 'invalid_japanese'
     if 'dense' in t:return 'severe_density'
     if 'copied' in t or 'repeated' in t:return 'duplicate_dialogue'
+    if 'numbered' in t:return 'invalid_line_format'
+    if 'keys' in t or 'line count' in t or 'reordered' in t or ' ids' in t:
+        return 'id_mapping_or_count'
     if 'timeout' in t or 'timed out' in t:return 'timeout'
     return 'other_'+type(error).__name__
 
