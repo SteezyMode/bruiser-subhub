@@ -38,7 +38,11 @@ if ! grep -Fq 'ExecStart=/usr/bin/python3 -u %h/' "$UNIT"; then
   echo 'REPAIR_BLOCKED: supervised ExecStart not installed' >&2
   exit 1
 fi
-if ! grep -Fq 'TimeoutStartSec=11h' "$UNIT"; then
+if ! grep -Fq 'Type=exec' "$UNIT"; then
+  echo 'REPAIR_BLOCKED: long-running systemd Type=exec not installed' >&2
+  exit 1
+fi
+if ! grep -Fq 'RuntimeMaxSec=11h' "$UNIT"; then
   echo 'REPAIR_BLOCKED: long-running systemd service timeout not installed' >&2
   exit 1
 fi
