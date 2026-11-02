@@ -46,6 +46,51 @@ class MaintenanceTests(unittest.TestCase):
                 asr_run=asr or self.fake_asr,launch=self.launcher,
                 log=lambda *x:self.logs.append(x))
 
+    def test_supervised_campaign_runs_foreground_and_persists_output(self):
+        import sys
+        seen=[]
+        def execute(roots,root,chosen,max_episodes,minutes):
+            self.assertEqual(chosen,(20,))
+            self.assertEqual(max_episodes,50)
+            self.assertEqual(minutes,480)
+            seen.append('entered')
+            print('SEASON_STARTED 20 episodes_found 22',flush=True)
+            print('SEASON_RESULT S20E01 published',flush=True)
+            seen.append('finished')
+            return {'outcomes':{'published':1}}
+        with patch.object(m.seasons,'execute',side_effect=execute):
+            result=m.run_supervised(self.state,(20,),50,480,
+                                    executor=execute)
+        self.assertEqual(seen,['entered','finished'])
+        self.assertEqual(result['mode'],'systemd_foreground')
+        self.assertEqual(result['outcomes'],{'published':1})
+        log=(self.state/'american-dad-seasons.log').read_text()
+        self.assertIn('supervised season 20',log)
+        self.assertIn('SEASON_SUPERVISED running_in_systemd_foreground',log)
+        self.assertIn('SEASON_RESULT S20E01 published',log)
+        self.assertIn('SEASON_SUPERVISED_RESULT',log)
+
+    def test_supervised_campaign_protects_existing_log_symlink(self):
+        original=self.state/'elsewhere.log'
+        self.state.mkdir(parents=True)
+        original.write_text('private')
+        (self.state/'american-dad-seasons.log').symlink_to(original)
+        with self.assertRaisesRegex(RuntimeError,'Unsafe'):
+            m.run_supervised(self.state,(20,),50,480,executor=lambda *a,**k: {})
+        self.assertEqual(original.read_text(),'private')
+
+    def test_production_default_is_supervised_not_detached_popen(self):
+        # Fake the supervised launcher; do not touch machine processes.
+        with patch.object(m,'run_supervised',side_effect=self.launcher) as launch:
+            with patch.object(m.intake.service,'secure_video'):
+                result=m.run_once((self.media,),self.state,
+                    now=2_000_000_000,iter_videos=self.videos_iter,
+                    probe_fn=self.probe,asr_run=self.fake_asr,
+                    log=lambda *x:self.logs.append(x))
+        self.assertEqual(result,'started')
+        self.assertEqual(launch.call_count,1)
+        self.assertEqual(self.launches[0][1],(20,))
+
     def test_choose_source_rich_season_then_one_missing_english(self):
         self.em[next(x for x in self.videos if 'S20E12' in x.name)]['embedded_en']=None
         result=self.once()
