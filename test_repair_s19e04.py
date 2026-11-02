@@ -135,6 +135,22 @@ class S19RepairTests(unittest.TestCase):
             repair.create_exact(target,b'modified')
         self.assertEqual(target.read_bytes(),b'complete')
 
+    def test_one_command_repair_wrapper_syntax_and_systemd_scope(self):
+        import subprocess
+        script=Path(__file__).resolve().parent/'tools/run_s19e04_repair.sh'
+        result=subprocess.run(['bash','-n',str(script)],
+                              capture_output=True,text=True,timeout=10)
+        self.assertEqual(result.returncode,0,result.stderr)
+        content=script.read_text(encoding='utf8')
+        self.assertIn('systemd-run --user',content)
+        self.assertIn('repair_s19e04.py',content)
+        self.assertIn('run --max-minutes 180 --publish',content)
+        self.assertIn('RuntimeMaxSec=4h',content)
+        self.assertNotIn('sudo ',content)
+        self.assertNotIn('systemctl restart',content)
+        self.assertNotIn('docker restart',content)
+        self.assertNotIn('rm -rf',content)
+
     def test_only_this_episode_and_not_other_media(self):
         self.assertEqual(repair.EPISODE,(19,4))
         self.assertEqual(repair.VERSION,'Bruiser Readability Repair v1 Japanese.ja.srt')
