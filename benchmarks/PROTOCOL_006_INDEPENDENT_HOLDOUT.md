@@ -1,5 +1,6 @@
 # Experiment 006 — independent blind EN→JA subtitle evaluation (PRE-REGISTRATION)
 
+> **Implementation update (2026-11-02):** All five 005 technical arms have completed; see [RESULTS_005_COMPLETE.md](RESULTS_005_COMPLETE.md). The first 006 prerequisite is a metadata-only inventory, now implemented and synthetically tested at `tools/inventory_sources_006.py`. Run from MacBook checkout: `bash tools/inventory_sources_006.sh optiplex@100.121.156.34`. This does not select scenes or generate Japanese; new sources still must be frozen and explicitly excluded from prior human/assistant evaluation. Ensure final CAT3.3 Transformers uses an explicit attention mask (warned when EOS=PAD in its 005 run) in the frozen 006 inference implementation. Do not compare results on the old *Primate* cues.
 **Status: PROTOCOL ONLY. No dataset selected, no model called, no quality grade awarded.** Effective 2026-11-02. User requested a scientific reset because repeated *Primate* lines and assistant-only evaluation had contaminated the interpretation. This document **supersedes prior subtitle-quality rankings**, not the real measured technical/runtime facts in Benchmarks 001–005.
 
 ## The question, and what success means
