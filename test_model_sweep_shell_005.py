@@ -12,7 +12,8 @@ class SweepBashSyntaxTests(unittest.TestCase):
         root=Path(__file__).resolve().parent
         for path in ('tools/run_model_sweep_005.sh','tools/run_cat33_005.sh',
                      'tools/diagnose_model_sweep_005.sh',
-                     'tools/inventory_sources_006.sh'):
+                     'tools/inventory_sources_006.sh',
+                     'tools/run_clean_sweep_006.sh'):
             with self.subTest(path=path):
                 result=subprocess.run(['bash','-n',str(root/path)],
                                       capture_output=True,text=True)
@@ -48,6 +49,18 @@ class SweepBashSyntaxTests(unittest.TestCase):
         self.assertIn('< tools/inventory_sources_006.py',shell)
         self.assertNotIn('scp ',shell)
         self.assertNotIn('mkdir ',shell)
+
+    def test_clean_006_runner_is_one_command_with_all_ten_arms(self):
+        root=Path(__file__).resolve().parent
+        sh=(root/'tools/run_clean_sweep_006.sh').read_text(encoding='utf-8')
+        self.assertIn('cat33 cat7',sh)
+        self.assertIn('tuned_e4b tuned_e2b',sh)
+        self.assertIn('hy7 hy18 index2',sh)
+        self.assertIn('google4 google12 generic_e4b',sh)
+        self.assertIn('clean_sweep_006.py',sh)
+        self.assertIn('prepare',sh)
+        self.assertIn('blind',sh)
+        self.assertIn('scp -qr',sh)
 
 if __name__=='__main__':
     unittest.main()
