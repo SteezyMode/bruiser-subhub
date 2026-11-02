@@ -82,7 +82,7 @@
 - WMT26 Oct 2026 video-subtitle research supports investigating real scene context and verified terminology, but its quantitative studies used **Chinese-source** languages, NOT EN→JA. Do not transpose scores. Multi-model candidate selection is optional only with proven net gain.
 - **Next recommendation remains continuous Japanese-only 10–15-minute viewing on a NEW native-E4B generated sample**, not another 64 random cues and not old pre-fix published outputs. After actual viewer comments, consider a SINGLE controlled CAT 3.3B or Hy-MT2 7B native-model comparison on fresh scenes if needed.
 
-## Benchmark 005 — owner-requested all-model sweep (PRE-REGISTERED; NOT RUN)
+## Benchmark 005 — PR #22 merged (`463231bc`), 107 offline tests passed; real model runs NOT YET PERFORMED
 
 - Methodology: [EXPERIMENT_005.md](EXPERIMENT_005.md); eight NEW contiguous eight-cue English windows centered at 91/127/175/235/303/343/543/691, under the prior immutable Primate English SRT SHA. A fresh **64-cue** sample per arm, disjoint from 001–004, five arms = at most 320 translated candidates.
 - Arms: existing tuned native Gemma4 E4B (control), **FINAL** CAT-Translate-3.3B via isolated HuggingFace Transformers 4bit NF4 (not the beta GGUF), FINAL CAT-Translate-7B via sourced GGUF Q4_K_M, official Hy-MT2 7B Q4_K_M (STQ kernel compatibility uncertain), Google TranslateGemma 12B Q4_K_M (must CPU offload on 6GB GPU). Native prompts, no generic JSON wrapper. Model/backend/quantization may differ; compare workflows, not purely model size.
