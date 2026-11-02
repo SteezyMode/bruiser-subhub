@@ -1,5 +1,19 @@
 # Current state and next actions
 
+## 2026-11-02 — Final S19E01 cue 321 problem SOLVED IN CODE; owner cached-only publish still pending (PR #37)
+
+Owner's real SSH printed original English cue 321 with italicized fictional show title and ALL SIX saved model responses. The Japanese is present and adequate; exact blocker is `core.valid()` rejecting `</i>` as if it were unsafe HTML. Model output in attempts 1–2 has balanced `<i>...</i>`; attempts 3–6 have `<i lang="en">...</i>` and repeat the SAME softer Japanese translation. It is a false-positive **validator formatting failure**, not a tough translation or an inference crash. No more models or retry prompts required.
+
+PR #37 tests narrow safe SRT markup normalization/validation (only original-English-supported, balanced italics, `lang="en"` attribute canonicalized), deterministic recovery of the most repeated **existing saved** Japanese output from failed-attempt files, preserving all previously successful cues/errors/approved JA files unchanged, and creates only the final S19E01 pilot sidecar. Adds **cached-only** mode: no Ollama model calls, no model preflight, no context generation. Owner one command after merge from MacBook:
+
+```bash
+cd ~/Downloads/bruiser-subhub-repo
+git pull --ff-only
+bash tools/run_american_dad_pilot_009.sh optiplex@100.121.156.34 --cached-only
+```
+
+**REAL status before this command:** 4/5 American Dad episodes published; total 2,065/2,066 accepted. All already-published episodes are skipped as identical; only S19E01 cue 321 may need creation. CI success is not host success; require fresh run output to claim 5/5. User goal is ordinary Jellyfin viewing, not nine-way QA. Details: `docs/AMERICAN_DAD_PILOT_009_REAL_RUN_RECOVERY.md`.
+
 ## ACTUAL first American Dad pilot completed (2026-11-02), 7-cue stuck retry now FIXED (PR #36)
 
 Owner uploaded `american-dad-pilot-009.log` from the **REAL** host run. Frozen five-episode local context/tuned E4B pilot processed **2,066** cues. 2,059 got accepted Japanese (99.66% by structural check, NOT native-language quality). S19E03 (394/394) and S19E04 (392/392) published separate create-only `Bruiser Pilot Japanese.ja.srt` files alongside videos. S19E01 (398/400), S19E05 (355/359), S19E06 (520/521) correctly withheld output: exactly **7 cues unaccepted**. **NO need to retranslate 2,059 good cue checkpoints or run another 10-model benchmark.** See `docs/AMERICAN_DAD_PILOT_009_REAL_RUN_RECOVERY.md`.

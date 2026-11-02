@@ -82,8 +82,40 @@ def verify(entry,roots=intake.ROOTS):
     return video,rows
 
 
+def recover_saved_italic_reply(folder, cue_id, english, source_sha):
+    """Rescue a previously rejected translated cue with *only* safe SRT italics.
+
+    Keep the old failed-attempt files immutable; choose a reproducible modal
+    reply from the old attempts. No new model calls, no guessing Japanese text.
+    """
+    counts={}
+    first_attempt={}
+    for attempt in range(1,7):
+        prior=Path(folder)/'errors'/('%05d-%d.json'%(cue_id,attempt))
+        if not prior.is_file():
+            continue
+        item=core.load(prior)
+        if item.get('cue_id')!=cue_id:
+            raise RuntimeError('Existing failed attempt identity changed')
+        if item.get('error')!='Invalid Japanese/format':
+            continue
+        clean=core.normalized_srt_markup(item.get('reply'),english)
+        if clean is None or '<i>' not in clean or not core.valid(clean,english):
+            continue
+        counts[clean]=counts.get(clean,0)+1
+        first_attempt.setdefault(clean,attempt)
+    if not counts:
+        return None
+    # Prefer a repeated identical model output, then earlier attempt.
+    chosen=sorted(counts,key=lambda x:(-counts[x],first_attempt[x]))[0]
+    return {'cue_id':cue_id,'source_sha':source_sha,
+            'model_id':core.MODEL_ID,'japanese':chosen,'valid':True,
+            'seconds':0,'recovered_from_saved_attempt':
+            first_attempt[chosen],'recovery':'validated_source_srt_italics'}
+
+
 def translate(entry,curated,series_note,state=core.STATE,roots=intake.ROOTS,
-              ask=core.call,publish=False,deadline=None):
+              ask=core.call,publish=False,deadline=None,cached_only=False):
     state=Path(state)
     episode=entry['episode']
     folder=state/'episodes'/episode
@@ -95,8 +127,9 @@ def translate(entry,curated,series_note,state=core.STATE,roots=intake.ROOTS,
             return {'episode':episode,'state':'already_published_identical'}
         raise RuntimeError('Existing Japanese pilot file differs: do not replace')
     video,rows=verify(entry,roots)
-    episode_note=core.note('title','American Dad '+episode,
-                           [Path(entry['source_path'])],state,ask)
+    episode_note=(None if cached_only else
+                  core.note('title','American Dad '+episode,
+                            [Path(entry['source_path'])],state,ask))
     previous=[]
     accepted={}
     failures=0
@@ -112,13 +145,19 @@ def translate(entry,curated,series_note,state=core.STATE,roots=intake.ROOTS,
         else:
             if deadline is not None and time.monotonic()>=deadline:
                 break
-            item=None
+            item=recover_saved_italic_reply(folder,cue_id,english,entry['source_sha'])
+            if item is not None:
+                core.save(good,item)
+                print('RECOVERED',episode,'cue',cue_id,
+                      'from saved source-supported SRT italics; no model call',flush=True)
             # Attempts 1-2: original frozen pilot prompt.
             # Attempts 3-6: smaller, context-light rescue prompts.
             # Each attempt is create-only and prior failures are retained.
             # Resuming after the first full run skips 1-2 and works ONLY
             # on cues with no accepted Japanese checkpoint.
             for attempt in (1,2,3,4,5,6):
+                if item is not None or cached_only:
+                    break
                 error_file=folder/'errors'/('%05d-%d.json'%(cue_id,attempt))
                 if error_file.exists():
                     continue
@@ -134,6 +173,9 @@ def translate(entry,curated,series_note,state=core.STATE,roots=intake.ROOTS,
                              if attempt<=2
                              else core.recovery_prompt(rows,index,previous,attempt))
                     text=ask(request)
+                    normalized=core.normalized_srt_markup(text,english)
+                    if normalized is not None:
+                        text=normalized
                     if not core.valid(text,english):
                         error='Invalid Japanese/format'
                 except Exception as exc:
@@ -188,23 +230,26 @@ def translate(entry,curated,series_note,state=core.STATE,roots=intake.ROOTS,
 
 
 def run(episodes=5,publish=False,minutes=420,state=core.STATE,
-        roots=intake.ROOTS,profile=core.PROFILE,ask=core.call,base=core.BASE):
+        roots=intake.ROOTS,profile=core.PROFILE,ask=core.call,base=core.BASE,
+        cached_only=False):
     manifest=freeze(episodes,roots,state,profile)
     curated=Path(profile).read_text(encoding='utf8')
     deadline=time.monotonic()+minutes*60
     finished=[]
     with core.locks(base):
-        if ask is core.call:
+        if not cached_only and ask is core.call:
             core.preflight()
-        series=core.note('series','American Dad',
-                         [Path(x['source_path']) for x in manifest['episodes'][:3]],
-                         state,ask)
+        series=(None if cached_only else
+                core.note('series','American Dad',
+                          [Path(x['source_path']) for x in manifest['episodes'][:3]],
+                          state,ask))
         for entry in manifest['episodes']:
             if time.monotonic()>=deadline:
                 print('Wall budget reached; private cue checkpoints retained',flush=True)
                 break
             try:
-                result=translate(entry,curated,series,state,roots,ask,publish,deadline)
+                result=translate(entry,curated,series,state,roots,ask,publish,deadline,
+                                 cached_only=cached_only)
             except Exception as exc:
                 result={'episode':entry['episode'],'state':'held',
                         'reason':type(exc).__name__+': '+str(exc)[:230]}
@@ -231,7 +276,7 @@ def status(state=core.STATE):
 
 def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('action',choices=('prepare','run','status'))
+    p.add_argument('action',choices=('prepare','run','status','finalize-cached'))
     p.add_argument('--episodes',type=int,default=5)
     p.add_argument('--publish',action='store_true')
     p.add_argument('--minutes',type=int,default=420)
@@ -242,6 +287,10 @@ def main(argv=None):
         freeze(args.episodes)
     elif args.action=='status':
         print(json.dumps(status(),ensure_ascii=False,indent=2))
+    elif args.action=='finalize-cached':
+        # Only preexisting candidate Japanese and old checkpoints are read;
+        # no Ollama preflight, note generation, or translation calls.
+        run(args.episodes,True,args.minutes,cached_only=True)
     else:
         run(args.episodes,args.publish,args.minutes)
     return 0
