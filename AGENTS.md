@@ -2,6 +2,15 @@
 
 **Read this file, `docs/CURRENT_STATE.md`, and `docs/OPERATIONS.md` before proposing or changing code.** Treat the checked-in source as authoritative for implemented behavior; ask for a fresh read-only status snapshot before claiming anything about the live OptiPlex service.
 
+## Latest: PRIVATE full output archive audited, Hy1.8 exact causes found (2026-11-02)
+
+Owner uploaded `subhub-006-review.tar.gz` with frozen 273-cue English/JA raw files for nine completed models and incomplete Hy1.8. All 2,457 returned Japanese outputs were parsed and checked mechanically, and **38 source/scene-sensitive cues received assistant-only exploratory EN↔JA spot checks**. Full public aggregate notes: `benchmarks/RESULTS_006_ASSISTANT_SCREEN_LIMITED.md`; raw movie dialogue, private flags, per-cue comparison and blind SRTs MUST stay private.
+
+**Hy-MT2 1.8B exact observed failure:** three initial calls hit `RuntimeError: Ollama output length cap`; the fourth generated malformed JSON-like text, not Japanese. Model ID `33a3a4ab0f4e`. Do not claim low translation quality or infer exact tokenizer root cause without new controlled evidence. No rerun of nine complete arms.
+
+**Substantive finding:** all nine sometimes miss important context across consecutive English cues (e.g. the repeated word in a plot twist); all nine also rendered a religious expression literally. Individual other families make serious clinical/idiom/polarity errors despite structurally valid Japanese. Assistant-only preferences cannot validate a winner, and natural condensation is GOOD localization.
+
+**Review workload CUT:** PRIVATE `subhub006_blind_quick_view_Hokum.zip` contains nine masked A–I SRTs, **same first 90 seconds of s02** at movie 35:00–36:30 (13.5min of playback + notes), plus blank score sheet. Identity key remains OUTSIDE. No further inference/deploy before native-Japanese viewing; afterward narrow 2–3 finalists for full scenes, then untouched confirmation title.
 ## REAL Benchmark 006 inference finished: 9/10 candidate arms, independent viewing NEXT (2026-11-02)
 
 Owner uploaded actual *NEW* Benchmark 006 data: `prepare.log`, all 10 candidate model logs, `COUNTS.json`, `blind.log`, `STATUS(5).txt`. **Frozen private manifest SHA `6900fb27123acaab4ce6f1277efccc11c0b6c504372b0b07640c4c34f07ae3ab`; 273 English cues, four contiguous scenes across three newly selected titles, fourth title reserved untouched.** 9/10 arms finished all 273 calls with NO runtime call errors; `hy18` alone BLOCKED after 4 saved cues/3 failed model calls; its shell log hides individual API error details, so do not guess why. Inference/format/speed aggregate is recorded in `benchmarks/RESULTS_006_TECHNICAL.md`. Index-Translate 2B (130.16s, 271 accepted), tuned E2B (187.30s, 272 accepted) and official HF CAT7 (193.64s, 272 accepted) all completed real new EN→JA inference. CAT3.3 (124.54s, 269 accepted) was operationally fastest, Google12 (964.59s, 273 accepted) slowest. These are raw generation-call sums and broad mechanical accepts, **NOT Japanese quality grades**.
