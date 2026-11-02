@@ -1,5 +1,21 @@
 # American Dad: automatic season selection and local English ASR fallback
 
+## 2026-11-02 deployed host bug: detached season process killed with oneshot parent
+
+The owner ran the original `auto_american_dad.sh`. It selected **S20 (22/22 English-ready)** and returned a season worker PID, but the user `Type=oneshot` maintenance process ended and subsequent host process inspection found **no season worker**. The season log contained only its timestamp header, not any episode processing. The original `start_background()` used `start_new_session=True` which does not detach from systemd's cgroup, so the oneshot completion can kill its child.
+
+**Mandatory correction before further translation:** After GitHub merge run this on MacBook:
+
+```bash
+cd ~/Downloads/bruiser-subhub-repo
+git pull --ff-only
+bash tools/repair_american_dad_worker.sh optiplex@YOUR_HOST
+```
+
+This is a narrow deployment of two corrected files and exact migration of the known old user service to long-running `Type=exec`, unbuffered stdout, `RuntimeMaxSec=11h`, and foreground season processing. It backs up the old unit and refuses unknown customized units. The foreground worker keeps the systemd service active while episodes are processing and writes live progress to BOTH its journal and `american-dad-seasons.log`. It does not reinstall faster-whisper or interrupt Jellyfin and the successful English inventory timer. This fix is CI-tested but has not yet been executed on the actual OptiPlex.
+
+The user's earlier SQLite diagnostic `near "%"` was caused by nested remote shell quotes in a suggested query, not a proven database error. Use parameterized SQL in a properly quoted heredoc for future diagnostics.
+
 ## Why this exists
 
 The full Jellyfin inventory scanned **12,398** media items: **3,073** already have detectable English text subtitles, **9,325** currently do not. The owner ran the strict hash-match search on every one of the 18 American Dad S08 episodes and obtained **0 matches**. The later dedicated title/episode-matching search also returned **SEASON_NOT_STARTED no_usable_english_sources**. No Japanese translation failure caused this: the original English source was absent.
