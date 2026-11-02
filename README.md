@@ -4,6 +4,18 @@
 
 Currently a local English-to-Japanese subtitle translation coordinator for a personal media server. **Public-source development repository; currently an OptiPlex-specific working pilot, not a portable installer.**
 
+## Use it for one movie at a time
+
+After updating the MacBook checkout:
+
+```bash
+cd ~/Downloads/bruiser-subhub-repo
+git pull --ff-only
+bash tools/daily_japanese.sh optiplex@100.121.156.34
+```
+
+This stages ONLY an isolated one-title intake/worker wrapper onto the host; it does not replace the installed SubHub service. It finds an English-audio title without Japanese, extracts existing English text subtitles if present, queues one title, and starts the existing translator in the background. Subsequent invocations resume an unfinished daily job before adding another. It refuses existing Japanese and unknown/bitmap-only English sources. **Real Japanese accuracy remains limited by the current model** and must be judged by viewing; not a claim of 8/10 quality. See [daily-use instructions](docs/DAILY_JAPANESE.md).
+
 ## Current implementation (SubHub 1.0)
 
 - Resumable SQLite queue with per-cue Japanese checkpoints and bounded retries.

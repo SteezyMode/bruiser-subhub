@@ -1,5 +1,16 @@
 # Current state and next actions
 
+## 2026-11-02 — Switch from format experiments to real daily household English→Japanese subtitles
+
+User clarified that **dual subtitles are already solved in Jellyfin** and matter only for audio that is neither English nor Japanese; **do not build dual subs**. The actual goal is nightly/regular **usable Japanese subtitles for English films and TV with partner**, rather than more numbered/JSON/utterance pilot research. Original v011/v012/v013 results stand as evidence of ~5.5–6/10 Japanese and limited E4B multi-cue reliability; stop experimental version churn.
+
+New isolated **tools/daily_japanese.py** + **tools/daily_worker.py** enable a practical *one-command, one-title* household intake: walk approved 6 TB media roots with ffprobe; require English-primary audio, skip existing JA sidecar/embedded; prefer same-film named English SRT or safely extract a labeled English text stream; refuse missing or irregular cue IDs; queue at most ONE video into existing SubHub 1.0 Store, using deterministic job ID and durable English source. Per-day scan cursor avoids repeatedly inspecting the first 30 ineligible videos. Starting the worker uses existing installed SubHub 1.0 main.run() with an **in-process job filter** so `--max-titles=1` cannot accidentally process unrelated backlog; both worker locks, existing Gemma, thermal guards, per-cue checkpoints and create-only JA sidecar publishing remain authoritative. Detached background progress in the existing state's **daily-worker.log**; reruns resume pending title before adding another. No live code/files or existing JA are overwritten.
+
+Owner MacBook command **after PR merge**:
+`cd ~/Downloads/bruiser-subhub-repo && git pull --ff-only && bash tools/daily_japanese.sh optiplex@100.121.156.34`
+
+This is an operational throughput/ingest change **not a semantic-quality fix**; local Gemma can still mistranslate jokes/idioms. Limit to one title and actually watch/review before scaling. It does not acquire missing English from providers, schedule itself nightly, or change Jellyfin settings. The host has **not yet run** this new flow. Full guide: `docs/DAILY_JAPANESE.md`. Preserve existing subtitles, original v011 accepted and recovery source state, editorial work, and avoid new model tournaments.
+
 ## 2026-11-02 — REAL v012 raw failure forensics: grouped output is structurally unfit; v013 focus-cue lab coded
 
 User uploaded PRIVATE v012 forensic archive: JSON **18/18** failed responses hit token cap; numbered-line **11 mapping/count**, **1 invalid format**, **2 repeated-dialogue** errors. Ten of eleven mapping/count errors returned ONE unnumbered coherent JA translation of a MULTI-CUE English utterance, not one JA string per ID; the remaining 3-cue source returned 2 numbered lines. **Nine** of the ten collapsed one-line replies were EXACTLY 2 English cues. This confirms a material model/format boundary problem, not merely a parser whitespace issue; never automatically divide a whole Japanese sentence into timed fragments.
