@@ -85,6 +85,15 @@ class DailyIntakeTests(unittest.TestCase):
                                  (jobs[0]['id']+'.en.srt')).is_file())
             finally:
                 store.cn.close()
+            # No extra queue entry while the first daily film is pending.
+            self.assertEqual(day.daily((self.media,),self.root,apply=True,
+                probe_fn=self.probe,source_fn=self.source),'pending')
+            store=service.Store(self.root)
+            try:
+                self.assertEqual(len(store.jobs()),1)
+                store.state(store.jobs()[0]['id'],'published')
+            finally:
+                store.cn.close()
             self.assertEqual(day.daily((self.media,),self.root,apply=True,
                 probe_fn=self.probe,source_fn=self.source),'queued')
             store=service.Store(self.root)
@@ -92,6 +101,8 @@ class DailyIntakeTests(unittest.TestCase):
                 self.assertEqual(len(store.jobs()),2)
                 self.assertEqual({x['video'] for x in store.jobs()},
                                  {str(self.v1),str(self.v2)})
+                store.state(next(x['id'] for x in store.jobs()
+                                 if x['video']==str(self.v2)),'published')
             finally:
                 store.cn.close()
             self.assertEqual(day.daily((self.media,),self.root,apply=True,
@@ -208,6 +219,28 @@ class DailyIntakeTests(unittest.TestCase):
         self.assertEqual(Path(calls[0][1]),worker)
         self.assertTrue((self.root/'daily-worker.log').is_file())
         self.assertEqual(list(self.media.glob('*.ja.srt')),[])
+
+    def test_repeat_daily_start_resumes_same_job_and_never_queues_another(self):
+        calls=[]
+        def launch(command,out):
+            calls.append(command)
+            return SimpleNamespace(pid=239)
+        worker=self.tmp/'daily_worker.py'
+        worker.write_bytes(b'# mock\n')
+        with patch.object(service,'OLD_WORKER_LOCK',self.old_lock),patch.object(
+             service,'SOURCE_ROOTS',(self.media,)):
+            self.assertEqual(day.daily((self.media,),self.root,apply=True,
+                probe_fn=self.probe,source_fn=self.source),'queued')
+            self.probed.clear()
+            self.assertEqual(day.daily((self.media,),self.root,apply=True,
+                start=True,probe_fn=self.probe,source_fn=self.source,
+                worker=worker,launcher=launch),'resumed')
+            self.assertEqual(self.probed,[])
+            self.assertEqual(len(calls),1)
+            self.assertEqual(calls[0][-1],day.job_id(self.v1))
+            st=service.Store(self.root)
+            try:self.assertEqual(len(st.jobs()),1)
+            finally:st.cn.close()
 
     def test_status_ro_only_and_deterministic_job_id(self):
         first=day.job_id(self.v1)
