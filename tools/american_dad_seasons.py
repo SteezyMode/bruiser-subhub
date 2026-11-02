@@ -27,8 +27,11 @@ import subprocess
 import sys
 import time
 
-import daily_japanese as intake
-import daily_worker
+try:
+    import daily_japanese as intake
+    import daily_worker
+except ModuleNotFoundError:
+    from tools import daily_japanese as intake, daily_worker
 import service
 
 DEFAULT_ROOT=intake.DEFAULT_STATE
