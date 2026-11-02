@@ -13,7 +13,7 @@ echo '=== OFFLINE SAFETY REGRESSIONS ==='
 python3 -m unittest discover -p 'test_*.py' -q
 echo '=== STAGE NEW INTAKE HELPER ONLY; CURRENT SUBHUB WORKER UNTOUCHED ==='
 ssh "$HOST" 'mkdir -p -m 700 ~/bruiser-pilot/daily-japanese-code'
-scp -q tools/daily_japanese.py "$HOST:~/bruiser-pilot/daily-japanese-code/"
+scp -q tools/daily_japanese.py tools/daily_worker.py "$HOST:~/bruiser-pilot/daily-japanese-code/"
 echo '=== FIND ONE ENGLISH-AUDIO TITLE MISSING JAPANESE AND QUEUE ITS SOURCE ==='
 ssh "$HOST" 'python3 ~/bruiser-pilot/daily-japanese-code/daily_japanese.py --apply --start --probe-budget 30'
 echo
