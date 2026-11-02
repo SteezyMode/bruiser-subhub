@@ -4,6 +4,18 @@
 
 Currently a local English-to-Japanese subtitle translation coordinator for a personal media server. **Public-source development repository; currently an OptiPlex-specific working pilot, not a portable installer.**
 
+## Repair the already-published American Dad S19E04 into a separate Japanese track
+
+Real S19E04 viewing revealed oversized, prematurely copied future dialogue in old v009 Japanese captions. The new selected-season publication gate prevents more of that, but never rewrites old pilot files. The one-off `tools/repair_s19e04.py` repairs only suspicious cue IDs using the existing subtitle-tuned E4B model, a **current-cue-only** correction prompt, and immutable private checkpoints. It publishes a **separate versioned Japanese SRT** only after full-episode mechanical QA; the original v009 pilot remains in place.
+
+```bash
+cd ~/Downloads/bruiser-subhub-repo
+git pull --ff-only
+bash tools/run_s19e04_repair.sh optiplex@YOUR_HOST
+```
+
+The MacBook can disconnect after the host user systemd job is launched. If OptiPlex shuts off mid-run, re-run the **same command** after boot to use saved cue repairs (no nightly timer is added for this one-time editorial job). See [S19E04 repair instructions](docs/S19E04_VERSIONED_REPAIR.md). Only the first live host execution will confirm repair quality and whether a new track can be published.
+
 ## Japanese subtitle readability gate, safe resume after power loss
 
 The owner found repeatedly unreadable Japanese subtitles while watching American Dad S19E04. The existing pilot audit already showed copied-ahead future dialogue and extreme reading density. New `tools/subtitle_publish_gate.py` now gates the actual selected-season worker's final publication: it rejects severe overlength, copied future dialogue, more than two lines, and excessive line/cue width. A held episode preserves completed SQLite cue checkpoints and stops the season rather than processing 21 more poor-quality episodes. QA-approved Japanese SRTs now use a **fsynced temporary file and atomic create-only hardlink**, so loss of power during publication cannot expose a half-written final subtitle. Existing approved Japanese and the faulty v009 S19E04 pilot are unchanged.
