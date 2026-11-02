@@ -266,7 +266,8 @@ def execute(state=STATE,roots=intake.ROOTS,ask=core.call,
               'planned':len(planned),'corrected_or_reused':corrected,
               'unresolved_ids':unresolved,'readability':report,
               'original_pilot_sha':frozen['pilot_sha']}
-        save_json(state/'latest-report.json',data)
+        digest=intake.sha(json.dumps(data,sort_keys=True).encode('utf8'))[:14]
+        save_json(state/('report-'+digest+'.json'),data)
         if unresolved or report['publication_held']:
             log('S19E04_REPAIR_HOLD',json.dumps({
                 'remaining_repair_attempts':len(unresolved),
@@ -300,7 +301,8 @@ def cli(argv=None):
     args=p.parse_args(argv)
     try:
         if args.action=='status':
-            path=STATE/'latest-report.json'
+            files=sorted(STATE.glob('report-*.json'),key=lambda p:p.stat().st_mtime_ns)
+            path=files[-1] if files else STATE/'missing-report.json'
             if path.is_file():
                 info=json.loads(path.read_text(encoding='utf8'))
                 print('S19E04_REPAIR_STATUS',
