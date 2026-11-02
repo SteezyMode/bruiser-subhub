@@ -59,21 +59,24 @@ def build(data,seed='bruiser-005-precommitted'):
         for alias,j in zip(LABELS,permutation):
             text=data[j]['entries'][i]['candidate_japanese']
             if not text:raise ValueError('Missing Japanese; blind review cannot proceed')
-            candidates.append({'label':alias,'japanese':text})
+            candidates.append({
+                'label':alias,'japanese':text,
+                'review':{
+                    'semantic_fidelity_0_to_4':None,
+                    'tone_intent_0_to_2':None,
+                    'natural_japanese_0_to_2':None,
+                    'readability_0_to_2':None,
+                    'critical_error_ids':[],
+                    'reviewer_note':None,
+                },
+            })
             key[alias]=arms[j]
         key_id=str(base['cue_id'])
         identity[key_id]=key
         pack.append({
             'cue_id':base['cue_id'],'english':base['english'],
             'timing':base['timing'],
-            'candidates':candidates,
-            'review_score_template':{
-                'semantic_fidelity_0_to_4':None,
-                'tone_intent_0_to_2':None,
-                'natural_japanese_0_to_2':None,
-                'readability_0_to_2':None,
-                'critical_error_ids':[],
-            }
+            'candidates':candidates
         })
     return ({
         'schema':'bruiser-private-blind-review-005-v1',
