@@ -4,11 +4,11 @@
 set -euo pipefail
 HOST="${1:?Usage: bash tools/run_model_sweep_005.sh optiplex@HOST [missing|small|all|cat33|tuned|cat7|hy7|google12]}"
 MODE="${2:-all}"
-# Use "missing" to recover only the two blocked arms from 2026-11-02.
-# Existing 3 successful private JSON files remain valid; no remodelling or re-download.
+# As of the successful tuned rerun, only FINAL CAT3.3 remains missing.
+# Use "cat33" or "missing" to avoid repeating any completed models.
 case "$MODE" in
   all) ARMS=(cat33 tuned cat7 hy7 google12) ;;
-  missing) ARMS=(tuned cat33) ;;  # Do NOT rerun completed CAT7/HY7/Google12.
+  missing) ARMS=(cat33) ;;  # Tuned also completed 2026-11-02; ONLY CAT3.3 remains.
   small) ARMS=(cat33 tuned cat7 hy7) ;;
   cat33|tuned|cat7|hy7|google12) ARMS=("$MODE") ;;
   *) echo "Unknown model arm: $MODE" >&2; exit 2 ;;

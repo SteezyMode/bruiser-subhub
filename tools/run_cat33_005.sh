@@ -31,8 +31,14 @@ echo "=== Installing pinned inference packages IN ISOLATED venv only ==="
 ssh "$HOST" '~/bruiser-pilot/subhub-cat33-venv/bin/python -m pip install --disable-pip-version-check --no-input "torch==2.9.0" "transformers==4.57.3" "accelerate==1.12.0" "bitsandbytes==0.48.2" "huggingface-hub==0.36.0"'
 
 CMD="~/bruiser-pilot/subhub-cat33-venv/bin/python ~/bruiser-pilot/subhub-benchmark/model_sweep_cat33_005.py --out ~/bruiser-pilot/subhub1-state/review/$FILE --max-seconds 3600"
+echo "=== READ-ONLY GPU residency check just before CAT inference ==="
+ssh "$HOST" 'echo "OLLAMA RESIDENT:"; ollama ps || true; echo "NVIDIA VRAM:"; nvidia-smi --query-gpu=name,memory.free,memory.used --format=csv,noheader || true'
 echo "=== Preflight: exact English SHA, real CUDA and >=3GB free VRAM ==="
-ssh "$HOST" "$CMD --dry-run"
+if ! ssh "$HOST" "$CMD --dry-run"; then
+  echo "CAT final preflight blocked: inspect Ollama residency and CUDA free VRAM above." >&2
+  echo "Do not automatically unload models that another household workload may be using." >&2
+  exit 1
+fi
 echo "=== Load pinned FINAL model revision and run 64 cue translations ==="
 STATUS='complete'
 if ! ssh "$HOST" "$CMD"; then STATUS='failed-or-partial'; fi
