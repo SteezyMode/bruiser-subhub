@@ -270,7 +270,10 @@ def execute(roots,root,seasons,max_episodes=DEFAULT_EPISODES,
             outcomes[state]+=1
             # Timeout/thermal/idle means resume this episode next session;
             # do not automatically run the next one.
-            if state in ACTIVE:
+            if state in ACTIVE or state=='publish_hold':
+                # Do not translate 21 more episodes after one finished JA
+                # episode failed the readability gate. Preserve its complete
+                # SQLite cue checkpoints for isolated editorial correction.
                 print_fn('SEASON_DEFERRED',title(*key),state)
                 break
     summary={'seasons':list(seasons),'episode_ids_found':len(catalog),
