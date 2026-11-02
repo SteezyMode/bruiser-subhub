@@ -175,6 +175,99 @@ class AmericanDad009Tests(unittest.TestCase):
             self.assertEqual((folder/'errors'/'00006-2.json').read_bytes(),previous_error)
             self.assertTrue(intake.pilot_path(self.video).is_file())
 
+    def test_source_supported_italicized_show_title_is_legitimate_japanese(self):
+        source='Now go be the star of <i>Langley Dollar Listings.</i>'
+        literal='じゃあ、<i>Langley Dollar Listings</i>の主役になってろ。'
+        later='さあ、<i lang="en">Langley Dollar Listings</i>の主役になって。'
+        self.assertEqual(core.normalized_srt_markup(literal,source),literal)
+        self.assertEqual(core.normalized_srt_markup(later,source),
+                         'さあ、<i>Langley Dollar Listings</i>の主役になって。')
+        self.assertTrue(core.valid(literal,source))
+        self.assertTrue(core.valid(later,source))
+        # No unauthorized HTML or free-form attributes allowed, even with Japanese.
+        for bad in ('日本語<script>alert(1)</script>',
+                    '日本語<b>太字</b>',
+                    '日本語<i>閉じていない',
+                    '日本語</i>逆順<i>',
+                    '日本語<i><i>入れ子</i></i>',
+                    '日本語<i onclick="f()">危険</i>'):
+            self.assertIsNone(core.normalized_srt_markup(bad,source),bad)
+            self.assertFalse(core.valid(bad,source),bad)
+        self.assertFalse(core.valid(literal,'No source italic tags.'))
+
+    def test_recover_italicized_failed_cue_without_new_model_calls_or_edits(self):
+        # Reproduces real episode cue 321: six immutable error records,
+        # four identical softer responses in the later prompt. Only missing
+        # cue can be created; 150 already accepted Japanese cues stay byte-identical.
+        with patch.object(intake,'tracks',return_value=self.track):
+            entry=pilot.freeze(5,(self.root,),self.output,self.profile)['episodes'][0]
+            folder=self.output/'episodes'/entry['episode']
+            raw,rows=intake.extract(self.video,self.track)
+            cue_id=6
+            source='Now go be the star of <i>Langley Dollar Listings.</i>'
+            rows[5]=(rows[5][0],rows[5][1],rows[5][2],rows[5][3],source)
+            # The on-disk source hash remains frozen, and this unit test
+            # tests the recovery helper independently of live source changes.
+            for i in range(1,7):
+                reply=('じゃあ、<i>Langley Dollar Listings</i>の主役になってろ。'
+                       if i<=2 else
+                       'さあ、<i lang="en">Langley Dollar Listings</i>の主役になって。')
+                core.save(folder/'errors'/('%05d-%d.json'%(cue_id,i)),{
+                    'cue_id':cue_id,'error':'Invalid Japanese/format','reply':reply})
+            prior=(folder/'errors'/'00006-6.json').read_bytes()
+            good=folder/'cues'/'00005.json'
+            core.save(good,{'cue_id':5,'japanese':'既存の字幕。','valid':True,
+                            'model_id':core.MODEL_ID,'source_sha':entry['source_sha']})
+            previous=good.read_bytes()
+            result=pilot.recover_saved_italic_reply(folder,cue_id,source,
+                                                    entry['source_sha'])
+            self.assertIsNotNone(result)
+            self.assertEqual(result['recovered_from_saved_attempt'],3)
+            self.assertEqual(result['japanese'],
+                             'さあ、<i>Langley Dollar Listings</i>の主役になって。')
+            self.assertTrue(core.valid(result['japanese'],source))
+            self.assertEqual(prior,(folder/'errors'/'00006-6.json').read_bytes())
+            self.assertEqual(previous,good.read_bytes())
+            self.assertFalse((folder/'cues'/'00006.json').exists())
+
+    def test_six_saved_italics_failures_can_publish_without_regeneration(self):
+        # End-to-end with a synthetic episode that includes source italics;
+        # make all existing checkpoints read-only input and verify the one
+        # missing cue is recovered, with no model callback and no changed JA.
+        with patch.object(intake,'tracks',return_value=self.track):
+            raw=self.english.read_bytes()
+            replacement=raw.replace(b'Stan and Roger talk about cue 5.',
+                b'Now go be the star of <i>Langley Dollar Listings.</i>')
+            self.english.write_bytes(replacement)
+            entry=pilot.freeze(5,(self.root,),self.output,self.profile)['episodes'][0]
+            _,rows=intake.extract(self.video,self.track)
+            folder=self.output/'episodes'/entry['episode']
+            for row in rows:
+                if row[0]==6:continue
+                core.save(folder/'cues'/('%05d.json'%row[0]),{
+                    'cue_id':row[0],'japanese':'既存の日本語です。',
+                    'valid':True,'model_id':core.MODEL_ID,'source_sha':entry['source_sha']})
+            goodfile=folder/'cues'/'00005.json'
+            original_good=goodfile.read_bytes()
+            for attempt in range(1,7):
+                reply=('じゃあ、<i>Langley Dollar Listings</i>の主役になってろ。'
+                    if attempt<=2 else
+                    'さあ、<i lang="en">Langley Dollar Listings</i>の主役になって。')
+                core.save(folder/'errors'/('%05d-%d.json'%(6,attempt)),{
+                    'cue_id':6,'error':'Invalid Japanese/format','reply':reply})
+            error_before=(folder/'errors'/'00006-3.json').read_bytes()
+            with patch.object(core,'note',return_value=None):
+                result=pilot.translate(entry,'{}',None,self.output,(self.root,),
+                                       lambda _:self.fail('Any model call is unnecessary'),True)
+            self.assertEqual(result['state'],'published_new_pilot')
+            self.assertEqual((folder/'cues'/'00006.json').is_file(),True)
+            recovered=core.load(folder/'cues'/'00006.json')
+            self.assertEqual(recovered['recovery'],'validated_source_srt_italics')
+            self.assertEqual((folder/'cues'/'00005.json').read_bytes(),original_good)
+            self.assertEqual((folder/'errors'/'00006-3.json').read_bytes(),error_before)
+            self.assertIn('<i>Langley Dollar Listings</i>',
+                          intake.pilot_path(self.video).read_text(encoding='utf8'))
+
     def test_rescue_prompt_only_translates_current_and_limits_context(self):
         _,rows=intake.extract(self.video,self.track)
         for mode in (3,4,5,6):
