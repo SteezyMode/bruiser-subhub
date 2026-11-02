@@ -142,3 +142,15 @@ Owner's latest `cat33-run(1).log` shows empty Ollama residency, 5803 MiB free VR
 Owner ran read-only source inventory on OptiPlex after PR #28: **10 registered English-SRT jobs, nine mechanically eligible after excluding previously benchmarked Primate SHA**; six already-published jobs, two queued and one publication-held. All are tagged `horror`; diversity outside horror needs a later dataset, but these provide sufficient inventory for at least 3 training/evaluation titles and a separate confirmation title **subject to unreviewed-history and playback verification**. No film dialogue, individual private source hashes or media paths committed. Existing published JA is **never supplied to candidate models or external reviewers**; approved sidecars remain untouched.
 
 The finite 006 roster remains **ten core model-native workflows**, not indefinite new-model discovery: five completed 005 families **on NEW test material** plus smaller Hy-MT2 1.8B, tuned Gemma4 E2B, Index-Translate 2B, standard Gemma4 E4B and Google TranslateGemma 4B control. All 005 language rankings are exploratory, NOT quality measurements. Next stage is a deterministic source/scenes selection with a frozen private manifest and independent native Japanese viewing. No new inference, download, deployment or quality grade exists yet. See [PROTOCOL_006_INDEPENDENT_HOLDOUT.md](PROTOCOL_006_INDEPENDENT_HOLDOUT.md).
+
+
+## 2026-11-02 — Benchmark 006 runnable experiment implementation (owner-triggered)
+
+The user explicitly instructed execution rather than more plans or endless host troubleshooting. `tools/clean_sweep_006.py` now contains the complete 10-arm **host-side inference** harness and `tools/run_clean_sweep_006.sh` stages/starts it from the MacBook with one command. The selected 3 TITLE corpus + 4th holdout is sealed privately **BEFORE** inference; source SHA/English/timecodes verified on every arm using read-only SQLite. All 10 candidates use their documented native prompts, separate processes, exact pinned historical IDs where known and new resolved IDs/revisions before output. Blocked models are recorded, not given bad quality scores. Partial results checkpoint per cue on disk and a rerun resumes rather than resampling. All output/model identity/film text stays PRIVATE, blind viewer's .srt files and score template separate from identity key. No translation-model inference has yet been run under 006: this is an executable artifact tested with synthetic fixtures, not a completed model study. No production changes.
+
+OWNER command after PR merge, from `~/Downloads/bruiser-subhub-repo` on MacBook:
+```bash
+git pull --ff-only
+bash tools/run_clean_sweep_006.sh optiplex@100.121.156.34
+```
+Expect new Ollama model downloads; do not claim a result before `~/Downloads/benchmark006-private/COUNTS.json` is returned. Then obtain BLIND Japanese viewer scene playback scores, unblind ONLY after scores locked. Official 005 speed/format reports remain complete but are **NOT** a model-quality winner.
