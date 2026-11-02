@@ -45,14 +45,14 @@ Qualitative observations (no copyrighted speech reproduced):
 ## Remaining blocks — inspect, do NOT guess
 
 The uploaded status file explicitly says:
-- `cat33 BLOCKED or incomplete — see separate output`. The CAT final 3.3B lane uses a separate CUDA Transformers/bitsandbytes NF4 venv and HF safetensors. **The failure mechanism is unknown** from status alone (dependency install vs CUDA vs model download/load). No JSON was supplied; do not count it as a test.
-- `tuned BLOCKED preflight`. Existing subtitle Gemma 4 E4B did not run this frozen 64-cue set. **The failure mechanism is unknown** from status alone (tag/ID, quantization metadata or model serving). This is an essential missing paired **control**.
+- `cat33 BLOCKED or incomplete — see separate output`. **Follow-up read-only diagnostics confirmed all five pinned package imports, CUDA available, ~5.7 GiB free VRAM, correct source SHA and successful CAT 3.3B source/environment preflight.** The problem occurs *after* preflight (model download/loading or inference). **Exact error remains UNKNOWN** because no failed-run traceback was supplied. No complete JSON; do not count this as a test.
+- `tuned BLOCKED preflight`. **ROOT CAUSE CONFIRMED:** installed tag `hf.co/17slever17/translate-gemma-4-sub-e4b-GGUF:Q4_K_XL`, exact expected Ollama ID `9ccfc3b07081`, `/api/show` `family=gemma4`, `parameter_size=7.52B`, **`quantization_level=Q4_K_M`**, despite its **tag** containing Q4_K_XL. Benchmark 005 incorrectly demanded reported `Q4_K_XL` and rejected the known working model. Fixed harness now requires the EXACT model ID, `gemma4` family and ACTUAL Ollama-reported `Q4_K_M`, preserving source tag. No model repull/requantization necessary.
 
 **DO NOT choose Hy 7B over the previous subtitle-tuned E4B** until the tuned arm completes on the EXACT 64 new cues. Earlier E4B results are from different source windows. The scientific next task is to fix/read those two block reasons, rerun only the missing arms, then compare Hy vs tuned (and final CAT 3.3B if feasible). Do not need to rerun successful Hy/Google/CAT7.
 
 ## Next engineering checks
 
-1. Read-only owner-side diagnostics for exact installed tuned model name/ID, Ollama `/api/show` quantization and preflight, plus isolated CAT3.3 dependency/CUDA sanity. Preserve actual stderr. Mark the cause explicitly in this ledger after reading it.
+1. **Read-only diagnostics completed (2026-11-02):** tuned metadata mismatch is confirmed and corrected in benchmark source only; CAT3.3 environment passes. Next run `bash tools/run_model_sweep_005.sh optiplex@100.121.156.34 missing` after merge and checkout pull; this explicitly runs only tuned+CAT3.3 and retains `cat33-run.log` privately if CAT fails after preflight. Do NOT rerun the other three models.
 2. Once tuned native control runs on same cues, score first-pass output without model names, compare paired semantic/tone failures and density, then use a **continuous 10–15 min Japanese-only scene** to test practical watchability.
 3. Investigate CAT 7B template-specific packaging before any more CAT7 full-suite run; model's official card says the 7B template is special.
 4. Keep live SubHub Python, published subtitles and SQLite checkpoints unchanged; all private text stays outside GitHub. Do not force a multipass pipeline.
