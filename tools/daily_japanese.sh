@@ -11,7 +11,7 @@ ROOT="$(cd -- "$(dirname -- "$0")/.." && pwd)"
 cd "$ROOT"
 echo '=== OFFLINE SAFETY REGRESSIONS ==='
 python3 -m unittest discover -p 'test_*.py' -q
-echo '=== STAGE NEW INTAKE HELPER ONLY; CURRENT SUBHUB WORKER UNTOUCHED ==='
+echo '=== STAGE NEW ONE-TITLE HELPERS ONLY; ORIGINAL SUBHUB CODE UNTOUCHED ==='
 ssh "$HOST" 'mkdir -p -m 700 ~/bruiser-pilot/daily-japanese-code'
 scp -q tools/daily_japanese.py tools/daily_worker.py "$HOST:~/bruiser-pilot/daily-japanese-code/"
 echo '=== FIND ONE ENGLISH-AUDIO TITLE MISSING JAPANESE AND QUEUE ITS SOURCE ==='
@@ -19,5 +19,6 @@ ssh "$HOST" 'python3 ~/bruiser-pilot/daily-japanese-code/daily_japanese.py --app
 echo
 echo 'Status and progress:'
 echo "  ssh $HOST 'python3 ~/bruiser-pilot/subhub1/main.py --root ~/bruiser-pilot/subhub1-state status'"
-echo "  ssh $HOST 'tail -50 ~/bruiser-pilot/subhub1-state/worker.log'"
-echo 'The existing worker runs detached. A queued job is NOT yet a published or quality-reviewed JA track.'
+echo "  ssh $HOST 'tail -50 ~/bruiser-pilot/subhub1-state/daily-worker.log'"
+echo 'The isolated worker runs detached and processes ONLY the selected daily title.'
+echo 'A queued job is not yet published; Japanese quality still requires a viewing check.'
