@@ -1,5 +1,13 @@
 # Current state and next actions
 
+## 2026-11-02 — UtteranceAware 011 implemented and OFFLINE-tested; real host trial NOT run
+
+Owner's private completed-v010 three-episode bilingual review: S19E07/E08/E09, 1,315 aligned JA cues, 0 automatic future-overlap/severe-density flags, three >18 CPS, but continuing semantic failures on sentence fragments, negation, idioms, pragmatic sense, puns, and speaker turns. Provisional text-only ~6/10 (NOT native Japanese viewing rating). No v010 rewrite or library promotion. Previous model tournament is closed; don't start a new one.
+
+New generic `tools/semantic_groups_011.py` chooses 1–3 contiguous source cues as an utterance, bounded by spacing/length and speaker/music separators. Grouped pinned-tuned E4B calls return exactly one Japanese caption per ORIGINAL cue ID/timecode, no future raw English outside target group. Singletons use v010 isolated prompt. Cross-unit QA adds long n-gram near-duplicate detection and multi-speaker layout guard to existing literal overlap/density; bounded unit retries and targeted repairs, immutable checkpoint fingerprints, HOLD if unresolved. One retry repairs malformed auto-context JSON shape; missing note remains optional. New `tools/american_dad_utterance_011.py` selects up to 3 FRESH eligible English-source episodes only and publishes separate create-only `Bruiser Utterance v3 Japanese.ja.srt` sidecars after full QA, never rewriting the previous eight tracks or live SubHub service/SQLite. Real GPU model format, Japanese quality and success are NOT yet demonstrated by CI.
+
+Owner post-merge from MacBook: `cd ~/Downloads/bruiser-subhub-repo && git pull --ff-only && bash tools/run_utterance_pilot_011.sh optiplex@100.121.156.34`. Results: `~/Downloads/american-dad-utterance-011.log`. After successful publication, private EN/JA review with `bash tools/collect_utterance_review_011.sh optiplex@100.121.156.34`; upload resulting private archive. Do not commit English/Japanese text into public repo. Canonical design `docs/UTTERANCE_PILOT_011.md`. STOP before production promotion until bilingual review + household viewing.
+
 ## 2026-11-02 — ContextSafe 010 generalized quality pipeline BUILT; host trial not yet run (PR #40)
 
 User explicitly asked to **continue** but NOT hyper-fixate on polishing the same five American Dad episodes. Correct direction: fix the repeatable pipeline and test on **NEW** episodes. 009's five completed episode JA SRTs remain unchanged, as do original media, live SubHub DB/services, human-approved subtitles and model weights.
