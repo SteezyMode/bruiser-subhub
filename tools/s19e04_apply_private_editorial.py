@@ -137,8 +137,11 @@ def publish(payload,state=repair.STATE,roots=repair.intake.ROOTS,
             raise RuntimeError('Final editorial JA subtitle is not a valid complete SRT')
         state=Path(state)
         state.mkdir(mode=0o700,parents=True,exist_ok=True)
+        # The checkpointed 365 other cue translations can legitimately
+        # advance after an earlier private preview. Version the preview by
+        # BOTH private correction payload AND the actual complete SRT bytes.
         fingerprint=sha(json.dumps(payload,ensure_ascii=False,
-                                   sort_keys=True))
+                                   sort_keys=True)+hashlib.sha256(raw).hexdigest())
         preview=state/('editorial-preview-'+fingerprint[:16]+'.ja.srt')
         repair.create_exact(preview,raw,mode=0o600)
         log('S19E04_EDITORIAL_PRIVATE_PREVIEW','qa_pass',True,
