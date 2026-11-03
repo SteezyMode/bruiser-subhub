@@ -21,10 +21,24 @@ Improve subtitle readability by removing filler, awkward calques, and redundant 
 3. **Library-scale automation.** Preserve the existing ~6 TB file organization; find English embedded/sidecar tracks, acquire where needed, translate and publish only missing Japanese; checkpoint and recover.
 4. **Preserve human work.** Existing Japanese/editorial tracks are authoritative; never overwrite, delete or silently supersede them.
 5. **Minimize software maintenance.** Use off-the-shelf free tools wherever they work better. **SubHub/Bruiser code is disposable**; stop developing it if existing tools solve the goal with less work.
-6. **No irrelevant scope.** Dual-sub playback, OptiPlex NOW commercialization, dashboards, product naming, HY model experiments and feature parity are not blockers. HY remains optional and advisory only.
+6. **No irrelevant scope.** Dual-sub playback, OptiPlex NOW commercialization, dashboards, product naming, feature parity, and speculative AI orchestration are not blockers. The current primary candidate for direct EN→JA translation is Hy-MT2 7B, not an advisory reviewer.
 
-## Stop building and start proving
+## Model-use contract — mandatory
 
-The immediate task is to get actual EN→JA samples from one already translated film, review quality, and run a controlled batch comparison after fixing malformed-SRT input. Only then should we scale automatic translation or change the model.
+1. **Use the chosen model exactly as its developer documents first.** Read the official model card before changing prompts, sampling parameters, input shape, context, or runtime. Link and record the published template and settings.
+2. **Establish an uncontaminated baseline on real English subtitles.** Evaluate raw EN→JA output for naturalness and fidelity before writing any postprocessing, multi-model review, retry scheme, quality gates, or localization profile.
+3. **One translation model by default.** Do not insert an independent AI critic, backtranslation, multiple-model voting, automatic rewrites, or custom scoring unless a demonstrated problem requires it and a controlled A/B proves an improvement to the household viewing experience.
+4. **Keep the subtitle machinery boring.** Finding/extracting or generating accurate English, dividing an SRT into chunks when necessary, preserving cue numbers/timings, resuming interrupted work, and safely saving Japanese sidecars are permissible file handling—not license to change the translation prompt.
+5. **Respect real viewing quality.** Subtitles must be judged in context, including readable on-screen duration; passing a timestamp check does not prove readability or Japanese accuracy. Target ~7.5–8.5/10 for home use, not a proprietary Netflix-grade metric.
+6. **Protect existing files.** Never overwrite existing human-edited Japanese; full-episode trial output is a draft and should never automatically publish.
+7. **Any deviation requires evidence.** State the exact departure from official model instructions, its reason, and a direct comparison against the untouched baseline. No speculative "enhancements."
 
-**This file outranks older growth/product language in roadmaps.** Development progress is measured by movies people can actually watch together, not commits, test counts or number of deployed services.
+## Verified clean-test state — 2026-11-03
+
+- Gemma E4B Sub, using its previous-segment subtitle template: 30/30 cues translated. It made conspicuous literal idiom mistakes. Other earlier SubHub/Sublarr model rankings remain confounded by custom processing.
+- Hy-MT2 7B Q4_K_M, Tencent **Default Translation** prompt on 30 consecutive English cues: natural translation of several difficult lines and correct idioms; raw prose, not SRT.
+- Hy-MT2 7B Q4_K_M, Tencent **Structured Data 1** prompt with format SRT, Japanese target, and published inference settings: 30/30 consecutive cues translated with all 30 cue numbers and timestamps **exactly preserved**, without any rewriting. Some cues were too long for their display durations; full-episode viewing quality is **not yet proven**.
+- TranslateGemma 4B, its documented prompt: faster on this 30-cue example but made omissions and awkward translations.
+- **Current experiment:** translate one full episode with the *same* documented Hy-MT2 structured-data prompt, divided into 30 consecutive cues per model call solely to respect finite context; verify numeric IDs and timestamps without altering text; save a non-published draft. See [clean model-use instructions](docs/TRANSLATION_MODEL_BASELINE.md).
+
+**This file outranks older growth/product language, legacy README workflows, and past model rankings.** Development progress is measured by actual watchable Japanese subtitles, not commits, dashboards, technical sophistication, or productization.
