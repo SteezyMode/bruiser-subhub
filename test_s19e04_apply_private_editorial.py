@@ -144,6 +144,21 @@ class PrivateS19EditorialTests(unittest.TestCase):
         self.assertEqual(self.run_editorial(apply=True),'published')
         self.assertEqual(self.pilot.read_bytes(),self.old)
 
+    def test_private_editorial_wrapper_syntax_and_no_global_changes(self):
+        import subprocess
+        script=Path(__file__).resolve().parent/'tools/apply_s19e04_editorial.sh'
+        proc=subprocess.run(['bash','-n',str(script)],
+                            capture_output=True,text=True,timeout=10)
+        self.assertEqual(proc.returncode,0,proc.stderr)
+        text=script.read_text(encoding='utf8')
+        self.assertIn('s19e04_apply_private_editorial.py',text)
+        self.assertIn('test_s19e04_apply_private_editorial',text)
+        self.assertIn('private-editorial.json --publish',text)
+        self.assertNotIn('systemctl restart',text)
+        self.assertNotIn('docker restart',text)
+        self.assertNotIn('rm -rf',text)
+        self.assertNotIn('sudo ',text)
+
     def test_no_english_or_original_dialogue_in_console_logs(self):
         self.run_editorial(apply=True)
         log=json.dumps(self.logs,ensure_ascii=False)
