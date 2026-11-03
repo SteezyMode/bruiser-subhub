@@ -144,16 +144,65 @@ def normalize_timestamp_punctuation(source_cues, generated):
 
 
 def compare_structure(source_cues, generated):
-    corrected, _ = normalize_timestamp_punctuation(source_cues, generated)
-    translated = parse_srt(corrected)
-    original_structure = [(n, t) for n, t, _ in source_cues]
-    translated_structure = [(n, t) for n, t, _ in translated]
-    if translated_structure != original_structure:
-        raise ValueError(
-            f"Structure mismatch: expected {len(original_structure)} cues "
-            f"with identical indices/timestamps, got {len(translated_structure)}"
-        )
-    return translated
+    """Recover ONLY missing blank lines between complete, ordered SRT cues.
+
+    Read exact original cue IDs/timestamps as boundaries rather than assuming
+    the model remembered double newlines. Keep Japanese text verbatim.
+    Missing/empty/out-of-order cues and timestamps always fail.
+    """
+    lines = generated.replace("\r\n", "\n").lstrip("\ufeff").split("\n")
+    cursor = 0
+    result = []
+    for index, (number, timestamp, _) in enumerate(source_cues):
+        while cursor < len(lines) and not lines[cursor].strip():
+            cursor += 1
+        if cursor >= len(lines) or lines[cursor].strip() != number:
+            actual = lines[cursor][:90] if cursor < len(lines) else "<end of response>"
+            raise ValueError(f"Cue {number}: expected original ID; found {actual!r}")
+        cursor += 1
+        if cursor >= len(lines) or lines[cursor].strip() not in (
+            timestamp, timestamp + ">"
+        ):
+            actual = lines[cursor][:90] if cursor < len(lines) else "<end of response>"
+            raise ValueError(
+                f"Cue {number}: timestamp mismatch. Expected {timestamp!r}, got {actual!r}"
+            )
+        cursor += 1
+        first = cursor
+        if index + 1 < len(source_cues):
+            next_number, next_timestamp, _ = source_cues[index + 1]
+            while cursor < len(lines):
+                if (
+                    lines[cursor].strip() == next_number
+                    and cursor + 1 < len(lines)
+                    and lines[cursor + 1].strip() in (
+                        next_timestamp, next_timestamp + ">"
+                    )
+                ):
+                    break
+                cursor += 1
+        else:
+            cursor = len(lines)
+        dialogue_lines = lines[first:cursor]
+        while dialogue_lines and not dialogue_lines[0].strip():
+            dialogue_lines.pop(0)
+        while dialogue_lines and not dialogue_lines[-1].strip():
+            dialogue_lines.pop()
+        if not dialogue_lines:
+            raise ValueError(
+                f"Cue {number}: no Japanese text; preserving raw output for review"
+            )
+        # Reject unexpected SRT-like headers in dialogue, instead of silently
+        # merging missing or out-of-order subtitles into other cues.
+        for a, b in zip(dialogue_lines, dialogue_lines[1:]):
+            if a.strip().isdigit() and re.fullmatch(TIMESTAMP + r">?", b.strip()):
+                raise ValueError(
+                    f"Cue {number}: unexpected nested cue {a.strip()}; cannot safely align"
+                )
+        result.append((number, timestamp, "\n".join(dialogue_lines)))
+    if any(line.strip() for line in lines[cursor:]):
+        raise ValueError("Unexpected output after last original cue")
+    return result
 
 
 def new_text(path, content):
@@ -232,10 +281,25 @@ def main():
             print(f"[{index}/{len(chunks)}] Reusing verified segment ({len(chunk)} cues)", flush=True)
             continue
         if raw_file.exists():
-            raise SystemExit(
-                f"Previous unverified response at {raw_file}; stopping, NOT re-running "
-                "or silently rewriting it. Share that file to investigate."
+            # A previous run may have stopped because of one missing blank
+            # separator. Revalidate the untouched original response FIRST.
+            # This performs zero model calls and never changes Japanese.
+            try:
+                parsed = compare_structure(chunk, raw_file.read_text(encoding="utf-8"))
+            except ValueError as e:
+                raise SystemExit(
+                    f"Saved model response for part {index} is genuinely misaligned: {e}. "
+                    f"Raw retained at {raw_file}; no invented or repeated translation."
+                ) from e
+            new_text(verified_file, as_srt(parsed))
+            completed.extend(parsed)
+            save_verified_preview(workdir, completed)
+            print(
+                f"[{index}/{len(chunks)}] Recovered saved raw response; "
+                f"{len(parsed)}/{len(chunk)} original cue IDs/timestamps; "
+                "Japanese untouched", flush=True
             )
+            continue
         text = as_srt(chunk)
         print(f"[{index}/{len(chunks)}] Translating cues {chunk[0][0]}–{chunk[-1][0]}", flush=True)
         started = time.monotonic()
