@@ -108,13 +108,17 @@ def configured_url():
     return (settings.get("url") or config.ollama_url).rstrip("/")
 
 
-def translate(url, srt):
+def translate(url, srt, full_gpu=False):
+    # Explicit layer residency, independent of the documented translation knobs.
+    options = dict(OPTIONS)
+    if full_gpu:
+        options.update({"num_gpu": 99, "num_ctx": 4096})
     req = urllib.request.Request(
         url + "/api/chat",
         data=json.dumps({
             "model": MODEL, "stream": False,
             "messages": [{"role": "user", "content": official_prompt(srt)}],
-            "options": OPTIONS,
+            "options": options,
         }).encode("utf-8"),
         headers={"Content-Type": "application/json"},
     )
@@ -225,6 +229,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", type=Path)
     parser.add_argument("--batch-size", type=int, default=30)
+    parser.add_argument("--full-gpu", action="store_true", help="Force 99 GPU layers at the existing 4096-token context; does not change translation sampling")
     parser.add_argument("--workdir", type=Path, default=Path("/tmp/subhub-hy-mt2-full-chair-test"))
     args = parser.parse_args()
     if not args.source.is_file() or args.batch_size < 1:
@@ -263,6 +268,8 @@ def main():
         print(f"Already complete: {len(source_cues)} cues in {existing_draft}", flush=True)
         return
     url = configured_url()
+    if args.full_gpu:
+        print("GPU placement: requesting all layers (num_gpu=99, num_ctx=4096); translation settings unchanged", flush=True)
     print(f"Model: {MODEL}\nOllama: {url}\nSource cues: {len(source_cues)}",
           f"\nBatch size: {args.batch_size}\nWorkdir: {workdir}", flush=True)
     chunks = [
@@ -303,7 +310,7 @@ def main():
         text = as_srt(chunk)
         print(f"[{index}/{len(chunks)}] Translating cues {chunk[0][0]}–{chunk[-1][0]}", flush=True)
         started = time.monotonic()
-        translated_raw, finish_reason = translate(url, text)
+        translated_raw, finish_reason = translate(url, text, full_gpu=args.full_gpu)
         elapsed = round(time.monotonic() - started, 1)
         new_text(raw_file, translated_raw)
         if finish_reason != "stop":
