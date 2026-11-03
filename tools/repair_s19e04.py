@@ -309,6 +309,10 @@ def execute(state=STATE,roots=intake.ROOTS,ask=core.call,
             log('S19E04_REPAIR_HOLD',json.dumps({
                 'remaining_repair_attempts':len(unresolved),
                 'remaining_quality_flags':report['flagged_cues'],
+                'quality_reasons':report['reasons'],
+                'recovery_mode':'bounded_v2' if second_pass else 'first_pass',
+                'next_action':'review_unresolved_not_repeat_identical_prompts'
+                    if second_pass else 'bounded_second_pass_available',
                 'first_ids':report['first_flagged_cue_ids']},sort_keys=True))
             return 'held'
         completed=service.render_srt(rows,final)
@@ -345,7 +349,9 @@ def cli(argv=None):
                 print('S19E04_REPAIR_STATUS',
                       json.dumps({'planned':info['planned'],
                         'unresolved':len(info['unresolved_ids']),
-                        'readability':info['readability']['flagged_cues']}))
+                        'readability':info['readability']['flagged_cues'],
+                        'quality_reasons':info['readability'].get('reasons',{}),
+                        'mode':info.get('mode','original_v1')}))
             else:print('S19E04_REPAIR_STATUS','not_started')
             return 0
         if args.action=='plan':
