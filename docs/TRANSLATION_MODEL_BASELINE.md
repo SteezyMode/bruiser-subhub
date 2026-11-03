@@ -114,6 +114,27 @@ Official documentation:
 
 Do **not** decide the winner based on a single sample, or accept a prose quality winner as a complete subtitle solution without checking SRT completeness, readability and sustained execution.
 
+## Important correction — 2026-11-03 model-merit results
+
+A later 3-model / 2-passage comparison was run using developer-published **text instructions**, but **the actual Ollama chat templates were not independently verified** for all three installed GGUFs. Therefore it is not a valid final ranking of *underlying model capability*. Record the observations without claiming all three models ran in their intended runtime format.
+
+| Installed GGUF | Passages | Raw observation | Interpretation |
+| --- | --- | --- | --- |
+| Tencent Hy-MT2 7B Q4_K_M | 2/2 | Coherent Japanese, 42.8s + 37.5s | **Best working configuration tested**, with some meaning and readability mistakes |
+| Tencent Hy-MT2 1.8B Q4_K_M | 0/2 | Unrelated Chinese mathematics (6.2s) and unrelated Python code (49.7s, generation cut off by token limit) | Installed configuration broken or unsuitable; **do not attribute this automatically to model weights** |
+| CyberAgent CAT-Translate 7B community Q4_K_M | 0/2 | Unrelated stock phrases (9.2s) and severe omissions (3.1s) | Installed configuration broken or unsuitable; **official model requires its distinct 7B chat template** |
+
+The first full Hy-MT2 7B SRT attempt stopped with **29 parsable cues in section 5**, but a subsequent crude ID-only scan found *30 numeric labels*. Exact malformed block/timing cause remains **unconfirmed**. Do not state that a cue was definitely missing.
+
+**New non-negotiable prerequisite:** Before declaring a model test clean, check BOTH (a) the model card's text prompt and sampling instructions and (b) the actual inference runtime's applied **chat template and stop tokens**. Ollama `ollama show --modelfile MODEL` shows the installed template; compare it to the official model's tokenizer/chat-template documentation. If they disagree, fix the inference configuration faithfully, not with invented translation instructions. Do not claim a model is intrinsically poor based on an unverified community GGUF wrapper.
+
+Official model documentation:
+- https://huggingface.co/cyberagent/CAT-Translate-7b — explicitly requires its specific 7B chat template
+- https://huggingface.co/tencent/Hy-MT2-1.8B-GGUF — official GGUF
+- https://ollama.com/kaelri/hy-mt2 — an existing, third-party Ollama packaging that implements Tencent control tokens; an option, not yet tested on this user's host.
+
+**Current decision:** Hy-MT2 7B remains the best proven working configuration, but full-episode SRT reliability and screen readability are unproven. No other model has been fairly disqualified until runtime-template verification.
+
 ## Not part of this test
 
 English source acquisition, audio transcription, PGS/OCR, model switching, UI/dashboard work, integration into Bruiser, publishing automation, resource tuning or multi-model grading. Revisit only **after** EN → JA localization is proven acceptable.
