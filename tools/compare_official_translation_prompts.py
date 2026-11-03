@@ -208,12 +208,19 @@ def main():
     print(f"Same source for both models: {args.limit} consecutive cues", flush=True)
     print(f"Source SHA256: {result['source_sha256']}", flush=True)
     chosen = {"hy": [HY], "tg": [TG], "both": [HY, TG]}[args.model]
+    result["errors"] = []
     try:
         for model in chosen:
-            result["models"].append(run_one(url, model, passage))
+            try:
+                result["models"].append(run_one(url, model, passage))
+            except Exception as exc:
+                result["errors"].append({"model": model, "error": str(exc)})
+                print(f"ERROR for {model}: {exc}", file=sys.stderr, flush=True)
     finally:
         out.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n")
         print(f"\nSaved raw comparison: {out}", flush=True)
+    if not result["models"]:
+        sys.exit("Neither model produced an answer")
 
 
 if __name__ == "__main__":
