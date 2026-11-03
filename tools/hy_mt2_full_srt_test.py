@@ -122,8 +122,29 @@ def translate(url, srt):
     return (reply.get("message") or {}).get("content", ""), reply.get("done_reason")
 
 
+def normalize_timestamp_punctuation(source_cues, generated):
+    """Remove ONLY a stray > following an EXACT source timestamp.
+
+    This is mechanical SRT syntax repair; never inspect, rewrite or filter
+    Japanese, and retain raw model responses in part-XXXX.raw.txt.
+    Any other difference, missing cue, or malformed timestamp still fails.
+    """
+    original_timestamps = {timestamp for _, timestamp, _ in source_cues}
+    corrected = []
+    count = 0
+    for line in generated.splitlines(keepends=True):
+        value = line.rstrip("\r\n")
+        ending = line[len(value):]
+        if value.endswith(">") and value[:-1] in original_timestamps:
+            value = value[:-1]
+            count += 1
+        corrected.append(value + ending)
+    return "".join(corrected), count
+
+
 def compare_structure(source_cues, generated):
-    translated = parse_srt(generated)
+    corrected, _ = normalize_timestamp_punctuation(source_cues, generated)
+    translated = parse_srt(corrected)
     original_structure = [(n, t) for n, t, _ in source_cues]
     translated_structure = [(n, t) for n, t, _ in translated]
     if translated_structure != original_structure:
@@ -220,7 +241,10 @@ def main():
                 f"Part {index} has incorrect SRT structure: {e}\n"
                 f"Raw response saved at {raw_file}; no translation was changed."
             ) from e
+        _, punctuation_fixes = normalize_timestamp_punctuation(chunk, translated_raw)
         new_text(verified_file, as_srt(parsed))
+        if punctuation_fixes:
+            print(f"  Corrected {punctuation_fixes} stray timestamp '>' character(s); Japanese untouched", flush=True)
         completed.extend(parsed)
         print(f"  {len(chunk)}/{len(chunk)} timestamps and IDs preserved; {elapsed}s", flush=True)
     if len(completed) != len(source_cues):
