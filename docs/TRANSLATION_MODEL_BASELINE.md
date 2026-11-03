@@ -51,6 +51,46 @@ Draft path inside `sublarr-pilot` is `/tmp/subhub-hy-mt2-full-chair-test/full-ep
 
 **How to evaluate:** Sample meaning, idioms, tone, character voice, omissions, timestamp accuracy, and especially *readability against the actual video*. If some lines are too long, record the issue; do not silently invent a quality fixer. The full Japanese draft is only provisionally usable until watched.
 
+## Start the full-episode trial on the OptiPlex
+
+The following uses the existing Sublarr container **only as an environment with ffmpeg and the configured Ollama URL**. It does not call Sublarr's translation backend. The test runs detached on the host container so the MacBook SSH session can close. Logs are append-only; the Python runner keeps its own completed 30-cue checkpoints.
+
+```bash
+ssh optiplex@100.121.156.34 'bash -s' <<'REMOTE'
+set -euo pipefail
+tmp=$(mktemp)
+trap 'rm -f "$tmp"' EXIT
+curl -fsSL https://raw.githubusercontent.com/SteezyMode/bruiser-subhub/f586733b756cae30b69f81dafc587ed525986c3e/tools/hy_mt2_full_srt_test.py -o "$tmp"
+docker cp "$tmp" sublarr-pilot:/tmp/subhub_hy_mt2_full_srt_test.py
+
+docker exec -d sublarr-pilot sh -c '
+  export PYTHONPATH=/app
+  exec python3 -u /tmp/subhub_hy_mt2_full_srt_test.py \
+    "/media/bigdisk-video/Television/Serials/The Chair Company/The.Chair.Company.S01.1080p.AMZN.WEB-DL.H.264-EniaHD/The.Chair.Company.S01E04.1080p.AMZN.WEB-DL.H.264-EniaHD.mkv" \
+    --workdir /tmp/subhub-hy-mt2-full-chair-test \
+    >> /tmp/subhub-hy-mt2-full-chair.log 2>&1
+'
+sleep 3
+docker exec sublarr-pilot sh -c 'tail -n 20 /tmp/subhub-hy-mt2-full-chair.log'
+REMOTE
+```
+
+The command starts the real full-episode job; it does **not** mean that a complete Japanese SRT has already been generated. To check progress later:
+
+```bash
+ssh optiplex@100.121.156.34 'docker exec sublarr-pilot tail -n 35 /tmp/subhub-hy-mt2-full-chair.log'
+```
+
+The last lines will say `COMPLETE` and give the draft location **only after every part succeeds**. If a part fails, a raw answer is saved and the run stops without repairing/retrying the model output. Running the same pinned script again reuses complete verified segments. A lock prevents simultaneous runs from writing to the same work directory.
+
+When complete, retrieve the separate draft (still **not** a Jellyfin sidecar) from the container with:
+
+```bash
+ssh optiplex@100.121.156.34 'docker cp sublarr-pilot:/tmp/subhub-hy-mt2-full-chair-test/full-episode.draft.ja.srt /tmp/subhub-chair-s01e04.ja.srt'
+```
+
+No claim of watchability is made until the full draft is reviewed alongside the film or episode.
+
 ## Not part of this test
 
 English source acquisition, audio transcription, PGS/OCR, model switching, UI/dashboard work, integration into Bruiser, publishing automation, resource tuning or multi-model grading. Revisit only **after** EN → JA localization is proven acceptable.
