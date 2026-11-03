@@ -61,25 +61,87 @@ def find_movie():
 
 
 def find_english_sidecar(video):
-    paths = list(video.parent.glob("*.srt"))
-    for sub in ("Subs", "subs", "Subtitles", "subtitles"):
-        if (video.parent / sub).is_dir():
-            paths.extend((video.parent / sub).glob("*.srt"))
-    english_marker = re.compile(r"(?:^|[._ \-])(en|eng|english)(?:[._ \-]|$)", re.I)
-    candidates = [p for p in paths if english_marker.search(p.stem)]
-    # Do not guess that an unmarked .srt is English.
-    if not candidates:
-        return None
-    # Prefer title-matched sidecars over unrelated files.
-    def score(p):
-        is_exact = p.stem.lower().startswith(video.stem.lower() + ".")
-        is_named = bool(re.search(r"(?:^|[._ \-])english(?:[._ \-]|$)", p.stem, re.I))
-        is_sdh = "sdh" in p.stem.lower() or "hi" in p.stem.lower().split(".")
-        return (is_exact, is_named, not is_sdh)
-    matches = sorted(candidates, key=score, reverse=True)
-    print("English-named sidecars:", *map(str, matches), sep="\n  ", flush=True)
-    return matches[0]
+    """Find an adjacent English SRT, including Jellyfin 'Undefined' sidecars.
 
+    No changes to the translation model or its output. We only identify
+    the existing English-language input. Refuse ambiguous sources.
+    """
+    dirs = [video.parent]
+    dirs.extend(p for p in video.parent.iterdir()
+                if p.is_dir() and p.name.lower() in ("subs", "subtitles"))
+    paths = sorted(set(p for folder in dirs for p in folder.iterdir()
+                       if p.is_file() and p.suffix.lower() == ".srt"))
+    print("\nExternal SRT files visible in the movie folder:", flush=True)
+    for p in paths:
+        print(" ", p, flush=True)
+    if not paths:
+        print("  NONE VISIBLE in Sublarr's mounted media directory", flush=True)
+        return None
+
+    english_marker = re.compile(r"(?:^|[._ \-])(en|eng|english)(?:[._ \-]|$)", re.I)
+    other_lang = re.compile(
+        r"(?:^|[._ \-])(ja|jp|jpn|japanese|es|spa|spanish|fr|fre|french|"
+        r"de|ger|german|pt|por|portuguese|ko|kor|korean|zh|chi|chinese|"
+        r"ru|rus|russian|it|ita|italian)(?:[._ \-]|$)", re.I
+    )
+
+    eligible = []
+    for p in paths:
+        if other_lang.search(p.stem) and not english_marker.search(p.stem):
+            continue
+        # Examine only input-language plausibility; do NOT rewrite text.
+        sample = p.read_text(encoding="utf-8-sig", errors="replace")[:12000]
+        dialogue = "\n".join(
+            line for line in sample.splitlines()
+            if not line.strip().isdigit()
+            and "-->" not in line
+            and not line.strip().startswith(("NOTE ", "WEBVTT"))
+        )
+        tokens = re.findall(r"[A-Za-z]+(?:'[A-Za-z]+)?", dialogue)
+        english_words = sum(
+            word.lower() in {
+                "the", "you", "your", "are", "is", "that", "what", "why",
+                "have", "will", "with", "this", "they", "he", "she", "we",
+                "and", "but", "don't", "not", "can", "did", "was", "it's",
+                "for", "know", "just", "want", "how", "where", "there",
+            }
+            for word in tokens
+        )
+        plausible_english = len(tokens) >= 20 and english_words >= 5
+        print(
+            f"  Language check: {p.name}: {len(tokens)} Latin words, "
+            f"{english_words} common English tokens; "
+            f"{'English plausible' if plausible_english else 'not verified'}",
+            flush=True
+        )
+        if plausible_english:
+            eligible.append(p)
+    if not eligible:
+        raise RuntimeError("Found external SRT files but couldn't confirm English content.")
+
+    # An 'Undefined' sidecar often simply has the video's exact filename
+    # plus .srt, with no language suffix. Prefer that exact match.
+    exact = [p for p in eligible if p.parent == video.parent
+             and p.stem.casefold() == video.stem.casefold()]
+    if len(exact) == 1:
+        selected = exact[0]
+    else:
+        marked = [p for p in eligible if english_marker.search(p.stem)]
+        if len(marked) == 1:
+            selected = marked[0]
+        elif len(eligible) == 1:
+            selected = eligible[0]
+        else:
+            raise RuntimeError(
+                "Multiple plausible English SRT files; refusing to choose "
+                "an ambiguous source automatically: " +
+                ", ".join(str(p) for p in eligible)
+            )
+
+    print("Selected English SRT:", selected, flush=True)
+    print("Subtitle preview (source input, unchanged):", flush=True)
+    print(selected.read_text(encoding="utf-8-sig", errors="replace")[:500], flush=True)
+    return selected
 
 def inspect_streams(video):
     out = subprocess.run(
@@ -112,10 +174,10 @@ def source_for(video):
         return video
     sidecar = find_english_sidecar(video)
     if sidecar:
-        print("English source: named external SRT:", sidecar, flush=True)
+        print("English source: external SRT:", sidecar, flush=True)
         return sidecar
     raise RuntimeError(
-        "FILM FOUND but no identified English TEXT SRT track or sidecar. "
+        "FILM FOUND but no English text SRT is accessible in Sublarr's video folder. "
         "If an English PGS subtitle is listed, it needs OCR first; "
         "do not feed picture subtitles to a text model. "
         "No translation was started or existing media changed."
