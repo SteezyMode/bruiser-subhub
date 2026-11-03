@@ -91,6 +91,29 @@ ssh optiplex@100.121.156.34 'docker cp sublarr-pilot:/tmp/subhub-hy-mt2-full-cha
 
 No claim of watchability is made until the full draft is reviewed alongside the film or episode.
 
+## Full-episode outcome and next clean comparison — 2026-11-03
+
+The detached *The Chair Company* S01E04 Hy-MT2 7B full run **stopped on section 5 of 19**, at source cues 121–150:
+
+- The first four consecutive 30-cue chunks were structurally verified and retained (**120/560**).
+- The fifth request returned **29 cues instead of 30**. The runner correctly stopped and preserved `part-0005.raw.txt`. **No complete Japanese episode has been published or produced.**
+- This is a **structural-completeness failure** of the current direct structured-data SRT method at the tested chunk size. It is **not by itself evidence that Japanese language quality is poor**.
+- The actual missing cue number and possible model generation/truncation cause need inspection; **do not silently retry, pad, retranslate, or mark the episode complete**.
+
+The next comparison intentionally separates **translation merit** from **SRT preservation**. Run `tools/clean_translation_merit_test.py` to compare:
+
+- **Hy-MT2 7B Q4_K_M** — Tencent's exact *Default Translation* English prompt and 7B recommended parameters.
+- **Hy-MT2 1.8B Q4_K_M** — same published prompt/parameters as 7B; faster/lighter candidate.
+- **CAT-Translate 7B Q4_K_M** — CyberAgent's own exact English→Japanese chat prompt with no invented sampling parameters. The GGUF is a community conversion of the official checkpoint, not an official CyberAgent quantization.
+
+All receive **the same two 30-cue stretches** of dialogue (cues 1–30 and 121–150) with timestamps removed for a fair *language-quality* comparison, and their raw outputs/timing are saved. The script also reports which cue indices the previous structural test omitted. **This evaluation is not an SRT formatting or full-episode test.** If a new model shows better natural Japanese and fewer missing/incorrect meanings, separately verify a real SRT workflow before selecting it.
+
+Official documentation:
+- [Tencent Hy-MT2-1.8B](https://huggingface.co/tencent/Hy-MT2-1.8B-GGUF) and [Hy-MT2-7B](https://huggingface.co/tencent/Hy-MT2-7B-GGUF)
+- [CyberAgent CAT-Translate-7B](https://huggingface.co/cyberagent/CAT-Translate-7b) and [the community Q4_K_M GGUF](https://huggingface.co/mmnga-o/CAT-Translate-7b-gguf)
+
+Do **not** decide the winner based on a single sample, or accept a prose quality winner as a complete subtitle solution without checking SRT completeness, readability and sustained execution.
+
 ## Not part of this test
 
 English source acquisition, audio transcription, PGS/OCR, model switching, UI/dashboard work, integration into Bruiser, publishing automation, resource tuning or multi-model grading. Revisit only **after** EN → JA localization is proven acceptable.
