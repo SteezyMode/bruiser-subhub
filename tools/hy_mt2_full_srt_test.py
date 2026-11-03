@@ -12,6 +12,7 @@ import argparse
 import fcntl
 import hashlib
 import json
+import os
 import re
 import subprocess
 import time
@@ -160,6 +161,17 @@ def new_text(path, content):
         f.write(content)
 
 
+def save_verified_preview(workdir, completed):
+    """Assemble only verified sections into a watchable partial SRT.
+
+    Does not alter Japanese or overwrite any media/library files.
+    """
+    target = workdir / "verified-so-far.ja.srt"
+    staging = workdir / "verified-so-far.ja.srt.tmp"
+    staging.write_text(as_srt(completed), encoding="utf-8")
+    os.replace(staging, target)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", type=Path)
@@ -216,6 +228,7 @@ def main():
         if verified_file.exists():
             parsed = compare_structure(chunk, verified_file.read_text(encoding="utf-8"))
             completed.extend(parsed)
+            save_verified_preview(workdir, completed)
             print(f"[{index}/{len(chunks)}] Reusing verified segment ({len(chunk)} cues)", flush=True)
             continue
         if raw_file.exists():
@@ -246,7 +259,9 @@ def main():
         if punctuation_fixes:
             print(f"  Corrected {punctuation_fixes} stray timestamp '>' character(s); Japanese untouched", flush=True)
         completed.extend(parsed)
+        save_verified_preview(workdir, completed)
         print(f"  {len(chunk)}/{len(chunk)} timestamps and IDs preserved; {elapsed}s", flush=True)
+        print(f"  Available partial Japanese SRT: {workdir / 'verified-so-far.ja.srt'}", flush=True)
     if len(completed) != len(source_cues):
         raise SystemExit(f"Internal cue count mismatch: {len(completed)} != {len(source_cues)}")
     final_file = workdir / "full-episode.draft.ja.srt"
