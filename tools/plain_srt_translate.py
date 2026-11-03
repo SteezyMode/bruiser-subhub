@@ -95,8 +95,30 @@ def main():
     output = a.output or (Path("/tmp") / (a.source.stem + ".ja.srt"))
     if output.exists():
         p.error(f"Refusing to replace existing file: {output}")
-    from config import get_settings  # Existing connection details ONLY, no Sublarr translation code.
-    url = a.ollama_url or get_settings().ollama_url
+    # Sublarr keeps the active Ollama backend URL in its DB, which can differ
+    # from the static OLLAMA_URL setting. Read the URL only, not its translation logic.
+    from config import get_settings
+    if a.ollama_url:
+        url = a.ollama_url
+    else:
+        settings = get_settings()
+        headers = {"X-Api-Key": settings.api_key} if settings.api_key else {}
+        req = urllib.request.Request(
+            "http://127.0.0.1:5765/api/v1/backends/ollama/config", headers=headers
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=10) as response:
+                backend_config = json.load(response)
+        except Exception as exc:
+            raise RuntimeError("Cannot read configured Ollama backend URL from Sublarr") from exc
+        url = backend_config.get("url") or settings.ollama_url
+    url = url.rstrip("/")
+    print("Ollama endpoint:", url, flush=True)
+    try:
+        with urllib.request.urlopen(url + "/api/tags", timeout=10) as response:
+            json.load(response)
+    except Exception as exc:
+        raise RuntimeError(f"Ollama is unreachable at {url}; translation not started") from exc
     cues = split_srt(read_srt(a.source))
     if a.limit:
         cues = cues[:a.limit]
