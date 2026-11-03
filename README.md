@@ -4,6 +4,25 @@
 
 Currently a local English-to-Japanese subtitle translation coordinator for a personal media server. **Public-source development repository; currently an OptiPlex-specific working pilot, not a portable installer.**
 
+## Real S19E04: 27 private editorial corrections ready for QA and a separate Japanese track
+
+The user provided the real remaining **27 flagged cues** from American Dad S19E04, including English, old Japanese, timing, and surrounding lines. Four contain obvious copied-ahead future dialogue (8, 52, 76, 77); many others have reasonable reading speeds but violate the current 18-Japanese-character line-width gate; cue 338 includes an intentional verbal contradiction that can look like a false future-text overlap.
+
+A private, handwritten correction payload for all 27 cues was prepared **outside public GitHub**. The public `tools/s19e04_apply_private_editorial.py` combines the original 392-cue S19E04 Japanese pilot, **all saved accepted v1/v2 repair checkpoints**, and the private 27 replacement lines. It refuses to proceed unless original English/JA per-cue hashes match, checks the existing frozen manifest, and audits the COMPLETE reconstructed 392-cue file. If fully clean, it generates a create-only versioned `Bruiser Curated Japanese v2.ja.srt` track without modifying original media, previous JA files or checkpoints. This is a fast, no-model/no-GPU step. The private correction file must never be committed to this public repo.
+
+Owner steps, from Mac Mini:
+
+1. Download `s19e04_private_editorial_27.json` from the ChatGPT artifact link into `~/Downloads`.
+2. Run:
+
+```bash
+cd ~/Downloads/bruiser-subhub-repo
+git pull --ff-only
+bash tools/apply_s19e04_editorial.sh optiplex@YOUR_HOST ~/Downloads/s19e04_private_editorial_27.json
+```
+
+The wrapper runs offline tests and host preflight, stages only isolated non-service code, safely transfers the user-private JSON over SSH, generates a private QA preview, then create-only publishes if **every** cue passes. `S19E04_EDITORIAL_PUBLISHED` is the only proof of an actual new watchable track. See [private editorial instructions](docs/S19E04_PRIVATE_EDITORIAL_27.md). A real host execution and Japanese playback check remain unverified.
+
 ## Repair the already-published American Dad S19E04 into a separate Japanese track
 
 Real S19E04 viewing revealed oversized, prematurely copied future dialogue in old v009 Japanese captions. The new selected-season publication gate prevents more of that, but never rewrites old pilot files. The one-off `tools/repair_s19e04.py` repairs only suspicious cue IDs using the existing subtitle-tuned E4B model, a **current-cue-only** correction prompt, and immutable private checkpoints. It publishes a **separate versioned Japanese SRT** only after full-episode mechanical QA; the original v009 pilot remains in place.
