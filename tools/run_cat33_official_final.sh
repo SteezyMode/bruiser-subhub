@@ -9,6 +9,8 @@ SRT="$ROOT/english.en.srt"
 RUN="$ROOT/cat33_official_final_test.py"
 LOG="$ROOT/cat33-test.log"
 mkdir -p "$ROOT"
+# One log for downloading, setup, and all raw translations.
+exec > >(tee -a "$LOG") 2>&1
 
 on_exit() {
     status=$?
@@ -65,6 +67,7 @@ if [ ! -f "$RUN" ]; then
     echo "Missing official test file: $RUN" >&2
     exit 1
 fi
+"$PY" -m py_compile "$RUN"
 
 echo
 echo "STARTING ACTUAL FINAL CAT-TRANSLATE 3.3B TEST"
@@ -75,4 +78,4 @@ export PYTHONUNBUFFERED=1
 export HF_HUB_DOWNLOAD_TIMEOUT=90
 export HF_HUB_ETAG_TIMEOUT=30
 export OMP_NUM_THREADS=4
-"$PY" -u "$RUN" --source "$SRT" --workdir "$ROOT" 2>&1 | tee -a "$LOG"
+"$PY" -u "$RUN" --source "$SRT" --workdir "$ROOT"
