@@ -147,6 +147,19 @@ Official model documentation:
 - This code was reviewed and committed but **has not yet been executed on the OptiPlex**. Neither installation nor quality can be claimed until the host returns logs/results.
 - If quality wins, **separately** test SRT alignment/continuity. Do not bolt a new SRT prompting framework onto this result before establishing model merit.
 
+## CAT-Translate 3.3B FINAL native test — actual result (2026-11-03)
+
+The host completed the official FINAL `cyberagent/CAT-Translate-3.3b` test using its published English→Japanese user instruction, tokenizer-provided chat template, and `max_new_tokens=512`. Installed separately in `~/bruiser-pilot/cat33-official-final`, without touching Ollama/Sublarr/Jellyfin. **The model ran in bitsandbytes NF4 4-bit with float16 compute, rather than original BF16.** Results are from `cat33-final-results.json` supplied by the user.
+
+- Cues **1–15**: 9.1 seconds, 228 output tokens; Japanese completed but mistranslated idioms such as *jump through hoops* into literal physical hoop-jumping and used stilted dialogue.
+- Cues **16–30**: 5.6 seconds, 153 tokens; translated *people are killing me* literally as **人々が私を殺しているんだ**, unlike the previously tested Hy-MT2 7B which correctly conveyed the unbearable coworkers.
+- Cues **121–135**: 8.8 seconds, 241 tokens; **entire response was unchanged English** (no Japanese characters). This is a semantic failure despite successful API completion and no generation token-cap.
+- Cues **136–150**: 7.3 seconds, 199 tokens; Japanese mostly present but stilted, including a literal/awkward phrasing of *go crazy on your lawn*.
+- All four invocations completed with no 512-token cap. Total inference time 30.8s. Splitting the CAT input into 15-cue calls vs the earlier Hy7 30-cue calls makes timings **not strictly apples-to-apples**.
+- **Verdict: CAT-Translate 3.3B final, in this verified native 4-bit deployment, fails the required semantic completeness and idiom-fidelity checks.** Do not select it as the household subtitle model on the basis of developer BLEU benchmarks. This is a statement about *the tested model/configuration*, not every possible precision, decoding or context length.
+
+**Best demonstrated working model remains Tencent Hy-MT2 7B Q4_K_M**, which translated both full 30-cue plain-text passages coherently but whose structured-SRT full-episode run failed structural verification at chunk 5 after 120 correct cues. Next objective should be exact diagnosis of `part-0005.raw.txt` and reliable, non-publishing SRT completeness—not new model proliferation.
+
 ## Not part of this test
 
 English source acquisition, audio transcription, PGS/OCR, model switching, UI/dashboard work, integration into Bruiser, publishing automation, resource tuning or multi-model grading. Revisit only **after** EN → JA localization is proven acceptable.
