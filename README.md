@@ -4,6 +4,20 @@
 
 Currently a local English-to-Japanese subtitle translation coordinator for a personal media server. **Public-source development repository; currently an OptiPlex-specific working pilot, not a portable installer.**
 
+## Current translation decision (2026-11-03): official model workflow first
+
+**Primary objective: ~7.5–8.5/10 natural English → Japanese subtitles for home viewing.** We are **not** building a commercial translation system. Do not reinvent prompt engineering, AI quality review or subtitle repair until a plain, documented translator has been shown inadequate on real dialogue.
+
+**Current clean baseline:** Tencent **Hy-MT2 7B Q4_K_M**, its published **Structured Data 1** prompt with format `SRT`, target `Japanese`, and the developer's recommended sampling settings through the existing Ollama server. The 30-cue *The Chair Company* trial preserved **all 30 cue numbers and timestamps** exactly without repair; Japanese is promising but some captions may be too long for the screen. **A full-episode watchability result does not yet exist.**
+
+- [Non-negotiable model-use and simplicity rules](GOAL.md)
+- [Official settings, verified evidence and full-episode test instructions](docs/TRANSLATION_MODEL_BASELINE.md)
+- [Minimal full-episode Hy-MT2 runner](tools/hy_mt2_full_srt_test.py)
+
+The runner extracts existing English SRT from the actual video, translates 30 consecutive cues per request with **the unchanged developer prompt**, and saves **non-published** Japanese and raw model output. It verifies numbering/timing only; it does **not** automatically rewrite lines, grade quality, retry failures or replace existing subtitles. Source acquisition/transcription will follow only once EN → JA quality is proven.
+
+**Older procedures below are experimental history, not the approved current direction.** In particular, prior "quality gates," multi-model workflows, backtranslation and American Dad repair projects do **not** establish the baseline quality of any model. Do not revive them by default.
+
 ## Real S19E04: 27 private editorial corrections ready for QA and a separate Japanese track
 
 The user provided the real remaining **27 flagged cues** from American Dad S19E04, including English, old Japanese, timing, and surrounding lines. Four contain obvious copied-ahead future dialogue (8, 52, 76, 77); many others have reasonable reading speeds but violate the current 18-Japanese-character line-width gate; cue 338 includes an intentional verbal contradiction that can look like a false future-text overlap.
