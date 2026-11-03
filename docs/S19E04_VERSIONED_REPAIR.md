@@ -1,5 +1,25 @@
 # Readability repair for the already-published American Dad S19E04 pilot
 
+## November 3, 2026: real first-pass result — 113 held cues, bounded v2 recovery
+
+The owner ran the real one-episode v1 repair overnight. The OptiPlex journal contains many `S19E04_REPAIRED` and `S19E04_HELD` cue messages, ending at 00:41 local in **113 unresolved cues/113 remaining readability flags**, so **no new repaired JA sidecar was published**. The previous CLI returned code 3, which systemd rendered `3/NOTIMPLEMENTED` and marked failed. This is the old script's intentional quality hold, not an unsupported operating-system feature.
+
+The new bounded recovery v2 **reuses every already accepted private cue checkpoint**. Its second pass tries a lossless Japanese **line-break-only reflow** for cues where text is already short enough (never deletes/replaces dialogue). Remaining missing cues receive at most **two distinct** current-English-only Gemma requests with explicit duration-based display budgets, preserving negation/punchline/meaning. Already rejected v2 requests are recorded **immutably** by cue, prompt hash and frozen original-source manifest, so rerunning the command does not endlessly retry the same rejected response. A transient local-model failure is not mistakenly marked as a completed rejected inference. If still overlong, it remains held for targeted review—never silently truncated or published.
+
+The same command also clears the previous failed transient **S19E04 repair user unit only**, permitting a new systemd job after the first held run. A quality hold now prints `S19E04_REPAIR_RESULT held published False` and exits normally (0); **only** a visible `S19E04_REPAIR_PUBLISHED` means the new optional track actually exists.
+
+Run on MacBook after PR merge:
+
+    cd ~/Downloads/bruiser-subhub-repo
+    git pull --ff-only
+    bash tools/run_s19e04_repair.sh optiplex@YOUR_HOST
+
+Monitor live:
+
+    ssh optiplex@YOUR_HOST 'journalctl --user -u bruiser-s19e04-repair.service -n 35 --no-pager; python3 ~/bruiser-pilot/s19e04-repair-code/repair_s19e04.py status'
+
+The original pilot, accepted v1 checkpoint files, and unrelated S20 media remain intact. Neither this repair nor PR #57 ensures perfect comedic localization; one real playback test is still required after a new versioned SRT is published. If many cues remain held after v2, the next appropriate step is a targeted editorial review of those cues, not an infinite automatic model loop.
+
 The owner observed repeated oversized Japanese subtitle blocks during actual viewing of S19E04, and the real 009 paired audit identified copied-ahead future speech and incorrect idioms. PR #57 prevents unreadable NEW S20 tracks from publishing, but does not change the existing Japanese S19E04 pilot.
 
 This repair is a separate **single-episode, versioned, resumable** correction with NO replacement of the old Japanese subtitles.
