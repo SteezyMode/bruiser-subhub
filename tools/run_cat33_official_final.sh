@@ -61,7 +61,8 @@ echo "Installing standard PyTorch / Transformers CUDA dependencies in isolated v
   'accelerate>=1,<2' \
   'bitsandbytes>=0.46,<1' \
   'huggingface_hub>=0.35,<2' \
-  'sentencepiece>=0.2'
+  'sentencepiece>=0.2' \
+  'protobuf>=4.25,<7'
 
 if [ ! -f "$RUN" ]; then
     echo "Missing official test file: $RUN" >&2
