@@ -9,6 +9,7 @@ Only mechanical file work: read English SRT, split, preserve raw replies,
 verify numbering/timing, assemble separate draft. Never publishes to Jellyfin.
 """
 import argparse
+import fcntl
 import hashlib
 import json
 import re
@@ -157,6 +158,12 @@ def main():
     }
     workdir = args.workdir
     workdir.mkdir(parents=True, exist_ok=True)
+    # Only one translation process can write to this test directory at a time.
+    lock_fd = (workdir / ".run.lock").open("a")
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        raise SystemExit(f"Full-episode test already running in {workdir}")
     manifest_path = workdir / "manifest.json"
     if manifest_path.exists():
         if json.loads(manifest_path.read_text(encoding="utf-8")) != manifest:
@@ -168,6 +175,11 @@ def main():
         new_text(english_copy, source_text)
     elif english_copy.read_text(encoding="utf-8") != source_text:
         raise SystemExit("Existing English source differs: refusing to continue")
+    existing_draft = workdir / "full-episode.draft.ja.srt"
+    if existing_draft.exists():
+        compare_structure(source_cues, existing_draft.read_text(encoding="utf-8"))
+        print(f"Already complete: {len(source_cues)} cues in {existing_draft}", flush=True)
+        return
     url = configured_url()
     print(f"Model: {MODEL}\nOllama: {url}\nSource cues: {len(source_cues)}",
           f"\nBatch size: {args.batch_size}\nWorkdir: {workdir}", flush=True)
