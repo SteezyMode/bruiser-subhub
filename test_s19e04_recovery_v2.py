@@ -41,7 +41,7 @@ class RecoveryV2Tests(unittest.TestCase):
         self.assertEqual(video,self.video)
         return self.rows,self.old.copy(),self.en,self.jp
 
-    def run(self,ask,publish=True):
+    def repair_run(self,ask,publish=True):
         with patch.object(repair.core,'locks',return_value=contextlib.nullcontext()):
             return repair.execute(
                 state=self.state,roots=(self.tmp,),ask=ask,
@@ -90,7 +90,7 @@ class RecoveryV2Tests(unittest.TestCase):
             if 'ONLY_CURRENT_EN_54' in str(messages):
                 return '自然な日本語です。'
             return bad
-        self.assertEqual(self.run(first),'held')
+        self.assertEqual(self.repair_run(first),'held')
         first_saved=repair.checkpoint(self.state,54,self.manifest_sha())
         self.assertEqual(first_saved,'自然な日本語です。')
         first_calls=first_count[0]
@@ -103,13 +103,13 @@ class RecoveryV2Tests(unittest.TestCase):
             self.assertNotIn('ONLY_CURRENT_EN_51',str(messages)
                              if 'ONLY_CURRENT_EN_52' in str(messages) else 'none')
             return bad
-        self.assertEqual(self.run(second),'held')
+        self.assertEqual(self.repair_run(second),'held')
         self.assertGreater(second_count[0],0)
         self.assertEqual(repair.checkpoint(self.state,54,self.manifest_sha()),
                          '自然な日本語です。')
         failures=list((self.state/'attempts-v2').glob('*.json'))
         self.assertGreater(len(failures),0)
-        self.assertEqual(self.run(lambda _:self.fail(
+        self.assertEqual(self.repair_run(lambda _:self.fail(
             'finite recovery ledger must block identical attempts')),'held')
         self.assertEqual(second_count[0],len(failures))
         self.assertEqual(self.pilot.read_bytes(),self.jp)
@@ -127,7 +127,7 @@ class RecoveryV2Tests(unittest.TestCase):
             first_calls.append(current)
             if 'ONLY_CURRENT_EN_52' in current:return '自然な日本語です。'
             return bad
-        self.assertEqual(self.run(first),'held')
+        self.assertEqual(self.repair_run(first),'held')
         old_saved=repair.checkpoint(self.state,52,self.manifest_sha())
         self.assertIsNotNone(old_saved)
         calls=[]
@@ -136,7 +136,7 @@ class RecoveryV2Tests(unittest.TestCase):
             calls.append(current)
             self.assertIn('READABILITY BUDGET',str(messages))
             return '自然な日本語です。'
-        self.assertEqual(self.run(second),'published')
+        self.assertEqual(self.repair_run(second),'published')
         self.assertEqual(repair.checkpoint(self.state,52,self.manifest_sha()),
                          old_saved)
         self.assertFalse(any('ONLY_CURRENT_EN_52' in call for call in calls))
