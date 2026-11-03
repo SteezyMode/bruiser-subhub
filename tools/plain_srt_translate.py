@@ -14,7 +14,7 @@ from pathlib import Path
 MODEL = "hf.co/17slever17/translate-gemma-4-sub-e4b-GGUF:Q4_K_XL"
 SYSTEM = (
     "TASK: Translate English subtitles into Japanese.\n"
-    "STYLE: natural, conversational.\n"
+    "STYLE: neutral.\n"
     "Translate only CURRENT_SOURCE. PREVIOUS_SOURCE and PREVIOUS_TRANSLATION are context only. "
     "Preserve meaning, tone, slang, profanity, uncertainty, repetitions and incomplete speech. "
     "Return only the final translation without labels or commentary."
@@ -71,7 +71,7 @@ def ask_ollama(url, model, source, previous_source, previous_translation):
             "model": model, "stream": False,
             "messages": [{"role": "system", "content": SYSTEM},
                          {"role": "user", "content": content}],
-            "options": {"temperature": 0, "num_predict": 256},
+            "options": {"temperature": 0, "num_predict": 256, "num_ctx": 1344},
         }).encode("utf-8"),
         headers={"Content-Type": "application/json"},
     )
