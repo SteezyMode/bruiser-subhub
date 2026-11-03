@@ -135,6 +135,18 @@ Official model documentation:
 
 **Current decision:** Hy-MT2 7B remains the best proven working configuration, but full-episode SRT reliability and screen readability are unproven. No other model has been fairly disqualified until runtime-template verification.
 
+## CAT-Translate 3.3B FINAL: official-native clean test (2026-11-03)
+
+**Do not substitute the available 3.3B-beta GGUF or an unverified CAT-7B chat template.**
+
+- Official final checkpoint: https://huggingface.co/cyberagent/CAT-Translate-3.3b
+- Official usage: Transformers, native `chat_template.jinja`, one user turn with `Translate the following English text into Japanese.\n\n{source}`, `max_new_tokens=512`. No system prompt, prompt rewriting, evaluation LLM, or alternate temperature.
+- On the OptiPlex 6GB GPU the sole deviation from full-precision author inference is **standard bitsandbytes NF4 4-bit loading**, applied to the official final model weights. This is **not the developer's baseline precision**, so results must be labeled accordingly.
+- Use `tools/run_cat33_official_final.sh` and `tools/cat33_official_final_test.py`. They run on the **host**, outside Sublarr/Ollama; extract the same English source from the existing container via `docker cp`; create a separate local Python virtualenv; download original final checkpoint via Hugging Face; require the tokenizer template to start with `<|user|>` and end with `<|assistant|>`; force GPU execution; translate four consecutive 15-cue passages from the previously tested episode (1–15, 16–30, 121–135, 136–150); and save raw output with wall times.
+- Scripts do not produce subtitles, rewrite any Japanese, modify the media library, replace a worker, or configure an auto-publisher.
+- This code was reviewed and committed but **has not yet been executed on the OptiPlex**. Neither installation nor quality can be claimed until the host returns logs/results.
+- If quality wins, **separately** test SRT alignment/continuity. Do not bolt a new SRT prompting framework onto this result before establishing model merit.
+
 ## Not part of this test
 
 English source acquisition, audio transcription, PGS/OCR, model switching, UI/dashboard work, integration into Bruiser, publishing automation, resource tuning or multi-model grading. Revisit only **after** EN → JA localization is proven acceptable.
