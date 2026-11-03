@@ -29,11 +29,13 @@ try:
     import american_dad_core_009 as core
     import subtitle_quality_010 as q
     import subtitle_publish_gate as gate
+    import s19e04_recovery_v2 as recovery
 except ModuleNotFoundError:
     from tools import american_dad_intake_009 as intake
     from tools import american_dad_core_009 as core
     from tools import subtitle_quality_010 as q
     from tools import subtitle_publish_gate as gate
+    from tools import s19e04_recovery_v2 as recovery
 
 SCHEMA='bruiser-american-dad-s19e04-readability-repair-v1'
 STATE=core.BASE/'american-dad-s19e04-repair'
@@ -210,13 +212,18 @@ def execute(state=STATE,roots=intake.ROOTS,ask=core.call,
     rows,original,source,old_ja=pair_loader(video,roots)
     frozen=manifest(video,rows,original,source,old_ja)
     verify_frozen(state,frozen)
+    # The real first pass already produced an immutable report and many
+    # accepted cue checkpoints. On subsequent runs do NOT re-request the
+    # same rejected two prompts; switch to a bounded new v2 recovery profile.
+    second_pass=any(state.glob('report-*.json'))
     sha=intake.sha((json.dumps(frozen,sort_keys=True)).encode('utf8'))
     target=output(video)
     if target.is_symlink():
         raise RuntimeError('Unsafe existing repaired track symlink')
     planned=frozen['repair_ids']
     log('S19E04_REPAIR_PLAN','source_cues',len(rows),
-        'flagged',len(planned),'original_preserved',True)
+        'flagged',len(planned),'original_preserved',True,
+        'mode','bounded_v2' if second_pass else 'original_v1')
     final=dict(original)
     deadline=time.monotonic()+60*max_minutes
     unresolved=[]
@@ -238,14 +245,37 @@ def execute(state=STATE,roots=intake.ROOTS,ask=core.call,
             _,_,start,end,english=rows[index]
             later=[final[str(x[0])] for x in rows[index+1:index+4]]
             answer=None
-            for attempt in (1,2):
+            # A purely visual line-wrap correction never edits translated
+            # words, removes jokes, or consumes any model/GPU time.
+            if second_pass:
+                answer=recovery.reflow_unaltered_japanese(
+                    original[str(id)],english,start,end,later,acceptable)
+                if answer is not None:
+                    save_json(state/'cues'/f'{id:05d}.json',
+                              {'cue_id':id,'manifest_sha':sha,
+                               'japanese':answer,'attempt':'reflow-v2'})
+                    final[str(id)]=answer
+                    corrected+=1
+                    log('S19E04_REFLOWED','cue',id,'unchanged_words',True)
+                    continue
+            for attempt in (recovery.ATTEMPTS if second_pass else (1,2)):
                 if time.monotonic()>=deadline:
                     break
+                prompt=(recovery.messages(rows,index,attempt)
+                        if second_pass else messages(rows,index,attempt))
+                if second_pass and recovery.was_rejected(
+                        state,id,attempt,sha,prompt):
+                    continue
                 try:
-                    proposal=ask(messages(rows,index,attempt))
+                    proposal=ask(prompt)
                     answer=acceptable(proposal,english,start,end,later)
                 except (RuntimeError,OSError,ValueError,KeyError,TypeError):
+                    # A transient model/API failure is NOT recorded as a
+                    # completed rejected answer; a future run can retry it.
                     answer=None
+                    log('S19E04_INFERENCE_DEFERRED','cue',id,
+                        'attempt',attempt)
+                    break
                 if answer is not None:
                     save_json(state/'cues'/f'{id:05d}.json',
                               {'cue_id':id,'manifest_sha':sha,
@@ -254,9 +284,15 @@ def execute(state=STATE,roots=intake.ROOTS,ask=core.call,
                     corrected+=1
                     log('S19E04_REPAIRED','cue',id,'attempt',attempt)
                     break
+                if second_pass:
+                    # Persist only an identity and a rejection reason, never
+                    # output text, to avoid burning GPU on identical prompts.
+                    recovery.record_rejection(
+                        state,id,attempt,sha,prompt,save_json)
             if answer is None:
                 unresolved.append(id)
-                log('S19E04_HELD','cue',id,'retry_on_next_run',True)
+                log('S19E04_HELD','cue',id,
+                    'bounded_v2' if second_pass else 'first_pass')
         report=gate.audit([
             {'cue_id':id,'timing':timing,'start_ms':start,'end_ms':end,
              'english':english,'japanese':final[str(id)]}
@@ -265,6 +301,7 @@ def execute(state=STATE,roots=intake.ROOTS,ask=core.call,
         data={'schema':SCHEMA,'source_cues':len(rows),
               'planned':len(planned),'corrected_or_reused':corrected,
               'unresolved_ids':unresolved,'readability':report,
+              'mode':'bounded_v2' if second_pass else 'original_v1',
               'original_pilot_sha':frozen['pilot_sha']}
         digest=intake.sha(json.dumps(data,sort_keys=True).encode('utf8'))[:14]
         save_json(state/('report-'+digest+'.json'),data)
@@ -318,7 +355,11 @@ def cli(argv=None):
                   'flagged',len(detected_ids(rows,translations)|SEMANTIC_REVIEW))
             return 0
         state=execute(max_minutes=args.max_minutes,publish=args.publish)
-        return 0 if state=='published' or state=='private_ready' else 3
+        # A QA hold is a successfully completed inspection, not a Python or
+        # systemd runtime failure. Explicit log/state indicate NOT published.
+        print('S19E04_REPAIR_RESULT',state,'published',state=='published',
+              flush=True)
+        return 0 if state in ('published','private_ready','held') else 1
     except Exception as exc:
         print('S19E04_REPAIR_BLOCKED',type(exc).__name__,file=sys.stderr)
         return 1
