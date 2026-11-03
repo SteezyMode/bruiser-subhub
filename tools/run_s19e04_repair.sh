@@ -11,8 +11,8 @@ HOST="$1"
 ROOT="$(cd -- "$(dirname -- "$0")/.." && pwd)"
 cd "$ROOT"
 echo '=== TEST EXISTING QUALITY RULES AND SHUTDOWN-SAFE CHECKPOINTS ==='
-python3 -m unittest -q test_repair_s19e04 test_subtitle_publish_gate \
-  test_subtitle_quality_010
+python3 -m unittest -q test_repair_s19e04 test_s19e04_recovery_v2 \
+  test_subtitle_publish_gate test_subtitle_quality_010
 echo '=== STAGE ONLY ISOLATED REPAIR CODE ==='
 ssh "$HOST" \
  'mkdir -p -m 700 ~/bruiser-pilot/s19e04-repair-code ~/bruiser-pilot/american-dad-s19e04-repair'
@@ -24,6 +24,7 @@ scp -q \
   tools/subtitle_quality_010.py \
   tools/subtitle_publish_gate.py \
   tools/repair_s19e04.py \
+  tools/s19e04_recovery_v2.py \
   "$HOST:~/bruiser-pilot/s19e04-repair-code/"
 echo '=== READ-ONLY S19E04 SOURCE + ORIGINAL-JA CHECK ==='
 ssh "$HOST" \
@@ -35,6 +36,10 @@ UNIT='bruiser-s19e04-repair.service'
 if systemctl --user is-active --quiet "$UNIT"; then
   echo 'S19E04_REPAIR_ALREADY_ACTIVE; no duplicate launched'
 else
+  # The first S19E04 repair was correctly held, but systemd recorded its
+  # explicit exit-code 3 as a FAILED transient unit. Clear only that
+  # specific old failure state so the same known unit can run again.
+  systemctl --user reset-failed "$UNIT" 2>/dev/null || true
   systemd-run --user --collect \
     --unit='bruiser-s19e04-repair' \
     --property=Nice=15 \
@@ -53,6 +58,7 @@ echo '=== CURRENT REPAIR LOG (NO SPEECH OR TRANSLATION TEXT) ==='
 ssh "$HOST" \
   'journalctl --user -u bruiser-s19e04-repair.service -n 12 --no-pager || true'
 echo
-echo 'The new track appears in Jellyfin only if every repaired cue passes QA.'
+echo 'QUALITY HOLD IS NOT A SYSTEM ERROR: new track appears only if all remaining cues pass QA.'
 echo 'MacBook power-off does not stop the host job. After OptiPlex shutdown,'
 echo 'repeat this same command to resume previously verified private cue checkpoints.'
+echo 'V2 rejected attempts are recorded once; later repeats will not burn GPU on identical prompts.'
