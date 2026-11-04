@@ -77,6 +77,16 @@ The earlier Benchmark 002 extended the author's example with an extra adult-horr
 5. **No rewrite, second model, critic or sanitizing postprocessor**. The existing structural validator may reject malformed outputs, but cannot prove semantic fidelity. Translation errors require real dialogue review and a separately preserved correction.
 6. **The actual OptiPlex host is not updated merely by a GitHub commit.** Use the guarded deployment procedure, then verify model ID, reported GPU placement, and live one-cue prompt before queueing a new title. The already published Attachment remains unchanged.
 
+## Guarded OptiPlex deployment
+
+After a code update, run the version-pinned installer on the OptiPlex as its normal user. It checks the existing installed core code's Git blob identity, runs offline tests **before** replacement, refuses to swap live worker files, and saves backup copies. **It never downloads a model or starts a translation job**.
+
+- Installer: [tools/install_production_subtitle_model.sh](../tools/install_production_subtitle_model.sh)
+- Controller installer: [tools/install_ja_first_controller.sh](../tools/install_ja_first_controller.sh), which now pins the same subtitle-tuned worker instead of restoring the older generic one.
+- Source is committed and CI tested; the actual OptiPlex must separately confirm `--preflight` model ID, GPU placement, runtime chat-template fingerprint and model-generated Japanese.
+
+**If host source fingerprint differs, STOP and inspect the diff. Do not force overwrite unrecognized local code.** The user should not have to rediscover the model selection; always read this file before changing translation settings.
+
 ## Validation
 
 Offline checks in the repo:
