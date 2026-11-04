@@ -33,10 +33,13 @@ JA_TOKEN = re.compile(r"(?i)(?:^|[._ -])(?:ja|jp|jpn|japanese)(?:[._ -]|$)")
 
 
 def cmd(*args, capture=False):
-    return subprocess.run(
+    # Always execute. Previous conditional expression bypassed subprocess.run
+    # entirely when capture=False (including Docker cp/exec/translation).
+    result = subprocess.run(
         list(map(str, args)), check=True,
         text=True, stdout=subprocess.PIPE if capture else None,
-    ).stdout if capture else None
+    )
+    return result.stdout if capture else None
 
 
 def read_srt(file):
