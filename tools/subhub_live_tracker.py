@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only live status for the existing Bruiser SubHub Gemma worker.
+"""Reusable read-only monitor for ALL Bruiser SubHub subtitle jobs.
 
 Shows actual per-cue SQLite checkpoint progress, GPU temperature/utilization/
 VRAM/power, Ollama model placement, and Ollama/worker process CPU usage.
@@ -10,8 +10,9 @@ from __future__ import annotations
 
 import argparse
 from collections import deque
-from datetime import datetime
+import json
 import os
+import re
 from pathlib import Path
 import sqlite3
 import subprocess
@@ -32,6 +33,61 @@ def command(args, timeout=5):
         return ""
 
 
+def active_worker_job():
+    """Identify the actual live single-title worker, not the oldest queued job.
+
+    A running worker can temporarily report SQLite state 'queued', especially
+    while opening the model; PID commandline is therefore more reliable than
+    an ordering over queued job states. Only a verified one-job process counts.
+    """
+    processes = command(["ps", "-eo", "comm=,args="], timeout=5)
+    matches = []
+    for line in processes.splitlines():
+        if "daily_worker.py" not in line:
+            continue
+        parts = line.strip().split(None, 1)
+        if len(parts) != 2 or not parts[0].startswith("python"):
+            continue
+        args = parts[1]
+        match = re.search(r"(?:^|\s)--job-id(?:=|\s+)(daily-[a-z0-9-]{1,95})(?:\s|$)",
+                          args)
+        if match:
+            matches.append(match.group(1))
+    return matches[-1] if len(matches) == 1 else None
+
+
+def profile_info(job, root=None):
+    """Provenance of a job; current Ollama residency is NOT historic evidence."""
+    root = root or DB.parent
+    path = root / "model-profiles" / (job["id"] + ".json")
+    if path.is_symlink() or not path.is_file():
+        return "MODEL PROFILE: not recorded (older/legacy job; model not provable)"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if (data.get("job_id") != job["id"] or
+                data.get("source_sha") != job.get("source_sha")):
+            return "MODEL PROFILE: mismatched job/source (hold)"
+        model = data.get("model")
+        if not isinstance(model, str) or not model.strip():
+            return "MODEL PROFILE: missing pinned model"
+        return "PINNED TRANSLATOR: " + model
+    except (OSError, ValueError):
+        return "MODEL PROFILE: unreadable; do not infer model identity"
+
+
+def queue_summary(db_path=DB):
+    if not db_path.is_file() or db_path.is_symlink():
+        return "QUEUE: unavailable"
+    uri = "file:" + quote(str(db_path.resolve()), safe="/") + "?mode=ro"
+    with sqlite3.connect(uri, uri=True, timeout=6) as con:
+        con.execute("PRAGMA query_only=ON")
+        counts = con.execute(
+            "SELECT status,COUNT(*) FROM jobs WHERE id LIKE 'daily-%' GROUP BY status"
+        ).fetchall()
+    return "DAILY JOBS: " + (", ".join(
+        f"{state}: {count}" for state, count in counts) if counts else "none")
+
+
 def checkpoint(db_path=DB, job_id=None):
     if not db_path.is_file() or db_path.is_symlink():
         raise RuntimeError("SubHub checkpoint database not found or is symlinked")
@@ -40,21 +96,26 @@ def checkpoint(db_path=DB, job_id=None):
     uri = "file:" + quote(str(db_path.resolve()), safe="/") + "?mode=ro"
     with sqlite3.connect(uri, uri=True, timeout=6) as con:
         con.execute("PRAGMA query_only=ON")
+        # Default to the actual active single-title worker before falling back
+        # to existing queued or most recently completed daily jobs.
+        if not job_id:
+            job_id = active_worker_job()
         if job_id:
             row = con.execute(
-                """SELECT id,status,source_cues,updated,last_error FROM jobs
+                """SELECT id,status,source_cues,updated,last_error,source_sha,video FROM jobs
                    WHERE id=?""", (job_id,)).fetchone()
         else:
             row = con.execute(
                 """SELECT id,status,source_cues,updated,last_error FROM jobs
                    WHERE id LIKE 'daily-%'
-                   ORDER BY CASE WHEN status IN ('queued','translating',
-                                                  'translated') THEN 0 ELSE 1 END,
+                   ORDER BY CASE WHEN status = 'translating' THEN 0
+                                      WHEN status = 'translated' THEN 1
+                                      WHEN status = 'queued' THEN 2 ELSE 3 END,
                             created DESC LIMIT 1"""
             ).fetchone()
         if row is None:
             return None
-        jid, state, total, updated, error = row
+        jid, state, total, updated, error, source_sha, video = row
         completed, stalled, recorded = con.execute(
             """SELECT
                  COALESCE(SUM(CASE WHEN japanese IS NOT NULL
@@ -69,6 +130,8 @@ def checkpoint(db_path=DB, job_id=None):
             "total": int(total), "completed": int(completed),
             "held": int(stalled), "recorded": int(recorded),
             "updated": str(updated), "error": str(error or ""),
+            "source_sha": str(source_sha),
+            "title": Path(str(video)).stem if video else str(jid),
         }
 
 
@@ -169,6 +232,7 @@ def render(job, samples):
         "BRUISER SUBHUB | LIVE TRANSLATION TRACKER",
         "Read-only: Ctrl+C exits tracker; translation keeps running.",
         "",
+        "TITLE  " + job.get("title", job["id"]),
         "JOB    " + job["id"],
         "STATE  " + job["status"],
         f"CUES   {complete:,}/{total:,} ({fraction * 100:.1f}%)",
@@ -197,7 +261,8 @@ def render(job, samples):
         output.append("JOB ERROR RECORDED: " + job["error"][:130])
     if job["recorded"] != total:
         output.append("WARNING: cue table count differs from source cue count")
-    output.extend(["", gpu(), model_placement(), process_cpu(job["id"])])
+    output.extend(["", profile_info(job), queue_summary(),
+                   gpu(), model_placement(), process_cpu(job["id"])])
     output.append("")
     output.append(
         "Interpretation: 100% GPU in Ollama placement means model weights fit "
@@ -215,26 +280,29 @@ def self_test():
         "held": 0, "recorded": 200, "updated": "test",
         "error": "",
     }
-    # Check formatting without requiring host NVIDIA/Ollama binaries.
-    global gpu, model_placement, process_cpu
-    old = (gpu, model_placement, process_cpu)
+    # Check formatting without requiring host NVIDIA/Ollama/SQLite binaries.
+    global gpu, model_placement, process_cpu, profile_info, queue_summary
+    old = (gpu, model_placement, process_cpu, profile_info, queue_summary)
     try:
         gpu = lambda: "GPU offline test"
         model_placement = lambda: "Ollama offline test"
         process_cpu = lambda jid: "CPU offline test"
+        profile_info = lambda job: "Model offline test"
+        queue_summary = lambda: "Queue offline test"
         out = render(job, deque([(0, 10), (60, 50)]))
         assert "25.0%" in out
         assert "40.0 cues/min" in out
         assert "GPU offline test" in out
+        assert "Model offline test" in out
     finally:
-        gpu, model_placement, process_cpu = old
+        gpu, model_placement, process_cpu, profile_info, queue_summary = old
     print("SELF-TEST PASSED: progress, pace, ETA, display; no reads or writes")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--job-id", default=None,
-                        help="exact SubHub daily-job ID; default newest pending daily job")
+                        help="exact SubHub daily job ID; default running job, else pending/recent")
     parser.add_argument("--watch", action="store_true",
                         help="refresh until Ctrl+C; otherwise print one snapshot")
     parser.add_argument("--interval", type=int, default=10,
@@ -261,7 +329,7 @@ def main():
         if args.watch and sys.stdout.isatty():
             sys.stdout.write("\033[2J\033[H")
         print(view, flush=True)
-        if not args.watch or current["status"] in ("published", "publish_hold", "needs_review"):
+        if not args.watch or current["status"] in ("published", "publish_hold", "needs_review", "hold"):
             return
         time.sleep(args.interval)
 
