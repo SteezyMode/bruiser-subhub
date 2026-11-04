@@ -438,6 +438,50 @@ def choices(inventory, searches, already, budget, kind):
     return chosen
 
 
+def has_embedded_english_reference(streams):
+    """Cheap pre-download *potential reference* filter, not a sync verdict.
+
+    A real sync verdict still requires the downstream timing audit to parse
+    a meaningful number of English cues and compare them with Japanese.
+    """
+    codecs = {"subrip", "srt", "ass", "ssa", "webvtt", "mov_text", "text"}
+    languages = {"en", "eng", "english"}
+    return any(
+        isinstance(stream, dict)
+        and stream.get("codec_type") == "subtitle"
+        and str(stream.get("codec_name") or "").casefold() in codecs
+        and str((stream.get("tags") or {}).get("language") or "")
+            .casefold().split("-")[0] in languages
+        and not (stream.get("disposition") or {}).get("forced")
+        for stream in streams
+    )
+
+
+def potential_timing_reference(row):
+    """Inspect video metadata only; never download subtitles or write files."""
+    video = Path(str(row.get("host_path") or ""))
+    if (not video.is_absolute() or video.is_symlink() or not video.is_file()
+            or video.suffix.casefold() not in SUPPORTED_VIDEO):
+        return False
+    try:
+        resolved = video.resolve()
+        if not any(resolved.is_relative_to(root.resolve())
+                   for root in ALLOWED_HOST_ROOTS):
+            return False
+        run = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_streams", "-of", "json",
+             str(video)],
+            capture_output=True, timeout=20, check=False
+        )
+        if run.returncode:
+            return False
+        metadata = json.loads(run.stdout)
+        streams = metadata.get("streams") or []
+        return isinstance(streams, list) and has_embedded_english_reference(streams)
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return False
+
+
 def japanese_sidecar_exists(video):
     prefix = video.stem.casefold() + "."
     for sibling in video.parent.iterdir():
@@ -616,7 +660,19 @@ def self_test():
     assert not identity_ok(episode, dict(american_dad, matches=["season", "episode"]))
     assert stage_name({"jellyfin_id": "a"*32}, fargo, "srt").endswith(
         ".opensubtitles.8690333.ja.srt")
-    print("SELF-TEST PASSED: embedded worker and identity gates; no network or writes",
+    assert has_embedded_english_reference([{
+        "codec_type": "subtitle", "codec_name": "subrip",
+        "tags": {"language": "eng"}, "disposition": {"forced": 0}
+    }])
+    assert not has_embedded_english_reference([{
+        "codec_type": "subtitle", "codec_name": "hdmv_pgs_subtitle",
+        "tags": {"language": "eng"}, "disposition": {"forced": 0}
+    }])
+    assert not has_embedded_english_reference([{
+        "codec_type": "subtitle", "codec_name": "subrip",
+        "tags": {"language": "eng"}, "disposition": {"forced": 1}
+    }])
+    print("SELF-TEST PASSED: identity and reference filters; no network or writes",
           flush=True)
 
 
@@ -626,6 +682,9 @@ def main():
                      help="maximum OpenSubtitles downloads: 1..3 (default 1)")
     cli.add_argument("--kind", choices=("all", "movie", "episode"),
                      default="all")
+    cli.add_argument("--require-embedded-en", action="store_true",
+                     help="select only candidates with an embedded English text track, "
+                          "to prioritize later trusted timing comparison")
     cli.add_argument("--apply", action="store_true",
                      help="permit downloading and durable private staging")
     cli.add_argument("--self-test", action="store_true")
@@ -638,7 +697,25 @@ def main():
     inventory = read_inventory()
     history = read_saved_searches()
     already = read_staged()
-    selected = choices(inventory, history, already, opts.budget, opts.kind)
+    if opts.require_embedded_en:
+        # Search at most 24 manifest-confirmed candidate rows. Never probe
+        # thousands of media files for a small acquisition budget.
+        pool = choices(inventory, history, already, 24, opts.kind)
+        selected = []
+        considered = 0
+        for option in pool:
+            considered += 1
+            if potential_timing_reference(option["row"]):
+                selected.append(option)
+                if len(selected) >= opts.budget:
+                    break
+        print("EMBEDDED ENGLISH REFERENCE FILTER:",
+              f"{len(selected)} eligible among {considered} assessed"
+              f" (pool capped at {len(pool)} candidates)", flush=True)
+        print("Reference presence is not a verified synchronization fit.",
+              flush=True)
+    else:
+        selected = choices(inventory, history, already, opts.budget, opts.kind)
     print("=== JAPANESE SUBTITLE STAGING BATCH ===", flush=True)
     print("Available saved search entries:", len(history), flush=True)
     print("Selected:", len(selected), "| budget:", opts.budget, flush=True)
