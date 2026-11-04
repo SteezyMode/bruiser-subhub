@@ -1,4 +1,6 @@
-# EN → JA subtitle translation: clean baseline (2026-11-03)
+# EN → JA subtitle translation: clean baseline (2026-11-03) — HISTORICAL
+
+> **SUPERSEDED FOR PRODUCTION ON 2026-11-04:** The authoritative current model is **17slever17 Translate Gemma 4 Sub E4B** (exact pinned tag hf.co/17slever17/translate-gemma-4-sub-e4b-GGUF:Q4_K_XL; ID 9ccfc3b07081), not the Hy-MT2 7B research model described below. See [the production model decision](PRODUCTION_TRANSLATION_MODEL.md) and the paired [E4B versus Hy7 benchmark](../benchmarks/RESULTS_005_TUNED_HY_PAIRED.md). Preserve this document for historical clean-model tests, NOT as live default guidance.
 
 ## The only objective
 
