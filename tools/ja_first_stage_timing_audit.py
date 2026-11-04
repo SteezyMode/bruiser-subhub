@@ -36,10 +36,13 @@ import base64
 import json
 import sys
 
-from subtitle_dialogue import dialogue_starts
-from subtitle_timing import align, find_reference
-
 def check(job):
+    # Installed Sublarr versions may not contain these optional helper
+    # modules. Resolve imports INSIDE the protected worker try block so a
+    # missing module produces a useful structured hold, never an empty reply.
+    from subtitle_dialogue import dialogue_starts
+    from subtitle_timing import align, find_reference
+
     path = str(job.get("sublarr_path") or "")
     if not (path.startswith("/media/bigdisk-video/")
             or path.startswith("/media/expansion-video/")
@@ -79,9 +82,12 @@ try:
     result = check(job)
     print("TIMING_RESULT_JSON:" + json.dumps(result, ensure_ascii=False), flush=True)
 except Exception as exc:
+    reason = ("missing_module:" + str(exc.name)
+              if isinstance(exc, ModuleNotFoundError) and exc.name
+              else type(exc).__name__ + ":" + str(exc)[:100])
     print("TIMING_RESULT_JSON:" + json.dumps({
         "status": "blocked", "error_type": type(exc).__name__,
-        "error": str(exc)[:120]
+        "error": reason
     }), flush=True)
     raise SystemExit(1)
 '''
@@ -153,6 +159,7 @@ def test():
     assert STAGE_NAME.fullmatch("a"*32 + ".opensubtitles.11947715.ja.srt")
     assert not STAGE_NAME.fullmatch("../foo")
     assert "from subtitle_timing import align, find_reference" in WORKER
+    assert WORKER.index("try:\\n    job = json.load") > WORKER.index("def check(job):")
     assert "TIMING_RESULT_JSON:" in WORKER
     print("SELF-TEST PASSED: worker syntax and staging IDs; no network or writes")
 
@@ -194,10 +201,15 @@ def main():
                        for x in proc.stdout.splitlines()
                        if x.startswith("TIMING_RESULT_JSON:")]
             if not replies:
-                raise RuntimeError("timing_worker_no_response")
+                # The worker had no opportunity to emit a structured result:
+                # distinguish exit/signal from normal no-reference outcomes.
+                print("WORKER EXIT:", proc.returncode, flush=True)
+                raise RuntimeError("timing_worker_exited_without_result")
             report = json.loads(replies[-1])
-            if proc.returncode != 0:
-                raise RuntimeError(report.get("error") or "timing_worker_failed")
+            if proc.returncode != 0 or report.get("status") == "blocked":
+                print("TIMING BLOCKED:", json.dumps(report, ensure_ascii=False),
+                      flush=True)
+                continue
             print("TIMING:", json.dumps(report, ensure_ascii=False), flush=True)
         except (subprocess.TimeoutExpired, OSError, ValueError, RuntimeError) as exc:
             print("TIMING HELD:", type(exc).__name__, str(exc)[:120], flush=True)
