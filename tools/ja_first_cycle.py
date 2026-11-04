@@ -130,14 +130,31 @@ def status():
             with sqlite3.connect(ro_uri(JA_ROOT / "jobs.sqlite3"),
                                  uri=True, timeout=6) as conn:
                 jobs = conn.execute(
-                    """SELECT id,status,source_cues FROM jobs
-                       WHERE id LIKE 'daily-%' AND status
-                       IN ('queued','translating','translated')
-                       ORDER BY created ASC,id LIMIT 5"""
+                    """SELECT j.id, j.status, j.source_cues,
+                              COUNT(c.cue_id) AS saved_cues,
+                              SUM(CASE WHEN c.japanese IS NOT NULL
+                                            AND TRIM(c.japanese) != ''
+                                       THEN 1 ELSE 0 END) AS translated,
+                              SUM(CASE WHEN c.japanese IS NULL
+                                            AND c.failed >= 5
+                                       THEN 1 ELSE 0 END) AS held
+                       FROM jobs j LEFT JOIN cues c ON c.job_id = j.id
+                       WHERE j.id LIKE 'daily-%'
+                         AND j.status IN ('queued','translating',
+                                          'translated','needs_review')
+                       GROUP BY j.id
+                       ORDER BY j.created ASC, j.id LIMIT 10"""
                 ).fetchall()
-            for jid, state, cues in jobs:
-                print("PENDING GEMMA:", jid, "|", state,
-                      "| English cues:", cues, flush=True)
+            for jid, state, cues, saved, completed, held in jobs:
+                denominator = max(int(cues or 0), 1)
+                percent = round(100.0 * int(completed or 0) / denominator, 1)
+                print("GEMMA PROGRESS:", jid, "|", state, "|",
+                      str(completed or 0) + "/" + str(cues),
+                      "cues |", str(percent) + "%",
+                      "| held cues:", held or 0, flush=True)
+                if int(saved or 0) != int(cues or 0):
+                    print("  WARNING: checkpoint cue count differs from job source count",
+                          flush=True)
         except (RuntimeError, OSError, sqlite3.Error) as exc:
             print("PENDING GEMMA: status unavailable (",
                   type(exc).__name__, ")", flush=True)
@@ -231,12 +248,16 @@ def start_existing_worker(folder):
 
 
 def self_test():
+    import inspect
     assert len(FILES) == 11
     assert len(STEPS) == 4
     for _, file, args in STEPS:
         assert file in FILES
         assert isinstance(args, tuple)
     assert all(str(Path(x).suffix) == ".py" for x in FILES)
+    # Actual progress lives in the cues table, not in jobs.ja/jobs.n.
+    assert "LEFT JOIN cues c ON c.job_id = j.id" in inspect.getsource(status)
+    assert "c.japanese IS NOT NULL" in inspect.getsource(status)
     print("SELF-TEST PASSED: single-cycle dependency manifest, "
           "stage ordering and explicit-action gates; no file writes",
           flush=True)
