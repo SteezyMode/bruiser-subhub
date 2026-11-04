@@ -20,7 +20,7 @@ from pathlib import Path
 CONTAINER = "sublarr-pilot"
 PINNED_RUNNER = (
     "https://raw.githubusercontent.com/SteezyMode/bruiser-subhub/"
-    "b08b1c9bf7b4cb6929d4af48690e11993fd9e73f/"
+    "8d158d514db2690a2004da2a15ec65cecaade8f6/"
     "tools/hy_mt2_v2_runner.py"
 )
 HEADER = re.compile(
