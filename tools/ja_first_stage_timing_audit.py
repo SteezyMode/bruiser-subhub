@@ -147,10 +147,17 @@ def alignment(reference, candidate):
         for delta in (-2, -1, 0, 1, 2):
             offset = (bucket + delta) / 10.0
             matches = count_matches(offset)
+            # When many offsets fall inside the tolerance window, prefer
+            # the strongest *exact difference peak*, not the smallest
+            # offset in the window (which artificially trims true shifts).
+            strength = votes.get(round(offset * 10), 0)
+            previous = votes.get(round(best_offset * 10), 0)
             if (matches > best_hits or
-                    (matches == best_hits and abs(offset) < abs(best_offset))):
+                    (matches == best_hits and
+                     (strength > previous or
+                      (strength == previous and abs(offset) < abs(best_offset))))):
                 best_offset, best_hits = offset, matches
-    ratio = best_hits / min(len(reference), len(candidate))
+    ratio = min(1.0, best_hits / min(len(reference), len(candidate)))
     if ratio >= 0.60:
         status = "fit" if abs(best_offset) <= 0.5 else "shift_needed"
     elif ratio < 0.35:
