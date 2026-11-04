@@ -189,6 +189,10 @@ def run(store,base,root,args,translator=s.translation_call,hy=s.hy_call):
                 if job['status'] in ('hold','publish_hold'):continue
                 status['job']=job['id'];status['phase']='translate'
                 try:
+                    if translator is s.translation_call and args.mode!='qa':
+                        # Legacy generic-model cue checkpoints without this
+                        # source+prompt+model pin MUST NOT be resumed/published.
+                        tuned.assert_job_profile(root,job,int(job['ja'] or 0))
                     if args.mode!='qa' and job['ja']<job['n']:
                         began=time.monotonic();before_wh=meter.wh
                         s.translate_job(store,base,job,deadline,call=translator,
