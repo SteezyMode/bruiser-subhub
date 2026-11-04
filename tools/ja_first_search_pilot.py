@@ -389,7 +389,7 @@ def main():
                 }, ensure_ascii=False), flush=True)
             if i < len(chosen):
                 time.sleep(3.2)  # Sublarr endpoint is limited to 20 searches/minute.
-        print("\\n=== RESULT ===", flush=True)
+        print("\n=== RESULT ===", flush=True)
         for name, n in sorted(summary.items()):
             print(name + ":", n, flush=True)
         print("Private repeat-safe history:", DB, flush=True)
