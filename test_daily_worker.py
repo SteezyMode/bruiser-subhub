@@ -61,6 +61,32 @@ class DailyWorkerTests(unittest.TestCase):
         finally:
             store.cn.close()
 
+    def test_real_worker_path_explicitly_pins_subtitle_model(self):
+        """No default generic model can be passed to actual main.run."""
+        from tools import subtitle_tuned_production as tuned
+        seen=[]
+        def fake_run(store,base,root,args,translator):
+            self.assertTrue(callable(translator))
+            self.assertIsNot(translator,service.translation_call)
+            self.assertEqual(root,self.state)
+            rows=store.rows('daily-episode-abcdef012345')
+            seen.append(translator(base,rows[:1],''))
+        with patch.object(daily_worker.main,'run',fake_run), \
+             patch.object(daily_worker.tuned,'model_preflight',
+                          return_value={'gpu_resident_pct':100.0}), \
+             patch.object(tuned,'translate_selected',
+                          return_value={'1':'こんにちは'}):
+            state=daily_worker.run_one(
+                self.state,'daily-episode-abcdef012345',base=self.root)
+        self.assertEqual(state,'queued')
+        self.assertEqual(seen,[{'1':'こんにちは'}])
+        pinned=self.state/'model-profiles'/'daily-episode-abcdef012345.json'
+        self.assertTrue(pinned.is_file())
+        import json
+        profile=json.loads(pinned.read_text())
+        self.assertEqual(profile['model'],tuned.MODEL)
+        self.assertEqual(profile['expected_model_id_prefix'],'9ccfc3b07081')
+
     def test_published_daily_job_does_not_start_another_worker(self):
         store=service.Store(self.state)
         store.state('daily-episode-abcdef012345','published')
