@@ -114,12 +114,75 @@ def run(job):
                 return {"result": "already_staged", "stage_path": str(path),
                         "metrics": meta, "new_download": False}
 
+    # The live Sublarr server loads provider UI settings from config_entries
+    # during startup. A fresh docker exec Python interpreter does NOT: its
+    # get_settings() sees default, blank UISettings. Reuse Sublarr's existing
+    # pool/crypto logic rather than inventing another secret store.
+    import sqlite3
+    from urllib.parse import quote
+    from flask import Flask
+    from extensions import db as flask_db
+    from db.repositories.provider_account_pool import ProviderAccountPoolRepository
+    from services.key_selector import get_key_selector
+
     cfg = get_settings()
-    key = str(getattr(cfg, "opensubtitles_api_key", "") or "").strip()
+    if cfg.database_url and not str(cfg.database_url).startswith("sqlite"):
+        raise RuntimeError("external_database_credential_lookup_not_supported")
+    db_path = Path(cfg.db_path)
+    if not db_path.is_file() or db_path.is_symlink():
+        raise RuntimeError("sublarr_database_missing_or_unsafe")
+    key_path = Path(os.environ.get("SUBLARR_CONFIG_DIR", cfg.config_dir)) / ".encryption_key"
+
+    # A lightweight, isolated Flask app context enables Sublarr's official
+    # repository and key selector. Do not call create_app() — that initializes
+    # schedulers, services and migrations. This is DB-read-only.
+    app = Flask("bruiser_subhub_credential_reader")
+    app.config["SQLALCHEMY_DATABASE_URI"] = cfg.get_database_url()
+    app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+    flask_db.init_app(app)
+    selected = None
+    with app.app_context():
+        repo = ProviderAccountPoolRepository()
+        # A missing keyfile must not cause config_crypto.decrypt() to
+        # CREATE a replacement master encryption key.
+        if repo.get_all_for("opensubtitles"):
+            if not key_path.is_file():
+                raise RuntimeError("existing_encryption_key_missing")
+            selector = get_key_selector()
+            selected = selector.pick(
+                "opensubtitles",
+                provider_rate_limits=OpenSubtitlesProvider.rate_limits,
+            )
+            if selected is None:
+                raise RuntimeError("opensubtitles_pool_disabled_cooling_or_exhausted")
+
+    if selected is not None:
+        key = str(selected.get("api_key") or "").strip()
+        user = str(selected.get("username") or "").strip()
+        password = str(selected.get("password") or "").strip()
+        credential_source = "existing_account_pool"
+    else:
+        # Pool-less native providers are supported by Sublarr. Read the same
+        # saved config_entries used to initialize the live server. No writes.
+        from config_crypto import decrypt, is_encrypted
+        uri = "file:" + quote(str(db_path.resolve()), safe="/") + "?mode=ro"
+        with sqlite3.connect(uri, uri=True, timeout=10) as connection:
+            saved = dict(connection.execute(
+                "SELECT key, value FROM config_entries "
+                "WHERE key IN ('opensubtitles_api_key', "
+                "'opensubtitles_username', 'opensubtitles_password')"
+            ).fetchall())
+        if any(is_encrypted(value) for value in saved.values()):
+            if not key_path.is_file():
+                raise RuntimeError("existing_encryption_key_missing")
+        key = str(decrypt(saved.get("opensubtitles_api_key")) or "").strip()
+        user = str(decrypt(saved.get("opensubtitles_username")) or "").strip()
+        password = str(decrypt(saved.get("opensubtitles_password")) or "").strip()
+        credential_source = "existing_saved_ui_config"
+
     if not key:
-        raise RuntimeError("opensubtitles_api_key_not_available")
-    user = str(getattr(cfg, "opensubtitles_username", "") or "").strip()
-    password = str(getattr(cfg, "opensubtitles_password", "") or "").strip()
+        raise RuntimeError("native_opensubtitles_key_missing_in_saved_config")
+    print("CREDENTIAL SOURCE:", credential_source, "(credentials hidden)", flush=True)
     provider = OpenSubtitlesProvider(api_key=key, username=user, password=password)
     provider.initialize()
     try:
