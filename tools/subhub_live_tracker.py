@@ -106,7 +106,7 @@ def checkpoint(db_path=DB, job_id=None):
                    WHERE id=?""", (job_id,)).fetchone()
         else:
             row = con.execute(
-                """SELECT id,status,source_cues,updated,last_error FROM jobs
+                """SELECT id,status,source_cues,updated,last_error,source_sha,video FROM jobs
                    WHERE id LIKE 'daily-%'
                    ORDER BY CASE WHEN status = 'translating' THEN 0
                                       WHEN status = 'translated' THEN 1
@@ -196,7 +196,7 @@ def process_cpu(jid):
             percent = float(percentage)
         except ValueError:
             continue
-        if "daily_worker.py" in args and jid in args and name.startswith("python"):
+        if ("daily_worker.py" in args or "retranslate_attachment_e4b.py" in args) and jid in args and name.startswith("python"):
             worker.append((pid, percent))
         elif name.lower().startswith("ollama"):
             ollama.append((pid, percent))
@@ -222,7 +222,7 @@ def format_duration(seconds):
     return f"{hours}h {minutes}m" if hours else f"{minutes}m {rem}s"
 
 
-def render(job, samples):
+def render(job, samples, db_path=DB):
     complete, total = job["completed"], job["total"]
     fraction = complete / total if total else 0
     width = 36
@@ -261,7 +261,7 @@ def render(job, samples):
         output.append("JOB ERROR RECORDED: " + job["error"][:130])
     if job["recorded"] != total:
         output.append("WARNING: cue table count differs from source cue count")
-    output.extend(["", profile_info(job), queue_summary(),
+    output.extend(["", profile_info(job, db_path.parent), queue_summary(db_path),
                    gpu(), model_placement(), process_cpu(job["id"])])
     output.append("")
     output.append(
@@ -287,8 +287,8 @@ def self_test():
         gpu = lambda: "GPU offline test"
         model_placement = lambda: "Ollama offline test"
         process_cpu = lambda jid: "CPU offline test"
-        profile_info = lambda job: "Model offline test"
-        queue_summary = lambda: "Queue offline test"
+        profile_info = lambda job, root: "Model offline test"
+        queue_summary = lambda db_path: "Queue offline test"
         out = render(job, deque([(0, 10), (60, 50)]))
         assert "25.0%" in out
         assert "40.0 cues/min" in out
@@ -301,6 +301,8 @@ def self_test():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--root", type=Path, default=DB.parent,
+                        help="checkpoint state directory, default main SubHub")
     parser.add_argument("--job-id", default=None,
                         help="exact SubHub daily job ID; default running job, else pending/recent")
     parser.add_argument("--watch", action="store_true",
@@ -314,10 +316,13 @@ def main():
         return
     if not 5 <= args.interval <= 60:
         parser.error("--interval must be 5..60 seconds")
+    if args.root.is_symlink() or not args.root.is_dir():
+        parser.error("checkpoint state directory missing or symlinked")
+    db_path = args.root / "jobs.sqlite3"
     observations = deque(maxlen=18)
     last_job = None
     while True:
-        current = checkpoint(job_id=args.job_id)
+        current = checkpoint(db_path=db_path, job_id=args.job_id)
         if current is None:
             print("No daily Gemma job found in SubHub checkpoint database")
             return
@@ -325,11 +330,11 @@ def main():
             observations.clear()
             last_job = current["id"]
         observations.append((time.monotonic(), current["completed"]))
-        view = render(current, observations)
+        view = render(current, observations, db_path=db_path)
         if args.watch and sys.stdout.isatty():
             sys.stdout.write("\033[2J\033[H")
         print(view, flush=True)
-        if not args.watch or current["status"] in ("published", "publish_hold", "needs_review", "hold"):
+        if not args.watch or current["status"] in ("published", "review_ready", "publish_hold", "needs_review", "hold"):
             return
         time.sleep(args.interval)
 
