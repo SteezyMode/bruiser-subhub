@@ -21,7 +21,7 @@ Improve subtitle readability by removing filler, awkward calques, and redundant 
 3. **Library-scale automation.** Preserve the existing ~6 TB file organization; find English embedded/sidecar tracks, acquire where needed, translate and publish only missing Japanese; checkpoint and recover.
 4. **Preserve human work.** Existing Japanese/editorial tracks are authoritative; never overwrite, delete or silently supersede them.
 5. **Minimize software maintenance.** Use off-the-shelf free tools wherever they work better. **SubHub/Bruiser code is disposable**; stop developing it if existing tools solve the goal with less work.
-6. **No irrelevant scope.** Dual-sub playback, OptiPlex NOW commercialization, dashboards, product naming, feature parity, and speculative AI orchestration are not blockers. The current primary candidate for direct EN→JA translation is Hy-MT2 7B, not an advisory reviewer.
+6. **No irrelevant scope.** Dual-sub playback, OptiPlex NOW commercialization, dashboards, product naming, feature parity, and speculative AI orchestration are not blockers. The current production translator is the pinned subtitle-tuned E4B, not generic Gemma or Hy-MT2 7B. Read docs/PRODUCTION_TRANSLATION_MODEL.md before changing it.
 
 ## Model-use contract — mandatory
 
@@ -32,6 +32,12 @@ Improve subtitle readability by removing filler, awkward calques, and redundant 
 5. **Respect real viewing quality.** Subtitles must be judged in context, including readable on-screen duration; passing a timestamp check does not prove readability or Japanese accuracy. Target ~7.5–8.5/10 for home use, not a proprietary Netflix-grade metric.
 6. **Protect existing files.** Never overwrite existing human-edited Japanese; full-episode trial output is a draft and should never automatically publish.
 7. **Any deviation requires evidence.** State the exact departure from official model instructions, its reason, and a direct comparison against the untouched baseline. No speculative "enhancements."
+
+## CURRENT production decision — 2026-11-04 (supersedes older experiments)
+
+**Chosen production model: 17slever17 Translate Gemma 4 Sub E4B Q4_K_XL, exact Ollama tag hf.co/17slever17/translate-gemma-4-sub-e4b-GGUF:Q4_K_XL, model ID 9ccfc3b07081.** The authoritative model card, native CURRENT_SOURCE chat format, run settings, safeguards and matched E4B vs Hy7 evidence are in [docs/PRODUCTION_TRANSLATION_MODEL.md](docs/PRODUCTION_TRANSLATION_MODEL.md). The independent native-Japanese 8/10 grade is still unproven. E4B is nevertheless the current pinned production default, not a tentative model that workers may replace freely.
+
+The legacy Hy-MT2 evidence below is historical. Generic gemma4:e4b-it-qat produced the inadequate Attachment (2022) track and is **not allowed** as the production fallback. Existing Japanese/editorial files must never be overwritten.
 
 ## Verified clean-test state — 2026-11-03
 
