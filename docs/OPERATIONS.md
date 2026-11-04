@@ -1,5 +1,7 @@
 # Local operation, inspection, and rollout
 
+**CURRENT TRANSLATOR (2026-11-04): pinned subtitle-tuned 17slever17 E4B, model ID 9ccfc3b07081.** Read [the production model decision](PRODUCTION_TRANSLATION_MODEL.md) before touching any legacy commands. Hy7 and generic Gemma are not current production choices.
+
 The known OptiPlex deployment is **not yet a portable install**. Commands below are for the owner on the server. Never put the media paths, logs, or exported subtitle content into Git.
 
 ## Safe read-only checks
