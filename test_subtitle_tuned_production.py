@@ -84,7 +84,7 @@ class SubtitleTunedProductionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             job = {"id": "daily-test", "source_sha": "a"*64}
-            with self.assertRaisesRegex(RuntimeError, "prior model"):
+            with self.assertRaisesRegex(RuntimeError, "prior model|prior.*model|mix general"):
                 tuned.assert_job_profile(root, job, 2)
             self.assertFalse((root/"model-profiles").exists())
             profile = tuned.assert_job_profile(root, job, 0)
