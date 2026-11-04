@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Translate/publish ONLY one daily job using already-installed SubHub 1.0.
 
-No monolithic worker deployment, new model, or unrelated legacy queue jobs.
-The existing main.run supplies locks, preflight, thermal guards, per-cue
-checkpoints, and create-only publisher. This wrapper restricts its job view
-to exactly the requested daily job, even when other old titles are queued.
+The author-trained subtitle-tuned E4B model is mandatory for live daily jobs.
+Use its native CURRENT_SOURCE protocol rather than legacy multi-cue JSON.
+Existing main.run supplies locks, thermal limits, checkpoints and publication.
+Only one requested daily job is exposed, never unrelated legacy queue work.
 """
 from __future__ import annotations
 
@@ -15,8 +15,10 @@ import sys
 
 try:
     import subtitle_publish_gate as gate
+    import subtitle_tuned_production as tuned
 except ModuleNotFoundError:
     from tools import subtitle_publish_gate as gate
+    from tools import subtitle_tuned_production as tuned
 
 HOST_CODE=Path.home()/'bruiser-pilot/subhub1'
 if HOST_CODE.is_dir():
@@ -50,6 +52,21 @@ def run_one(root,job_id,base=None,worker=None):
             max_gpu_c=82,max_cpu_c=85,hy_sample=0,
             sample_seconds=15,publish=True,skip_hy=True)
         work=worker or main.run
+        kwargs = {}
+        if worker is None:
+            # Fail before inference when a previous generic-model checkpoint
+            # exists without a matching explicit tuned-model provenance file.
+            profile = root / "model-profiles" / (job_id + ".json")
+            if selected["ja"] and not profile.is_file():
+                raise RuntimeError(
+                    "Unpinned Japanese checkpoints from a prior model; "
+                    "refusing mixed-model translation")
+            tuned.model_preflight()
+            tuned.assert_job_profile(root, selected, int(selected["ja"] or 0))
+            kwargs["translator"] = tuned.make_translator(store, selected)
+            print("DAILY_TRANSLATOR_PINNED", tuned.MODEL,
+                  "prompt_sha256", tuned.PROFILE["system_sha256"],
+                  "history_pairs", tuned.PREVIOUS_PAIRS, flush=True)
         # The existing native SubHub 1.0 main.run invokes main.s.publish_job.
         # Interpose ONLY for this selected daily worker process, never edit
         # installed service.py or previously published sidecars.
@@ -72,7 +89,7 @@ def run_one(root,job_id,base=None,worker=None):
             return original_publisher(active_store,active_job,apply=apply)
         try:
             service.publish_job=guarded_publish
-            work(store,base or HOST_CODE,root,args)
+            work(store,base or HOST_CODE,root,args,**kwargs)
         finally:
             service.publish_job=original_publisher
         current=store.jobs()[0]
