@@ -132,6 +132,10 @@ def run(job):
     if not db_path.is_file() or db_path.is_symlink():
         raise RuntimeError("sublarr_database_missing_or_unsafe")
     key_path = Path(os.environ.get("SUBLARR_CONFIG_DIR", cfg.config_dir)) / ".encryption_key"
+    if not key_path.is_file() or key_path.is_symlink():
+        # Sublarr's decrypt() creates a new master key if the existing one
+        # is missing. Refuse before invoking repository decryption.
+        raise RuntimeError("existing_encryption_key_missing_or_unsafe")
 
     # A lightweight, isolated Flask app context enables Sublarr's official
     # repository and key selector. Do not call create_app() — that initializes
