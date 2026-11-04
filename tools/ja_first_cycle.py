@@ -6,8 +6,9 @@ No new translator, provider integration, user database, or background service.
   status                 Show existing Japanese/English workflow state (read-only).
   cycle --apply          Bounded sequential provider search -> staging -> JA
                          publication -> English/Gemma handoff. NO GPU start.
-  start-worker --apply   Resume exactly the currently pending one-title Gemma
-                         job using the existing SubHub 1.0 checkpoint worker.
+  start-worker --apply   Start/resume exactly one pending subtitle-tuned E4B job.
+  start-worker --apply --watch   Start and show live progress in this terminal.
+  watch                  Attach read-only tracker to currently running job.
   --self-test            Verify wiring and offline contracts, no mutations.
 
 Every dangerous action requires --apply and is bounded. Errors halt the
@@ -44,6 +45,7 @@ FILES = {
     "subtitle_publish_gate.py",
     "subtitle_quality_010.py",
     "subtitle_tuned_production.py",
+    "subhub_live_tracker.py",
 }
 STEPS = (
     ("DISCOVERY", "ja_first_search_pilot.py", ("--budget", "8")),
@@ -252,11 +254,36 @@ def start_existing_worker(folder):
     print("WORKER LAUNCH:", result, flush=True)
     print("CHECKPOINT DATABASE:", JA_ROOT / "jobs.sqlite3", flush=True)
     print("WORKER LOG:", JA_ROOT / "daily-worker.log", flush=True)
+    print("LIVE TRACKER: python3", folder / "ja_first_cycle.py",
+          "watch (or start-worker --apply --watch)", flush=True)
+    return jid
+
+
+def watch(folder, job_id=None, interval=10):
+    """Attach read-only tracker to a known job or active job automatically.
+
+    Ctrl+C stops only the tracker; the worker is detached and keeps running.
+    No additional GPU work or provider calls are initiated.
+    """
+    tracker = folder / "subhub_live_tracker.py"
+    if tracker.is_symlink() or not tracker.is_file():
+        raise RuntimeError("SubHub tracker missing; reinstall controller tools")
+    args = [sys.executable, "-u", str(tracker), "--watch",
+            "--interval", str(interval)]
+    if job_id:
+        if not re.fullmatch(r"daily-[a-z0-9-]{1,95}", job_id):
+            raise RuntimeError("Invalid job ID for tracker")
+        args.extend(["--job-id", job_id])
+    try:
+        return subprocess.call(args, cwd=str(folder))
+    except KeyboardInterrupt:
+        print("Tracker detached; translation continues.", flush=True)
+        return 0
 
 
 def self_test():
     import inspect
-    assert len(FILES) == 12
+    assert len(FILES) == 13
     assert len(STEPS) == 4
     for _, file, args in STEPS:
         assert file in FILES
@@ -272,11 +299,15 @@ def self_test():
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("status", "cycle", "start-worker"),
+    parser.add_argument("action", choices=("status", "cycle", "start-worker", "watch"),
                         nargs="?", default="status")
     parser.add_argument("--apply", action="store_true",
                         help="required for cycle and start-worker")
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--watch", action="store_true",
+                        help="attach live terminal tracker after starting a worker")
+    parser.add_argument("--interval", type=int, default=10,
+                        help="tracker refresh interval in seconds (5..60)")
     parser.add_argument("--search-budget", type=int, default=8)
     parser.add_argument("--stage-budget", type=int, default=2)
     parser.add_argument("--publish-limit", type=int, default=2)
@@ -285,17 +316,24 @@ def main(argv=None):
     if args.self_test:
         self_test()
         return
+    if not 5 <= args.interval <= 60:
+        parser.error("--interval must be 5..60")
     if args.action == "status":
         status()
         return
+    folder = Path(__file__).resolve().parent
+    if args.action == "watch":
+        watch(folder, interval=args.interval)
+        return
     if not args.apply:
         parser.error(args.action + " requires --apply")
-    folder = Path(__file__).resolve().parent
     if args.action == "cycle":
         cycle(folder, args.search_budget, args.stage_budget,
               args.publish_limit, args.fallback_budget)
     elif args.action == "start-worker":
-        start_existing_worker(folder)
+        job = start_existing_worker(folder)
+        if args.watch and job:
+            watch(folder, job_id=job, interval=args.interval)
 
 
 if __name__ == "__main__":
