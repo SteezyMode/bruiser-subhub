@@ -1,4 +1,4 @@
-"""Offline style-profile tests; no real Ollama or copyrighted media."""
+"""Research-only LEGACY JSON style-profile tests; not production subtitle E4B."""
 import os
 from pathlib import Path
 import sys
@@ -44,7 +44,7 @@ class LocalizationPolicyTests(unittest.TestCase):
     def test_profile_preserves_structure_and_explicit_intent(self):
         received=[]
         with patch.dict(sys.modules,{'bruiser_auto':self.stub(received)}):
-            result=s.translation_call(Path(self.tmp.name),self.rows,'',style='natural_8')
+            result=s.legacy_json_translation_call(Path(self.tmp.name),self.rows,'',style='natural_8')
         self.assertEqual(result,{'1':'ひどい失敗だった。','2':'置いていくんじゃねえ。'})
         system=received[0]['system']
         self.assertTrue(system.startswith('BASE SYSTEM INSTRUCTIONS'))
@@ -60,7 +60,7 @@ class LocalizationPolicyTests(unittest.TestCase):
         received=[]
         with patch.dict(sys.modules,{'bruiser_auto':self.stub(received)}):
             with patch.dict(os.environ,{'SUBHUB_LOCALIZATION_STYLE':'baseline'}):
-                s.translation_call(Path(self.tmp.name),self.rows,'')
+                s.legacy_json_translation_call(Path(self.tmp.name),self.rows,'')
         self.assertEqual(received[0]['system'],'BASE SYSTEM INSTRUCTIONS')
         self.assertEqual(received[0]['payload'],'structured payload')
 
@@ -68,16 +68,16 @@ class LocalizationPolicyTests(unittest.TestCase):
         received=[]
         with patch.dict(sys.modules,{'bruiser_auto':self.stub(received)}):
             with patch.dict(os.environ,{'SUBHUB_LOCALIZATION_STYLE':'natural_8'}):
-                s.translation_call(Path(self.tmp.name),self.rows,'')
+                s.legacy_json_translation_call(Path(self.tmp.name),self.rows,'')
             with patch.dict(os.environ,{'SUBHUB_LOCALIZATION_STYLE':'unknown'}):
                 with self.assertRaisesRegex(ValueError,'Unknown localization style'):
-                    s.translation_call(Path(self.tmp.name),self.rows,'')
+                    s.legacy_json_translation_call(Path(self.tmp.name),self.rows,'')
         self.assertEqual(len(received),1)
 
     def test_faithful_8_has_no_soft_character_quota_and_preserves_adult_intent(self):
         received=[]
         with patch.dict(sys.modules,{'bruiser_auto':self.stub(received)}):
-            s.translation_call(Path(self.tmp.name),self.rows,'',style='faithful_8')
+            s.legacy_json_translation_call(Path(self.tmp.name),self.rows,'',style='faithful_8')
         system=received[0]['system']
         self.assertIn('MEANING-FIRST ADULT JAPANESE SUBTITLES',system)
         self.assertIn('directed AT someone',system)
@@ -92,8 +92,8 @@ class LocalizationPolicyTests(unittest.TestCase):
         received=[]
         with patch.dict(sys.modules,{'bruiser_auto':self.stub(received)}):
             with patch.dict(os.environ,{'SUBHUB_LOCALIZATION_STYLE':'baseline'}):
-                s.translation_call(Path(self.tmp.name),self.rows,'',style='faithful_8')
-                s.translation_call(Path(self.tmp.name),self.rows,'')
+                s.legacy_json_translation_call(Path(self.tmp.name),self.rows,'',style='faithful_8')
+                s.legacy_json_translation_call(Path(self.tmp.name),self.rows,'')
         self.assertIn('MEANING-FIRST',received[0]['system'])
         self.assertEqual(received[1]['system'],'BASE SYSTEM INSTRUCTIONS')
     def test_no_hard_truncation_and_no_db_mutation(self):
