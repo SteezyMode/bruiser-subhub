@@ -3,7 +3,7 @@
 # Does NOT enable a timer or start translation. Uses a fixed source commit.
 set -euo pipefail
 
-PIN="eba37eca4bf7009e5e854c11aab9e311d804e105"
+PIN="6bee7700a234df219fa3073b45f19fe7a73ecf39"
 BASE="https://raw.githubusercontent.com/SteezyMode/bruiser-subhub/$PIN/tools"
 DEST="$HOME/bruiser-pilot/subhub-control"
 
@@ -28,6 +28,7 @@ NAMES=(
   daily_worker.py
   subtitle_publish_gate.py
   subtitle_quality_010.py
+  subtitle_tuned_production.py
 )
 for name in "${NAMES[@]}"; do
   target="$DEST/$name"
@@ -59,5 +60,5 @@ PY
 PYTHONDONTWRITEBYTECODE=1 python3 "$DEST/ja_first_cycle.py" --self-test
 printf '\nCONTROLLER: %s\n' "$DEST/ja_first_cycle.py"
 printf 'STATUS: python3 %s/ja_first_cycle.py status\n' "$DEST"
-printf 'START QUEUED GEMMA JOB: python3 %s/ja_first_cycle.py start-worker --apply\n' "$DEST"
+printf 'START PINNED E4B JOB (only after model preflight): python3 %s/ja_first_cycle.py start-worker --apply\n' "$DEST"
 printf 'ONE BOUNDED JA-FIRST CYCLE: python3 %s/ja_first_cycle.py cycle --apply\n' "$DEST"
