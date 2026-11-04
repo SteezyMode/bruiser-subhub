@@ -43,6 +43,7 @@ FILES = {
     "daily_worker.py",
     "subtitle_publish_gate.py",
     "subtitle_quality_010.py",
+    "subtitle_tuned_production.py",
 }
 STEPS = (
     ("DISCOVERY", "ja_first_search_pilot.py", ("--budget", "8")),
@@ -61,6 +62,12 @@ def required_code(folder):
                          or (folder / name).is_symlink()))
     if missing:
         raise RuntimeError("Missing companion tools: " + ", ".join(missing))
+    worker = (folder / "daily_worker.py").read_text(encoding="utf-8")
+    model = (folder / "subtitle_tuned_production.py").read_text(encoding="utf-8")
+    if "import subtitle_tuned_production as tuned" not in worker:
+        raise RuntimeError("Unsafe legacy daily worker: missing subtitle-tuned E4B hook")
+    if 'MODEL_ID_PREFIX = "9ccfc3b07081"' not in model:
+        raise RuntimeError("Subtitle model pin changed; refusing legacy downgrade")
 
 
 def ro_uri(path):
@@ -249,7 +256,7 @@ def start_existing_worker(folder):
 
 def self_test():
     import inspect
-    assert len(FILES) == 11
+    assert len(FILES) == 12
     assert len(STEPS) == 4
     for _, file, args in STEPS:
         assert file in FILES
@@ -258,7 +265,7 @@ def self_test():
     # Actual progress lives in the cues table, not in jobs.ja/jobs.n.
     assert "LEFT JOIN cues c ON c.job_id = j.id" in inspect.getsource(status)
     assert "c.japanese IS NOT NULL" in inspect.getsource(status)
-    print("SELF-TEST PASSED: single-cycle dependency manifest, "
+    print("SELF-TEST PASSED: E4B-pinned single-cycle dependency manifest, "
           "stage ordering and explicit-action gates; no file writes",
           flush=True)
 
