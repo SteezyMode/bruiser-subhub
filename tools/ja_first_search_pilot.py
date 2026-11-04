@@ -68,7 +68,7 @@ for i, job in enumerate(jobs):
 
 
 def tokens(value):
-    return TOKENS.findall(str(value or "").casefold())
+    return re.findall(r"[a-z]+|[0-9]+", str(value or "").casefold())
 
 
 def episode_tags(value):
@@ -97,40 +97,46 @@ def sidecar_present(video):
 
 
 def candidate_grade(row, result):
-    """Return plausible, review, or reject. This does NOT approve a download."""
+    """Grade identity evidence only. Never approve a subtitle download.
+
+    The provider may have a perfectly valid SRT while reporting format=unknown
+    (e.g. an extensionless OpenSubtitles filename). Format must be checked
+    separately using subtitle bytes after an authorized staging download.
+    """
     if str(result.get("language") or "").casefold() not in {"ja", "jpn"}:
         return "reject"
     if result.get("forced") is True or result.get("kind") in {"forced", "signs"}:
         return "reject"
-    if str(result.get("format") or "").lower() not in {"srt", "ass", "ssa", "vtt"}:
-        return "review"
     matches = set(result.get("matches") or [])
     name = str(result.get("filename") or "")
     release = str(result.get("release_info") or "")
+
     if row["kind"] == "Movie":
         title_tokens = tokens(row.get("title"))
         year = str(row.get("year") or "")
-        if not title_tokens or not re.fullmatch(r"\d{4}", year):
+        if not title_tokens or not re.fullmatch(r"\\d{4}", year):
             return "review"
-        found_title = False
-        wrong_year = False
+        found_title, conflicting_year, exact_identity = False, False, False
         for text in (name, release):
             words = tokens(text)
-            target = title_tokens + [year]
-            for i in range(len(words) - len(target) + 1):
-                if words[i:i + len(target)] == target:
-                    return "plausible"
             for i in range(len(words) - len(title_tokens) + 1):
-                if words[i:i + len(title_tokens)] == title_tokens:
-                    found_title = True
-                    following = words[i + len(title_tokens):]
-                    if following and re.fullmatch(r"(?:19|20)\d{2}", following[0]) and following[0] != year:
-                        wrong_year = True
-        # Exclude explicit conflicting film years and unrelated search noise.
-        # Generic filenames stay in review; they are not automatically valid.
-        if wrong_year:
-            return "reject"
+                if words[i:i + len(title_tokens)] != title_tokens:
+                    continue
+                found_title = True
+                preceding = words[i - 1] if i else ""
+                following = words[i + len(title_tokens)] if i + len(title_tokens) < len(words) else ""
+                if year in (preceding, following):
+                    exact_identity = True
+                for neighbor in (preceding, following):
+                    if re.fullmatch(r"(?:19|20)\\d{2}", neighbor) and neighbor != year:
+                        conflicting_year = True
+        if conflicting_year:
+            return "review" if exact_identity else "reject"
+        if exact_identity:
+            return "plausible"
+        # Search score alone cannot prove that the candidate is the right film.
         return "review" if found_title or "title" in matches else "reject"
+
     if row["kind"] == "Episode":
         expected = (row.get("season"), row.get("episode"))
         tags = episode_tags(name + " " + release)
@@ -148,8 +154,21 @@ def checks():
     assert candidate_grade(friday, result) == "plausible"
     assert candidate_grade(friday, dict(result, filename="Next.Friday.2000.1080p")) == "reject"
     assert candidate_grade(friday, dict(result, filename="Friday.2010.1080p")) == "reject"
+    assert candidate_grade(friday, dict(result, filename=".srt", matches=["title"])) == "review"
+    fargo = {"kind": "Movie", "title": "Fargo", "year": 1996}
+    assert candidate_grade(fargo, dict(result, filename="1996-_Fargo",
+                                       format="unknown")) == "plausible"
+    eastern = {"kind": "Movie", "title": "Eastern Promises", "year": 2007}
+    assert candidate_grade(eastern, dict(result, filename="Eastern.Promises.2007.2160p",
+                                         format="unknown")) == "plausible"
+    lethal = {"kind": "Movie", "title": "Lethal Weapon 2", "year": 1989}
+    assert candidate_grade(lethal, dict(result, filename="2_Lethal_Weapon2_1989_Ja-Sub",
+                                        format="unknown")) == "plausible"
+    smile = {"kind": "Movie", "title": "Smile", "year": 2022}
+    assert candidate_grade(smile, dict(result, filename="Smile.2022.Netflix",
+                                       format="unknown")) == "plausible"
     episode = {"kind": "Episode", "season": 3, "episode": 5}
-    good = {"language": "ja", "format": "srt", "filename": "From.S03E05.1080p",
+    good = {"language": "ja", "format": "unknown", "filename": "From.S03E05.1080p",
             "matches": ["series", "season", "episode"]}
     assert candidate_grade(episode, good) == "plausible"
     assert candidate_grade(episode, dict(good, filename="From.S03E06.1080p")) == "reject"
@@ -316,40 +335,70 @@ def save_attempt(db, job, outcome, total=None, rated=None):
 
 
 def offline_report(limit=10):
-    """Inspect recent saved candidate evidence without touching media or providers."""
+    """Re-grade saved evidence with current rules. Never rewrite saved history."""
     if not DB.is_file() or DB.is_symlink() or DB.stat().st_mode & 0o077:
         raise RuntimeError("Missing or unsafe search history database")
+    # Report mode deliberately permits old inventory manifests: no search
+    # happens, so staleness does not expose the live media library to action.
+    manifests = sorted(ROOT.glob("ja-intake-*.json"))
+    if not manifests:
+        raise RuntimeError("No inventory manifest for offline identity lookup")
+    manifest = manifests[-1]
+    if not manifest.is_file() or manifest.is_symlink() or manifest.stat().st_mode & 0o077:
+        raise RuntimeError("Unsafe inventory manifest")
+    inventory = json.loads(manifest.read_text(encoding="utf-8"))
+    identities = {str(x.get("jellyfin_id")): x
+                  for x in inventory.get("items", []) if isinstance(x, dict)}
     with sqlite3.connect("file:" + str(DB) + "?mode=ro", uri=True, timeout=10) as db:
         rows = db.execute(
-            """SELECT kind,title,outcome,candidate_count,plausible_count,
+            """SELECT jellyfin_id,kind,title,outcome,candidate_count,plausible_count,
                       results_json,searched_at FROM searches
                WHERE outcome NOT IN ('in_progress')
                ORDER BY searched_at DESC, title LIMIT ?""",
             (limit,),
         ).fetchall()
-    print("=== SAVED JAPANESE SEARCH EVIDENCE (NO NEW SEARCHES) ===", flush=True)
-    print("Completed records shown:", len(rows), flush=True)
-    for kind,title,outcome,count,plausible,body,when in rows:
-        print(f"\n{kind} | {title} | {outcome.upper()} "
-              f"| candidates={count} plausible={plausible} | UTC={when}",
-              flush=True)
+    print("=== OFFLINE JAPANESE CANDIDATE RE-GRADE ===", flush=True)
+    print("Saved records:", len(rows), "| inventory:", manifest.name, flush=True)
+    totals = Counter()
+    for id_, kind, title, old_outcome, count, old_plausible, body, when in rows:
+        identity = identities.get(str(id_), {})
+        name = identity.get("series_title") if kind == "Episode" else identity.get("title")
+        label = (f'{name} S{identity.get("season"):02d}E{identity.get("episode"):02d}'
+                 if kind == "Episode" and type(identity.get("season")) is int
+                 and type(identity.get("episode")) is int
+                 else f'{name} ({identity.get("year")})' if name and kind == "Movie"
+                 else title)
         try:
             data = json.loads(body)
         except ValueError:
-            print("  malformed result record", flush=True)
+            print("INVALID saved result:", title, flush=True)
+            totals["invalid_record"] += 1
             continue
         entries = data.get("candidates") or []
-        for result in entries[:10]:
+        updated = []
+        for result in entries:
+            if not isinstance(result, dict) or not identity:
+                continue
+            grade = candidate_grade(identity, result)
+            if grade != "reject":
+                updated.append((grade, result))
+        good = sum(grade == "plausible" for grade, _ in updated)
+        review = sum(grade == "review" for grade, _ in updated)
+        fresh_outcome = "plausible" if good else ("review" if review else "none")
+        totals[fresh_outcome] += 1
+        print(f"\n{label} | original={old_outcome} -> current={fresh_outcome}"
+              f" | plausible={good} review={review}", flush=True)
+        for grade, result in updated[:10]:
             print(" ", json.dumps({
-                "grade": result.get("grade"), "provider": result.get("provider"),
-                "filename": result.get("filename"),
+                "identity": grade, "format_status": result.get("format"),
+                "provider": result.get("provider"), "filename": result.get("filename"),
                 "release_info": result.get("release_info"),
-                "score": result.get("score"), "matches": result.get("matches"),
-                "format": result.get("format"), "kind": result.get("kind"),
-                "subtitle_id": result.get("subtitle_id"),
+                "matches": result.get("matches"), "score": result.get("score"),
+                "subtitle_id": result.get("subtitle_id")
             }, ensure_ascii=False), flush=True)
-    print("\nREPORT COMPLETE: No provider requests, downloads or file changes.",
-          flush=True)
+    print("\nRE-GRADED SUMMARY:", dict(totals), flush=True)
+    print("READ ONLY: no providers contacted, no database changes, no downloads.", flush=True)
+    print("Identity plausibility is NOT approval to download or publish.", flush=True)
 
 
 def main():
