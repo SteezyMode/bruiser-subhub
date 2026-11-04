@@ -112,14 +112,25 @@ def candidate_grade(row, result):
         year = str(row.get("year") or "")
         if not title_tokens or not re.fullmatch(r"\d{4}", year):
             return "review"
+        found_title = False
+        wrong_year = False
         for text in (name, release):
             words = tokens(text)
             target = title_tokens + [year]
             for i in range(len(words) - len(target) + 1):
                 if words[i:i + len(target)] == target:
                     return "plausible"
-        # A conflicting named year is not sufficient proof of identity.
-        return "review"
+            for i in range(len(words) - len(title_tokens) + 1):
+                if words[i:i + len(title_tokens)] == title_tokens:
+                    found_title = True
+                    following = words[i + len(title_tokens):]
+                    if following and re.fullmatch(r"(?:19|20)\\d{2}", following[0]) and following[0] != year:
+                        wrong_year = True
+        # Exclude explicit conflicting film years and unrelated search noise.
+        # Generic filenames stay in review; they are not automatically valid.
+        if wrong_year:
+            return "reject"
+        return "review" if found_title or "title" in matches else "reject"
     if row["kind"] == "Episode":
         expected = (row.get("season"), row.get("episode"))
         tags = episode_tags(name + " " + release)
@@ -135,8 +146,8 @@ def checks():
     friday = {"kind": "Movie", "title": "Friday", "year": 1995}
     result = {"language": "ja", "format": "srt", "filename": "Friday.1995.1080p"}
     assert candidate_grade(friday, result) == "plausible"
-    assert candidate_grade(friday, dict(result, filename="Next.Friday.2000.1080p")) == "review"
-    assert candidate_grade(friday, dict(result, filename="Friday.2010.1080p")) == "review"
+    assert candidate_grade(friday, dict(result, filename="Next.Friday.2000.1080p")) == "reject"
+    assert candidate_grade(friday, dict(result, filename="Friday.2010.1080p")) == "reject"
     episode = {"kind": "Episode", "season": 3, "episode": 5}
     good = {"language": "ja", "format": "srt", "filename": "From.S03E05.1080p",
             "matches": ["series", "season", "episode"]}
