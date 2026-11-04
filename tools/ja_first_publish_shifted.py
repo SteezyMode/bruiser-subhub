@@ -96,6 +96,25 @@ def shift_srt(raw, offset_seconds):
     return changed.encode("utf-8"), replacements
 
 
+def corrected_timing_approved(result):
+    """Require an explicit numeric offset; zero is a valid perfect match.
+
+    Do not use "value or fallback" for timestamps: 0.0 is falsy but must
+    not be mistaken for missing/invalid data.
+    """
+    if (result.get("status") != "fit"
+            or result.get("reference_trust") != "trusted_embedded"):
+        return False
+    try:
+        fraction = float(result["matching_start_fraction"])
+        offset = float(result["best_offset_seconds"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    import math
+    return (math.isfinite(fraction) and MIN_MATCH <= fraction <= 1.0
+            and math.isfinite(offset) and abs(offset) <= AFTER_OFFSET_MAX)
+
+
 def staged_rows(jid):
     uri = gate.db_uri(gate.STAGE_DB)
     with sqlite3.connect(uri, uri=True, timeout=10) as db:
@@ -166,10 +185,7 @@ def preparation(jid):
             if corrected_qa != initial_qa:
                 raise RuntimeError("cue_or_japanese_text_changed_in_correction")
             after = audit.inspect(row, shifted)
-            if (after.get("status") != "fit"
-                    or after.get("reference_trust") != "trusted_embedded"
-                    or float(after.get("matching_start_fraction") or 0) < MIN_MATCH
-                    or abs(float(after.get("best_offset_seconds") or 999)) > AFTER_OFFSET_MAX):
+            if not corrected_timing_approved(after):
                 print("CORRECTION HELD:", sid, json.dumps(after), flush=True)
                 continue
             print("CORRECTION VERIFIED:", json.dumps({
@@ -262,6 +278,18 @@ def save_derived(best):
 
 
 def self_test():
+    # A perfectly aligned corrected track has an offset of exactly 0.0.
+    verified = {
+        "status": "fit", "reference_trust": "trusted_embedded",
+        "matching_start_fraction": 0.999, "best_offset_seconds": 0.0,
+    }
+    assert corrected_timing_approved(verified)
+    assert corrected_timing_approved(dict(verified, best_offset_seconds=-0.1))
+    assert not corrected_timing_approved(dict(verified, best_offset_seconds=0.4))
+    assert not corrected_timing_approved(dict(verified, best_offset_seconds=None))
+    assert not corrected_timing_approved(dict(verified, matching_start_fraction=0.90))
+    assert not corrected_timing_approved(dict(verified, reference_trust="untrusted_sidecar"))
+    assert not corrected_timing_approved(dict(verified, status="uncertain"))
     # Test the *production* 75-cue minimum with a realistic 90-cue fixture.
     # The prior two-cue fixture incorrectly failed its own safety gate.
     blocks = [
