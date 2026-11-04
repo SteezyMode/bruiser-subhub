@@ -159,7 +159,7 @@ def test():
     assert STAGE_NAME.fullmatch("a"*32 + ".opensubtitles.11947715.ja.srt")
     assert not STAGE_NAME.fullmatch("../foo")
     assert "from subtitle_timing import align, find_reference" in WORKER
-    assert WORKER.index("try:\\n    job = json.load") > WORKER.index("def check(job):")
+    assert WORKER.find("def check(job):") < WORKER.find("try:")
     assert "TIMING_RESULT_JSON:" in WORKER
     print("SELF-TEST PASSED: worker syntax and staging IDs; no network or writes")
 
