@@ -1,20 +1,25 @@
 #!/usr/bin/env python3
-"""Read-only timing alignment audit for durably staged Japanese subtitles.
+"""Read-only timing audit for previously staged Japanese subtitles.
 
-Compares an existing staged JA subtitle to a different-language embedded or
-sidecar timing reference using Sublarr's OWN subtitle_timing.align() module.
-No provider searches/downloads, translations, sidecar publication or media
-writes. Sublarr may create/delete its normal temporary SRT reference in /tmp.
+Runs directly on the OptiPlex HOST. Uses Python stdlib plus the already-installed
+ffprobe/ffmpeg binaries. Neither the host nor the container needs any Sublarr
+Python timing modules. All media reads are restricted to approved local mounts.
 
-A lack of a reliable reference is 'unverified', NEVER 'aligned'.
+References, in preference order:
+  1. A non-forced embedded text subtitle from the SAME VIDEO FILE (trusted).
+  2. A full, specifically English-tagged sidecar for the SAME VIDEO (untrusted).
+No reference -> UNVERIFIED, not FIT. Even FIT is not publication approval.
+
+ffmpeg extracts subtitle text ONLY to stdout. The tool writes no files, opens
+no provider connections, does not shift subtitle timings, and never publishes.
 """
 from __future__ import annotations
 
 import argparse
-import base64
+import bisect
+from collections import Counter
 import hashlib
 import json
-import os
 from pathlib import Path
 import re
 import sqlite3
@@ -25,197 +30,382 @@ from urllib.parse import quote
 ROOT = Path.home() / "bruiser-pilot/ja-first-inventory"
 STAGE_DB = ROOT / "japanese-stage.sqlite3"
 STAGED = ROOT / "staged"
-SUPPORTED_EXT = {".srt", ".ass"}
+ALLOWED_ROOTS = (
+    Path("/mnt/BigDisk/Video"),
+    Path("/mnt/2TB/Plex Expansion"),
+)
+VIDEO_EXTS = {".mkv", ".mp4", ".m4v", ".avi", ".mov", ".webm", ".ts", ".m2ts"}
+SUB_EXTS = {".srt", ".ass", ".ssa", ".vtt"}
+TEXT_CODECS = {"subrip", "srt", "ass", "ssa", "webvtt", "mov_text", "text"}
+EN_LANGS = {"en", "eng", "english"}
+JA_LANGS = {"ja", "jpn", "jp", "japanese"}
 ID = re.compile(r"[a-f0-9]{32}\Z")
-STAGE_NAME = re.compile(r"([a-f0-9]{32})\.opensubtitles\.([1-9][0-9]{3,13})\.ja\.(srt|ass)\Z")
+STAGE_NAME = re.compile(
+    r"([a-f0-9]{32})\.opensubtitles\.([1-9][0-9]{3,13})\.ja\.(srt|ass)\Z"
+)
 
-# All imports and subtitle alignment happen inside the existing Sublarr
-# container, using a bounded single JSON job on stdin; no secrets involved.
-WORKER = r'''
-import base64
-import json
-import sys
+# Accept standard SRT/VTT clocks (with optional hours) and ASS Dialogue clocks.
+CLOCK_TEXT = r"(?:\d{1,3}:)?\d{2}:\d{2}[,.]\d{2,3}"
+SRT_START = re.compile(
+    r"(?m)^[ \t]*(" + CLOCK_TEXT + r")[ \t]*-->[ \t]*" + CLOCK_TEXT
+)
+ASS_DIALOGUE = re.compile(r"(?im)^[ \t]*Dialogue:[ \t]*[^\r\n]+$")
+CLOCK_VALUE = re.compile(
+    r"(?:(\d{1,3}):)?(\d{2}):(\d{2})[,.](\d{2,3})\Z"
+)
+MIN_CUES = 40
+MAX_CUES = 6000
+MAX_BYTES = 2_000_000
+MAX_OFFSET_S = 120.0
+MAX_PAIRS = 2_000_000
+TOLERANCE_S = 0.35
 
-def check(job):
-    # Installed Sublarr versions may not contain these optional helper
-    # modules. Resolve imports INSIDE the protected worker try block so a
-    # missing module produces a useful structured hold, never an empty reply.
-    from subtitle_dialogue import dialogue_starts
-    from subtitle_timing import align, find_reference
 
-    path = str(job.get("sublarr_path") or "")
-    if not (path.startswith("/media/bigdisk-video/")
-            or path.startswith("/media/expansion-video/")
-            or path.startswith("/media/american-dad-main/")
-            or path.startswith("/media/american-dad-2tb/")):
-        raise RuntimeError("unapproved_container_media_path")
-    if not job.get("filename", "").endswith((".srt", ".ass")):
-        raise RuntimeError("unsupported_subtitle_format")
-    content = base64.b64decode(job["subtitle_b64"], validate=True)
-    if not 0 < len(content) <= 2_000_000:
-        raise RuntimeError("invalid_subtitle_size")
-    starts = dialogue_starts(content)
-    if not starts or len(starts) < 40:
-        raise RuntimeError("unreadable_or_short_subtitle")
-    reference = find_reference(path, "ja")
-    if reference is None:
-        return {"status": "unverified_no_reference", "japanese_cues": len(starts)}
-    if reference.source.startswith("embedded"):
-        trust = "trusted_embedded"
+def private_file(path: Path, name: str):
+    if not path.is_file() or path.is_symlink() or path.stat().st_mode & 0o077:
+        raise RuntimeError(name + "_missing_or_unsafe")
+
+
+def clock_seconds(value: str):
+    match = CLOCK_VALUE.fullmatch(value.strip())
+    if not match:
+        return None
+    hours, mins, secs, ms = match.groups()
+    return int(hours or 0) * 3600 + int(mins) * 60 + int(secs) + int(ms) / 10**len(ms)
+
+
+def cue_starts(raw: bytes):
+    """Start timestamps only; never return subtitle text to terminal output."""
+    if not raw or len(raw) > MAX_BYTES:
+        return []
+    for encoding in ("utf-8-sig", "utf-16", "cp932", "shift_jis"):
+        try:
+            body = raw.decode(encoding)
+        except UnicodeError:
+            continue
+        starts = []
+        for match in SRT_START.finditer(body):
+            t = clock_seconds(match.group(1))
+            if t is not None:
+                starts.append(t)
+        if not starts:
+            for match in ASS_DIALOGUE.finditer(body):
+                parts = match.group(0).split(",", 3)
+                if len(parts) < 3:
+                    continue
+                t = clock_seconds(parts[1])
+                if t is not None:
+                    starts.append(t)
+        if starts:
+            starts.sort()
+            return starts[:MAX_CUES + 1]
+    return []
+
+
+def alignment(reference, candidate):
+    """Find constant cue offset, or return an explicitly inconclusive verdict.
+
+    A 0.1s difference histogram proposes candidate offsets. Each candidate
+    is then verified with a 0.35s nearest-neighbor tolerance. Reports only,
+    never rewrites either subtitle. This is deliberately conservative for
+    differing-language cue segmentation.
+    """
+    if not (MIN_CUES <= len(reference) <= MAX_CUES
+            and MIN_CUES <= len(candidate) <= MAX_CUES):
+        return {"status": "unverified_insufficient_alignment_data"}
+
+    votes = Counter()
+    lower = 0
+    pairs = 0
+    for t in reference:
+        while lower < len(candidate) and candidate[lower] < t - MAX_OFFSET_S:
+            lower += 1
+        i = lower
+        while i < len(candidate) and candidate[i] <= t + MAX_OFFSET_S:
+            votes[round((candidate[i] - t) * 10)] += 1
+            i += 1
+            pairs += 1
+            if pairs > MAX_PAIRS:
+                return {"status": "unverified_alignment_complexity_limit"}
+    if not votes:
+        return {"status": "mismatch", "best_offset_seconds": 0.0,
+                "matching_start_fraction": 0.0}
+
+    def count_matches(offset):
+        hits = 0
+        for t in reference:
+            position = bisect.bisect_left(
+                candidate, t + offset - TOLERANCE_S
+            )
+            if (position < len(candidate)
+                    and candidate[position] <= t + offset + TOLERANCE_S):
+                hits += 1
+        return hits
+
+    best_offset, best_hits = 0.0, -1
+    for bucket, _ in votes.most_common(8):
+        for delta in (-2, -1, 0, 1, 2):
+            offset = (bucket + delta) / 10.0
+            matches = count_matches(offset)
+            if (matches > best_hits or
+                    (matches == best_hits and abs(offset) < abs(best_offset))):
+                best_offset, best_hits = offset, matches
+    ratio = best_hits / min(len(reference), len(candidate))
+    if ratio >= 0.60:
+        status = "fit" if abs(best_offset) <= 0.5 else "shift_needed"
+    elif ratio < 0.35:
+        status = "mismatch"
     else:
-        trust = "untrusted_sidecar"
-    alignment = align(reference.starts, starts)
-    if alignment is None:
-        return {"status": "unverified_insufficient_alignment_data",
-                "reference": reference.source,
-                "reference_trust": trust, "japanese_cues": len(starts),
-                "reference_cues": len(reference.starts)}
-    return {"status": alignment.verdict,
-            "reference": reference.source, "reference_trust": trust,
-            "japanese_cues": len(starts),
-            "reference_cues": len(reference.starts),
-            "best_offset_seconds": alignment.offset_s,
-            "matching_start_fraction": alignment.match}
-
-try:
-    job = json.load(sys.stdin)
-    result = check(job)
-    print("TIMING_RESULT_JSON:" + json.dumps(result, ensure_ascii=False), flush=True)
-except Exception as exc:
-    reason = ("missing_module:" + str(exc.name)
-              if isinstance(exc, ModuleNotFoundError) and exc.name
-              else type(exc).__name__ + ":" + str(exc)[:100])
-    print("TIMING_RESULT_JSON:" + json.dumps({
-        "status": "blocked", "error_type": type(exc).__name__,
-        "error": reason
-    }), flush=True)
-    raise SystemExit(1)
-'''
+        status = "uncertain"
+    return {
+        "status": status,
+        "best_offset_seconds": round(best_offset, 2),
+        "matching_start_fraction": round(ratio, 3),
+        "timing_tolerance_seconds": TOLERANCE_S,
+    }
 
 
-def private(path, description):
-    if not path.is_file() or path.is_symlink() or (path.stat().st_mode & 0o077):
-        raise RuntimeError(description + "_missing_or_unsafe")
+def safe_media_path(path_text: str):
+    path = Path(path_text)
+    if not path.is_absolute() or path.is_symlink() or not path.is_file():
+        raise RuntimeError("target_media_missing_or_symlink")
+    if path.suffix.casefold() not in VIDEO_EXTS:
+        raise RuntimeError("unsupported_media_extension")
+    resolved = path.resolve()
+    if not any(resolved.is_relative_to(root.resolve()) for root in ALLOWED_ROOTS):
+        raise RuntimeError("media_outside_approved_roots")
+    return path
+
+
+def ffprobe_streams(path: Path):
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_streams", "-of", "json", str(path)],
+            capture_output=True, timeout=35, check=False
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return [], "ffprobe_unavailable_or_timeout"
+    if result.returncode:
+        return [], "ffprobe_failed"
+    try:
+        value = json.loads(result.stdout)
+    except ValueError:
+        return [], "ffprobe_malformed_json"
+    return value.get("streams", []), None
+
+
+def extract_embedded(path: Path, stream_index: int):
+    """Reads one existing subtitle track; ffmpeg writes only to stdout."""
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
+             "-i", str(path), "-map", f"0:{stream_index}",
+             "-c:s", "srt", "-f", "srt", "pipe:1"],
+            capture_output=True, timeout=65, check=False
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode or not 0 < len(result.stdout) <= MAX_BYTES:
+        return None
+    starts = cue_starts(result.stdout)
+    return starts if MIN_CUES <= len(starts) <= MAX_CUES else None
+
+
+def embedded_reference(video: Path, streams):
+    eligible = []
+    for stream in streams:
+        if stream.get("codec_type") != "subtitle":
+            continue
+        if str(stream.get("codec_name", "")).casefold() not in TEXT_CODECS:
+            continue
+        if (stream.get("disposition") or {}).get("forced"):
+            continue
+        lang = str((stream.get("tags") or {}).get("language") or "").casefold()
+        if lang in JA_LANGS:
+            continue
+        ix = stream.get("index")
+        if type(ix) is not int or ix < 0:
+            continue
+        # English first, then other tagged, then unlabeled release text tracks.
+        priority = 0 if lang in EN_LANGS else (1 if lang else 2)
+        eligible.append((priority, ix, lang))
+    for _, index, lang in sorted(eligible):
+        times = extract_embedded(video, index)
+        if times:
+            return times, {
+                "reference_source": "embedded_text_track",
+                "reference_stream_index": index,
+                "reference_language": lang or "unknown",
+                "reference_trust": "trusted_embedded",
+            }
+    return None
+
+
+def english_sidecar_reference(video: Path):
+    prefix = video.stem.casefold() + "."
+    try:
+        siblings = list(video.parent.iterdir())
+    except OSError:
+        return None
+    options = []
+    for path in siblings:
+        if (path.is_symlink() or not path.is_file()
+                or path.suffix.casefold() not in SUB_EXTS):
+            continue
+        full_name = path.name.casefold()
+        if not full_name.startswith(prefix):
+            continue
+        tags = re.findall(
+            r"[a-z0-9]+",
+            full_name[len(prefix):-len(path.suffix)]
+        )
+        if (not any(tag in EN_LANGS for tag in tags)
+                or any(tag in {"forced", "signs"} for tag in tags)):
+            continue
+        options.append(path)
+    for path in sorted(options, key=lambda p: p.name.casefold()):
+        try:
+            if not 0 < path.stat().st_size <= MAX_BYTES:
+                continue
+            times = cue_starts(path.read_bytes())
+        except OSError:
+            continue
+        if MIN_CUES <= len(times) <= MAX_CUES:
+            return times, {
+                "reference_source": "english_sidecar",
+                "reference_name": path.name,
+                "reference_language": "en",
+                "reference_trust": "untrusted_sidecar",
+            }
+    return None
+
+
+def inspect(row, subtitle: bytes):
+    times = cue_starts(subtitle)
+    if not MIN_CUES <= len(times) <= MAX_CUES:
+        return {"status": "unverified_staged_subtitle_unreadable_or_too_short",
+                "japanese_cues": len(times)}
+    video = safe_media_path(str(row["host_path"]))
+    streams, probe_error = ffprobe_streams(video)
+    ref = embedded_reference(video, streams) if streams else None
+    if ref is None:
+        ref = english_sidecar_reference(video)
+    if ref is None:
+        return {
+            "status": "unverified_no_reference",
+            "japanese_cues": len(times),
+            "ffprobe_status": probe_error or "ok",
+        }
+    other_times, context = ref
+    outcome = alignment(other_times, times)
+    return {
+        **outcome, **context,
+        "japanese_cues": len(times),
+        "reference_cues": len(other_times),
+        "note": "Timing only; subtitle accuracy and publication are NOT approved",
+    }
 
 
 def load():
     if not ROOT.is_dir() or ROOT.is_symlink() or ROOT.stat().st_mode & 0o077:
         raise RuntimeError("unsafe_private_root")
-    private(STAGE_DB, "staging_database")
+    private_file(STAGE_DB, "staging_database")
     if not STAGED.is_dir() or STAGED.is_symlink() or STAGED.stat().st_mode & 0o077:
         raise RuntimeError("unsafe_staging_directory")
     manifests = sorted(ROOT.glob("ja-intake-*.json"))
     if not manifests:
-        raise RuntimeError("manifest_missing")
-    private(manifests[-1], "intake_manifest")
-    inventory = json.loads(manifests[-1].read_text())
-    if inventory.get("schema") != 1:
-        raise RuntimeError("unsupported_manifest_schema")
-    items = {str(x["jellyfin_id"]): x for x in inventory["items"]
+        raise RuntimeError("intake_manifest_missing")
+    private_file(manifests[-1], "intake_manifest")
+    data = json.loads(manifests[-1].read_text(encoding="utf-8"))
+    if data.get("schema") != 1:
+        raise RuntimeError("unsupported_inventory_schema")
+    items = {str(x["jellyfin_id"]): x for x in data.get("items", [])
              if isinstance(x, dict) and x.get("jellyfin_id")}
     uri = "file:" + quote(str(STAGE_DB.resolve()), safe="/") + "?mode=ro"
     with sqlite3.connect(uri, uri=True, timeout=10) as db:
         rows = db.execute(
             """SELECT jellyfin_id,subtitle_id,host_path,sha256,status,metrics_json
-               FROM staged WHERE status = 'staged'
-               ORDER BY staged_at, jellyfin_id"""
+               FROM staged WHERE status='staged'
+               ORDER BY staged_at,jellyfin_id"""
         ).fetchall()
     return items, rows
 
 
-def select(jid, sid, host, digest, state, metrics_json, inventory):
-    if not ID.fullmatch(str(jid)):
-        raise RuntimeError("invalid_jellyfin_id")
-    if state != "staged":
-        raise RuntimeError("not_staged")
-    p = Path(host)
-    match = STAGE_NAME.fullmatch(p.name)
-    if not match or match.group(1) != str(jid) or match.group(2) != str(sid):
-        raise RuntimeError("stage_filename_mismatch")
-    if p.parent != STAGED:
-        raise RuntimeError("stage_file_outside_private_directory")
-    private(p, "staged_file")
-    if not 0 < p.stat().st_size <= 2_000_000:
-        raise RuntimeError("invalid_staged_file_size")
-    content = p.read_bytes()
+def select(jid, sid, host, digest, status, metrics_json, inventory):
+    if not ID.fullmatch(str(jid)) or status != "staged":
+        raise RuntimeError("not_a_valid_staged_identity")
+    path = Path(host)
+    name = STAGE_NAME.fullmatch(path.name)
+    if (not name or name.group(1) != jid or name.group(2) != str(sid)
+            or path.parent != STAGED):
+        raise RuntimeError("staged_file_identity_or_directory_mismatch")
+    private_file(path, "staged_file")
+    if not 0 < path.stat().st_size <= MAX_BYTES:
+        raise RuntimeError("staged_file_size_invalid")
+    content = path.read_bytes()
     if hashlib.sha256(content).hexdigest() != digest:
         raise RuntimeError("staged_file_hash_mismatch")
     metrics = json.loads(metrics_json)
-    if metrics.get("format") != match.group(3) or metrics.get("bytes") != len(content):
+    if metrics.get("format") != name.group(3) or metrics.get("bytes") != len(content):
         raise RuntimeError("staging_metrics_mismatch")
     row = inventory.get(str(jid))
     if not row or row.get("status") != "ready_ja_search":
-        raise RuntimeError("staged_media_not_in_current_inventory")
-    video_path = row.get("sublarr_path")
-    if not isinstance(video_path, str):
-        raise RuntimeError("missing_sublarr_media_path")
+        raise RuntimeError("staged_media_missing_from_inventory")
     if row.get("kind") not in {"Movie", "Episode"}:
         raise RuntimeError("unexpected_media_type")
-    return row, p, content
+    return row, content
 
 
-def test():
-    compile(WORKER, "<sublarr-ja-timing-worker>", "exec")
-    assert STAGE_NAME.fullmatch("a"*32 + ".opensubtitles.11947715.ja.srt")
-    assert not STAGE_NAME.fullmatch("../foo")
-    assert "from subtitle_timing import align, find_reference" in WORKER
-    assert WORKER.find("def check(job):") < WORKER.find("try:")
-    assert "TIMING_RESULT_JSON:" in WORKER
-    print("SELF-TEST PASSED: worker syntax and staging IDs; no network or writes")
+def self_test():
+    srt = (
+        b"1\n00:00:01,100 --> 00:00:02,400\nTest\n\n"
+        b"2\n00:00:04,250 --> 00:00:05,200\nTest\n"
+    )
+    ass = (
+        b"[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+        b"Dialogue: 0,0:00:01.20,0:00:02.40,Default,,0,0,0,,Test\n"
+        b"Dialogue: 0,0:00:04.30,0:00:05.40,Default,,0,0,0,,Test\n"
+    )
+    assert cue_starts(srt) == [1.1, 4.25]
+    assert cue_starts(ass) == [1.2, 4.3]
+    assert cue_starts(b"WEBVTT\n\n00:01.200 --> 00:03.500\nTest") == [1.2]
+    a = [i * 3.57 + 0.13 * ((i * i) % 17) for i in range(1, 110)]
+    fit = alignment(a, a)
+    shifted = alignment(a, [x + 5.0 for x in a])
+    assert fit["status"] == "fit" and fit["matching_start_fraction"] > 0.99, fit
+    assert shifted["status"] == "shift_needed", shifted
+    assert abs(shifted["best_offset_seconds"] - 5.0) <= 0.2, shifted
+    assert STAGE_NAME.fullmatch("a" * 32 + ".opensubtitles.11947715.ja.srt")
+    print("SELF-TEST PASSED: SRT/VTT/ASS parsers and timing alignment; no file or network access")
 
 
 def main():
-    cli = argparse.ArgumentParser(description=__doc__)
-    cli.add_argument("--self-test", action="store_true")
-    cli.add_argument("--limit", type=int, default=2, help="inspect 1..5 staged files")
-    opts = cli.parse_args()
-    if opts.self_test:
-        test()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--limit", type=int, default=2, help="1..5 staged files")
+    args = parser.parse_args()
+    if args.self_test:
+        self_test()
         return
-    if not 1 <= opts.limit <= 5:
-        cli.error("--limit must be 1..5")
-    inventory, rows = load()
-    print("=== JA STAGING TIMING AUDIT ===", flush=True)
-    print("Durably staged entries:", len(rows), flush=True)
-    for i, data in enumerate(rows[:opts.limit], 1):
+    if not 1 <= args.limit <= 5:
+        parser.error("--limit must be 1..5")
+    inventory, records = load()
+    print("=== HOST-NATIVE JAPANESE SUBTITLE TIMING AUDIT ===", flush=True)
+    print("Durably staged entries:", len(records), flush=True)
+    for number, record in enumerate(records[:args.limit], 1):
         try:
-            row, path, content = select(*data, inventory)
-        except (OSError, ValueError, RuntimeError) as exc:
-            print(f"[{i}] HELD: {type(exc).__name__} {str(exc)[:100]}", flush=True)
-            continue
-        name = (str(row.get("series_title")) +
-                f' S{row["season"]:02d}E{row["episode"]:02d}'
-                if row["kind"] == "Episode" else
-                f'{row.get("title")} ({row.get("year")})')
-        print(f"[{i}/{min(opts.limit,len(rows))}] CHECKING: {name}",
-              flush=True)
-        payload = {"filename": path.name,
-                   "sublarr_path": row["sublarr_path"],
-                   "subtitle_b64": base64.b64encode(content).decode("ascii")}
-        command = ["docker", "exec", "-i", "-e", "PYTHONPATH=/app",
-                   "sublarr-pilot", "python3", "-c", WORKER]
-        try:
-            proc = subprocess.run(command, input=json.dumps(payload),
-                                  text=True, capture_output=True, timeout=105)
-            replies = [x[len("TIMING_RESULT_JSON:"):]
-                       for x in proc.stdout.splitlines()
-                       if x.startswith("TIMING_RESULT_JSON:")]
-            if not replies:
-                # The worker had no opportunity to emit a structured result:
-                # distinguish exit/signal from normal no-reference outcomes.
-                print("WORKER EXIT:", proc.returncode, flush=True)
-                raise RuntimeError("timing_worker_exited_without_result")
-            report = json.loads(replies[-1])
-            if proc.returncode != 0 or report.get("status") == "blocked":
-                print("TIMING BLOCKED:", json.dumps(report, ensure_ascii=False),
-                      flush=True)
-                continue
+            row, subtitle = select(*record, inventory)
+            name = (str(row.get("series_title")) +
+                    f' S{row["season"]:02d}E{row["episode"]:02d}'
+                    if row["kind"] == "Episode" else
+                    f'{row.get("title")} ({row.get("year")})')
+            print(f"[{number}/{min(args.limit, len(records))}] CHECKING: {name}", flush=True)
+            report = inspect(row, subtitle)
             print("TIMING:", json.dumps(report, ensure_ascii=False), flush=True)
-        except (subprocess.TimeoutExpired, OSError, ValueError, RuntimeError) as exc:
+        except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as exc:
             print("TIMING HELD:", type(exc).__name__, str(exc)[:120], flush=True)
-    print("AUDIT COMPLETE: No downloads, provider searches, staging changes or publication.",
-          flush=True)
-    print("A timing FIT is not a content-quality or publication approval.", flush=True)
+    print("AUDIT COMPLETE: No provider requests, subtitle downloads, file writes or publication.")
+    print("FIT means timings are compatible, not that Japanese text or publication is approved.")
 
 
 if __name__ == "__main__":
