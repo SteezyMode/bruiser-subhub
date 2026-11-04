@@ -314,13 +314,54 @@ def save_attempt(db, job, outcome, total=None, rated=None):
     db.commit()
 
 
+
+def offline_report(limit=10):
+    """Inspect recent saved candidate evidence without touching media or providers."""
+    if not DB.is_file() or DB.is_symlink() or DB.stat().st_mode & 0o077:
+        raise RuntimeError("Missing or unsafe search history database")
+    with sqlite3.connect("file:" + str(DB) + "?mode=ro", uri=True, timeout=10) as db:
+        rows = db.execute(
+            """SELECT kind,title,outcome,candidate_count,plausible_count,
+                      results_json,searched_at FROM searches
+               WHERE outcome NOT IN ('in_progress')
+               ORDER BY searched_at DESC, title LIMIT ?""",
+            (limit,),
+        ).fetchall()
+    print("=== SAVED JAPANESE SEARCH EVIDENCE (NO NEW SEARCHES) ===", flush=True)
+    print("Completed records shown:", len(rows), flush=True)
+    for kind,title,outcome,count,plausible,body,when in rows:
+        print(f"\\n{kind} | {title} | {outcome.upper()} "
+              f"| candidates={count} plausible={plausible} | UTC={when}",
+              flush=True)
+        try:
+            data = json.loads(body)
+        except ValueError:
+            print("  malformed result record", flush=True)
+            continue
+        entries = data.get("candidates") or []
+        for result in entries[:10]:
+            print(" ", json.dumps({
+                "grade": result.get("grade"), "provider": result.get("provider"),
+                "filename": result.get("filename"),
+                "release_info": result.get("release_info"),
+                "score": result.get("score"), "matches": result.get("matches"),
+                "subtitle_id": result.get("subtitle_id"),
+            }, ensure_ascii=False), flush=True)
+    print("\\nREPORT COMPLETE: No provider requests, downloads or file changes.",
+          flush=True)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--budget", type=int, default=2, help="1..12 provider-search requests")
     ap.add_argument("--self-test", action="store_true")
+    ap.add_argument("--report", action="store_true", help="print stored results; no provider searches")
     args = ap.parse_args()
     if args.self_test:
         checks()
+        return
+    if args.report:
+        offline_report()
         return
     if not 1 <= args.budget <= 12:
         ap.error("--budget must be 1..12")
@@ -387,6 +428,15 @@ def main():
                     "provider": best.get("provider"), "filename": best.get("filename"),
                     "score": best.get("score"), "subtitle_id": best.get("subtitle_id")
                 }, ensure_ascii=False), flush=True)
+            elif review:
+                print("  Review examples (NOT approved for downloading):", flush=True)
+                for candidate in review[:3]:
+                    print(" ", json.dumps({
+                        "provider": candidate.get("provider"),
+                        "filename": candidate.get("filename"),
+                        "release_info": candidate.get("release_info"),
+                        "score": candidate.get("score"), "matches": candidate.get("matches")
+                    }, ensure_ascii=False), flush=True)
             if i < len(chosen):
                 time.sleep(3.2)  # Sublarr endpoint is limited to 20 searches/minute.
         print("\n=== RESULT ===", flush=True)
