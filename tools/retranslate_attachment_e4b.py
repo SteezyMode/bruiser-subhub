@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import gzip
 import hashlib
 import io
 import json
@@ -127,13 +128,14 @@ def write_create_only(path, data, mode=0o600):
     with os.fdopen(fd, "wb") as out:
         out.write(data)
         out.flush()
+        os.fchmod(out.fileno(), mode)
         os.fsync(out.fileno())
     return "created"
 
 
 def make_review_archive(english, japanese, manifest):
     bio = io.BytesIO()
-    with tarfile.open(fileobj=bio, mode="w:gz") as tar:
+    with tarfile.open(fileobj=bio, mode="w:") as tar:
         items = (
             ("Attachment.2022.en.srt", english),
             ("Attachment.2022.Tuned-E4B.ja.srt", japanese),
@@ -145,7 +147,7 @@ def make_review_archive(english, japanese, manifest):
             node.size = len(data)
             node.mode = 0o600
             tar.addfile(node, io.BytesIO(data))
-    return bio.getvalue()
+    return gzip.compress(bio.getvalue(), compresslevel=6, mtime=0)
 
 
 def export_review(st, info):
@@ -236,8 +238,12 @@ def run_worker(jid):
         main.publish_ready = lambda store, job, allow: print(
             "REVIEW_ONLY_OUTPUT_PENDING", job["id"], flush=True)
         try:
-            main.run(st, HOST, ROOT, args,
-                     translator=tuned.make_translator(st, job))
+            try:
+                main.run(st, HOST, ROOT, args,
+                         translator=tuned.make_translator(st, job))
+            except Exception as exc:
+                st.state(jid, "hold", "E4B native worker error: " + str(exc)[:180])
+                raise
         finally:
             main.publish_ready = old_publish
         current = st.jobs()[0]
