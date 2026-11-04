@@ -193,6 +193,8 @@ def select(bridge, roots, state, scan_limit=500):
                         return video, output
                 except (OSError, UnicodeError, ValueError):
                     pass
+                print(f"SKIP invalid cached source: {output}", flush=True)
+                continue
             extracted = extract_embedded(video, index, output)
             if not extracted:
                 continue
