@@ -55,6 +55,18 @@ PYTHONDONTWRITEBYTECODE=1 python3 "$TEMP/ja_first_cycle.py" --self-test
 PYTHONDONTWRITEBYTECODE=1 python3 "$TEMP/subhub_live_tracker.py" --self-test
 
 echo "=== INSTALLING TRACKER (NOT MODEL OR WORKER) ==="
+BACKUPS="$DEST/tracker-backups"
+if [[ -L "$BACKUPS" ]]; then
+  echo "BLOCKED: unsafe tracker backup directory" >&2
+  exit 1
+fi
+mkdir -p -m 700 "$BACKUPS"
+STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+for name in ja_first_cycle.py subhub_live_tracker.py; do
+  if [[ -f "$DEST/$name" ]]; then
+    cp -p "$DEST/$name" "$BACKUPS/$name.$STAMP.before-tracker"
+  fi
+done
 for name in ja_first_cycle.py subhub_live_tracker.py; do
   install -m 600 "$TEMP/$name" "$DEST/.new-$name"
   mv -f "$DEST/.new-$name" "$DEST/$name"
