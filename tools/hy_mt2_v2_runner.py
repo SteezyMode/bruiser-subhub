@@ -241,11 +241,11 @@ def wrap_plain_japanese_singleton(chunk, generated):
         return None
     if "\n\n" in body or "\r" in body or "```" in body or "-->" in body:
         return None
-    if re.search(r"(?m)^\\s*\\d+\\s*$", body):
+    if re.search(r"(?m)^\s*\d+\s*$", body):
         return None
     if re.search(r"[A-Za-z]{3,}", body):
         return None
-    if not re.search(r"[\\u3040-\\u30ff\\u3400-\\u9fff]", body):
+    if not re.search(r"[\u3040-\u30ff\u3400-\u9fff]", body):
         return None
     number, timestamp, _ = chunk[0]
     return [(number, timestamp, body)]
