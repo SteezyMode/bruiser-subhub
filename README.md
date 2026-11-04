@@ -4,19 +4,23 @@
 
 Currently a local English-to-Japanese subtitle translation coordinator for a personal media server. **Public-source development repository; currently an OptiPlex-specific working pilot, not a portable installer.**
 
-## Current translation decision (2026-11-03): official model workflow first
+## PRODUCTION TRANSLATION MODEL — CURRENT DECISION (NOVEMBER 4, 2026)
 
-**Primary objective: ~7.5–8.5/10 natural English → Japanese subtitles for home viewing.** We are **not** building a commercial translation system. Do not reinvent prompt engineering, AI quality review or subtitle repair until a plain, documented translator has been shown inadequate on real dialogue.
+**APPROVED PRIMARY: 17slever17 Translate Gemma 4 Sub E4B — subtitle-tuned, GGUF Q4_K_XL; pinned Ollama ID 9ccfc3b07081.**
 
-**Current clean baseline:** Tencent **Hy-MT2 7B Q4_K_M**, its published **Structured Data 1** prompt with format `SRT`, target `Japanese`, and the developer's recommended sampling settings through the existing Ollama server. The 30-cue *The Chair Company* trial preserved **all 30 cue numbers and timestamps** exactly without repair; Japanese is promising but some captions may be too long for the screen. **A full-episode watchability result does not yet exist.**
+**EXACT MODEL:** hf.co/17slever17/translate-gemma-4-sub-e4b-GGUF:Q4_K_XL
 
-- [Non-negotiable model-use and simplicity rules](GOAL.md)
-- [Official settings, verified evidence and full-episode test instructions](docs/TRANSLATION_MODEL_BASELINE.md)
-- [Minimal full-episode Hy-MT2 runner](tools/hy_mt2_full_srt_test.py)
+**AUTHORITATIVE MODEL CONTRACT, EVIDENCE, PROMPT AND DEPLOYMENT: [docs/PRODUCTION_TRANSLATION_MODEL.md](docs/PRODUCTION_TRANSLATION_MODEL.md). READ THIS BEFORE ANY MODEL CHANGE.**
 
-The runner extracts existing English SRT from the actual video, translates 30 consecutive cues per request with **the unchanged developer prompt**, and saves **non-published** Japanese and raw model output. It verifies numbering/timing only; it does **not** automatically rewrite lines, grade quality, retry failures or replace existing subtitles. Source acquisition/transcription will follow only once EN → JA quality is proven.
+Production must use the author's **native one-CURRENT_SOURCE chat protocol**, with optional previous English/Japanese context, not the old generic multi-cue JSON translator. Model-card baseline: STYLE neutral; temperature 0; context 1344; max output 256. Exact installed model digest and **100% GPU residency** are mandatory preflights. Old-model checkpoints must not be silently mixed with new results.
 
-**Older procedures below are experimental history, not the approved current direction.** In particular, prior "quality gates," multi-model workflows, backtranslation and American Dad repair projects do **not** establish the baseline quality of any model. Do not revive them by default.
+**DO NOT USE:** generic gemma4:e4b-it-qat for production; the general model generated the poorly rated Attachment (2022) track. **Hy-MT2 7B is a benchmark alternative, not production default.** Older November 3 text below the linked decision and older experimental model plans do NOT override this.
+
+Model choice is **provisional but explicit**: the matched 64-cue review preferred tuned E4B 26 times versus Hy-MT2 15, with 23 ties, but neither has an independent native Japanese 8/10 viewing grade. Preserve full dialogue meaning, slang, profanity and register. The household target is ~8/10 practical viewing; no magic quality certification from completing a movie.
+
+**GitHub source changes are not automatically deployed to the OptiPlex.** Use the guarded installer from the model-decision document, verify the live host model/profile first, and preserve all existing human Japanese subtitles. No automatic library-scale rollout until the tuned worker has been tested on a fresh title.
+
+### Historical experiments
 
 ## Real S19E04: 27 private editorial corrections ready for QA and a separate Japanese track
 
