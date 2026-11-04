@@ -199,9 +199,10 @@ def salvage_saved_failed(workdir, name, original_record, english, japanese, lo, 
         candidates.append((edits, ignored, attempt))
     if not candidates:
         return original_record
-    # Prefer most valid proposed fixes, then fewest ignored suggestions.
-    edits, ignored, chosen = max(
-        candidates, key=lambda item: (len(item[0]), -len(item[1]))
+    # Conservative choice: prefer fewer invalid suggestions, then fewer
+    # automatic edits. Every rejected proposal remains in the audit log.
+    edits, ignored, chosen = min(
+        candidates, key=lambda item: (len(item[1]), len(item[0]), item[2])
     )
     backed_up = workdir / f"{name}.pre-salvage.json"
     if not backed_up.exists():
