@@ -35,7 +35,7 @@ import ja_first_stage_timing_audit as audit
 
 MIN_MATCH = 0.95
 MAX_SHIFT = 2.0
-AFTER_OFFSET_MAX = 0.30
+AFTER_OFFSET_MAX = 0.20
 MAX_CANDIDATES = 8
 ID = re.compile(r"[a-f0-9]{32}\Z")
 SRT_TIMESTAMP = re.compile(
@@ -285,7 +285,7 @@ def self_test():
     }
     assert corrected_timing_approved(verified)
     assert corrected_timing_approved(dict(verified, best_offset_seconds=-0.1))
-    assert not corrected_timing_approved(dict(verified, best_offset_seconds=0.4))
+    assert not corrected_timing_approved(dict(verified, best_offset_seconds=0.25))
     assert not corrected_timing_approved(dict(verified, best_offset_seconds=None))
     assert not corrected_timing_approved(dict(verified, matching_start_fraction=0.90))
     assert not corrected_timing_approved(dict(verified, reference_trust="untrusted_sidecar"))
