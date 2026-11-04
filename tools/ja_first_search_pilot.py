@@ -330,7 +330,7 @@ def offline_report(limit=10):
     print("=== SAVED JAPANESE SEARCH EVIDENCE (NO NEW SEARCHES) ===", flush=True)
     print("Completed records shown:", len(rows), flush=True)
     for kind,title,outcome,count,plausible,body,when in rows:
-        print(f"\\n{kind} | {title} | {outcome.upper()} "
+        print(f"\n{kind} | {title} | {outcome.upper()} "
               f"| candidates={count} plausible={plausible} | UTC={when}",
               flush=True)
         try:
@@ -345,9 +345,10 @@ def offline_report(limit=10):
                 "filename": result.get("filename"),
                 "release_info": result.get("release_info"),
                 "score": result.get("score"), "matches": result.get("matches"),
+                "format": result.get("format"), "kind": result.get("kind"),
                 "subtitle_id": result.get("subtitle_id"),
             }, ensure_ascii=False), flush=True)
-    print("\\nREPORT COMPLETE: No provider requests, downloads or file changes.",
+    print("\nREPORT COMPLETE: No provider requests, downloads or file changes.",
           flush=True)
 
 
