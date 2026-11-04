@@ -158,9 +158,17 @@ def preflight_ollama(need_gemma=True):
         if other:
             raise RuntimeError('Other Ollama models currently resident; waiting rather than forcing CPU offload: '+str(other))
         if need_gemma and any(m.get('name')==s.HY for m in active):
-            # Gracefully unload our own previous HY model before Gemma.
+            # Existing HY cleanup remains scoped to this known SubHub model.
             body=json.dumps({'model':s.HY,'prompt':'','keep_alive':0}).encode()
             with urlopen(Request(s.OLLAMA+'/api/generate',data=body,headers={'Content-Type':'application/json'}),timeout=12):pass
+        if need_gemma:
+            try:
+                import subtitle_tuned_production as tuned
+            except ModuleNotFoundError:
+                from tools import subtitle_tuned_production as tuned
+            if s.GEMMA != tuned.MODEL:
+                raise RuntimeError('Configured production model not pinned subtitle-tuned E4B')
+            tuned.model_preflight()
     except Exception as exc:
         raise RuntimeError('Ollama preflight failed; jobs unchanged: '+str(exc)) from exc
 
