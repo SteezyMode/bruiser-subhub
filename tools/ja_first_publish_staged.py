@@ -131,11 +131,16 @@ def check_no_existing_ja(video, streams):
             raise RuntimeError("japanese_sidecar_already_exists")
     if streams is None:
         raise RuntimeError("cannot_verify_embedded_subtitles")
+    audio_languages = []
     for stream in streams:
         kind = stream.get("codec_type")
-        lang = str((stream.get("tags") or {}).get("language") or "").casefold()
+        lang = str((stream.get("tags") or {}).get("language") or "").casefold().split("-")[0]
         if kind == "subtitle" and lang in JA:
             raise RuntimeError("japanese_embedded_subtitle_already_exists")
+        if kind == "audio":
+            audio_languages.append(lang)
+    if audio_languages and audio_languages[0] in JA:
+        raise RuntimeError("primary_audio_is_japanese")
     target = video_target(video)
     if target.is_symlink() or target.exists():
         raise RuntimeError("publication_target_already_exists")
@@ -209,6 +214,11 @@ def preflight(jid, sid):
     verify_search_identity(row, jid, sid)
     staged, content, metrics = read_staging(jid, sid)
     video = safe_media_path(str(row.get("host_path") or ""))
+    if row["kind"] == "Episode":
+        from ja_first_stage_saved_batch import named_episode
+        filename_tags = named_episode(video.stem)
+        if filename_tags and filename_tags != {(row["season"], row["episode"])}:
+            raise RuntimeError("episode_filename_conflicts_with_jellyfin_identity")
     target = video_target(video)
     streams, probe_error = ffprobe_streams(video)
     if probe_error or not isinstance(streams, list):
