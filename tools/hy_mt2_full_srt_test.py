@@ -271,9 +271,35 @@ def run_verified_segment(chunk, url, workdir, name, full_gpu):
     # A 30-cue model reply can omit or merge an SRT header. Re-translate only
     # that section in smaller groups, keeping the original failed raw file.
     if len(chunk) == 1:
+        # A single punctuation/formatting slip must not kill a long film run.
+        # Retain every raw reply and allow at most three fresh attempts.
+        for attempt in range(1, 4):
+            retry_file = workdir / f"{name}.retry-{attempt:02}.raw.txt"
+            if retry_file.exists():
+                retry_response = retry_file.read_text(encoding="utf-8")
+                retry_finish = "stop"
+            else:
+                print(
+                    f"  Retry cue {chunk[0][0]} ({attempt}/3), same prompt/model/options",
+                    flush=True,
+                )
+                retry_response, retry_finish = translate(
+                    url, as_srt(chunk), full_gpu=full_gpu
+                )
+                new_text(retry_file, retry_response)
+            if retry_finish != "stop":
+                continue
+            try:
+                parsed = compare_structure(chunk, retry_response)
+            except ValueError as exc:
+                reason = str(exc)
+            else:
+                new_text(verified_file, as_srt(parsed))
+                print(f"  Verified singleton cue {chunk[0][0]}", flush=True)
+                return parsed
         raise SystemExit(
             f"Unable to verify single cue {chunk[0][0]} in {name}: {reason}. "
-            f"Original raw response preserved at {raw_file}."
+            f"All raw replies preserved; last attempt {retry_file}."
         )
 
     subsize = 10 if len(chunk) > 10 else (5 if len(chunk) > 5 else
