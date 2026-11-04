@@ -87,6 +87,15 @@ After a code update, run the version-pinned installer on the OptiPlex as its nor
 
 **If host source fingerprint differs, STOP and inspect the diff. Do not force overwrite unrecognized local code.** The user should not have to rediscover the model selection; always read this file before changing translation settings.
 
+## Standard live progress for EVERY translation
+
+Use the permanent read-only progress tracker, not repeated temporary downloads. Install once with [tools/install_subhub_tracker.sh](../tools/install_subhub_tracker.sh) or as part of fresh Japanese-first controller installation.
+
+- **Watch current translation:** `python3 ~/bruiser-pilot/subhub-control/ja_first_cycle.py watch`
+- **Start a queued E4B translation and follow it automatically:** `python3 ~/bruiser-pilot/subhub-control/ja_first_cycle.py start-worker --apply --watch`
+
+For Mac mini terminal access, prefix either command with `ssh -t optiplex@100.121.156.34` and quote the remote command. The tracker reads the actual cue checkpoints and model profile, plus GPU/CPU telemetry, every 10 seconds. Closing it does not interrupt the worker; no old job is retransmitted, and no new job is queued merely by watching. It distinguishes translated cue completion from final `published` state. Historical jobs without profile metadata are marked **unverified** instead of being falsely attributed to current E4B.
+
 ## Validation
 
 Offline checks in the repo:
