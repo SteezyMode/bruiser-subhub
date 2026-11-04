@@ -1,140 +1,104 @@
 #!/usr/bin/env python3
-"""Inspect Japanese candidates from two installed Sublarr provider adapters.
+"""Read live Sublarr provider *search gates*, safely through the running HTTP API.
 
-Run inside sublarr-pilot, PYTHONPATH=/app. No subtitle downloads, configs,
-publishing, media edits or model calls. Remote searches may use provider quota.
-This is a diagnostic, NOT an automatic subtitle acceptance tool.
+Run inside sublarr-pilot with PYTHONPATH=/app. Does not import Subliminal or
+start a second ProviderManager, initialize providers, consume search quota,
+download subtitles, edit configuration or publish media.
 """
 from __future__ import annotations
 
 import json
 import urllib.error
 import urllib.request
-from pathlib import Path
 
 from config import get_settings
-from providers import get_provider_manager
-from providers.base import VideoQuery
-from providers.subliminal_adapter import _to_subliminal_video
 
-PROVIDERS = ("opensubtitlescom_subliminal", "opensubtitles_subliminal")
-MOVIE = Path(
-    "/media/expansion-video/Movies/Horror/"
-    "Smile 2 (2024) [1080p] [WEBRip] [5.1] [YTS.MX]/"
-    "Smile.2.2024.1080p.WEBRip.x264.AAC5.1-[YTS.MX].mp4"
+BASE = "http://127.0.0.1:5765"
+NAMES = (
+    "opensubtitlescom_subliminal",
+    "opensubtitles_subliminal",
+    "opensubtitles",
+    "subdl",
+    "jimaku",
+    "subf2m",
 )
 
 
-def fetch_health():
-    settings = get_settings()
-    request = urllib.request.Request(
-        "http://127.0.0.1:5765/api/v1/providers/health",
-        headers={"X-Api-Key": settings.api_key} if settings.api_key else {},
-    )
+def get_json(path: str):
+    cfg = get_settings()
+    headers = {"X-Api-Key": cfg.api_key} if cfg.api_key else {}
+    request = urllib.request.Request(BASE + path, headers=headers)
     try:
-        with urllib.request.urlopen(request, timeout=15) as res:
-            data = json.load(res)
-    except (OSError, ValueError, urllib.error.URLError) as exc:
-        print("Running server health unavailable:", type(exc).__name__, flush=True)
-        return
-    print("=== RUNNING SERVER PROVIDER GATES ===", flush=True)
-    for row in data.get("providers", []):
-        if row.get("name") not in PROVIDERS:
-            continue
-        safe = {}
-        for name in ("name", "enabled", "healthy", "initialized",
-                     "active_gate", "gate", "gate_reason", "total_searches",
-                     "result_rate", "consecutive_failures", "auto_disabled"):
-            value = row.get(name)
-            if isinstance(value, (str, bool, int, float)):
-                safe[name] = value
-        print(json.dumps(safe, sort_keys=True), flush=True)
+        with urllib.request.urlopen(request, timeout=20) as response:
+            return json.load(response)
+    except urllib.error.HTTPError as error:
+        print(f"{path}: HTTP {error.code}", flush=True)
+    except (OSError, ValueError, urllib.error.URLError) as error:
+        print(f"{path}: {type(error).__name__}", flush=True)
+    return None
 
 
-def upstream_matches(result, video):
-    source = getattr(result, "provider_data", None)
-    original = source.get("subliminal_subtitle") if isinstance(source, dict) else None
-    if original is None:
-        return []
-    try:
-        return sorted(str(item) for item in original.get_matches(video))
-    except Exception:
-        return ["unavailable"]
-
-
-def candidate_relevance(result, title):
-    candidate = " ".join((
-        str(getattr(result, "filename", "") or ""),
-        str(getattr(result, "release_info", "") or ""),
-    )).lower()
-    if title == "smile":
-        return int("smile" in candidate and ("2" in candidate or "2024" in candidate))
-    return int(("sunny" in candidate or "philadelphia" in candidate) and
-               ("s01e01" in candidate or "1x01" in candidate))
-
-
-def inspect_one(manager, label, query, title):
-    print("\n===", label, "===", flush=True)
-    for name in PROVIDERS:
-        provider = manager._providers.get(name)
-        if provider is None:
-            print(name, "not registered", flush=True)
-            continue
-        print("\n", name, "searching", flush=True)
-        try:
-            video = _to_subliminal_video(
-                query, required_hashes=getattr(provider, "required_hashes", frozenset())
-            )
-            results = provider.search(query)
-        except Exception as exc:
-            print("Error:", type(exc).__name__, str(exc)[:160], flush=True)
-            continue
-        relevant = [r for r in results if candidate_relevance(r, title)]
-        print("Raw results:", len(results),
-              "| Filename/release plausible:", len(relevant),
-              "| video hash types:", sorted(video.hashes.keys()), flush=True)
-        sample = relevant[:8] or results[:3]
-        for r in sample:
-            print(" FILE:", str(r.filename or "")[:145], flush=True)
-            print(" RELEASE:", str(r.release_info or "")[:145], flush=True)
-            print(" LANGUAGE:", r.language,
-                  "| provider_matches:", sorted(str(x) for x in r.matches),
-                  "| upstream_matches:", upstream_matches(r, video),
-                  "| forced:", r.forced, "| HI:", r.hearing_impaired,
-                  flush=True)
-        if not sample:
-            print(" No candidates returned", flush=True)
+def show_subset(source: dict, fields: tuple[str, ...]):
+    return {
+        field: source[field]
+        for field in fields
+        if field in source and isinstance(source[field], (str, bool, int, float))
+    }
 
 
 def main():
-    fetch_health()
-    manager = get_provider_manager()
-    if not MOVIE.is_file():
-        print("\nSmile 2 video not visible in container; no movie provider searches.")
-    else:
-        query = VideoQuery(
-            file_path=str(MOVIE),
-            file_size=MOVIE.stat().st_size,
-            title="Smile 2",
-            year=2024,
-            release_group="YTS.MX",
-            source="WEBRip",
-            resolution="1080p",
-            video_codec="x264",
-            languages=["ja"],
-        )
-        inspect_one(manager, "SMILE 2 / complete metadata", query, "smile")
+    print("=== SUBLARR LIVE PROVIDER GATES (NO SEARCH) ===", flush=True)
+    health = get_json("/api/v1/providers/health")
+    statuses = (health or {}).get("providers", [])
+    if not isinstance(statuses, list):
+        statuses = []
+    for name in NAMES:
+        item = next((row for row in statuses
+                     if isinstance(row, dict) and row.get("name") == name), None)
+        if not item:
+            print(name, "not present in health response", flush=True)
+            continue
+        print(json.dumps(show_subset(item, (
+            "name", "enabled", "initialized", "healthy", "gate",
+            "circuit_breaker_state", "auto_disabled", "throttle_reason",
+            "total_searches", "successful_searches", "result_rate",
+            "consecutive_failures",
+        )), ensure_ascii=False, sort_keys=True), flush=True)
 
-    sunny = VideoQuery(
-        series_title="It's Always Sunny in Philadelphia",
-        season=1,
-        episode=1,
-        year=2005,
-        languages=["ja"],
-    )
-    inspect_one(manager, "ALWAYS SUNNY S01E01 / metadata ONLY",
-                sunny, "sunny")
-    print("\nDONE: candidates only; no download, sync, publish, scan or translation.")
+    config = get_json("/api/v1/config")
+    if isinstance(config, dict):
+        print("\n=== SEARCH CONFIGURATION (ALLOWLISTED) ===", flush=True)
+        print(json.dumps(show_subset(config, (
+            "provider_budget_enabled", "provider_auto_prioritize",
+            "provider_priorities", "provider_cache_ttl_minutes",
+            "provider_search_timeout", "provider_search_timeout_seconds",
+            "wanted_anime_only", "wanted_search_interval_hours",
+            "upgrade_enabled",
+        )), ensure_ascii=False, sort_keys=True), flush=True)
+
+    profiles = get_json("/api/v1/language-profiles")
+    if isinstance(profiles, dict):
+        profiles = profiles.get("profiles", profiles.get("data", []))
+    if isinstance(profiles, list):
+        print("\n=== JAPANESE PROFILE'S PROVIDER FILTER ===", flush=True)
+        for profile in profiles:
+            if not isinstance(profile, dict):
+                continue
+            languages = profile.get("languages", [])
+            if isinstance(languages, list) and "ja" not in languages:
+                continue
+            safe = show_subset(profile, (
+                "id", "name", "provider_profile_id", "scoring_preset",
+                "cutoff_score", "minimum_score", "min_score",
+                "upgrade_enabled",
+            ))
+            for field in ("providers", "allowed_providers", "provider_names"):
+                value = profile.get(field)
+                if isinstance(value, list) and all(isinstance(x, str) for x in value):
+                    safe[field] = value
+            print(json.dumps(safe, ensure_ascii=False, sort_keys=True), flush=True)
+
+    print("\nDONE: no provider searches, downloads, rescans, publishing or model calls.")
 
 
 if __name__ == "__main__":
