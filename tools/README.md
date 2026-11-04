@@ -1,5 +1,7 @@
 # Run from the Mac mini checkout
 
+**CURRENT PRODUCTION EN→JA MODEL:** 17slever17 Translate Gemma 4 Sub E4B (Q4_K_XL tag), Ollama ID **9ccfc3b07081**. Use [the authoritative model decision](../docs/PRODUCTION_TRANSLATION_MODEL.md) and the [guarded current installer](install_production_subtitle_model.sh). The older deployment and experimentation commands below are **historical**, not permission to restore generic Gemma/Hy-MT2 as the production model.
+
 The objective is **watchable Japanese subtitles for existing household media** ([GOAL.md](../GOAL.md)). These tools do not run a new translation campaign or replace media.
 
 From `~/Downloads/bruiser-subhub-repo`, run:
