@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Bounded Japanese-first subtitle DISCOVERY against saved Jellyfin intake.
 
-Host-side. Uses the existing Sublarr API via a single docker exec (no new
+Host-side. Uses the existing Sublarr API via bounded sequential docker exec calls (no new
 credentials), records private results, and never downloads/publishes media.
 Strong-looking results are only candidates, NOT release/timing approval.
 """
@@ -230,36 +230,93 @@ def open_db():
 
 
 def pick(rows, db, budget):
+    """Sort catalog metadata in memory; touch ONLY a few shortlisted files."""
+    now = int(time.time())
     done = {str(r[0]) for r in db.execute(
-        "SELECT jellyfin_id FROM searches WHERE searched_at >= ?",
-        (int(time.time()) - 30 * 86400,)
+        """SELECT jellyfin_id FROM searches WHERE
+            (outcome = 'in_progress' AND searched_at >= ?)
+            OR (outcome = 'error' AND searched_at >= ?)
+            OR (outcome NOT IN ('in_progress', 'error') AND searched_at >= ?)""",
+        (now - 6 * 3600, now - 86400, now - 30 * 86400)
     )}
     by_type = {"Movie": [], "Episode": []}
-    for r in rows:
-        key = str(r.get("jellyfin_id") or "")
-        if not key or key in done or r.get("kind") not in by_type:
+    for row in rows:
+        kind = row.get("kind")
+        key = str(row.get("jellyfin_id") or "")
+        if (kind not in by_type or not key or key in done
+                or row.get("status") != "ready_ja_search"):
             continue
-        query = query_for(r)
-        if query is None:
+        # Cheap checks only. Do not stat media or enumerate directories here.
+        if not isinstance(row.get("host_path"), str):
             continue
-        sortkey = hashlib.sha256(key.encode()).hexdigest()
-        by_type[r["kind"]].append((sortkey, {"id": key, "row": r, "query": query}))
-    for k in by_type:
-        by_type[k].sort(key=lambda x: x[0])
-    quota = {"Movie": (budget + 1) // 2, "Episode": budget // 2}
-    chosen = [v for k in ("Movie", "Episode")
-              for _, v in by_type[k][:quota[k]]]
+        if Path(row["host_path"]).suffix.lower() not in SUPPORTED:
+            continue
+        if kind == "Movie":
+            if not IMDB.fullmatch(str(row.get("imdb_id") or "")) or not row.get("title"):
+                continue
+        else:
+            season, episode = row.get("season"), row.get("episode")
+            if not (row.get("series_title") and type(season) is int
+                    and season >= 1 and type(episode) is int and episode >= 1):
+                continue
+        by_type[kind].append((hashlib.sha256(key.encode()).hexdigest(), row))
+
+    for kind in by_type:
+        by_type[kind].sort(key=lambda pair: pair[0])
+
+    quotas = {"Movie": (budget + 1) // 2, "Episode": budget // 2}
+    chosen = []
+    for kind in ("Movie", "Episode"):
+        count = 0
+        for _, row in by_type[kind]:
+            if count >= quotas[kind]:
+                break
+            query = query_for(row)  # Only now access the media drive.
+            if query is None:
+                continue
+            chosen.append({"id": str(row["jellyfin_id"]), "row": row, "query": query})
+            count += 1
     if len(chosen) < budget:
-        known = {x["id"] for x in chosen}
-        extras = sorted((t for values in by_type.values() for t in values
-                         if t[1]["id"] not in known), key=lambda t: t[0])
-        chosen.extend(v for _, v in extras[:budget - len(chosen)])
+        known = {item["id"] for item in chosen}
+        extras = sorted(
+            (pair for values in by_type.values() for pair in values
+             if str(pair[1]["jellyfin_id"]) not in known),
+            key=lambda pair: pair[0]
+        )
+        for _, row in extras:
+            if len(chosen) >= budget:
+                break
+            query = query_for(row)
+            if query is not None:
+                chosen.append({"id": str(row["jellyfin_id"]), "row": row, "query": query})
     return chosen
+
+
+def save_attempt(db, job, outcome, total=None, rated=None):
+    """Write each search result immediately, including interrupted attempts."""
+    rated = rated or []
+    plausible = [r for grade, r in rated if grade == "plausible"]
+    db.execute("""INSERT INTO searches (
+        jellyfin_id,searched_at,kind,title,outcome,candidate_count,
+        plausible_count,results_json
+    ) VALUES (?,?,?,?,?,?,?,?)
+    ON CONFLICT(jellyfin_id) DO UPDATE SET
+        searched_at=excluded.searched_at,
+        kind=excluded.kind,title=excluded.title,outcome=excluded.outcome,
+        candidate_count=excluded.candidate_count,
+        plausible_count=excluded.plausible_count,
+        results_json=excluded.results_json
+    """, (job["id"], int(time.time()), job["row"]["kind"],
+          job["row"]["title"], outcome, len(rated), len(plausible),
+          json.dumps({"provider_total": total,
+                      "candidates": [{"grade": grade, **r} for grade, r in rated]},
+                     ensure_ascii=False)))
+    db.commit()
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--budget", type=int, default=8, help="1..12 provider-search requests")
+    ap.add_argument("--budget", type=int, default=2, help="1..12 provider-search requests")
     ap.add_argument("--self-test", action="store_true")
     args = ap.parse_args()
     if args.self_test:
@@ -272,79 +329,74 @@ def main():
         raise RuntimeError("No saved Japanese-first intake manifest")
     manifest = manifests[-1]
     data = private_manifest(manifest)
+    print("=== JAPANESE SEARCH PILOT (LIVE PROGRESS) ===", flush=True)
+    print("Selecting candidates from manifest (in-memory first)...", flush=True)
     with open_db() as db:
         chosen = pick(data["items"], db, args.budget)
-        print("=== JAPANESE SEARCH PILOT ===", flush=True)
-        print("Inventory:", manifest.name)
-        print("Search requests planned:", len(chosen), "| budget:", args.budget)
-        print("Movie / Episode:", Counter(job["row"]["kind"] for job in chosen))
+        print("Inventory:", manifest.name, flush=True)
+        print("Search requests planned:", len(chosen), "| budget:", args.budget, flush=True)
+        print("Movie / Episode:", dict(Counter(j["row"]["kind"] for j in chosen)),
+              flush=True)
         if not chosen:
-            print("No new eligible items for this run.")
+            print("No new eligible items for this run.", flush=True)
             return
-        jobs = [{"id": job["id"], "query": job["query"]} for job in chosen]
-        command = ["docker", "exec", "-i", "-e", "PYTHONPATH=/app",
-                   "sublarr-pilot", "python3", "-c", CONTAINER_WORKER]
-        run = subprocess.run(command, input=json.dumps(jobs), text=True,
-                             capture_output=True, timeout=len(jobs) * 100 + 60)
-        if run.returncode != 0:
-            raise RuntimeError("Sublarr search subprocess failed (no details logged)")
-        responses = {}
-        for line in run.stdout.splitlines():
-            try:
-                result = json.loads(line)
-                if isinstance(result, dict) and "id" in result:
-                    responses[str(result["id"])] = result
-            except ValueError:
-                pass
         summary = Counter()
-        for job in chosen:
+        for i, job in enumerate(chosen, 1):
             row = job["row"]
-            result = responses.get(job["id"])
-            if not result or result.get("ok") is not True:
-                summary["search_errors"] += 1
-                print("ERROR:", row["kind"], row["title"], (result or {}).get("error", "missing_response"))
-                continue
-            options = result.get("results") or []
-            candidates = [r for r in options if isinstance(r, dict) and
-                          candidate_grade(row, r) != "reject" and
-                          str(r.get("language") or "").lower() in {"ja", "jpn"}]
-            rated = [(candidate_grade(row, r), r) for r in candidates]
-            plausible = [r for grade, r in rated if grade == "plausible"]
-            review = [r for grade, r in rated if grade == "review"]
-            outcome = "plausible" if plausible else ("review" if review else "none")
-            summary[outcome] += 1
-            db.execute("""INSERT INTO searches (
-                jellyfin_id,searched_at,kind,title,outcome,candidate_count,
-                plausible_count,results_json
-            ) VALUES (?,?,?,?,?,?,?,?)
-            ON CONFLICT(jellyfin_id) DO UPDATE SET
-                searched_at=excluded.searched_at,
-                kind=excluded.kind,title=excluded.title,outcome=excluded.outcome,
-                candidate_count=excluded.candidate_count,
-                plausible_count=excluded.plausible_count,
-                results_json=excluded.results_json
-            """, (job["id"], int(time.time()), row["kind"], row["title"], outcome,
-                  len(candidates), len(plausible), json.dumps({
-                      "provider_total": result.get("total"),
-                      "candidates": [{"grade": grade, **r} for grade, r in rated],
-                  }, ensure_ascii=False)))
-            db.commit()
             name = row.get("series_title") if row["kind"] == "Episode" else row["title"]
             suffix = (f' S{row["season"]:02d}E{row["episode"]:02d}'
                       if row["kind"] == "Episode" else f' ({row.get("year")})')
-            print(f'{outcome.upper()}: {name}{suffix} | plausible={len(plausible)} review={len(review)} provider_total={result.get("total")}')
+            print(f"[{i}/{len(chosen)}] SEARCHING: {name}{suffix}", flush=True)
+            save_attempt(db, job, "in_progress")
+            command = ["docker", "exec", "-i", "-e", "PYTHONPATH=/app",
+                       "sublarr-pilot", "python3", "-c", CONTAINER_WORKER]
+            try:
+                run = subprocess.run(
+                    command, input=json.dumps([{"id": job["id"],
+                                               "query": job["query"]}]),
+                    text=True, capture_output=True, timeout=110
+                )
+                if run.returncode != 0:
+                    raise RuntimeError("container_search_failed")
+                results = [json.loads(line) for line in run.stdout.splitlines()
+                           if line.startswith("{")]
+                response = next((r for r in results
+                                 if str(r.get("id")) == job["id"]), None)
+                if not response or not response.get("ok"):
+                    raise RuntimeError((response or {}).get("error", "no_response"))
+            except (subprocess.TimeoutExpired, OSError, ValueError, RuntimeError) as exc:
+                save_attempt(db, job, "error")
+                summary["search_errors"] += 1
+                print(f"[{i}/{len(chosen)}] ERROR: {type(exc).__name__} (retry after 1 day)",
+                      flush=True)
+                continue
+            options = response.get("results") or []
+            rated = [(grade, r) for r in options if isinstance(r, dict)
+                     for grade in [candidate_grade(row, r)] if grade != "reject"]
+            plausible = [r for grade, r in rated if grade == "plausible"]
+            review = [r for grade, r in rated if grade == "review"]
+            outcome = "plausible" if plausible else ("review" if review else "none")
+            save_attempt(db, job, outcome, response.get("total"), rated)
+            summary[outcome] += 1
+            print(f"[{i}/{len(chosen)}] {outcome.upper()}: plausible={len(plausible)} "
+                  f"review={len(review)} provider_total={response.get('total')}",
+                  flush=True)
             if plausible:
                 best = sorted(plausible, key=lambda r: -(r.get("score") or 0))[0]
                 print("  example:", json.dumps({
                     "provider": best.get("provider"), "filename": best.get("filename"),
                     "score": best.get("score"), "subtitle_id": best.get("subtitle_id")
-                }, ensure_ascii=False))
-        print("\n=== RESULT ===")
+                }, ensure_ascii=False), flush=True)
+            if i < len(chosen):
+                time.sleep(3.2)  # Sublarr endpoint is limited to 20 searches/minute.
+        print("\\n=== RESULT ===", flush=True)
         for name, n in sorted(summary.items()):
-            print(name + ":", n)
-        print("Private repeat-safe history:", DB)
-        print("DISCOVERY ONLY: no downloads, publication, library changes or GPU work.")
-        print("Plausible = filename/episode evidence, NOT verified timing or subtitle quality.")
+            print(name + ":", n, flush=True)
+        print("Private repeat-safe history:", DB, flush=True)
+        print("DISCOVERY ONLY: no downloads, publication, library changes or GPU work.",
+              flush=True)
+        print("Plausible = filename/episode evidence, NOT verified timing or quality.",
+              flush=True)
 
 
 if __name__ == "__main__":
