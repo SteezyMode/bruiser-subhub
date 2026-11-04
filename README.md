@@ -20,6 +20,24 @@ Model choice is **provisional but explicit**: the matched 64-cue review preferre
 
 **GitHub source changes are not automatically deployed to the OptiPlex.** Use the guarded installer from the model-decision document, verify the live host model/profile first, and preserve all existing human Japanese subtitles. No automatic library-scale rollout until the tuned worker has been tested on a fresh title.
 
+### Live progress tracker — standard workflow
+
+The reusable read-only tracker is installed by [tools/install_subhub_tracker.sh](tools/install_subhub_tracker.sh), and is included in all new installs from [tools/install_ja_first_controller.sh](tools/install_ja_first_controller.sh).
+
+From the Mac mini, attach to the currently running subtitle job (or inspect the most recent/pending job):
+
+~~~bash
+ssh -t optiplex@100.121.156.34 'python3 ~/bruiser-pilot/subhub-control/ja_first_cycle.py watch'
+~~~
+
+To start the next **already queued, verified** subtitle-tuned E4B job **and automatically watch that exact job**:
+
+~~~bash
+ssh -t optiplex@100.121.156.34 'python3 ~/bruiser-pilot/subhub-control/ja_first_cycle.py start-worker --apply --watch'
+~~~
+
+This shows actual SQLite cue progress, ETA from recent samples, current status, model provenance (or explicitly "unverified" for old checkpoints), worker/Ollama CPU and GPU utilization/VRAM/temperature/power. It never writes media or checkpoints; Ctrl+C stops only the display, **not** translation. Finishing all cues is not the same as passing publication QA. The watcher never silently launches another film.
+
 ### Historical experiments
 
 ## Real S19E04: 27 private editorial corrections ready for QA and a separate Japanese track
