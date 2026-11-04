@@ -3,7 +3,7 @@
 # No translation jobs, model downloads, provider calls or media writes.
 set -euo pipefail
 umask 077
-PIN="d3fd74991d5dfbe7b06303fe6177de4b8a4c5cec"
+PIN="6bee7700a234df219fa3073b45f19fe7a73ecf39"
 BASE="https://raw.githubusercontent.com/SteezyMode/bruiser-subhub/$PIN"
 HOST="$HOME/bruiser-pilot/subhub1"
 CONTROL="$HOME/bruiser-pilot/subhub-control"
