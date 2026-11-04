@@ -124,7 +124,7 @@ def candidate_grade(row, result):
                 if words[i:i + len(title_tokens)] == title_tokens:
                     found_title = True
                     following = words[i + len(title_tokens):]
-                    if following and re.fullmatch(r"(?:19|20)\\d{2}", following[0]) and following[0] != year:
+                    if following and re.fullmatch(r"(?:19|20)\d{2}", following[0]) and following[0] != year:
                         wrong_year = True
         # Exclude explicit conflicting film years and unrelated search noise.
         # Generic filenames stay in review; they are not automatically valid.
