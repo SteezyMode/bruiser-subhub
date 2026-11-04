@@ -705,7 +705,12 @@ def main():
         considered = 0
         for option in pool:
             considered += 1
-            if potential_timing_reference(option["row"]):
+            print(f'  REFERENCE CHECK [{considered}/{len(pool)}]: '
+                  f'{option["label"]}', flush=True)
+            found = potential_timing_reference(option["row"])
+            print("    embedded English text:",
+                  "found" if found else "not found / not verifiable", flush=True)
+            if found:
                 selected.append(option)
                 if len(selected) >= opts.budget:
                     break
@@ -723,7 +728,12 @@ def main():
         print(f'  [{i}] {job["label"]} | OpenSubtitles ID '
               f'{job["candidate"]["subtitle_id"]}', flush=True)
     if not selected:
-        print("No new high-confidence candidates to stage.", flush=True)
+        if opts.require_embedded_en:
+            print("No candidate with a confirmed embedded English text track "
+                  "in the checked pool; other discovery results are retained.",
+                  flush=True)
+        else:
+            print("No new high-confidence candidates to stage.", flush=True)
         return
     if not opts.apply:
         print("PREFLIGHT ONLY: No downloads, database writes, or media changes.",
