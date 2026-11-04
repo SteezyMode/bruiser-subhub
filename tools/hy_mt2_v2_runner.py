@@ -299,7 +299,7 @@ def run_verified_segment(chunk, url, workdir, name, full_gpu):
         # The original prompt/model/options are unchanged. If a single-cue
         # request returned ONLY a clean Japanese utterance, restore its exact
         # source SRT ID/time without changing Japanese text or calling a model.
-        wrapped = wrap_plain_japanese_singleton(chunk, generated)
+        wrapped = wrap_plain_japanese_singleton(chunk, generated) if finish_reason == "stop" else None
         if wrapped:
             new_text(verified_file, as_srt(wrapped))
             print(f"  FORMAT-ONLY rescue {name}: wrapped plain Japanese; semantic quality unverified", flush=True)
