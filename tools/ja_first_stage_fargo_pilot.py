@@ -278,11 +278,15 @@ def preflight():
 
 
 def self_test():
+    # Compile the exact embedded downloader without importing Sublarr or
+    # contacting the provider. This catches worker syntax bugs locally.
+    compile(WORKER, "<sublarr-stage-worker>", "exec")
     assert re.search(r"[^a-z0-9]+", "Fargo.1996")
     assert "ja" in JA and "en" not in JA
     assert "STAGE_RESULT_JSON:" in WORKER
     assert "8690333" in WORKER
-    print("SELF-TEST PASSED (no network, downloads or writes)")
+    assert "os.O_EXCL" in WORKER and "already_staged" in WORKER
+    print("SELF-TEST PASSED (worker syntax; no network, downloads or writes)")
 
 
 def main():
