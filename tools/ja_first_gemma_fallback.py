@@ -31,7 +31,7 @@ import time
 from urllib.parse import quote
 
 from ja_first_stage_saved_batch import (
-    DB as SEARCH_DB, STAGE_DB, ROOT, read_inventory, named_episode,
+    SEARCH_DB, STAGE_DB, ROOT, read_inventory, named_episode,
 )
 from ja_first_stage_timing_audit import safe_media_path, ffprobe_streams
 
