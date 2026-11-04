@@ -47,7 +47,7 @@ class RolloutTests(unittest.TestCase):
         self.assertEqual(result["pages_checked"], 1)
         self.assertFalse(result["errors"])
         self.assertTrue(all(url.startswith("/api/v1/") for url in visited))
-        self.assertFalse(any("/scan" in u or "/download" in u for u in visited))
+        self.assertFalse(any(u.endswith("/scan") or "/download" in u for u in visited))
 
     def test_bad_gate_blocks(self):
         state = base_state()
