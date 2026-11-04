@@ -114,7 +114,7 @@ def candidate_grade(row, result):
     if row["kind"] == "Movie":
         title_tokens = tokens(row.get("title"))
         year = str(row.get("year") or "")
-        if not title_tokens or not re.fullmatch(r"\\d{4}", year):
+        if not title_tokens or not re.fullmatch(r"\d{4}", year):
             return "review"
         found_title, conflicting_year, exact_identity = False, False, False
         for text in (name, release):
@@ -128,7 +128,7 @@ def candidate_grade(row, result):
                 if year in (preceding, following):
                     exact_identity = True
                 for neighbor in (preceding, following):
-                    if re.fullmatch(r"(?:19|20)\\d{2}", neighbor) and neighbor != year:
+                    if re.fullmatch(r"(?:19|20)\d{2}", neighbor) and neighbor != year:
                         conflicting_year = True
         if conflicting_year:
             return "review" if exact_identity else "reject"
