@@ -38,6 +38,12 @@ ssh -t optiplex@100.121.156.34 'python3 ~/bruiser-pilot/subhub-control/ja_first_
 
 This shows actual SQLite cue progress, ETA from recent samples, current status, model provenance (or explicitly "unverified" for old checkpoints), worker/Ollama CPU and GPU utilization/VRAM/temperature/power. It never writes media or checkpoints; Ctrl+C stops only the display, **not** translation. Finishing all cues is not the same as passing publication QA. The watcher never silently launches another film.
 
+### Attachment (2022): full corrected-model retranslation with progress
+
+For the previously poorly translated *Attachment*, the dedicated one-command runner is [tools/start_attachment_e4b.sh](tools/start_attachment_e4b.sh), with [full safety and output details](docs/ATTACHMENT_E4B_RETRANSLATION.md). It reads **the same 1,276 original English cues**; runs **only pinned 17slever17 subtitle E4B** with the author-native single-cue prompt; stages **fresh isolated checkpoint state** and attaches an automatic live tracker. **No previous generic-model Japanese is reused**.
+
+After full completion it creates a separately named **E4B Review Japanese** sidecar beside the film for Jellyfin A/B and a private EN+JA review archive. Neither original subtitles nor the original SubHub SQLite checkpoints are overwritten. This is a trial for qualitative review, **not automatic library-scale model certification**.
+
 ### Historical experiments
 
 ## Real S19E04: 27 private editorial corrections ready for QA and a separate Japanese track
