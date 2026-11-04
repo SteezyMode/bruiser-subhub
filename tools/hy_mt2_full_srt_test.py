@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Direct, resumable full-SRT test using Tencent Hy-MT2's Structured Data 1 prompt.
 
-Translation is ONE Ollama /api/chat call per consecutive 30-cue section.
+Translation uses ONE Ollama /api/chat call per consecutive 30-cue section, 
+with source-anchored smaller groups only for structurally failing sections.
 Exactly the model-card prompt and sampling parameters used in the successful
-2026-11-03 30-cue test. NO system prompt, other models, rewrite or retries.
+2026-11-03 30-cue test. NO system prompt, other models, or rewrite. Structural failures are retried in smaller groups.
 
 Only mechanical file work: read English SRT, split, preserve raw replies,
 verify numbering/timing, assemble separate draft. Never publishes to Jellyfin.
@@ -225,6 +226,79 @@ def save_verified_preview(workdir, completed):
     os.replace(staging, target)
 
 
+def run_verified_segment(chunk, url, workdir, name, full_gpu):
+    """Reuse, translate, or safely subdivide a structurally broken segment.
+
+    Every output cue is checked against original English IDs/timestamps. Never
+    infer missing Japanese, rewrite dialogue, overwrite existing raw responses,
+    or repeat completed segments. Fallback changes ONLY the number of cues per
+    request, not the translation prompt, model, or sampling settings.
+    """
+    raw_file = workdir / f"{name}.raw.txt"
+    verified_file = workdir / f"{name}.ja.srt"
+
+    if verified_file.exists():
+        parsed = compare_structure(chunk, verified_file.read_text(encoding="utf-8"))
+        print(f"  Reusing {name}: {len(parsed)} verified cues", flush=True)
+        return parsed
+
+    reason = None
+    elapsed = None
+    if raw_file.exists():
+        generated = raw_file.read_text(encoding="utf-8")
+        finish_reason = "stop"  # Existing raw responses were saved before validation.
+        print(f"  Inspecting saved {name} response", flush=True)
+    else:
+        print(f"  Translating {name} (cues {chunk[0][0]}–{chunk[-1][0]})", flush=True)
+        started = time.monotonic()
+        generated, finish_reason = translate(url, as_srt(chunk), full_gpu=full_gpu)
+        elapsed = round(time.monotonic() - started, 1)
+        new_text(raw_file, generated)
+
+    if finish_reason == "stop":
+        try:
+            parsed = compare_structure(chunk, generated)
+        except ValueError as exc:
+            reason = str(exc)
+        else:
+            new_text(verified_file, as_srt(parsed))
+            suffix = f"; {elapsed}s" if elapsed is not None else " (saved response)"
+            print(f"  Verified {name}: {len(parsed)}/{len(chunk)} cues{suffix}", flush=True)
+            return parsed
+    else:
+        reason = f"model finish reason {finish_reason!r}"
+
+    # A 30-cue model reply can omit or merge an SRT header. Re-translate only
+    # that section in smaller groups, keeping the original failed raw file.
+    if len(chunk) == 1:
+        raise SystemExit(
+            f"Unable to verify single cue {chunk[0][0]} in {name}: {reason}. "
+            f"Original raw response preserved at {raw_file}."
+        )
+
+    subsize = 10 if len(chunk) > 10 else (5 if len(chunk) > 5 else
+              (2 if len(chunk) > 2 else 1))
+    print(
+        f"  {name}: structural mismatch ({reason}); "
+        f"retrying this segment as {subsize}-cue groups",
+        flush=True,
+    )
+    repaired = []
+    for offset in range(0, len(chunk), subsize):
+        subchunk = chunk[offset:offset + subsize]
+        subname = f"{name}.c{subchunk[0][0]}-{subchunk[-1][0]}"
+        repaired.extend(run_verified_segment(
+            subchunk, url, workdir, subname, full_gpu
+        ))
+    if len(repaired) != len(chunk):
+        raise SystemExit(f"Internal repair cue-count mismatch in {name}")
+    # One final strict check across the repaired combined segment.
+    parsed = compare_structure(chunk, as_srt(repaired))
+    new_text(verified_file, as_srt(parsed))
+    print(f"  Repaired and verified {name}: {len(parsed)} cues", flush=True)
+    return parsed
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", type=Path)
@@ -279,60 +353,29 @@ def main():
     completed = []
     for index, chunk in enumerate(chunks, start=1):
         chunk_name = f"part-{index:04d}"
-        raw_file = workdir / f"{chunk_name}.raw.txt"
         verified_file = workdir / f"{chunk_name}.ja.srt"
         if verified_file.exists():
-            parsed = compare_structure(chunk, verified_file.read_text(encoding="utf-8"))
-            completed.extend(parsed)
-            save_verified_preview(workdir, completed)
-            print(f"[{index}/{len(chunks)}] Reusing verified segment ({len(chunk)} cues)", flush=True)
-            continue
-        if raw_file.exists():
-            # A previous run may have stopped because of one missing blank
-            # separator. Revalidate the untouched original response FIRST.
-            # This performs zero model calls and never changes Japanese.
-            try:
-                parsed = compare_structure(chunk, raw_file.read_text(encoding="utf-8"))
-            except ValueError as e:
-                raise SystemExit(
-                    f"Saved model response for part {index} is genuinely misaligned: {e}. "
-                    f"Raw retained at {raw_file}; no invented or repeated translation."
-                ) from e
-            new_text(verified_file, as_srt(parsed))
-            completed.extend(parsed)
-            save_verified_preview(workdir, completed)
+            parsed = compare_structure(
+                chunk, verified_file.read_text(encoding="utf-8")
+            )
             print(
-                f"[{index}/{len(chunks)}] Recovered saved raw response; "
-                f"{len(parsed)}/{len(chunk)} original cue IDs/timestamps; "
-                "Japanese untouched", flush=True
+                f"[{index}/{len(chunks)}] Reusing verified segment "
+                f"({len(parsed)} cues)", flush=True
             )
-            continue
-        text = as_srt(chunk)
-        print(f"[{index}/{len(chunks)}] Translating cues {chunk[0][0]}–{chunk[-1][0]}", flush=True)
-        started = time.monotonic()
-        translated_raw, finish_reason = translate(url, text, full_gpu=args.full_gpu)
-        elapsed = round(time.monotonic() - started, 1)
-        new_text(raw_file, translated_raw)
-        if finish_reason != "stop":
-            raise SystemExit(
-                f"Model stopped with reason {finish_reason!r} after {elapsed}s. "
-                f"Raw response saved at {raw_file}; no silent retry."
+        else:
+            print(
+                f"[{index}/{len(chunks)}] Processing cues "
+                f"{chunk[0][0]}–{chunk[-1][0]}", flush=True
             )
-        try:
-            parsed = compare_structure(chunk, translated_raw)
-        except ValueError as e:
-            raise SystemExit(
-                f"Part {index} has incorrect SRT structure: {e}\n"
-                f"Raw response saved at {raw_file}; no translation was changed."
-            ) from e
-        _, punctuation_fixes = normalize_timestamp_punctuation(chunk, translated_raw)
-        new_text(verified_file, as_srt(parsed))
-        if punctuation_fixes:
-            print(f"  Corrected {punctuation_fixes} stray timestamp '>' character(s); Japanese untouched", flush=True)
+            parsed = run_verified_segment(
+                chunk, url, workdir, chunk_name, args.full_gpu
+            )
         completed.extend(parsed)
         save_verified_preview(workdir, completed)
-        print(f"  {len(chunk)}/{len(chunk)} timestamps and IDs preserved; {elapsed}s", flush=True)
-        print(f"  Available partial Japanese SRT: {workdir / 'verified-so-far.ja.srt'}", flush=True)
+        print(
+            f"  Progress: {len(completed)}/{len(source_cues)} verified; "
+            f"saved {workdir / 'verified-so-far.ja.srt'}", flush=True
+        )
     if len(completed) != len(source_cues):
         raise SystemExit(f"Internal cue count mismatch: {len(completed)} != {len(source_cues)}")
     final_file = workdir / "full-episode.draft.ja.srt"
