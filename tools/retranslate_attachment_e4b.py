@@ -42,7 +42,10 @@ if CONTROL.is_dir():
 
 import service
 import main
-import subtitle_tuned_production as tuned
+try:
+    import subtitle_tuned_production as tuned
+except ModuleNotFoundError:
+    from tools import subtitle_tuned_production as tuned
 
 
 def ensure_production():
