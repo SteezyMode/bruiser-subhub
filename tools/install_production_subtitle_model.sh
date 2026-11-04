@@ -11,6 +11,7 @@ STATE="$HOME/bruiser-pilot/subhub1-state"
 OLD_SERVICE="2dc325e728ef1eb9fdbb709bb0d27dd1e8532cad"
 OLD_SERVICE_HOST="c5fd6caa2b04679e4e164a08e015f1b4654d60ba"
 OLD_MAIN="e523d1809fa96836314146ccb88f7405a8de6c42"
+OLD_WORKER="31cd5a2c998f0fb53743f97dfea75ff113b09656"
 
 if [[ ! -d "$HOST" || ! -d "$CONTROL" || ! -d "$STATE" ||
       -L "$HOST" || -L "$CONTROL" || -L "$STATE" ||
@@ -53,13 +54,14 @@ echo "=== OFFLINE TESTS (MUST ALL PASS) ==="
 echo "=== CANONICAL HOST CODE CHECK ==="
 PYTHONDONTWRITEBYTECODE=1 python3 - "$HOST/service.py" "$HOST/main.py" \
  "$WORK/service.py" "$WORK/main.py" "$OLD_SERVICE" "$OLD_MAIN" \
- "$OLD_SERVICE_HOST" <<'PY'
+ "$OLD_SERVICE_HOST" "$CONTROL/daily_worker.py" \
+ "$WORK/tools/daily_worker.py" "$OLD_WORKER" <<'PY'
 import hashlib,sys
 from pathlib import Path
 def blob(path):
     data=Path(path).read_bytes()
     return hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
-live_service,live_main,new_service,new_main,old_service,old_main,old_service_host=sys.argv[1:]
+live_service,live_main,new_service,new_main,old_service,old_main,old_service_host,live_worker,new_worker,old_worker=sys.argv[1:]
 for label,old,new,recognized in (
     ('service.py',live_service,new_service,(old_service,old_service_host)),
     ('main.py',live_main,new_main,(old_main,)),
@@ -69,7 +71,16 @@ for label,old,new,recognized in (
     if actual not in (*recognized,desired):
         raise SystemExit('BLOCKED: unrecognized local '+label+
                          '; no files replaced')
-print('Host matches a known safe version (including verified historic pre-style-hook service.py)')
+worker_path=Path(live_worker)
+if worker_path.exists() or worker_path.is_symlink():
+    if worker_path.is_symlink() or not worker_path.is_file():
+        raise SystemExit('BLOCKED: unsafe existing daily_worker.py')
+    existing=blob(live_worker)
+    approved=blob(new_worker)
+    print('daily_worker.py installed:',existing,'proposed:',approved)
+    if existing not in (old_worker,approved):
+        raise SystemExit('BLOCKED: unrecognized daily_worker.py; no files replaced')
+print('Host matches recognized original SubHub 1.0 + original controller worker versions')
 PY
 
 BACKUPS="$HOME/bruiser-pilot/subhub-model-backups"
