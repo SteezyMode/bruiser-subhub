@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """SubHub 1.0: isolated SQLite subtitle coordinator. Standard library runtime.
 
-The legacy Gemma and HY adapters remain in ~/bruiser-pilot. This module does
-not modify old jobs or their checkpoints. Never imports/sends full movie media.
+Production translation pins 17slever17 subtitle-tuned E4B and its native
+single-cue context protocol. Legacy adapters are explicit research-only paths.
+Never alters old media or previously published subtitle files.
 """
 from __future__ import annotations
 import contextlib
@@ -23,7 +24,7 @@ import time
 import unicodedata
 from urllib.request import Request, urlopen
 
-GEMMA = 'gemma4:e4b-it-qat'
+GEMMA = 'hf.co/17slever17/translate-gemma-4-sub-e4b-GGUF:Q4_K_XL'  # PRODUCTION: 17slever17 subtitle-tuned E4B, model ID 9ccfc3b07081
 HY = 'kaelri/hy-mt2:1.8b'
 OLLAMA = 'http://127.0.0.1:11434'
 JP_RE = re.compile(r'[\u3040-\u30ff\u3400-\u9fff]')
@@ -281,7 +282,7 @@ def recall_memory(base:Path,scope:str,rows):
     return '\n'.join('Approved EN: '+v.get('english','')+'\nApproved JA: '+v.get('japanese','') for _,v in matches[:6])
 
 
-def translation_call(base,selected,memory,model=GEMMA,style=None):
+def legacy_json_translation_call(base,selected,memory,model='gemma4:e4b-it-qat',style=None):
     """Legacy adapter with optional, explicitly selected localization guidance.
 
     Default is unchanged. A/B tests opt into 'natural_8' without altering
@@ -306,6 +307,27 @@ def translation_call(base,selected,memory,model=GEMMA,style=None):
         # The model sees 1..N local IDs. Persist against the original cue
         # IDs, which may be 509, 510 or non-contiguous after empty sources.
         return {str(r['cue_id']):core.preserve_tags(cues[n].text,result[n+1]) for n,r in enumerate(selected)}
+
+
+def translation_call(base, selected, memory, model=GEMMA, style=None, context_rows=None):
+    """PRODUCTION translator: native fine-tuned E4B, ONE cue per model call.
+
+    No batch-JSON prompt, generic Gemma, English-context leakage, or auto
+    fallback to another model. Previous source/Japanese are context ONLY.
+    The full immutable source ordering may be provided by translate_job.
+    This implementation is shared with the single-title daily worker.
+    """
+    if model != GEMMA:
+        raise RuntimeError('Production model override refused: use pinned subtitle-tuned E4B')
+    if style not in (None, 'card_neutral'):
+        raise RuntimeError('Unbenchmarked production style prompt override refused')
+    try:
+        import subtitle_tuned_production as tuned
+    except ModuleNotFoundError:
+        from tools import subtitle_tuned_production as tuned
+    if GEMMA != tuned.MODEL:
+        raise RuntimeError('Configured subtitle model disagrees with translator')
+    return tuned.translate_selected(selected, context_rows or selected)
 
 
 def acceptable_ja(text,english=None):
@@ -339,27 +361,13 @@ def acceptable_ja(text,english=None):
     return source_nums==target_nums
 
 def single_direct(base,source,memory):
-    """Independent singleton fallback when structured prompt repeatedly fails.
+    """One-cue native subtitle-model retry, never legacy generic Gemma."""
+    result = translation_call(base,[source],memory,context_rows=[source])
+    text = result.get(str(source['cue_id']))
+    if text is None:
+        raise RuntimeError('Subtitle-native singleton retry failed')
+    return text
 
-    No context-cue translations are requested; only a Japanese string for the
-    given source cue. This preserves timecode identity and cannot shift IDs.
-    """
-    content=(f'Previous accepted localization examples (style only):\n{memory[:1400]}\n\n' if memory else '')
-    content+='Translate ONLY the following English subtitle cue into natural, concise Japanese. '
-    content+='Do not invent dialogue, notes or speaker identities. Preserve negation, numbers, and line breaks where practical. '
-    content+='Return ONLY Japanese subtitle text, no code fences or explanation.\n\n'+source['english']
-    body={'model':GEMMA,'stream':False,'think':False,
-          'messages':[{'role':'user','content':content}],
-          'options':{'temperature':0,'num_ctx':2048,'num_predict':350}}
-    request=Request(OLLAMA+'/api/chat', data=json.dumps(body,ensure_ascii=False).encode('utf8'),
-                    headers={'Content-Type':'application/json'})
-    with urlopen(request,timeout=180) as resp:res=json.load(resp)
-    if res.get('done_reason')=='length':raise ValueError('Singleton fallback truncated')
-    answer=res.get('message',{}).get('content','').strip()
-    if answer.startswith('```') and answer.endswith('```'):
-        answer='\n'.join(answer.splitlines()[1:-1]).strip()
-    if not acceptable_ja(answer,source['english']):raise ValueError('Invalid singleton fallback result')
-    return answer
 
 
 def translate_window(store:Store,base:Path,job,window,call=translation_call,max_attempts=2):
@@ -479,7 +487,17 @@ def translate_job(store:Store,base:Path,job,deadline,call=translation_call,batch
             window.append(r)
             if len(window)>=batch:break
         if not window:break
-        result=translate_window(store,base,job,window,call)
+        if call is translation_call:
+            # Supply previous *source-matched and already checkpointed*
+            # Japanese context across arbitrary 12-cue batch boundaries.
+            # The model still translates exactly one current cue per call.
+            def context_call(base_, selected_, memory_):
+                return call(base_,selected_,memory_,
+                            context_rows=store.rows(job['id']))
+            effective_call=context_call
+        else:
+            effective_call=call
+        result=translate_window(store,base,job,window,effective_call)
         done=store.cn.execute('SELECT COUNT(*) FROM cues WHERE job_id=? AND japanese IS NOT NULL',(job['id'],)).fetchone()[0]
         print(f"GEMMA {job['id']}: {done}/{len(rows)}, latest {start}-{window[-1]['cue_id']} (+{result})",flush=True)
     done=store.cn.execute('SELECT COUNT(*) FROM cues WHERE job_id=? AND japanese IS NOT NULL',(job['id'],)).fetchone()[0]
