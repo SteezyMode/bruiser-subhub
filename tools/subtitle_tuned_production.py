@@ -94,6 +94,9 @@ def translation(english, previous=None, post=api):
     result = post("/api/chat", payload, timeout=180)
     if result.get("done_reason") == "length":
         raise RuntimeError("Subtitle model output truncated")
+    answered_model = result.get("model")
+    if answered_model and answered_model != MODEL:
+        raise RuntimeError("Ollama response model identity mismatch")
     answer = (result.get("message") or {}).get("content")
     if not isinstance(answer, str) or not answer.strip():
         raise RuntimeError("Subtitle model returned empty text")
@@ -127,7 +130,10 @@ def model_preflight(post=api):
                            + ". Stop it only when idle before retrying.")
     if not any(m.get("name") == MODEL for m in active):
         # No job-specific source is transmitted or checkpointed by this warmup.
-        translation("Good morning.", post=post)
+        sample = translation("Good morning.", post=post)
+        if not any("\u3040" <= ch <= "\u30ff" or
+                   "\u3400" <= ch <= "\u9fff" for ch in sample):
+            raise RuntimeError("Subtitle-native model warmup did not produce Japanese")
     active = post("/api/ps").get("models") or []
     running = next((m for m in active if m.get("name") == MODEL), None)
     if running is None:
