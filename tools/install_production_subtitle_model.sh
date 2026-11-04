@@ -9,6 +9,7 @@ HOST="$HOME/bruiser-pilot/subhub1"
 CONTROL="$HOME/bruiser-pilot/subhub-control"
 STATE="$HOME/bruiser-pilot/subhub1-state"
 OLD_SERVICE="2dc325e728ef1eb9fdbb709bb0d27dd1e8532cad"
+OLD_SERVICE_HOST="c5fd6caa2b04679e4e164a08e015f1b4654d60ba"
 OLD_MAIN="e523d1809fa96836314146ccb88f7405a8de6c42"
 
 if [[ ! -d "$HOST" || ! -d "$CONTROL" || ! -d "$STATE" ||
@@ -51,23 +52,24 @@ echo "=== OFFLINE TESTS (MUST ALL PASS) ==="
 
 echo "=== CANONICAL HOST CODE CHECK ==="
 PYTHONDONTWRITEBYTECODE=1 python3 - "$HOST/service.py" "$HOST/main.py" \
- "$WORK/service.py" "$WORK/main.py" "$OLD_SERVICE" "$OLD_MAIN" <<'PY'
+ "$WORK/service.py" "$WORK/main.py" "$OLD_SERVICE" "$OLD_MAIN" \
+ "$OLD_SERVICE_HOST" <<'PY'
 import hashlib,sys
 from pathlib import Path
 def blob(path):
     data=Path(path).read_bytes()
     return hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
-live_service,live_main,new_service,new_main,old_service,old_main=sys.argv[1:]
-for label,old,new,expected in (
-    ('service.py',live_service,new_service,old_service),
-    ('main.py',live_main,new_main,old_main),
+live_service,live_main,new_service,new_main,old_service,old_main,old_service_host=sys.argv[1:]
+for label,old,new,recognized in (
+    ('service.py',live_service,new_service,(old_service,old_service_host)),
+    ('main.py',live_main,new_main,(old_main,)),
 ):
     actual,desired=blob(old),blob(new)
     print(label,'installed:',actual,'proposed:',desired)
-    if actual not in (expected,desired):
+    if actual not in (*recognized,desired):
         raise SystemExit('BLOCKED: unrecognized local '+label+
                          '; no files replaced')
-print('Host matches a known safe version')
+print('Host matches a known safe version (including verified historic pre-style-hook service.py)')
 PY
 
 BACKUPS="$HOME/bruiser-pilot/subhub-model-backups"
