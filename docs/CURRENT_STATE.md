@@ -1,5 +1,7 @@
 # Current state and next actions
 
+**CURRENT PRODUCTION MODEL (2026-11-04): 17slever17 Translate Gemma 4 Sub E4B Q4_K_XL, pinned Ollama ID 9ccfc3b07081.** Use [the authoritative model decision](PRODUCTION_TRANSLATION_MODEL.md) and the guarded host installer. This explicitly supersedes older Hy7/generic Gemma rankings in this long historical log. Do not confuse GitHub source updates with OptiPlex deployment.
+
 ## 2026-11-03 — Human-reviewed remaining 27 S19E04 cues, private-source editorial overlay
 
 Owner submitted actual `s19e04_review.json`, produced by read-only host extraction after v1/v2: exactly 392 episode cues, **27 remaining QA holds**. Specific examples: cue 8 @00:00:28 and cue 52 @00:02:43 include future-dialogue paragraphs; cues 76/77 also contain multiple later speeches. Other held captions are often linguistically comprehensible and at comfortable reading CPS but violate conservative max-18-Japanese-character line or max-32-character total format rules. Cue 338 is an intentional original English repetition with opposite polarity; future-leak matching risks a false positive. Avoid treating all 27 as equally severe meaning errors.
