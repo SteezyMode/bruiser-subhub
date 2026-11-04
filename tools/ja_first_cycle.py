@@ -64,8 +64,29 @@ def required_code(folder):
 
 
 def ro_uri(path):
-    if not path.is_file() or path.is_symlink() or path.stat().st_mode & 0o077:
-        raise RuntimeError("missing_or_unsafe_private_database")
+    """Read the existing database without changing its permissions.
+
+    Japanese-first state is required to be private. The earlier SubHub 1.0
+    queue and English inventory predate that rule and may be 0644/0664.
+    Permit reading those *owned legacy files* for status only; flag their
+    permissions rather than chmodding or blocking the entire controller.
+    Native job launch retains its independent checks and locks.
+    """
+    import stat
+    if path.is_symlink() or not path.is_file():
+        raise RuntimeError("missing_or_unsafe_database")
+    mode = path.stat()
+    if not stat.S_ISREG(mode.st_mode) or mode.st_uid != os.getuid():
+        raise RuntimeError("database_not_regular_or_owned_by_current_user")
+    legacy = path in {JA_ROOT / "jobs.sqlite3", EN_ROOT / "catalog.sqlite3"}
+    if mode.st_mode & 0o002:
+        raise RuntimeError("database_world_writable")
+    if mode.st_mode & 0o077:
+        if not legacy:
+            raise RuntimeError("japanese_first_database_not_private")
+        print("STATUS WARNING:", path.name,
+              "uses existing legacy database permissions; unchanged",
+              flush=True)
     return "file:" + quote(str(path.resolve()), safe="/") + "?mode=ro"
 
 
@@ -99,26 +120,37 @@ def status():
         ("GEMMA JOB QUEUE", JA_ROOT / "jobs.sqlite3",
          "SELECT status,COUNT(*) FROM jobs GROUP BY status"),
     ):
-        print(title + ":", json.dumps(count_table(path, query),
-              sort_keys=True), flush=True)
+        try:
+            counts = count_table(path, query)
+            print(title + ":", json.dumps(counts, sort_keys=True), flush=True)
+        except (RuntimeError, OSError, sqlite3.Error) as exc:
+            print(title + ": unavailable (" + type(exc).__name__ + ")", flush=True)
     if (JA_ROOT / "jobs.sqlite3").exists():
-        with sqlite3.connect(ro_uri(JA_ROOT / "jobs.sqlite3"),
-                             uri=True, timeout=6) as conn:
-            jobs = conn.execute(
-                """SELECT id,status,source_cues FROM jobs
-                   WHERE id LIKE 'daily-%' AND status
-                   IN ('queued','translating','translated')
-                   ORDER BY created ASC,id LIMIT 5"""
-            ).fetchall()
-        for jid, state, cues in jobs:
-            print("PENDING GEMMA:", jid, "|", state,
-                  "| English cues:", cues, flush=True)
+        try:
+            with sqlite3.connect(ro_uri(JA_ROOT / "jobs.sqlite3"),
+                                 uri=True, timeout=6) as conn:
+                jobs = conn.execute(
+                    """SELECT id,status,source_cues FROM jobs
+                       WHERE id LIKE 'daily-%' AND status
+                       IN ('queued','translating','translated')
+                       ORDER BY created ASC,id LIMIT 5"""
+                ).fetchall()
+            for jid, state, cues in jobs:
+                print("PENDING GEMMA:", jid, "|", state,
+                      "| English cues:", cues, flush=True)
+        except (RuntimeError, OSError, sqlite3.Error) as exc:
+            print("PENDING GEMMA: status unavailable (",
+                  type(exc).__name__, ")", flush=True)
     if (EN_ROOT / "catalog.sqlite3").exists():
-        print("ENGLISH SOURCE INVENTORY:",
-              json.dumps(count_table(
-                  EN_ROOT / "catalog.sqlite3",
-                  "SELECT state,COUNT(*) FROM media GROUP BY state"),
-                  sort_keys=True), flush=True)
+        try:
+            english_counts = count_table(
+                EN_ROOT / "catalog.sqlite3",
+                "SELECT state,COUNT(*) FROM media GROUP BY state")
+            print("ENGLISH SOURCE INVENTORY:",
+                  json.dumps(english_counts, sort_keys=True), flush=True)
+        except (RuntimeError, OSError, sqlite3.Error) as exc:
+            print("ENGLISH SOURCE INVENTORY: status unavailable (",
+                  type(exc).__name__, ")", flush=True)
     log = JA_ROOT / "daily-worker.log"
     if log.is_file() and not log.is_symlink():
         print("EXISTING WORKER LOG:", str(log), flush=True)
