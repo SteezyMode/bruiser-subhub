@@ -78,6 +78,8 @@ def read_staging(jid, sid):
     if len(records) != 1 or records[0][2] != "staged":
         raise RuntimeError("not_in_successfully_staged_database")
     filename, digest, _, metrics_text = records[0]
+    if not STAGED.is_dir() or STAGED.is_symlink() or STAGED.stat().st_mode & 0o077:
+        raise RuntimeError("unsafe_private_staging_directory")
     staged = Path(filename)
     match = STAGE_NAME.fullmatch(staged.name)
     if (not match or match.group(1) != jid or match.group(2) != sid
