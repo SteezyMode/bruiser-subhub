@@ -334,7 +334,7 @@ def main():
         if args.watch and sys.stdout.isatty():
             sys.stdout.write("\033[2J\033[H")
         print(view, flush=True)
-        if not args.watch or current["status"] in ("published", "review_ready", "publish_hold", "needs_review", "hold"):
+        if not args.watch or current["status"] in ("published", "review_ready", "publish_hold", "needs_review", "hold", "paused"):
             return
         time.sleep(args.interval)
 
