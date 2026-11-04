@@ -231,7 +231,7 @@ def preflight(jid, sid):
     if (timing.get("status") != "fit"
             or timing.get("reference_trust") != "trusted_embedded"
             or timing.get("matching_start_fraction", 0) < TIMING_THRESHOLD
-            or abs(timing.get("best_offset_seconds", 999)) > 0.5):
+            or abs(timing.get("best_offset_seconds", 999)) > 0.2):
         raise RuntimeError("trusted_embedded_timing_gate_not_met:" + timing.get("status", "unknown"))
     # Staging validator established the media duration from ffprobe.
     runtime = float(metrics.get("video_seconds") or 0)
