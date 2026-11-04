@@ -20,8 +20,8 @@ from pathlib import Path
 CONTAINER = "sublarr-pilot"
 PINNED_RUNNER = (
     "https://raw.githubusercontent.com/SteezyMode/bruiser-subhub/"
-    "096d2caf5c180188e04c141db859e59b89748e10/"
-    "tools/hy_mt2_full_srt_test.py"
+    "b08b1c9bf7b4cb6929d4af48690e11993fd9e73f/"
+    "tools/hy_mt2_v2_runner.py"
 )
 HEADER = re.compile(
     r"(\d+)\n"
@@ -202,9 +202,11 @@ def main():
         job = "/config/subhub-v2/jobs/" + job_hash
         cmd("docker", "exec", CONTAINER, "mkdir", "-p", job)
         cmd("docker", "cp", english, f"{CONTAINER}:{job}/source.en.srt")
-        runner = args.state.expanduser() / "hy_mt2_verified_runner.py"
+        # Install v2-only format wrapper without touching the frozen
+        # original Hy-MT2 runner or the model/prompt/sampling parameters.
+        runner = args.state.expanduser() / "hy_mt2_v2_runner.py"
         if not runner.is_file():
-            print("Installing pinned, already-proven Hy-MT2 runner...", flush=True)
+            print("Installing v2 runner (original model/prompt unchanged)...", flush=True)
             with urllib.request.urlopen(PINNED_RUNNER, timeout=30) as response:
                 source_code = response.read()
             runner.parent.mkdir(parents=True, exist_ok=True)
