@@ -3,6 +3,8 @@
 import importlib.util
 import tempfile
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -30,6 +32,24 @@ class V2SafetyTest(unittest.TestCase):
             "2\n00:00:04,000 --> 00:00:05,500\n静かにして。\n",
             encoding="utf-8",
         )
+
+    def test_uncaptured_commands_really_execute(self):
+        # Regression: a conditional return once skipped subprocess.run
+        # for ALL normal Docker operations and reported a false success.
+        with patch.object(v2.subprocess, "run", return_value=SimpleNamespace(stdout=None)) as runner:
+            self.assertIsNone(v2.cmd("docker", "exec", "sublarr-pilot", "true"))
+            runner.assert_called_once_with(
+                ["docker", "exec", "sublarr-pilot", "true"],
+                check=True, text=True, stdout=None,
+            )
+
+    def test_captured_commands_return_output(self):
+        with patch.object(v2.subprocess, "run", return_value=SimpleNamespace(stdout='{"ok":true}')) as runner:
+            self.assertEqual(v2.cmd("docker", "inspect", "sublarr-pilot", capture=True), '{"ok":true}')
+            runner.assert_called_once_with(
+                ["docker", "inspect", "sublarr-pilot"],
+                check=True, text=True, stdout=v2.subprocess.PIPE,
+            )
 
     def test_correct_alignment(self):
         self.assertEqual(v2.validate(self.en, self.ja), 2)
