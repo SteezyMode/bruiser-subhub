@@ -1,4 +1,4 @@
-"""Prove real SQLite rows reach the legacy translator as valid dialogue SRT.
+"""Prove real SQLite rows reach the explicitly named legacy JSON adapter.
 
 These tests avoid Ollama but exercise the actual translation adapter and source
 ID mapping, unlike the mocked translate_window integration tests.
@@ -62,7 +62,7 @@ class BatchRegressionTests(unittest.TestCase):
         fake.preserve_tags=lambda english,japanese:japanese
         try:
             with patch.dict(sys.modules, {'bruiser_auto':fake}):
-                got=s.translation_call(Path(temp.name),rows[1:],'Approved memory')
+                got=s.legacy_json_translation_call(Path(temp.name),rows[1:],'Approved memory')
             self.assertEqual(got,{'3':'行かないで！','4':'何があった？'})
         finally:st.cn.close();temp.cleanup()
 
