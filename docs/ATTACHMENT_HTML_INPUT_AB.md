@@ -1,6 +1,6 @@
 # Attachment E4B — one-variable HTML presentation-markup A/B (2026-11-04)
 
-**Status:** Small offline-tested, scratch-only experiment. **Actual OptiPlex inference has NOT run yet.** No change to live production, and no new published subtitles.
+**Status: COMPLETE — real OptiPlex inference completed November 4, 2026. NEGATIVE quality result. Do not promote HTML removal as a translation-quality fix.** No production model/prompt/queue/sidecar was changed.
 
 ## Why this is a genuinely different test
 
@@ -42,3 +42,17 @@ Only code/experiment metadata and **non-copyrighted summary findings** belong in
 Compare meaning, idioms, sentence fragments, dialogue register, character names, correct supernatural terminology, and serious regressions **against the same English source**. A meaningful win would correct several known consequential errors **without adding material new ones** across normal controls, not just produce prettier line breaks or fewer tags in output. If results are mixed or identical, **discard the idea and move on**. Do not automatically retranslate 1,276 cues or change live production code based on input cleanup theory alone. Preserve the existing published original and E4B review subtitles.
 
 This is data hygiene, not a rescue loop for an incapable model.
+
+## Completed real-host result — November 4, 2026
+
+The owner executed the A/B on the OptiPlex and supplied the private `Attachment-E4B-HTML-AB.json` file for paired editorial review. Source SHA prefix `e953178a24b7`, model digest prefix `9ccfc3b07081`, prompt SHA `61a302c51aa6a36d5b95741f50e8f140e65b477a52b02b7df1e8664559c19ac0`, temperature 0, num_ctx 1344, num_predict 256, one previous JA/context pair. All 48 calls returned validator-accepted Japanese. In all 24 cases the **raw arm exactly reproduced the previously published E4B baseline**.
+
+- **13 of 24:** cleaned and raw Japanese outputs text-identical.
+- **11 of 24:** Japanese outputs changed (cue IDs 25, 95, 126, 140, 367, 502, 620, 733, 738, 780, 1082).
+- **No serious known mistranslation corrected.** The incorrect place/turn at 87, literal physical-sound reading at 95, literal insult at 738, possession grammar error at 1027, ritual circle/ring at 1138, and implication reversal at 1082 remained erroneous or ambiguous.
+- Cue 780's directional verb and cue 140's short interjection showed minor readability improvements. Several changes were mere particles/register choices; cue 620 needlessly switched tense, while cue 367 still misinterpreted accommodating someone's eccentricity.
+- The movie-title misinterpretation at cue 1275 was unchanged; proofreading/curation, not HTML cleanup, is required.
+
+**Decision: REJECT as translation-quality optimization.** No second full-film run, no worker change, no prompt/context/token changes. Stripping presentation markup may still be sensible independent input hygiene for future data-handling, but this experiment gives **no grounds to claim better semantic translation or invest in more HTML-based model tuning**. The existing *Attachment* outputs remain available, and the model is still our explicit best-tested single-pass production candidate, **not** a proven 8/10 solution.
+
+A further experiment should only be justified by a genuinely different mechanism and a prespecified, small quality comparison; don't recycle the 1-vs-2 history cue settings or output-format loops already evaluated in [RESULTS_003](../benchmarks/RESULTS_003.md) and [FormatLab 012](UTTERANCE_FORMATLAB_012.md). Relevant next evidence is a native Japanese viewing test or a fresh model candidate's documented, native inference behavior, not synthetic validation pass rates.
