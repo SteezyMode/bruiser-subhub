@@ -262,26 +262,49 @@ def save_derived(best):
 
 
 def self_test():
-    original = (
-        "1\r\n00:00:01,700 --> 00:00:03,700\r\nこんにちは\r\n\r\n"
-        "2\r\n00:00:05,700 --> 00:00:06,700\r\nありがとう\r\n"
-    ).encode("utf-8")
-    updated, n = shift_srt(original, 0.7)
-    assert n == 2
+    # Test the *production* 75-cue minimum with a realistic 90-cue fixture.
+    # The prior two-cue fixture incorrectly failed its own safety gate.
+    blocks = [
+        "1\r\n00:00:01,700 --> 00:00:03,700\r\nこんにちは",
+        "2\r\n00:00:05,700 --> 00:00:06,700\r\nありがとう",
+    ]
+    for number in range(3, 91):
+        start_ms = 10_700 + (number - 3) * 3_000
+        blocks.append(
+            f"{number}\r\n{stamp(start_ms)} --> {stamp(start_ms + 1_500)}"
+            "\r\n字幕テスト"
+        )
+    original = ("\r\n\r\n".join(blocks) + "\r\n").encode("utf-8")
+    updated, count = shift_srt(original, 0.7)
+    assert count == 90, count
     assert b"00:00:01,000 --> 00:00:03,000" in updated
     assert b"00:00:05,000 --> 00:00:06,000" in updated
     assert "こんにちは" in updated.decode("utf-8")
     assert "ありがとう" in updated.decode("utf-8")
-    reversed_content, count = shift_srt(updated, -0.7)
-    assert count == 2
-    assert b"00:00:01,700 --> 00:00:03,700" in reversed_content
+    assert "字幕テスト" in updated.decode("utf-8")
+    reversed_content, reverse_count = shift_srt(updated, -0.7)
+    assert reverse_count == 90, reverse_count
+    assert reversed_content == original
     try:
-        shift_srt(b"1\n00:00:00,300 --> 00:00:01,200\nTest\n", 0.7)
-    except RuntimeError as e:
-        assert str(e) == "shift_would_invalidate_cue"
+        shift_srt(
+            b"1\n00:00:00,300 --> 00:00:01,200\nTest\n",
+            0.7
+        )
+    except RuntimeError as exc:
+        assert str(exc) == "shift_would_invalidate_cue", exc
     else:
         raise AssertionError("negative cue start was not rejected")
-    print("SELF-TEST PASSED: +/-0.7s offset, dialogue preserved, negative times refused; no writes")
+    try:
+        shift_srt(b"1\n00:00:01,700 --> 00:00:03,700\nTest\n", 0.7)
+    except RuntimeError as exc:
+        assert str(exc) == "too_few_srt_timestamps_for_safe_shift", exc
+    else:
+        raise AssertionError("75-cue minimum was not enforced")
+    print(
+        "SELF-TEST PASSED: 90 cue round-trip, dialogue preserved, "
+        "negative time and sparse subtitles refused; no writes",
+        flush=True
+    )
 
 
 def main():
