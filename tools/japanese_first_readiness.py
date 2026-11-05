@@ -58,15 +58,15 @@ print("=== JAPANESE-FIRST: SUBLARR LIVE READ-ONLY PREFLIGHT ===", flush=True)
 
 status = safe_call("/api/v1/health")
 if isinstance(status, dict):
-    print("\\nHealth status:", scalar(status, ("status", "state", "health")))
+    print("\nHealth status:", scalar(status, ("status", "state", "health")))
     print("Application version:", scalar(status, ("version", "app_version")))
 
-print("\\nSync binaries INSIDE container:")
+print("\nSync binaries INSIDE container:")
 for binary in ("ffsubsync", "ffs", "ffmpeg", "ffprobe", "alass"):
     print(" ", binary, "=", "present" if shutil.which(binary) else "not found")
 
 engines = safe_call("/api/v1/sync/engines")
-print("\\nSync engine status (read-only):")
+print("\nSync engine status (read-only):")
 if isinstance(engines, dict):
     for key in ("sanity_threshold_ms", "auto_sync_enabled", "engine_order", "enabled"):
         val = engines.get(key)
@@ -101,7 +101,12 @@ for entry in health:
         continue
     name = str(scalar(entry, ("name", "provider", "provider_name", "id")))
     if any(target in name.lower().replace("_", "") for target in TARGETS):
-        print(" ", name, "| status:", scalar(entry, ("status", "health", "state")))
+        print(" ", name,
+              "| enabled:", scalar(entry, ("enabled", "is_enabled")),
+              "| initialized:", scalar(entry, ("initialized",)),
+              "| healthy:", scalar(entry, ("healthy", "is_healthy")),
+              "| gate:", scalar(entry, ("gate", "search_gate", "reason")),
+              "| status:", scalar(entry, ("status", "health", "state")))
 
 profiles = collection(safe_call("/api/v1/language-profiles"), "profiles")
 print("\nLanguage profiles:", len(profiles))
