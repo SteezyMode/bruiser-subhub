@@ -112,11 +112,6 @@ def find_episode(daily, wanted=None):
                 counts["unusable_source"] += 1
                 continue
             has_ja = daily.already_ja(video) or info["ja"]
-            if has_ja and (tag != "S19E07" or wanted is None and
-                           any(p[0][0] < 4 for p in ranked if p[2] == tag)):
-                # A previously-translated S19E07 is the known fallback.
-                # Fresh episodes are always tried earlier.
-                pass
             if has_ja and tag != "S19E07" and wanted is None:
                 counts["already_japanese"] += 1
                 continue
