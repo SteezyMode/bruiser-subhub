@@ -17,6 +17,12 @@ Developer material, checked Nov 5:
 
 Under the PLaMo Community License, private hobby/noncommercial use is free without prior registration. Commercial use has different registration/income conditions; check current license before shipping a consumer product or redistributing weights.
 
+## First 16-line real-output interpretation (November 5)
+
+Actual OptiPlex private JSON outputs were printed by the owner. **Unblinded assistant assessment** of the 16 original short English prompts: both models are capable of fluent, often concise Japanese and correctly handle several idioms/negations. **Shared important semantic failure:** `If this goes sideways, we walk` was interpreted as literal walking by *both*, rather than leaving/aborting. **Partial warning loss:** `It can hear us` omits the agent in both versions; 0.8B renders `keep your voice down` as `声を低くして` (ambiguous/lower pitch), versus 2B's clearer `声を落とせ` (lower volume). **Ambiguous:** `Well, that's just great` comes out literal; cannot diagnose failure to convey sarcasm without context. 0.8B was more naturally terse on the basement warning; 2B was more idiomatic on *you've got some nerve*.
+
+**Result:** 0.8B/2B both advance; **no quality winner**, no claimed Japanese-native viewing grade. Both failing the same contextual idiom underscores why the immediate next test uses **consecutive real dialogue** instead of isolated synthetic lines. Source is the user's privately printed output; no copyrighted film dialogue was committed to this public repo. Do not modify prompts or insert a second critic based on this small screen.
+
 ## Size and hardware tradeoffs
 
 **Official GGUF Q4_K_M weight files** (not total runtime VRAM):
