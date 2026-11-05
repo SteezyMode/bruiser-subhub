@@ -36,7 +36,14 @@ Owner's finished **100-search test** from the OptiPlex source-only timer/control
 
 ### Task 1: Isolated PLaMo compatibility + speed smoke test (DO NEXT)
 
-**Status:** benchmark runner and bootstrap code committed and Python tests passed; **not executed on OptiPlex** until owner runs it.
+**Status: COMPLETE — actual OptiPlex smoke run 2026-11-05 08:31 UTC (17:31 JST), owner-provided terminal log.** Both official GGUF Q4_K_M variants downloaded and ran with pinned llama.cpp b12119 CUDA build. Model-generated Japanese text has **not yet been manually examined**; this is runtime/format evidence only.
+
+| Model | Successful cues | Aggregate inference time | Mean per cue | Errors |
+|---|---:|---:|---:|---:|
+| PLaMo 3 Translate 0.8B Q4_K_M | **16/16** | **0.702 s** | **0.044 s** | **0** |
+| PLaMo 3 Translate 2B Q4_K_M | **16/16** | **2.162 s** | **0.135 s** | **0** |
+
+Host pre-test GPU telemetry: NVIDIA RTX 3050, **5,678 MiB free**, 0% GPU utilization, **32.00 W configured power limit**. This is **not** actual inference power consumption or peak VRAM. Models ran in sequence, not simultaneously. Generation-call times exclude server/model loading. Files: `~/bruiser-pilot/plamo3-ab/results/plamo3-small-ab-20261105T083115759228Z/` (PRIVATE, never commit). Source-only systemd service unchanged and no Jellyfin sidecars published. **Immediate next step: read and inspect the 16 actual EN/JA pairs to catch nonsense before a larger real-dialogue trial.**
 
 - Use the pinned standalone installer [install_plamo3_small_ab.sh](../tools/install_plamo3_small_ab.sh) and [Python benchmark](../tools/plamo3_small_ab.py). Private working root: `~/bruiser-pilot/plamo3-ab`.
 - Download exact PFN official Q4_K_M model files **0.8B (~0.57GB)** and **2B (~1.81GB)**. Use a pinned, locally extracted llama.cpp CUDA 12.8 build; no Ollama/model replacement, root package installation, or media writes.
