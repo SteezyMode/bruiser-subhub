@@ -15,7 +15,7 @@
 1. S19E13 “The Fast and the Spurious”: Japanese provider lookup found no identity-checked Japanese subtitle; 392 embedded English cues translated 392/392 using 8B; sidecar `.ja.PLaMo8B.srt` published. Natsuyo found it acceptable for real watching.
 2. The same 392 cues were translated by PLaMo 2B with its own `.ja.PLaMo2B.srt` alternate and private paired comparison JSON; 2B wall time **86.647 s**. Keep 8B default.
 3. **Before the new batch, owner conducted a read-only per-season inventory**: 13 American Dad episodes already had JA, 48 English-ready episodes lacked JA (**22 in S20, 17 in S21, 9 in S19**), and **300** episodes lacked *local/embedded* English subtitles in the scanned library. The missing 300 are not proof that provider subtitles are unavailable. No Japanese observed locally for S03–S18.
-4. Owner ran launcher pinned to **`0ab13b0a0d1989eff27aa0e1eed552e3ae583610`** and received **`STARTED background PID 2598336`** with `48` queued episodes. This PID is an **observed historical launch**, not proof the process is currently alive. The watch display showed **S20E01** being translated; it reached at least **266/352 cues** in the supplied log. **Do not claim subsequent episodes have finished unless the host is rechecked.**
+4. Owner ran launcher pinned to **`0ab13b0a0d1989eff27aa0e1eed552e3ae583610`** and received **`STARTED background PID 2598336`** with `48` queued episodes. **Later owner-supplied monitoring showed 2/48 published, S20E03 at 116/440 cues, then `BATCH_PAUSED S20E03 model_did_not_translate_spoken_cue_117` and no active batch process.** This is an isolated model-output classification failure, not a thermal abort. The old PID is historical; do not mistake it for a currently running process. **These are last-uploaded results, not a fresh live host check.**
 5. **Thermal pause/resume demonstrated on real host**, while S20E01 was in progress:
    - CPU hit **79–80°C** and GPU **65–66°C** when the software paused;
    - resumed with CPU **55°C**, GPU **57°C** after cooling.
@@ -64,12 +64,28 @@ Launcher re-downloads pinned helper code, may show stale text about the old cap;
 - `tools/american_dad_batch_telemetry.py`: **experimental read-only 15-second CSV sampler committed to GitHub but NOT confirmed installed or attached on the running host.** Intended development measurements: CPU package °C, GPU °C, GPU power/draw/driver-reported cap, GPU utilization, VRAM, RAM, CPU busy %, timestamp, episode/cue count. **Do not claim historical CSV telemetry exists** until attached and verified. It does not control LACT. The owner's later preference was to stop pointless power-cap tweaks and simply let the existing long-running batch proceed.
 - No private subtitle text, media content, passwords, or connected account credentials should be copied into this public repo.
 
+## Overnight recoverability fix — repository change, not automatically installed
+
+The log showed S20E03 stopping at cue 117 with only 116/440 verified cues checkpointed, while S20E01 and S20E02 were already published. This is an **episode-level quality problem**, not evidence of a systemic CUDA or overheating failure. There must be no partial S20E03 Japanese publication.
+
+The added source and test artifacts are:
+- `tools/plamo8b_american_dad_existing_en_batch.py`: one identical replay on a non-Japanese/malformed model response (same 8B, creator-native prompt, history, temperature=0). If that cue remains invalid, record `EPISODE_HELD` and continue to the next episode. This does **not** write an untranslated cue, bypass subtitle QA, or discard existing SQLite checkpoints.
+- `tools/american_dad_batch_progress.py`: count `episode_held` in the progress display.
+- `tools/resume_plamo8b_american_dad_overnight.sh`: pinned, owner-invoked, **refuses a still-running worker**; downloads/tests only two public code files; makes private backups; appends rather than wipes `batch.log`; resumes existing queue and per-cue state.
+- `test_plamo8b_overnight.py`: offline tests for retried/held cue, critical failures and cooling behavior.
+
+Cooling changed from 20-second to **5-second** polling and only requires a sensor to hit its hysteresis resume threshold if that sensor actually crossed its pause threshold (including during the cooling interval). CPU 79°C/73°C, GPU 73°C/67°C, emergency abort CPU 90°C/GPU 83°C, GPU 28 layers, CPU 2 threads, Q4_K_M model, PLaMo native prompt, and user-controlled 24 W LACT cap remain unchanged.
+
+**A model-server crash, temperature sensor failure, thermal emergency, invalid checkpoint, or storage fault still stops the batch.** An isolated bad subtitle cue does not. No attempt has been made to install this change on the OptiPlex from GitHub; actual host deployment and post-resume progress need owner verification.
+
+To deploy after merge, read `tools/resume_plamo8b_american_dad_overnight.sh`, pin both the download URL and its one required argument to the same tested **40-character commit SHA**, and run over SSH from the Mac mini. Do not launch the old `0ab13...` code for overnight use or relaunch a running process.
+
 ## What to do in the NEXT chat
 
-1. **First inspect live batch progress; don't refactor or experiment with models.** Let the 48-episode existing-English pass proceed if healthy. The user said it will take a while and wants to change chats.
+1. **First inspect live batch progress.** Last uploaded state was STOPPED / PAUSED at S20E03 cue 117, 2/48 published. If it is still stopped for that reason, use the tested, pinned overnight resume script above. If another worker is now running, leave it alone. Don't experiment with other translation models.
 2. If a genuinely reproducible failure appears (for example a stalled episode, detached process gone, GPU memory conflict, temperature sensor absent), troubleshoot minimally from host log and preserve completed SQLite cues and published SRT files.
 3. Once the pass is complete, count truly published 8B sidecars and remaining blocked source cases. Only then tackle **English/Japanese source acquisition and release-specific synchronization for Seasons 3–18** (and remaining gaps), not a new translation model. The source-only Japanese provider timer may be running independently.
 4. If the owner requests development heat/performance analysis, first attach/validate read-only historical telemetry; do **not** assume it was already collecting. Never promise a cap increase will necessarily speed sustained translation; thermal pauses can offset performance.
 5. Respect owner preference: **minimal moving parts, no prompt twiddling, no repeated human episode reviews, and no long tool-call stalls**.
 
-**Status as of last user-provided evidence:** Batch started, S20E01 in progress, auto THERMAL_PAUSE and THERMAL_RESUME working, GPU cap manually 24 W. **Do not claim the 48-episode run is finished.**
+**Status as of last user-provided evidence:** 2/48 8B episodes published; S20E03 checkpoint 116/440; stopped at non-Japanese cue 117. Thermal auto pause/resume was working; GPU cap remained owner-managed at 24 W. **The GitHub resilience fix is tested offline but has NOT been verified deployed on the host. Do not claim the 48-episode run is finished or restarted without fresh host output.**
