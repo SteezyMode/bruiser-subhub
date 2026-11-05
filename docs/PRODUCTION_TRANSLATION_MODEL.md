@@ -1,6 +1,8 @@
 # PRODUCTION TRANSLATION MODEL — AUTHORITATIVE DECISION
 
-**Decision: November 4, 2026. Status: current production choice for English → Japanese subtitle translation.**
+**Decision: November 4, 2026. Status: INSTALLED operational E4B default; quality winner unverified.**
+
+> **NOVEMBER 5 RESEARCH QUALITY OVERRIDE:** [Read the completed historical experiment audit and STOP decision](TRANSLATION_RD_STOP_DECISION_2026-11-05.md). Nine distinct model configurations already produced 2,457 translations on the new three-film Benchmark 006 corpus; its native-Japanese quality winner was never established. The November 4 "best-supported" language below describes an **operational default** and does **not** supersede Benchmark 006's blind-viewing requirement, justify scaling, or approve more E4B prompt tuning. Preserve the currently installed model unchanged while research is paused.
 
 **Chosen model: 17slever17 Translate Gemma 4 Sub E4B, GGUF Q4_K_XL.** Do not silently substitute generic Gemma 4, Hy-MT2, Google TranslateGemma, or any other candidate.
 
