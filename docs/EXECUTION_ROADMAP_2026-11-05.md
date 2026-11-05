@@ -12,6 +12,17 @@
 >
 > **NOW DO ONLY ONE THING: QUALITY REVIEW.** Retrieve the private paired English / 0.8B Japanese / 2B Japanese outputs from the two completed result files and compare naturalness, nuance, meaning, context, and on-screen readability. No more model runs or new implementation work until these outputs are evaluated. Record a single winner if quality supports it; otherwise justify a single 8B challenger test. The public repository must **not** contain film subtitle text, but can record aggregate metrics and editorial findings. **Current sole project priority: select one local translation model.**
 
+**Collect private raw outputs to review, from Mac mini (no inference, no server changes):**
+
+~~~bash
+mkdir -p "$HOME/Downloads"
+scp optiplex@100.121.156.34:/home/optiplex/bruiser-pilot/plamo3-ab/real-results/film-100-20261105T091004064058Z/0.8b.json "$HOME/Downloads/plamo-0.8b.json"
+scp optiplex@100.121.156.34:/home/optiplex/bruiser-pilot/plamo3-ab/real-results/film-100-20261105T091839645501Z/2b.json "$HOME/Downloads/plamo-2b.json"
+~~~
+
+Upload those **two JSON result files privately in the chat** for bilingual, cue-by-cue editorial review. Each contains its own English source text, Japanese generation, status and elapsed time. **Do not commit the raw outputs or film dialogue to GitHub.** The goal is a defensible model selection, not another script iteration.
+
+
 **THIS IS THE CURRENT OPERATING PLAN.** Read it before starting new subtitle-related development. The earlier American Dad/E4B/Hy-MT/CAT experiments remain historical evidence, not ongoing priorities. See [previous research stop decision](TRANSLATION_RD_STOP_DECISION_2026-11-05.md), [source-vs-DIY policy](HYBRID_JAPANESE_SOURCE_VS_DIY_POLICY_2026-11-05.md), [SubHub architecture](WHAT_IS_SUBHUB_AND_HOW_TO_USE_IT_2026-11-05.md), and [PLaMo test protocol](PLAMO_3_TRANSLATE_EVALUATION_2026-11-05.md).
 
 ## Locked objectives and scope
