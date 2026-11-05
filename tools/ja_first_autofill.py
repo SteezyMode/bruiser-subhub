@@ -1,0 +1,333 @@
+#!/usr/bin/env python3
+"""One source-only Japanese subtitle filler for the existing Jellyfin library.
+
+Runs the proven host search -> staged provider acquisition -> junk QA -> ffsubsync
+-> atomic create-only publication pipeline. No DIY translation or new accounts.
+A separate daily user timer is optional. Prevent duplicate provider scans by
+moving Sublarr's *periodic wanted provider search* to this host controller,
+while leaving Sublarr's library scan and UI intact.
+
+Host OptiPlex only; Python standard library. Never touch original video bytes.
+"""
+from __future__ import annotations
+
+import argparse
+import fcntl
+import json
+import os
+from pathlib import Path
+import re
+import sqlite3
+import subprocess
+import sys
+import time
+
+ROOT = Path.home() / "bruiser-pilot/ja-first-inventory"
+CODE = Path.home() / "bruiser-pilot/subhub-control"
+UNIT = "bruiser-ja-source-autofill"
+NAME = UNIT + ".timer"
+SVC = UNIT + ".service"
+USER_UNITS = Path.home() / ".config/systemd/user"
+PINNED = (
+    "ja_first_cycle.py", "ja_first_catalog_manifest.py",
+    "ja_first_publish_queue.py", "ja_first_ffsubsync.py",
+    "ja_first_obvious_quality.py",
+)
+CONFIG_KEYS = (
+    "wanted_search_interval_hours", "wanted_search_on_startup",
+    "wanted_auto_translate", "translation_enabled",
+    "webhook_auto_translate", "jellyfin_play_translate_enabled",
+    "subtitle_automation_enabled", "upgrade_enabled",
+    "provider_budget_enabled", "target_language",
+)
+
+SERVICE = """[Unit]
+Description=Source and synchronize Japanese subtitles for Jellyfin (no AI)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 %h/bruiser-pilot/subhub-control/ja_first_autofill.py once --apply
+Nice=10
+IOSchedulingClass=idle
+UMask=0077
+NoNewPrivileges=true
+TimeoutStartSec=90min
+"""
+TIMER = """[Unit]
+Description=Daily Japanese sourced-subtitle acquisition and synchronization
+
+[Timer]
+OnCalendar=*-*-* 05:15:00
+RandomizedDelaySec=20min
+Persistent=false
+Unit=bruiser-ja-source-autofill.service
+
+[Install]
+WantedBy=timers.target
+"""
+
+# Execute inside the already installed Sublarr image, reusing existing local
+# API auth. The only allowed API write is PUT config of the two wanted-search
+# scheduler fields, not provider credentials, folders, translation or upgrades.
+API_WORKER = r'''
+import json,sys
+from urllib.request import Request,urlopen
+from config import get_settings
+task=json.load(sys.stdin)
+endpoint=task["endpoint"]
+if endpoint not in ("/api/v1/config","/api/v1/wanted/scanner/status"):
+    raise SystemExit("disallowed_api_endpoint")
+data=task.get("payload")
+method="PUT" if data is not None else "GET"
+if data is not None and (endpoint!="/api/v1/config" or
+        set(data)-{"wanted_search_interval_hours","wanted_search_on_startup"}):
+    raise SystemExit("disallowed_config_mutation")
+headers={}
+key=get_settings().api_key
+if key: headers["X-Api-Key"]=key
+if data is not None: headers["Content-Type"]="application/json"
+req=Request("http://127.0.0.1:5765"+endpoint,
+            headers=headers,method=method,
+            data=None if data is None else json.dumps(data).encode("utf8"))
+with urlopen(req,timeout=20) as response:
+    obj=json.load(response)
+print("BRUISER_SUBLARR_RESULT_JSON:"+json.dumps(obj))
+'''
+
+
+def run(args, *, timeout=90, input_text=None, runner=subprocess.run):
+    result=runner(args, input=input_text, text=True, capture_output=True,
+                  timeout=timeout, check=False)
+    if result.returncode:
+        raise RuntimeError("command_failed:"+str(Path(args[0]).name if "/" in args[0] else args[0])+
+                           ":"+str(result.returncode))
+    return result.stdout
+
+
+def api(endpoint, payload=None, *, runner=run):
+    args=["docker","exec","-i","-e","PYTHONPATH=/app","sublarr-pilot",
+          "python3","-c",API_WORKER]
+    out=runner(args,input_text=json.dumps({"endpoint":endpoint,"payload":payload}),
+               timeout=40)
+    for line in reversed(out.splitlines()):
+        if line.startswith("BRUISER_SUBLARR_RESULT_JSON:"):
+            result=json.loads(line.partition(":")[2])
+            if not isinstance(result,dict):
+                raise RuntimeError("sublarr_unexpected_api_response")
+            return result
+    raise RuntimeError("sublarr_api_result_missing")
+
+
+def config(*, request=api):
+    value=request("/api/v1/config")
+    if not all(k in value for k in CONFIG_KEYS):
+        raise RuntimeError("sublarr_config_schema_missing_safety_keys")
+    return value
+
+
+def safe_source_settings(value):
+    if str(value.get("target_language","")).casefold() not in {"ja","jpn","japanese"}:
+        raise RuntimeError("sublarr_target_not_japanese")
+    for name in (
+        "wanted_auto_translate", "translation_enabled",
+        "webhook_auto_translate", "jellyfin_play_translate_enabled",
+        "subtitle_automation_enabled", "upgrade_enabled",
+    ):
+        if value.get(name) is not False:
+            raise RuntimeError("unexpected_automatic_ai_or_upgrade_setting:"+name)
+    if value.get("provider_budget_enabled") is not True:
+        raise RuntimeError("provider_budget_not_enabled")
+
+
+def native_search_disabled(value):
+    return value.get("wanted_search_interval_hours")==0 and \
+        value.get("wanted_search_on_startup") is False
+
+
+def lock():
+    ROOT.mkdir(parents=True,exist_ok=True,mode=0o700)
+    if ROOT.is_symlink() or ROOT.stat().st_mode&0o077:
+        raise RuntimeError("inventory_folder_not_private")
+    path=ROOT/".autofill.lock"
+    fd=os.open(path,os.O_CREAT|os.O_RDWR|getattr(os,"O_NOFOLLOW",0),0o600)
+    if os.fstat(fd).st_mode&0o077:
+        os.close(fd)
+        raise RuntimeError("insecure_autofill_lock")
+    try:
+        fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
+    except BlockingIOError:
+        os.close(fd)
+        raise RuntimeError("another_source_cycle_is_running") from None
+    return fd
+
+
+def ensure_installed():
+    missing=[name for name in PINNED if not (CODE/name).is_file()
+             or (CODE/name).is_symlink()]
+    if missing:
+        raise RuntimeError("controller_components_missing:"+",".join(missing))
+
+
+def current_manifest_age():
+    matches=sorted(ROOT.glob("ja-intake-*.json"))
+    if not matches:
+        return None
+    path=matches[-1]
+    if not path.is_file() or path.is_symlink() or path.stat().st_mode&0o077:
+        raise RuntimeError("unsafe_inventory_manifest")
+    return max(0,int(time.time()-path.stat().st_mtime))
+
+
+def refresh_manifest(*, action=run):
+    age=current_manifest_age()
+    # Search/stage code refuses a manifest >72h old. Keep it <=20h old.
+    if age is not None and age < 20*3600:
+        print("CATALOG_REUSED age_hours",round(age/3600,1),flush=True)
+        return
+    print("REFRESHING_JELLYFIN_CATALOG",flush=True)
+    action([sys.executable,str(CODE/"ja_first_catalog_manifest.py"),"--save"],
+           timeout=1200)
+    print("CATALOG_REFRESHED",flush=True)
+
+
+def check_scheduler_idle(*, request=api):
+    state=request("/api/v1/wanted/scanner/status")
+    if state.get("is_searching"):
+        raise RuntimeError("native_sublarr_search_currently_active")
+
+
+def once(*, request=api, action=run):
+    ensure_installed()
+    fd=lock()
+    try:
+        settings=config(request=request)
+        safe_source_settings(settings)
+        if not native_search_disabled(settings):
+            raise RuntimeError("native_wanted_search_still_enabled_no_duplicate_provider_queries")
+        check_scheduler_idle(request=request)
+        refresh_manifest(action=action)
+        print("RUNNING_SOURCES_ONLY_CYCLE search_budget=8 stage_budget=2 publish_limit=3",
+              flush=True)
+        # Let output appear in systemd journal or manual terminal; don't
+        # require a persistent shell or start any local translation model.
+        result=subprocess.run(
+            [sys.executable,"-u",str(CODE/"ja_first_cycle.py"),"cycle",
+             "--sources-only","--apply","--search-budget","8",
+             "--stage-budget","2","--publish-limit","3"],
+            stdin=subprocess.DEVNULL, timeout=5000, check=False)
+        if result.returncode:
+            raise RuntimeError("sources_only_cycle_failed:"+str(result.returncode))
+        print("AUTOFILL_CYCLE_COMPLETE",flush=True)
+    finally:
+        os.close(fd)
+
+
+def unit_file(name,content):
+    if USER_UNITS.is_symlink():
+        raise RuntimeError("user_systemd_directory_is_symlink")
+    USER_UNITS.mkdir(parents=True,exist_ok=True,mode=0o700)
+    if USER_UNITS.stat().st_mode&0o022:
+        raise RuntimeError("user_systemd_directory_writable_by_others")
+    path=USER_UNITS/name
+    if path.is_symlink():
+        raise RuntimeError("existing_unit_is_symlink")
+    if path.exists():
+        if not path.is_file() or path.read_text("utf8")!=content:
+            raise RuntimeError("different_existing_user_unit_refusing_overwrite")
+        return
+    fd=os.open(path,os.O_CREAT|os.O_EXCL|os.O_WRONLY|getattr(os,"O_NOFOLLOW",0),0o600)
+    with os.fdopen(fd,"w",encoding="utf8") as out:
+        out.write(content)
+
+
+def enable(*,request=api,action=run):
+    ensure_installed()
+    if not (CODE/"ja_first_autofill.py").is_file():
+        raise RuntimeError("autofill_controller_not_installed")
+    settings=config(request=request)
+    safe_source_settings(settings)
+    check_scheduler_idle(request=request)
+    previous={k:settings[k] for k in
+              ("wanted_search_interval_hours","wanted_search_on_startup")}
+    if type(previous["wanted_search_interval_hours"]) is not int or not \
+            0<=previous["wanted_search_interval_hours"]<=168 or \
+            type(previous["wanted_search_on_startup"]) is not bool:
+        raise RuntimeError("unexpected_original_search_scheduler_settings")
+
+    # Create-only unit files + validate user systemd BEFORE modifying Sublarr.
+    unit_file(SVC,SERVICE)
+    unit_file(NAME,TIMER)
+    action(["systemctl","--user","daemon-reload"],timeout=20)
+
+    did_change=not native_search_disabled(settings)
+    if did_change:
+        response=request("/api/v1/config",{
+            "wanted_search_interval_hours":0,"wanted_search_on_startup":False})
+        if response.get("status")!="saved":
+            raise RuntimeError("native_search_disable_response_not_saved")
+    try:
+        updated=config(request=request)
+        safe_source_settings(updated)
+        if not native_search_disabled(updated):
+            raise RuntimeError("native_search_disable_not_verified")
+        action(["systemctl","--user","enable","--now",NAME],timeout=25)
+        action(["systemctl","--user","is-active","--quiet",NAME],timeout=20)
+        print("JA_SOURCE_AUTOFILL_TIMER_ENABLED daily_05:15_local_plus_0_to_20min",
+              "sublarr_native_provider_search_disabled",
+              "sublarr_library_scanning_unchanged",
+              "no_automatic_translation",flush=True)
+    except Exception:
+        try:
+            action(["systemctl","--user","disable","--now",NAME],timeout=25)
+        except Exception:
+            pass
+        if did_change:
+            try:
+                request("/api/v1/config",previous)
+            except Exception:
+                print("WARNING_NATIVE_SEARCH_RESTORE_FAILED",file=sys.stderr)
+        raise
+
+
+def status(*,request=api,action=run):
+    ensure_installed()
+    settings=config(request=request)
+    age=current_manifest_age()
+    print("SOURCE_AUTOFILL_STATUS",json.dumps({
+        "native_wanted_search_interval_hours":settings["wanted_search_interval_hours"],
+        "native_wanted_search_on_startup":settings["wanted_search_on_startup"],
+        "host_timer":NAME,
+        "manifest_age_hours":None if age is None else round(age/3600,1),
+        "automation_safety":"source_only_no_ai",
+    },sort_keys=True),flush=True)
+    try:
+        out=action(["systemctl","--user","is-active",NAME],timeout=20).strip()
+        print("SOURCE_TIMER_ACTIVE",out or "active",flush=True)
+    except RuntimeError:
+        print("SOURCE_TIMER_INACTIVE_OR_USER_SYSTEMD_UNAVAILABLE",flush=True)
+
+
+def main(argv=None):
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("mode",choices=("status","enable","once"),nargs="?",
+                        default="status")
+    parser.add_argument("--apply",action="store_true")
+    args=parser.parse_args(argv)
+    if args.mode=="status":
+        return status()
+    if not args.apply:
+        parser.error("enable and once require --apply")
+    if args.mode=="enable":
+        return enable()
+    if args.mode=="once":
+        return once()
+
+
+if __name__=="__main__":
+    try:
+        main()
+    except (RuntimeError,OSError,ValueError,subprocess.TimeoutExpired) as exc:
+        # Don't dump API secrets, provider credentials or subtitle dialogue.
+        print("JA_SOURCE_AUTOFILL_HELD",type(exc).__name__,str(exc)[:175],
+              file=sys.stderr)
+        raise SystemExit(1) from None
