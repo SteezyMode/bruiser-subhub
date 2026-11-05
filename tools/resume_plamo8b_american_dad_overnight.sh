@@ -94,6 +94,28 @@ echo "RESUMING saved American Dad batch (no cue/checkpoint reset)."
 echo "Untranslated cue: one identical replay, then hold episode and proceed."
 echo "Cooling: 5-second checks; unchanged thermal and LACT limits."
 echo "Log is append-only: $LOG"
+
+# The original working batch launcher exported these private CUDA library
+# directories. Without them llama.cpp can silently select the CPU backend
+# despite -ngl 28, driving the i7-9700 hot and leaving RTX VRAM unused.
+if [[ ! -x "$ROOT/runtime/llama-server" ||
+      ! -d "$ROOT/runtime/llama" || ! -d "$ROOT/runtime/cudart" ]]; then
+  echo "Pinned CUDA inference runtime missing; refusing CPU-only resume." >&2
+  exit 1
+fi
+LIBDIRS="$(find "$ROOT/runtime/llama" "$ROOT/runtime/cudart" -type f \
+  \( -name 'lib*.so' -o -name 'lib*.so.*' \\) -printf '%h\n' \
+  | sort -u | paste -sd: -)"
+if [[ -z "$LIBDIRS" ]]; then
+  echo "No pinned CUDA runtime shared libraries found." >&2
+  exit 1
+fi
+export LD_LIBRARY_PATH="$LIBDIRS${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+if ldd "$ROOT/runtime/llama-server" | grep -q "not found"; then
+  echo "Pinned llama-server libraries missing, refusing CPU-only resume." >&2
+  exit 1
+fi
+echo "Pinned CUDA library directories restored for resumed batch."
 nohup python3 -u "$TARGET" --apply >> "$LOG" 2>&1 < /dev/null &
 pid=$!
 pidtmp="$(mktemp "$STATE/.batchpid-XXXXXXXX")"
