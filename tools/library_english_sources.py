@@ -241,14 +241,23 @@ def scan(client,roots,state=STATE,probe_fn=intake.probe,
             fingerprint=sidecar_fingerprint(video)
             old=db.execute('SELECT * FROM media WHERE path=?',(path,)).fetchone()
             if old and old['fingerprint']==fingerprint:
-                status=('japanese_present' if (intake.already_ja(video)
-                    or (item_streams(item) or {}).get('has_ja'))
-                    else old['state'])
-                # When provider search previously found no hash result,
-                # preserve that status while the file is unchanged.
-                if status not in SAFE_STATUSES and status!='ready':
-                    status='missing'
-                audio=old['audio_lang']
+                # Jellyfin can discover embedded Japanese after the first scan.
+                ja_now=(intake.already_ja(video) or
+                        (item_streams(item) or {}).get('has_ja'))
+                if ja_now:
+                    status='japanese_present'
+                    audio=old['audio_lang']
+                elif old['state']=='japanese_present':
+                    try:
+                        status,audio=inspect(video,item,probe_fn)
+                    except (OSError,RuntimeError,ValueError):
+                        counts['metadata_error']+=1
+                        continue
+                else:
+                    status=old['state']
+                    audio=old['audio_lang']
+                    if status not in SAFE_STATUSES and status!='ready':
+                        status='missing'
                 counts['cached']+=1
             else:
                 try:
@@ -274,12 +283,18 @@ def scan(client,roots,state=STATE,probe_fn=intake.probe,
                   media_type=excluded.media_type,title=excluded.title,
                   series=excluded.series,season=excluded.season,
                   episode=excluded.episode,fingerprint=excluded.fingerprint,
-                  state=CASE WHEN excluded.fingerprint!=media.fingerprint
+                  state=CASE WHEN excluded.state='japanese_present'
+                    OR media.state='japanese_present'
+                    OR excluded.fingerprint!=media.fingerprint
                     THEN excluded.state ELSE media.state END,
                   audio_lang=excluded.audio_lang,priority=excluded.priority,
                   attempt_count=CASE WHEN excluded.fingerprint!=media.fingerprint
+                    OR (media.state='japanese_present' AND
+                        excluded.state!='japanese_present')
                     THEN 0 ELSE media.attempt_count END,
                   next_search=CASE WHEN excluded.fingerprint!=media.fingerprint
+                    OR (media.state='japanese_present' AND
+                        excluded.state!='japanese_present')
                     THEN 0 ELSE media.next_search END,
                   last_result=CASE WHEN excluded.fingerprint!=media.fingerprint
                     THEN '' ELSE media.last_result END,
