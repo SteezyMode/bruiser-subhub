@@ -16,6 +16,5 @@ jobs:
       - run: bash -n tools/install_plamo3_small_ab.sh
       - run: bash -n tools/run_plamo3_real_film_ab.sh
       - run: bash -n tools/run_plamo3_8b_challenger.sh
-      - run: bash -n tools/run_plamo3_watch_american_dad.sh
       - run: bash -n tools/run_plamo3_source_first_american_dad.sh
       - run: python -m unittest discover -p 'test_*.py' -v
