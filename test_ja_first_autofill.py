@@ -174,6 +174,60 @@ class SourceAutofillTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError,"different_existing"):
                     auto.unit_file(auto.SVC,"unrecognized contents")
 
+    def test_one_time_budget_is_private_and_consumed_after_success(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            budget=root/".next-budget.json"
+            with patch.object(auto,"ROOT",root), \
+                 patch.object(auto,"NEXT_BUDGET_FILE",budget):
+                auto.set_next_run_budget(75)
+                self.assertEqual(auto.next_run_budget(),(75,True))
+                self.assertEqual(budget.stat().st_mode&0o777,0o600)
+                calls=[]
+                class Dummy:
+                    returncode=0
+                with patch.object(auto,"ensure_installed"), \
+                     patch.object(auto,"config",return_value=settings(0)), \
+                     patch.object(auto,"refresh_manifest"), \
+                     patch.object(auto.subprocess,"run",
+                         side_effect=lambda args,**kw:calls.append(args) or Dummy()):
+                    auto.once(request=lambda endpoint,*args:{"is_searching":False})
+                self.assertEqual(calls[0][calls[0].index("--search-budget")+1],"75")
+                self.assertEqual(auto.next_run_budget(),(600,False))
+                self.assertFalse(budget.exists())
+
+    def test_interrupted_one_time_budget_is_reused_for_retry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            budget=root/".next-budget.json"
+            with patch.object(auto,"ROOT",root), \
+                 patch.object(auto,"NEXT_BUDGET_FILE",budget):
+                auto.set_next_run_budget(50)
+                class Failed:
+                    returncode=1
+                with patch.object(auto,"ensure_installed"), \
+                     patch.object(auto,"config",return_value=settings(0)), \
+                     patch.object(auto,"refresh_manifest"), \
+                     patch.object(auto.subprocess,"run",return_value=Failed()):
+                    with self.assertRaisesRegex(RuntimeError,"sources_only_cycle_failed"):
+                        auto.once(request=lambda endpoint,*args:{"is_searching":False})
+                self.assertEqual(auto.next_run_budget(),(50,True))
+
+    def test_one_time_budget_rejects_symlinks_and_invalid_settings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            budget=root/".next-budget.json"
+            victim=root/"unrelated"
+            victim.write_text("do not touch")
+            budget.symlink_to(victim)
+            with patch.object(auto,"ROOT",root), \
+                 patch.object(auto,"NEXT_BUDGET_FILE",budget):
+                with self.assertRaisesRegex(RuntimeError,"is_symlink"):
+                    auto.set_next_run_budget(80)
+                with self.assertRaisesRegex(RuntimeError,"outside_1_to_600"):
+                    auto.set_next_run_budget(601)
+            self.assertEqual(victim.read_text(),"do not touch")
+
     def test_unit_file_does_not_replace_unexpected_content(self):
         with tempfile.TemporaryDirectory() as tmp:
             with patch.object(auto,"USER_UNITS",Path(tmp)):
