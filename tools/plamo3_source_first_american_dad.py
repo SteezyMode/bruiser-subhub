@@ -103,13 +103,28 @@ def candidate_order(daily, wanted=None):
 def latest_row(video):
     """Authoritative saved Jellyfin/Sublarr metadata, not filename guessing."""
     files = sorted(JA_ROOT.glob("ja-intake-*.json"))
+    refresh = not files or (
+        files and time.time() - files[-1].stat().st_mtime > 72*3600)
+    if refresh:
+        print("JAPANESE CATALOG: existing manifest old/missing; refreshing "
+              "private Jellyfin episode metadata.",flush=True)
+        controller = CONTROL / "ja_first_catalog_manifest.py"
+        if not controller.is_file() or controller.is_symlink():
+            raise RuntimeError("missing_japanese_manifest_refresh_helper")
+        run = subprocess.run(
+            [sys.executable, "-u", str(controller), "--save"],
+            stdin=subprocess.DEVNULL, capture_output=True,
+            timeout=300, check=False)
+        if run.returncode:
+            raise RuntimeError("japanese_catalog_refresh_failed")
+        files = sorted(JA_ROOT.glob("ja-intake-*.json"))
     if not files:
         raise RuntimeError("japanese_intake_manifest_missing")
     newest = files[-1]
     if newest.is_symlink() or newest.stat().st_mode & 0o077:
         raise RuntimeError("japanese_manifest_unsafe")
     if time.time() - newest.stat().st_mtime > 72 * 3600:
-        raise RuntimeError("japanese_manifest_stale_refresh_first")
+        raise RuntimeError("japanese_manifest_stale_after_refresh")
     blob = json.loads(newest.read_text("utf-8"))
     if blob.get("schema") != 1:
         raise RuntimeError("unexpected_japanese_catalog_schema")
