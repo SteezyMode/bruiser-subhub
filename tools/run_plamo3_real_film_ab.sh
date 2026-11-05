@@ -4,7 +4,7 @@
 set -euo pipefail
 umask 077
 ROOT="$HOME/bruiser-pilot/plamo3-ab"
-PIN="1ff93689bedd1a322f321054fafd686ec6d469c4"
+PIN="2a382556a30001b1535138de2ff4e50c7ea0065c"
 URL="https://raw.githubusercontent.com/SteezyMode/bruiser-subhub/$PIN/tools/plamo3_real_film_ab.py"
 mkdir -p -m 700 "$ROOT"
 if [[ -L "$ROOT" ]] || [[ "$(stat -c %u "$ROOT")" != "$(id -u)" ]]; then
