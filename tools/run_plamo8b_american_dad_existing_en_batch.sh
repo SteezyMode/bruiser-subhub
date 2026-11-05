@@ -7,7 +7,7 @@ umask 077
 ROOT="$HOME/bruiser-pilot/plamo3-ab"
 STATE="$ROOT/american-dad-existing-english-batch"
 TARGET="$ROOT/plamo8b_american_dad_existing_en_batch.py"
-PIN="bc9be0710519df9fb6e3852b68f200869d1d5307"
+PIN="c4874849666bf5e36d1534a94b33ea491076ecd3"
 BASE="https://raw.githubusercontent.com/SteezyMode/bruiser-subhub/$PIN/tools"
 URL="$BASE/plamo8b_american_dad_existing_en_batch.py"
 LOG="$STATE/batch.log"
@@ -89,7 +89,7 @@ echo "=== AMERICAN DAD: ALL EXISTING ENGLISH SUBTITLES AFTER SEASON 2 ==="
 echo "Queue priority: S20, S21, S19, other English-ready episodes."
 echo "Skip any episode with existing Japanese. Missing English sources later."
 echo "PLaMo8B Q4, two CPU threads, 28 GPU layers, automatic thermal pauses."
-echo "Original 32W GPU cap unchanged. Every episode resumes from saved cues."
+echo "Owner-controlled GPU power cap untouched (24 W last reported). Every episode resumes from saved cues."
 echo "No provider searches or additional account setup in this pass."
 
 if [[ $# -gt 0 && "$1" == "--status" ]]; then
