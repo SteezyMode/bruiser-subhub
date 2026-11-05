@@ -68,7 +68,8 @@ class TestSublarrJapaneseDryrun(unittest.TestCase):
         rows=[wanted_row(3,self.video)]
         post=Mock()
         with unittest.mock.patch.object(pilot.os.path,"islink",return_value=False):
-            out = pilot.run(self.fake_get(rows),post,is_file=lambda p:True)
+            out = pilot.run(self.fake_get(rows),post,is_file=lambda p:True,
+                            allowed_roots=(str(self.tmp)+"/",))
         self.assertIsNone(out)
         post.assert_not_called()
 
@@ -107,7 +108,8 @@ class TestSublarrJapaneseDryrun(unittest.TestCase):
         with unittest.mock.patch.object(pilot.os.path,"islink",return_value=False):
             with self.assertRaisesRegex(RuntimeError,"Unexpected"):
                 pilot.run(self.fake_get([wanted_row(3,self.video)]),
-                          post,is_file=lambda p:True)
+                          post,is_file=lambda p:True,
+                          allowed_roots=(str(self.tmp)+"/",))
 
 
 if __name__=="__main__":
