@@ -228,9 +228,18 @@ def run():
         print("DOWNLOADED",len(content),"bytes",ext,"parsed_cues",len(cues),
               "japanese_cues",checks["japanese_script_event_count"],
               "video_seconds",length,flush=True)
-        print("SYNC_PREVIEW starting non-destructive ffsubsync against real video",flush=True)
+        screen_ok = (checks["dialogue_event_count"] >= 100
+                     and (checks["japanese_script_event_fraction"] or 0) >= 0.60
+                     and checks["nonpositive_duration_events"] == 0
+                     and (checks["out_of_video_events"] or 0) <= 5)
+        if not screen_ok:
+            report["screen_hold"] = ("Candidate too short, mislabelled as Japanese, "
+                                     "or structurally mistimed; do not attempt sync")
+            print("SCRATCH_SCREEN_HOLD", report["screen_hold"], flush=True)
+        else:
+            print("SYNC_PREVIEW starting non-destructive ffsubsync against real video",flush=True)
         try:
-            comparison=sync_compare(str(source),video_path=str(v))
+            comparison=sync_compare(str(source),video_path=str(v)) if screen_ok else {"candidates":[]}
             engines=comparison.get("candidates",[])
             for result_item in engines:
                 slim={k:result_item.get(k) for k in
