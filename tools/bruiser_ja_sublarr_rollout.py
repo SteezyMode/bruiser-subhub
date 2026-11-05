@@ -173,7 +173,7 @@ def run(apply=False, target="You Were Never Really Here", make_scan=True,
     # Sublarr 1.18 uses HTTP PUT, persists only passed keys and reloads.
     if changes:
         reply=requester("/api/v1/config",changes,method="PUT")
-        if not isinstance(reply,dict) or reply.get("status") not in ("success","ok","updated"):
+        if not isinstance(reply,dict) or reply.get("status") != "saved":
             raise RuntimeError("Config update ambiguous; inspect live state")
         print("CONFIG_UPDATED", sorted(changes))
     for ident in selected:
@@ -190,7 +190,7 @@ def run(apply=False, target="You Were Never Really Here", make_scan=True,
     remaining=folder_plan(requester("/api/v1/standalone/folders"))
     if remaining:
         raise RuntimeError("Some folders still disabled; no scan started")
-    print("ACTIVATED: Japanese-first, 40 Wanted searches/day maximum per cycle; "
+    print("ACTIVATED: Japanese-first, up to 40 Wanted items per scheduled search cycle; "
           "ffsubsync enabled on downloads")
     if make_scan:
         response=requester("/api/v1/standalone/scan",{},method="POST")
