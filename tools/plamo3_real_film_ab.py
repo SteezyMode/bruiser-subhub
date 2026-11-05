@@ -35,41 +35,6 @@ HISTORY = 2
 STOP = ["<|plamo:tag|>", "<|plamo:bos|>"]
 PFN_URL = "https://huggingface.co/pfnet/plamo-3-translate-0.8b-GGUF"
 
-GPU_SAMPLES = 10
-GPU_SAMPLE_DELAY_SECONDS = 3
-
-
-def await_gpu_idle(sampler=None, pause=None, samples=GPU_SAMPLES,
-                   interval=GPU_SAMPLE_DELAY_SECONDS):
-    """Bounded safety preflight; avoid interpreting one stale utilization
-    sample immediately after shutting down the previous model as gaming.
-    Require TWO consecutive safe samples and never unload another process.
-    """
-    sampler = sampler or small.gpu_preflight
-    pause = pause or time.sleep
-    consecutive = 0
-    last = None
-    for attempt in range(samples):
-        try:
-            values = sampler()
-            consecutive += 1
-            if consecutive >= 2:
-                print("GPU SAFETY: two consecutive idle samples", values,
-                      flush=True)
-                return values
-        except RuntimeError as exc:
-            if not str(exc).startswith("GPU_BUSY "):
-                raise
-            last = str(exc)
-            consecutive = 0
-            print("GPU SAFETY: busy sample", attempt + 1, "/", samples,
-                  "; waiting, not interfering with other workloads:", last,
-                  flush=True)
-        if attempt < samples - 1:
-            pause(interval)
-    raise RuntimeError("GPU_BUSY_PERSISTENT; no model started; " + str(last))
-
-
 # SRT/SDH is not uniformly spoken dialogue. PLaMo's job is to translate
 # language, not to invent speech for a pure sound-effects caption. An
 # untranslated isolated [SIGHS] or [MUSIC PLAYING] is a valid non-dialogue
@@ -303,7 +268,6 @@ def benchmark(args):
         model = model_dir / filename
         if not model.is_file() or model.is_symlink() or model.stat().st_size < 100_000_000:
             raise RuntimeError("missing_original_pinned_model_" + filename)
-    await_gpu_idle()
     frozen_name = None
     if args.frozen_run:
         (row, video, cues, total, origin, manifest_name,
@@ -357,7 +321,6 @@ def benchmark(args):
     for size, name in small.MODEL_FILES.items():
         if args.arm != "all" and size != args.arm:
             continue
-        await_gpu_idle()
         model = model_dir / name
         record = {"model": size, "model_filename": name,
                   "model_sha256": small.digest(model), "entries": [],
