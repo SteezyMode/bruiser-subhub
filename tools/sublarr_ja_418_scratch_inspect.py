@@ -18,6 +18,8 @@ auto-sync applying, config changes, or stored OpenSubtitles credentials.
 from __future__ import annotations
 
 import hashlib
+import sqlite3
+from urllib.parse import quote
 import json
 import os
 from pathlib import Path
@@ -139,6 +141,64 @@ def summarize_cues(cues, duration_sec):
     return out
 
 
+
+def _existing_provider_credentials(settings, *, database=None, key_dir=None):
+    """Read current config_entries credentials WITHOUT creating an app or DB writes.
+
+    Sublarr v1.18.0 loads UI config overrides in Flask create_app(); a fresh
+    \`docker exec python3\` only gets Settings defaults, which explains the
+    "OpenSubtitles not initialized" failure. Never log/export any secrets.
+    SQLite is opened with mode=ro and query_only. Encryption key is READ ONLY:
+    no calls to config_crypto.decrypt(), which creates missing keys on demand.
+    """
+    keys = ("opensubtitles_api_key", "opensubtitles_username",
+            "opensubtitles_password")
+    result = {k: getattr(settings, k, "") or "" for k in keys}
+    if database is None:
+        db_url = settings.get_database_url()
+        if not db_url.startswith("sqlite:///"):
+            raise RuntimeError("Unsupported DB backend for safe scratch credential read")
+        database = db_url[len("sqlite:///"):]
+    db_file = Path(database)
+    if not db_file.is_file():
+        raise RuntimeError("Sublarr configured database not found; no provider download")
+    uri = "file:" + quote(str(db_file.resolve()), safe="/") + "?mode=ro"
+    with sqlite3.connect(uri, uri=True, timeout=10) as con:
+        con.execute("PRAGMA query_only=ON")
+        rows = con.execute(
+            "SELECT key, value FROM config_entries "
+            "WHERE key IN ('opensubtitles_api_key',"
+            "'opensubtitles_username','opensubtitles_password')"
+        ).fetchall()
+    values = {key: val for key, val in rows if key in keys}
+    encrypted = [val for val in values.values()
+                 if isinstance(val, str) and val.startswith("enc:v1:")]
+    cipher = None
+    if encrypted:
+        from cryptography.fernet import Fernet, InvalidToken
+        if key_dir is None:
+            key_dir = getattr(settings, "config_dir", "/config")
+        key_path = Path(key_dir) / ".encryption_key"
+        if not key_path.is_file():
+            raise RuntimeError("Encrypted OpenSubtitles config but key file missing")
+        cipher = Fernet(key_path.read_bytes().strip())
+    for key in keys:
+        val = values.get(key)
+        if val is None:
+            continue
+        if isinstance(val, str) and val.startswith("enc:v1:"):
+            try:
+                val = cipher.decrypt(val[len("enc:v1:"):].encode()).decode("utf-8")
+            except (InvalidToken, UnicodeError) as exc:
+                raise RuntimeError("Stored OpenSubtitles credential could not be read") from None
+        result[key] = str(val or "").strip()
+    if not result["opensubtitles_api_key"] or result["opensubtitles_api_key"].startswith("***"):
+        raise RuntimeError(
+            "Native API key unavailable to isolated process; no download. "
+            "The running web service's provider can still be healthy.")
+    return {name.removeprefix("opensubtitles_"): result[name] for name in keys}
+
+
 def run():
     if ARCHIVE.exists() or ARCHIVE.is_symlink():
         raise RuntimeError("Private archive already exists; refusing overwrite")
@@ -185,13 +245,14 @@ def run():
     # We deliberately do NOT call the route /download-specific, which publishes
     # beside the video. Download one result directly into PRIVATE temporary storage.
     from providers.opensubtitles import OpenSubtitlesProvider
-    provider=OpenSubtitlesProvider(
-        api_key=getattr(settings,"opensubtitles_api_key",""),
-        username=getattr(settings,"opensubtitles_username",""),
-        password=getattr(settings,"opensubtitles_password",""),
-    )
+    credentials = _existing_provider_credentials(settings)
+    print("SCRATCH_PROVIDER_CONFIG existing private DB settings recovered; "
+          "no secrets displayed",flush=True)
+    provider=OpenSubtitlesProvider(**credentials)
     try:
         provider.initialize()
+        if not getattr(provider, "session", None):
+            raise RuntimeError("OpenSubtitles session failed to initialize; download held")
         handle=provider.result_for_download(candidate["subtitle_id"],"ja")
         print("SCRATCH_DOWNLOAD starting one quota-counted native OpenSubtitles request",flush=True)
         content=provider.download(handle)
