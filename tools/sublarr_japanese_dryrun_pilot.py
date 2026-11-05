@@ -37,7 +37,7 @@ def api(path: str, headers: dict, payload=None, timeout=30):
         return json.load(response)
 
 
-def find_one_wanted(get, is_file=os.path.isfile):
+def find_one_wanted(get, is_file=os.path.isfile, allowed_roots=("/media/",)):
     """Pick one exact existing JA full-dialogue Wanted video, never all jobs."""
     examined = 0
     for page in range(1, MAX_PAGES + 1):
@@ -62,7 +62,7 @@ def find_one_wanted(get, is_file=os.path.isfile):
             if not isinstance(fp, str):
                 continue
             p = Path(fp)
-            if not fp.startswith("/media/") or p.suffix.lower() not in VIDEO_SUFFIXES:
+            if not any(fp.startswith(root) for root in allowed_roots) or p.suffix.lower() not in VIDEO_SUFFIXES:
                 continue
             if os.path.islink(fp) or not is_file(fp):
                 continue
@@ -93,7 +93,7 @@ def summary(item, result):
     return display
 
 
-def run(get, post, is_file=os.path.isfile):
+def run(get, post, is_file=os.path.isfile, allowed_roots=("/media/",)):
     health = get("/api/v1/providers/health")
     providers = health.get("providers", []) if isinstance(health, dict) else []
     gate = next((p for p in providers if isinstance(p, dict)
@@ -109,7 +109,8 @@ def run(get, post, is_file=os.path.isfile):
         raise RuntimeError("Automation safety profile unknown or changed; no search")
     print("AUTO_TRANSLATION off, AUTOMATIC_UPGRADE off", flush=True)
 
-    item, seen, total = find_one_wanted(get, is_file=is_file)
+    item, seen, total = find_one_wanted(get, is_file=is_file,
+                                        allowed_roots=allowed_roots)
     print("WANTED_EXAMINED", seen, "reported_total", total, flush=True)
     if not item:
         print("NO_ELIGIBLE_WANTED_ITEM: nothing searched; check UI/library index",
