@@ -2,6 +2,9 @@
 
 ## Why revisit translation at all?
 
+> **Live OptiPlex smoke-run update, November 5 (17:31 JST):** both Q4_K_M models loaded using pinned llama.cpp CUDA and returned 16/16 Japanese-script responses with zero runtime errors: **0.8B: 0.702 seconds aggregate; 2B: 2.162 seconds aggregate** for the same short synthetic 16 English phrases. Before inference, GPU reported **5,678 MiB free, 0% utilization, 32 W configured power limit**. These figures exclude model load and **do not establish linguistic fidelity, peak power, VRAM requirements during gaming, or film-length throughput**. Private outputs: `~/bruiser-pilot/plamo3-ab/results/plamo3-small-ab-20261105T083115759228Z/`. Do not commit subtitle text. The next gate is manual inspection of the actual Japanese outputs, then an unseen real-dialogue SRT test; see [current execution roadmap](EXECUTION_ROADMAP_2026-11-05.md).
+
+
 Preferred Networks released **PLaMo 3 Translate** on **2026-11-05**, after SubHub's earlier frozen experiments. It is a *new family* of Japanese-focused translation models, not an invitation to repeat the old 4B Gemma prompt tweaks. The developer reports strong English/Japanese benchmark performance from even the 0.8B model, but those **vendor evaluations are not independent Japanese subtitle-viewing scores**.
 
 Developer material, checked Nov 5:
