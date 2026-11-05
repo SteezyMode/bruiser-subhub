@@ -34,6 +34,7 @@ EN_ROOT = Path.home() / "bruiser-pilot/english-source-inventory"
 JA_ROOT = Path.home() / "bruiser-pilot/subhub1-state"
 FILES = {
     "ja_first_search_pilot.py",
+    "ja_first_priority.py",
     "ja_first_stage_saved_batch.py",
     "ja_first_stage_timing_audit.py",
     "ja_first_publish_staged.py",
@@ -293,7 +294,7 @@ def watch(folder, job_id=None, interval=10):
 
 def self_test():
     import inspect
-    assert len(FILES) == 16
+    assert len(FILES) == 17
     assert len(STEPS) == 4
     for _, file, args in STEPS:
         assert file in FILES
