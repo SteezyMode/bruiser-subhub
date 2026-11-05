@@ -160,7 +160,7 @@ def subtitle_format(blob, provider_hint=""):
     return ""
 
 
-def health(cues, runtime):
+def health(cues, runtime, allow_offset_sec=0):
     if not cues:
         return {"ok":False,"reason":"empty"}
     dialogue=[c for c in cues if str(c.get("text") or "").strip()]
@@ -169,7 +169,7 @@ def health(cues, runtime):
     last=max(int(c.get("end") or 0) for c in cues)
     first=min(int(c.get("start") or 0) for c in cues)
     invalid=sum(int(c.get("end") or 0)<=int(c.get("start") or 0) for c in cues)
-    over=sum(int(c.get("end") or 0)>runtime*1000+5000 for c in cues)
+    over=sum(int(c.get("end") or 0)>runtime*1000+5000+allow_offset_sec*1000 for c in cues)
     ordered=sorted(cues,key=lambda c:(c["start"],c["end"]))
     overlaps=sum(ordered[i+1]["start"]+300<ordered[i]["end"]
                  for i in range(len(ordered)-1))
@@ -232,6 +232,75 @@ def publish_create_only(video,source,extension):
     return target
 
 
+
+def publish_synced_alternative(video,source,extension):
+    """Create an independently named corrected JA sidecar, never edit source."""
+    if extension not in SUB_EXT:
+        raise RuntimeError("Existing sidecar format not supported")
+    target=video.with_name(video.stem+".BruiserSynced.ja"+extension)
+    fd=os.open(target,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o644)
+    try:
+        with os.fdopen(fd,"wb") as out, open(source,"rb") as inp:
+            while chunk:=inp.read(65536):out.write(chunk)
+            out.flush()
+            os.fsync(out.fileno())
+    except BaseException:
+        target.unlink(missing_ok=True)
+        raise
+    return target
+
+
+def repair_local_japanese(video,runtime):
+    """Fix a saved JP track's constant offset if and only if independently safe.
+
+    Unconditionally keep the original unchanged and create a separate new
+    .BruiserSynced.ja.srt/ass if a meaningful correction is measured.
+    Never print subtitle dialogue. If several sources exist, hold rather than
+    guessing which to trust.
+    """
+    existing=existing_ja_sidecars(video)
+    if not existing:
+        return False
+    print("EXISTING_JAPANESE_SIDECARS",len(existing),flush=True)
+    if len(existing)!=1:
+        print("HELD_EXISTING_MULTIPLE: no subtitles overwritten or guessed",flush=True)
+        return True
+    original=existing[0]
+    if "BruiserSynced" in original.name:
+        print("ALREADY_HAS_BRUISER_SYNCED_JAPANESE",flush=True)
+        return True
+    extension=original.suffix.lower()
+    if extension not in SUB_EXT:
+        print("HELD_EXISTING_UNSUPPORTED_FORMAT",extension,flush=True)
+        return True
+    from services.sync_preview import load_cues
+    original_cues=load_cues(str(original))
+    screen=health(original_cues,runtime,allow_offset_sec=30)
+    if not screen["ok"]:
+        print("HELD_EXISTING_CONTENT",json.dumps(screen),flush=True)
+        return True
+    OUT_ROOT.mkdir(mode=0o700,parents=True,exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="bruiser-repair-",dir=str(OUT_ROOT)) as temp:
+        aligned=Path(temp)/("aligned"+extension)
+        result=sync_candidate(video,original,aligned)
+        if not result["ok"]:
+            print("HELD_EXISTING_SYNC",result,flush=True)
+            return True
+        if abs(result["shift_ms"])<400:
+            print("EXISTING_TRACK_ALREADY_CLOSE",result["shift_ms"],"ms",flush=True)
+            return True
+        corrected_cues=load_cues(str(aligned))
+        after=health(corrected_cues,runtime)
+        if not after["ok"] or len(corrected_cues)!=len(original_cues):
+            print("HELD_EXISTING_SYNC_QUALITY",json.dumps(after),flush=True)
+            return True
+        new_path=publish_synced_alternative(video,aligned,extension)
+        print("SPOILER_FREE_RESULT: CORRECTED_COPY_CREATED",new_path.name,
+              "offset_ms",result["shift_ms"],"cues",len(corrected_cues),
+              "original_preserved",True,flush=True)
+        return True
+
+
 def run(title=TARGET_TITLE,apply=False,max_downloads=3):
     from config import get_settings
     settings=get_settings()
@@ -242,17 +311,18 @@ def run(title=TARGET_TITLE,apply=False,max_downloads=3):
         print("FILM_MATCH_COUNT",len(vids),flush=True)
         raise RuntimeError("Expected one exact video filename; no changes")
     video=vids[0]
-    if video.is_symlink() or existing_ja_sidecars(video):
-        print("ALREADY_HAS_JAPANESE_SIDECAR",video.name,flush=True)
-        return
-    if has_embedded_japanese(video):
-        print("ALREADY_HAS_EMBEDDED_JAPANESE",video.name,flush=True)
-        return
+    if video.is_symlink():
+        raise RuntimeError("Refusing symlink movie path")
     length=duration(video)
     if length<1800 or length>20000:raise RuntimeError("Video duration unexpected")
     print("FILM_VIDEO_MATCHED",video.name,"duration_sec",round(length,1),flush=True)
     if not apply:
         print("READY_FOR_SPOILER_FREE_AUTOMATIC_SOURCE_SYNC: --apply required")
+        return
+    if repair_local_japanese(video,length):
+        return
+    if has_embedded_japanese(video):
+        print("ALREADY_HAS_EMBEDDED_JAPANESE",video.name,flush=True)
         return
     from providers.opensubtitles import OpenSubtitlesProvider
     from providers.base import VideoQuery
@@ -289,7 +359,7 @@ def run(title=TARGET_TITLE,apply=False,max_downloads=3):
                 source=Path(t)/("source"+fmt)
                 source.write_bytes(raw)
                 cues=load_cues(str(source))
-                before=health(cues,length)
+                before=health(cues,length,allow_offset_sec=30)
                 if not before["ok"]:
                     print("HELD_CONTENT",json.dumps(before,ensure_ascii=False),flush=True)
                     continue
