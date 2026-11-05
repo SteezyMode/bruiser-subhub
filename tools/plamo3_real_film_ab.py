@@ -20,7 +20,10 @@ import subprocess
 import sys
 import time
 
-import plamo3_small_ab as small
+try:
+    from . import plamo3_small_ab as small
+except ImportError:
+    import plamo3_small_ab as small
 
 ROOT = Path.home() / "bruiser-pilot/plamo3-ab"
 CATALOG = Path.home() / "bruiser-pilot/ja-first-inventory"
