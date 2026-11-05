@@ -293,8 +293,10 @@ def stage_private_candidate(video, result, content, fmt, assessment, sync=None,
         create_once(data,(json.dumps(metadata,ensure_ascii=False,indent=2)+"\n").encode("utf-8"))
     return source, data
 
-def sync_candidate(video, input_path, output_path):
-    from services.sync_engines.ffsubsync_output import parse_ffsubsync_shift
+def sync_candidate(video, input_path, output_path, parse_shift=None):
+    if parse_shift is None:
+        from services.sync_engines.ffsubsync_output import parse_ffsubsync_shift
+        parse_shift=parse_ffsubsync_shift
     args=["ffsubsync",str(video),"-i",str(input_path),"-o",str(output_path)]
     try:
         p=subprocess.run(args,capture_output=True,text=True,timeout=600)
@@ -302,7 +304,7 @@ def sync_candidate(video, input_path, output_path):
         return {"ok":False,"hold":"ffsubsync_timeout"}
     if p.returncode!=0:
         return {"ok":False,"hold":"ffsubsync_error"}
-    delta=parse_ffsubsync_shift(p.stdout+"\n"+p.stderr)
+    delta=parse_shift(p.stdout+"\n"+p.stderr)
     if delta is None or abs(delta)>30_000:
         return {"ok":False,"hold":"no_or_excessive_shift","shift_ms":delta}
     return {"ok":True,"shift_ms":delta}
