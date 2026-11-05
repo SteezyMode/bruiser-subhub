@@ -105,6 +105,24 @@ class SourceFirstEpisodeTests(TestCase):
         with self.assertRaisesRegex(RuntimeError, "unverified_japanese_catalog"):
             source.query_eligible_episode(video, changed)
 
+    def test_real_sublarr_japanese_search_accepts_verified_episode_without_provider_id(self):
+        from tools import ja_first_search_pilot as ja_search
+        with tempfile.TemporaryDirectory() as td:
+            video=Path(td)/"American.Dad.S19E13.mkv"
+            video.write_bytes(b"synthetic harmless fixture")
+            row={"status":"review_missing_series_identity","kind":"Episode",
+                 "host_path":str(video),"jellyfin_id":"a"*32,
+                 "series_title":"American Dad!","season":19,"episode":13,
+                 "series_imdb_id":"","series_tmdb_id":"","series_tvdb_id":""}
+            eligible=source.query_eligible_episode(video,row)
+            query=ja_search.query_for(eligible)
+            self.assertEqual(query["series_title"],"American Dad!")
+            self.assertEqual(query["season"],19)
+            self.assertEqual(query["episode"],13)
+            self.assertEqual(query["language"],"ja")
+            self.assertNotIn("imdb_id",query)
+            self.assertEqual(row["status"],"review_missing_series_identity")
+
     def test_missing_series_id_generates_real_japanese_provider_query(self):
         video = Path("/media/TV/American.Dad.S19E13.mkv")
         row = {"status": "review_missing_series_identity", "kind": "Episode",
