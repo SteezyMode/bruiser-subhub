@@ -27,13 +27,14 @@ import sys
 import tempfile
 from urllib.parse import quote
 import sqlite3
+import unicodedata
 
 TARGET_TITLE = "You Were Never Really Here"
 MEDIA_ROOTS = (
     Path("/media/bigdisk-video/Movies"),
     Path("/media/expansion-video/Movies"),
 )
-JA_CHARS = re.compile(r"[\u3040-\u30ff\u3400-\u9fff]")
+JA_CHARS = re.compile(r"[\u3040-\u30ff\u3400-\u9fff\uff66-\uff9f\u31f0-\u31ff]")
 VID_EXT = {".mkv",".mp4",".m4v",".avi",".mov"}
 SUB_EXT = {".srt",".ass",".ssa"}
 OUT_ROOT = Path("/config/bruiser-ja-screened")
@@ -165,7 +166,13 @@ def health(cues, runtime, allow_offset_sec=0):
         return {"ok":False,"reason":"empty"}
     dialogue=[c for c in cues if str(c.get("text") or "").strip()]
     japanese=sum(bool(JA_CHARS.search(str(c.get("text") or ""))) for c in dialogue)
-    ratio=japanese/max(1,len(dialogue))
+    # Punctuation, numbers, music notes and symbols cannot identify a language.
+    # Denominator includes actual letter-bearing cues, including short Latin text;
+    # otherwise silence/symbol captions can reject a mostly Japanese film.
+    letter_cues=[c for c in dialogue if any(
+        unicodedata.category(ch).startswith("L") for ch in str(c.get("text") or "")
+    )]
+    ratio=japanese/max(1,len(letter_cues))
     last=max(int(c.get("end") or 0) for c in cues)
     first=min(int(c.get("start") or 0) for c in cues)
     invalid=sum(int(c.get("end") or 0)<=int(c.get("start") or 0) for c in cues)
@@ -199,6 +206,8 @@ def health(cues, runtime, allow_offset_sec=0):
     return {
         "ok":not reason,"holds":reason,"cue_count":len(cues),
         "japanese_fraction":round(ratio,3),
+        "language_bearing_cues":len(letter_cues),
+        "symbols_only_cues":len(dialogue)-len(letter_cues),
         "non_japanese_cues":len(non_ja),
         "non_japanese_latin_word_cues":len(latin),
         "non_japanese_non_latin_cues":len(non_latin),
