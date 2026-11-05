@@ -401,9 +401,12 @@ def offline_report(limit=10):
     print("Identity plausibility is NOT approval to download or publish.", flush=True)
 
 
+MAX_SEARCHES_PER_RUN = 600
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--budget", type=int, default=2, help="1..12 provider-search requests")
+    ap.add_argument("--budget", type=int, default=12, help="1..600 provider-search requests")
     ap.add_argument("--self-test", action="store_true")
     ap.add_argument("--report", action="store_true", help="print stored results; no provider searches")
     args = ap.parse_args()
@@ -413,8 +416,8 @@ def main():
     if args.report:
         offline_report()
         return
-    if not 1 <= args.budget <= 12:
-        ap.error("--budget must be 1..12")
+    if not 1 <= args.budget <= MAX_SEARCHES_PER_RUN:
+        ap.error("--budget must be 1..600")
     manifests = sorted(ROOT.glob("ja-intake-*.json")) if ROOT.is_dir() else []
     if not manifests:
         raise RuntimeError("No saved Japanese-first intake manifest")
