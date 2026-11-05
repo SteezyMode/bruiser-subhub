@@ -35,6 +35,58 @@ HISTORY = 2
 STOP = ["<|plamo:tag|>", "<|plamo:bos|>"]
 PFN_URL = "https://huggingface.co/pfnet/plamo-3-translate-0.8b-GGUF"
 
+# SRT/SDH is not uniformly spoken dialogue. PLaMo's job is to translate
+# language, not to invent speech for a pure sound-effects caption. An
+# untranslated isolated [SIGHS] or [MUSIC PLAYING] is a valid non-dialogue
+# input. Keep it verbatim in these PRIVATE review tracks, label it explicitly,
+# and never put it in translation history. Localizing SDH is future work.
+INLINE_SRT_TAG = re.compile(r"</?(?:font|i|b|u)\b[^>]*>", re.I)
+STANDALONE_SDH = re.compile(r"\[[A-Z][A-Z0-9 \t,'’!?.:/-]{0,100}\]")
+
+
+def is_non_dialogue_caption(source):
+    plain = INLINE_SRT_TAG.sub("", source).strip()
+    return bool(STANDALONE_SDH.fullmatch(plain))
+
+
+def load_frozen_run(folder):
+    """Re-run the SAME immutable private 100 English cues from held 2026-11-05
+    job. No catalog rescan, provider network, ffmpeg, or source rewrite.
+    """
+    original = Path(folder).expanduser()
+    if original.is_symlink():
+        raise RuntimeError("frozen_run_symlink")
+    original = original.resolve(strict=True)
+    approved_root = (ROOT / "real-results").resolve(strict=True)
+    if original.parent != approved_root or not original.is_dir():
+        raise RuntimeError("frozen_run_outside_private_results")
+    if original.stat().st_uid != os.getuid() or original.stat().st_mode & 0o077:
+        raise RuntimeError("frozen_run_not_private")
+    manifest_file = _private_path(original / "manifest.json")
+    english_file = _private_path(original / "source.en.srt")
+    meta = json.loads(manifest_file.read_text(encoding="utf-8"))
+    data = english_file.read_bytes()
+    if hashlib.sha256(data).hexdigest() != meta.get("source_sha256"):
+        raise RuntimeError("frozen_english_sha_mismatch")
+    cues = small.parse_srt(data.decode("utf-8-sig"), limit=12000)
+    if (len(cues) != LIMIT or meta.get("selected_cues") != LIMIT
+            or cues[0]["number"] != meta.get("first_cue")
+            or cues[-1]["number"] != meta.get("last_cue")
+            or small.format_srt(cues, "english").encode("utf-8") != data):
+        raise RuntimeError("frozen_english_cue_structure_mismatch")
+    video = Path(str(meta.get("video_path") or ""))
+    if not video.is_absolute() or video.is_symlink() or not video.is_file():
+        raise RuntimeError("original_video_no_longer_available")
+    stat = video.stat()
+    if stat.st_size != meta.get("video_bytes") or stat.st_mtime_ns != meta.get("media_mtime_ns"):
+        raise RuntimeError("original_video_metadata_changed")
+    row = {"title": meta.get("title"), "year": meta.get("year"),
+           "jellyfin_id": meta.get("jellyfin_id")}
+    return (row, video, cues, meta["all_source_cues"],
+            "frozen_embedded_english_text", meta.get("manifest"),
+            original.name, meta["source_sha256"])
+
+
 
 def native_prompt(source, history):
     """Verbatim PFN PFML3 element grammar: previous source/output pairs,
@@ -74,9 +126,12 @@ def request(port, source, history):
     if first.get("finish_reason") == "length":
         raise RuntimeError("model_output_truncated")
     ja = str(first.get("text") or "").strip()
-    if not ja or "<|plamo:" in ja or not small.JP.search(ja):
-        raise RuntimeError("missing_or_malformed_japanese")
-    return ja, response.get("usage") or {}
+    if not ja or "<|plamo:" in ja:
+        raise RuntimeError("empty_or_malformed_model_output")
+    # A Latin-only response to *dialogue* is saved and explicitly marked as
+    # held, rather than treated as Japanese or crashing the whole A/B.
+    status = "translated" if small.JP.search(ja) else "held_non_japanese"
+    return ja, response.get("usage") or {}, status
 
 
 def _private_path(path):
@@ -192,7 +247,13 @@ def benchmark(args):
         if not model.is_file() or model.is_symlink() or model.stat().st_size < 100_000_000:
             raise RuntimeError("missing_original_pinned_model_" + filename)
     small.gpu_preflight()
-    row, video, cues, total, origin, manifest_name = choose_embedded_english()
+    frozen_name = None
+    if args.frozen_run:
+        (row, video, cues, total, origin, manifest_name,
+         frozen_name, original_source_sha) = load_frozen_run(args.frozen_run)
+    else:
+        row, video, cues, total, origin, manifest_name = choose_embedded_english()
+        original_source_sha = None
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     base = ROOT / "real-results"
     base.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -216,7 +277,10 @@ def benchmark(args):
         "source_lang": "en", "target_lang": "ja", "history_pairs": HISTORY,
         "temperature": 0, "max_tokens": 512, "stop": STOP,
         "published_to_jellyfin": False, "models": {},
+        "frozen_prior_run": frozen_name,
     }
+    if original_source_sha and details["source_sha256"] != original_source_sha:
+        raise RuntimeError("frozen_source_changed_during_snapshot")
     small.atomic_json(out / "manifest.json", details)
     print("=== FROZEN REAL ENGLISH SOURCE ===", flush=True)
     print(row["title"], "(", row.get("year"), ")",
@@ -239,21 +303,39 @@ def benchmark(args):
             previous = []
             for i, cue in enumerate(cues, 1):
                 start = time.monotonic()
-                result, usage = request(args.port, cue["english"], previous[-HISTORY:])
-                item = dict(cue, japanese=result,
+                if is_non_dialogue_caption(cue["english"]):
+                    # SDH-only text such as <font>[SIGHS]</font> is NOT
+                    # mistranslated dialogue. This was the entire cause of
+                    # the original cue-159 validation false positive.
+                    result, usage, cue_status = (
+                        cue["english"], {}, "non_dialogue_passthrough")
+                else:
+                    result, usage, cue_status = request(
+                        args.port, cue["english"], previous[-HISTORY:])
+                    if cue_status == "translated":
+                        previous.append((cue["english"], result))
+                item = dict(cue, japanese=result, status=cue_status,
+                            model_called=cue_status != "non_dialogue_passthrough",
                             seconds=round(time.monotonic()-start, 3), usage=usage)
                 record["entries"].append(item)
-                previous.append((cue["english"], result))
-                # On interruption preserve useful outputs, never reuse them as
-                # unverified context for a fresh run.
+                # Keep each A/B arm independent, preserve every output and
+                # explicitly flag English-only dialogue instead of passing it.
                 small.atomic_json(out / (size + ".json"), record)
-                if i % 10 == 0 or i == 1:
-                    print(f"{size}: {i}/{len(cues)} translated", flush=True)
+                if i % 10 == 0 or i == 1 or cue_status != "translated":
+                    print(f"{size}: {i}/{len(cues)} | {cue_status}", flush=True)
             if len(record["entries"]) == LIMIT:
                 (out / (size + ".review.ja.srt")).write_text(
                     small.format_srt(record["entries"], "japanese"),
                     encoding="utf-8")
-            record["status"] = "complete"
+            record["translated_cues"] = sum(
+                e["status"] == "translated" for e in record["entries"])
+            record["non_dialogue_cues"] = sum(
+                e["status"] == "non_dialogue_passthrough"
+                for e in record["entries"])
+            record["held_dialogue_cues"] = sum(
+                e["status"] == "held_non_japanese" for e in record["entries"])
+            record["status"] = ("complete_with_held_dialogue"
+                if record["held_dialogue_cues"] else "complete")
         except Exception as exc:
             record["status"] = "HELD"
             record["hold_reason"] = type(exc).__name__ + ": " + str(exc)[:180]
@@ -273,11 +355,14 @@ def benchmark(args):
                 "model_sha256": record["model_sha256"],
             }
             small.atomic_json(out / "manifest.json", details)
-            if record["status"] != "complete":
+            if record["status"] not in ("complete", "complete_with_held_dialogue"):
                 details["status"] = "HELD"
                 small.atomic_json(out / "manifest.json", details)
                 raise RuntimeError(size + " model held; private partials preserved")
-    details["status"] = "complete_unreviewed"
+    details["status"] = ("complete_with_held_dialogue"
+        if any(x["status"] == "complete_with_held_dialogue"
+               for x in details["models"].values())
+        else "complete_unreviewed")
     small.atomic_json(out / "manifest.json", details)
     print("=== REAL MODEL-NATIVE TEST COMPLETE ===", flush=True)
     print(json.dumps(details["models"], indent=2), flush=True)
@@ -310,6 +395,8 @@ def tests():
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--self-test", action="store_true")
+    p.add_argument("--frozen-run", type=Path,
+                   help="reuse exact 100-cue source from earlier private held run")
     p.add_argument("--port", type=int, default=18879)
     args = p.parse_args()
     if args.self_test:
