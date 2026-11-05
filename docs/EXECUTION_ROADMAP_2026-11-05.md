@@ -1,4 +1,6 @@
-# SubHub execution roadmap — 2026-11-05 (CURRENT ACTION PLAN)
+# SubHub execution roadmap — 2026-11-05 (SOURCE-ONLY ROADMAP; AMERICAN DAD STATUS SUPERSEDED)
+
+> **Update 2026-11-05:** The earlier “8B not deployed” and “model-size experiments pending” statements below are historical. **PLaMo 8B successfully translated and published American Dad S19E13 (392/392 cues); Natsuyo approved actual Jellyfin playback.** An existing-English **48-episode after-Season-2 batch has since started on the owner's OptiPlex**, with witnessed temperature pause/resume and a user-managed **24 W GPU cap**. For this active pilot and the next chat, use [the authoritative American Dad batch handoff](AMERICAN_DAD_ACTIVE_BATCH_HANDOFF_2026-11-05.md) instead of following obsolete research instructions below. This older roadmap remains useful for the distinct source-only Japanese subtitle sourcing service.
 
 **One mission:** maximize the number of **usable, naturally translated, correctly timed Japanese subtitles** ready before viewing on the household's existing Jellyfin media. The result, not the number of generated tokens/searches/models/commits, is the success criterion.
 
