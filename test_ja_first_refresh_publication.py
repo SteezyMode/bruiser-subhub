@@ -103,6 +103,33 @@ class RefreshedCatalogTests(unittest.TestCase):
         self.assertEqual(preserved, self.raw)
         self.assertEqual(self.sidecar.read_bytes(), self.raw)
 
+    def test_known_ffsubsync_corrected_track_retired_after_refresh(self):
+        corrected = self.raw.replace(b"00:00:03,000", b"00:00:04,000")
+        corrected_hash = hashlib.sha256(corrected).hexdigest()
+        derived = self.stage / "timing-adjusted"
+        derived.mkdir(mode=0o700)
+        filename = (self.jid + ".opensubtitles." + self.sid +
+                    ".ja.ffsubsync.srt")
+        path = derived / filename
+        path.write_bytes(corrected)
+        path.chmod(0o600)
+        record = path.with_name(path.name + ".json")
+        record.write_text(json.dumps({
+            "schema": "subhub-ffsubsync-v1",
+            "jellyfin_id": self.jid,
+            "subtitle_id": self.sid,
+            "original_sha256": self.digest,
+            "synced_sha256": corrected_hash,
+            "assessment": {"mode": "corrected"},
+        }))
+        record.chmod(0o600)
+        self.sidecar.write_bytes(corrected)
+        kind, _, _ = queue.choose(self.jid, [(self.sid, self.digest)])
+        self.assertEqual(kind, "published_ffsubsync")
+        queue.mark_completed(self.jid)
+        self.assertEqual(queue.stages(), [])
+        self.assertEqual(path.read_bytes(), corrected)
+
     def test_unrelated_sidecar_can_never_be_retired_or_overwritten(self):
         self.sidecar.write_bytes(b"Different user-edited Japanese subtitle")
         with self.assertRaisesRegex(RuntimeError, "not_matching_saved_provenance"):
