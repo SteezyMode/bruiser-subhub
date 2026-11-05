@@ -1,5 +1,11 @@
 # SubHub v2 — Japanese-first acquisition and intro-offset safety
 
+## November 5 — Probe fix: actual Wanted API schema
+
+First real owner run returned `WANTED_EXAMINED 0` because the initial helper incorrectly read `response["items"]` while Sublarr 1.18 returns the list in **`response["data"]`** (verified in upstream `backend/db/repositories/wanted.py` and `backend/routes/wanted/list.py`). The prior, independent read-only diagnostic had seen **407 total Wanted records** and an OpenSubtitles `gate=ok`. No provider was queried by that failed probe.
+
+**Fixed:** [tools/sublarr_japanese_dryrun_pilot.py](../tools/sublarr_japanese_dryrun_pilot.py) now reads `data`, prints the filtered Wanted count, fails loudly on an unexpected response format, and preserves the original 1-item provider search limits. Regression tests reproduce the original mismatch; GitHub CI passed at commit `16a41cd153f432df574a0070166cd5621bca7661`. The corrected one-command pin is directly below. No production containers/DB/configuration/models changed by the GitHub fix.
+
 ## November 5 — One-title real Japanese provider search preview (tested, no subtitle download)
 
 After the owner ran the read-only readiness check, native OpenSubtitles was **enabled, initialized, healthy, and `gate=ok`**; `ffsubsync` and `ffmpeg` were installed, `alass` was absent, two American Dad standalone roots were enabled, and four Movies/TV roots were still disabled. **407 Wanted entries** were visible. Auto-translation, auto-sync-after-download, and upgrades remained off. Do not repeat the previous missing-native-credential diagnosis or change providers blindly.
@@ -12,7 +18,7 @@ One command on Mac mini:
 ssh optiplex@100.121.156.34 'bash -s' <<'REMOTE'
 set -euo pipefail
 curl -fsSL --retry 3 \
- 'https://raw.githubusercontent.com/SteezyMode/bruiser-subhub/bdffa91bed7120c3816fab6f989c7c59a642f2e3/tools/sublarr_japanese_dryrun_pilot.py' |
+ 'https://raw.githubusercontent.com/SteezyMode/bruiser-subhub/16a41cd153f432df574a0070166cd5621bca7661/tools/sublarr_japanese_dryrun_pilot.py' |
   docker exec -i -e PYTHONPATH=/app sublarr-pilot python3 -
 REMOTE
 ```
