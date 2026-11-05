@@ -678,8 +678,8 @@ def self_test():
 
 def main():
     cli = argparse.ArgumentParser(description=__doc__)
-    cli.add_argument("--budget", type=int, default=1,
-                     help="maximum OpenSubtitles downloads: 1..3 (default 1)")
+    cli.add_argument("--budget", type=int, default=3,
+                     help="maximum staged OpenSubtitles downloads: 1..200")
     cli.add_argument("--kind", choices=("all", "movie", "episode"),
                      default="all")
     cli.add_argument("--require-embedded-en", action="store_true",
@@ -692,8 +692,8 @@ def main():
     if opts.self_test:
         self_test()
         return
-    if not 1 <= opts.budget <= 3:
-        cli.error("--budget must be 1..3")
+    if not 1 <= opts.budget <= 200:
+        cli.error("--budget must be 1..200")
     inventory = read_inventory()
     history = read_saved_searches()
     already = read_staged()
@@ -747,9 +747,22 @@ def main():
                 result = run_one(job, database)
                 completed[result] += 1
             except (RuntimeError, OSError, ValueError, subprocess.TimeoutExpired) as exc:
+                message = str(exc).lower()
                 completed["held"] += 1
                 print("HELD:", job["label"], type(exc).__name__,
-                      str(exc)[:85], flush=True)
+                      str(exc)[:135], flush=True)
+                # Respect the existing API account's actual download allowance.
+                # Do not send hundreds of further download attempts after
+                # the native provider reports exhaustion/cooldown/HTTP 429.
+                if any(text in message for text in (
+                    "quota", "rate_limit", "ratelimit", "cooling",
+                    "exhausted", "download_limit", "download limit",
+                    "allowed subtitles", "429", "406",
+                )):
+                    print("PROVIDER_LIMIT_REACHED: stop further downloads "
+                          "for this cycle; staged files retained", flush=True)
+                    completed["provider_limited"] += 1
+                    break
         print("BATCH RESULT:", dict(completed), flush=True)
         print("Files preserved privately under:", STAGED, flush=True)
         print("NOT PUBLISHED: media folders and Jellyfin remain unchanged.", flush=True)
