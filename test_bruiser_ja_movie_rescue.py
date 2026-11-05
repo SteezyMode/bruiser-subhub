@@ -71,7 +71,7 @@ class TestMovieRescue(unittest.TestCase):
                     Dummy(subtitle_id="alternative",release="You Were Never Really Here 2017 WEB DL",matches={"title","year"})]
         p=Provider()
         candidates=movie.search_movie_sources(p,video,"You Were Never Really Here",
-                                             query_type=lambda **args:type("Q",(),args)())
+                                             query_type=lambda **args:type("Q",(),{**{"file_path":""},**args})())
         self.assertEqual([item.subtitle_id for item in candidates],["same","alternative"])
         self.assertEqual(len(p.calls),2)
         self.assertTrue(p.calls[0][1])
