@@ -410,7 +410,77 @@ def repair_local_japanese(video,runtime):
         return True
 
 
-def run(title=TARGET_TITLE,apply=False,max_downloads=3):
+def resume_staged(video,runtime,report_path,apply=False):
+    """Re-screen cached downloaded+aligned bytes, never query provider again."""
+    from services.sync_preview import load_cues
+    report=Path(report_path)
+    if (not report.is_file() or report.is_symlink() or report.parent.is_symlink()
+        or report.parent.parent.resolve()!=OUT_ROOT.resolve()
+        or not re.fullmatch(r'report-[0-9a-f]{20}\.json',report.name)
+        or report.parent.name != hashlib.sha256(str(video).encode()).hexdigest()[:20]):
+        raise RuntimeError('Not a safe staged candidate for this exact video')
+    data=json.loads(report.read_text(encoding='utf-8'))
+    ident=report.stem.removeprefix('report-')
+    fmt=data.get('source_format')
+    if fmt not in SUB_EXT or data.get('video_file')!=video.name:
+        raise RuntimeError('Saved source identity or format mismatch')
+    source=report.parent/('source-'+ident+fmt)
+    aligned=report.parent/('aligned-'+ident+fmt)
+    if any(not p.is_file() or p.is_symlink() for p in (source,aligned)):
+        raise RuntimeError('Downloaded or aligned staged source missing')
+    content=source.read_bytes()
+    digest=hashlib.sha256(content).hexdigest()
+    if digest!=data.get('sha256') or not digest.startswith(ident):
+        raise RuntimeError('Staged source checksum mismatch')
+    if data.get('source')!='opensubtitles' or not (data.get('sync_preview') or {}).get('ok'):
+        raise RuntimeError('No prior successful OpenSubtitles sync preview')
+    known_holds=(data.get('quality_gate') or {}).get('holds',[])
+    if not isinstance(known_holds,list) or set(known_holds)-{'not_predominantly_japanese'}:
+        raise RuntimeError('Candidate has additional previous content holds')
+    if abs(float((data.get('quality_gate') or {}).get('video_seconds',0))-runtime)>2:
+        raise RuntimeError('Video length no longer matches saved screening')
+    if existing_ja_sidecars(video) or has_embedded_japanese(video):
+        raise RuntimeError('Japanese subtitles already exist; no overwrite')
+    original=load_cues(str(source))
+    corrected=load_cues(str(aligned))
+    before=health(original,runtime,allow_offset_sec=30)
+    after=health(corrected,runtime)
+    if not before['ok'] or not after['ok'] or len(original)!=len(corrected):
+        print('HELD_RESCREEN',json.dumps({'original':before,'aligned':after}),flush=True)
+        return
+    if any(str(a.get('text') or '')!=str(b.get('text') or '')
+           for a,b in zip(original,corrected)):
+        raise RuntimeError('Alignment modified source wording')
+    shifts=[(int(b['start'])-int(a['start']))/1000
+            for a,b in zip(original,corrected)]
+    if not shifts or max(abs(x) for x in shifts)>30 or max(shifts)-min(shifts)>8:
+        print('HELD_SYNC_VARIATION: corrected timestamps require review',flush=True)
+        return
+    print('STAGED_CANDIDATE_APPROVED_MECHANICALLY',
+          'Japanese',after['japanese_fraction'],
+          'language_bearing_cues',after['language_bearing_cues'],
+          'symbols_only_cues',after['symbols_only_cues'],
+          'shift_range_sec',[round(min(shifts),2),round(max(shifts),2)],flush=True)
+    if not apply:
+        print('PLAN_ONLY: add --apply to create one unverified JA sidecar',flush=True)
+        return
+    target=video.with_name(video.stem+'.Bruiser Sourced Unverified.ja'+fmt)
+    fd,temp=tempfile.mkstemp(prefix='.'+video.stem[:24]+'-ja-',dir=video.parent)
+    try:
+        with os.fdopen(fd,'wb') as out:
+            out.write(aligned.read_bytes())
+            out.flush();os.fsync(out.fileno())
+        os.chmod(temp,0o644)
+        if existing_ja_sidecars(video):
+            raise RuntimeError('Concurrent Japanese sidecar appeared; no publish')
+        os.link(temp,target)
+    finally:
+        Path(temp).unlink(missing_ok=True)
+    print('CREATED_UNVERIFIED_JAPANESE_SIDECAR',target.name,
+          'source_preserved',True,'translation_quality_unverified',True,flush=True)
+
+
+def run(title=TARGET_TITLE,apply=False,max_downloads=3,staged_report=''):
     from config import get_settings
     settings=get_settings()
     if token(title)!=token(TARGET_TITLE):
@@ -425,6 +495,9 @@ def run(title=TARGET_TITLE,apply=False,max_downloads=3):
     length=duration(video)
     if length<1800 or length>20000:raise RuntimeError("Video duration unexpected")
     print("FILM_VIDEO_MATCHED",video.name,"duration_sec",round(length,1),flush=True)
+    if staged_report:
+        resume_staged(video,length,staged_report,apply)
+        return
     if not apply:
         print("READY_FOR_SPOILER_FREE_AUTOMATIC_SOURCE_SYNC: --apply required")
         return
@@ -520,8 +593,9 @@ if __name__=="__main__":
     a.add_argument("--title",default=TARGET_TITLE)
     a.add_argument("--apply",action="store_true")
     a.add_argument("--max-downloads",type=int,default=3,choices=(1,2,3))
+    a.add_argument("--from-staged",default="",help="resume saved candidate without network or ffsubsync")
     args=a.parse_args()
-    try:run(args.title,args.apply,args.max_downloads)
+    try:run(args.title,args.apply,args.max_downloads,args.from_staged)
     except Exception as exc:
         # No dialogue or spoilers in error reports.
         print("SOURCE_RESCUE_HELD",type(exc).__name__,str(exc)[:180],file=sys.stderr)
