@@ -28,8 +28,6 @@ import tempfile
 from urllib.parse import quote
 import sqlite3
 
-from config import get_settings
-
 TARGET_TITLE = "You Were Never Really Here"
 MEDIA_ROOTS = (
     Path("/media/bigdisk-video/Movies"),
@@ -235,6 +233,7 @@ def publish_create_only(video,source,extension):
 
 
 def run(title=TARGET_TITLE,apply=False,max_downloads=3):
+    from config import get_settings
     settings=get_settings()
     if token(title)!=token(TARGET_TITLE):
         raise RuntimeError("Safety: this initial rescue is pinned to the requested film")
