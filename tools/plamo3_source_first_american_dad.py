@@ -143,13 +143,50 @@ def latest_row(video):
     return row
 
 
+def query_eligible_episode(video, row):
+    """Recover an accurate Japanese lookup when Jellyfin lacks series IDs.
+
+    The global source publisher still requires provider IDs. This private
+    one-show lookup does NOT amend Jellyfin metadata or the global manifest.
+    Validate filename + Jellyfin S/E identity, explicit American Dad
+    series name, host path, and 32-digit item ID before asking Sublarr for
+    possible Japanese subtitle listings.
+    """
+    if row.get("status") == "ready_ja_search":
+        return row
+    if row.get("status") != "review_missing_series_identity":
+        raise RuntimeError("unverified_japanese_catalog_status")
+    tag = episode.episode_id(video)
+    if not tag or row.get("kind") != "Episode" or row.get("host_path") != str(video):
+        raise RuntimeError("episode_not_identical_to_jellyfin_catalog")
+    if (type(row.get("season")) is not int
+            or type(row.get("episode")) is not int
+            or (row["season"], row["episode"]) !=
+                (int(tag[1:3]), int(tag[4:]))):
+        raise RuntimeError("episode_number_conflicts_with_catalog")
+    if not re.fullmatch(r"[a-f0-9]{32}",str(row.get("jellyfin_id") or "")):
+        raise RuntimeError("invalid_jellyfin_item_for_search")
+    name = str(row.get("series_title") or "").strip()
+    if name and re.sub(r"[^a-z0-9]+","",name.casefold()) != "americandad":
+        raise RuntimeError("jellyfin_series_name_is_not_american_dad")
+    # If Jellyfin lacks a Series record, the actual filename must show
+    # American Dad, rather than assuming the folder alone defines identity.
+    if not name and not episode.SHOW.search(video.name):
+        raise RuntimeError("episode_series_cannot_be_verified_from_filename")
+    query_row = dict(row, series_title="American Dad!",
+                     status="ready_ja_search")
+    print("JA LOOKUP: Jellyfin provider-series ID absent; verified "
+          "American Dad title and S/E numbers, searching by title.",
+          flush=True)
+    return query_row
+
+
 def cached_or_search_ja(video, row, ja_search):
-    if row.get("status") != "ready_ja_search":
-        raise RuntimeError("japanese_source_identity_not_verified__no_translation")
-    request = ja_search.query_for(row)
+    search_row = query_eligible_episode(video, row)
+    request = ja_search.query_for(search_row)
     if request is None:
         raise RuntimeError("japanese_source_query_not_safe__no_translation")
-    job = {"id": str(row["jellyfin_id"]), "row": row, "query": request}
+    job = {"id": str(row["jellyfin_id"]), "row": search_row, "query": request}
     with ja_search.open_db() as db:
         cached = db.execute(
             "SELECT searched_at,outcome,results_json FROM searches WHERE jellyfin_id=?",
@@ -187,7 +224,7 @@ def cached_or_search_ja(video, row, ja_search):
             raise RuntimeError("japanese_provider_unavailable__no_english_fallback_yet")
         options = result.get("results") or []
         rated = [(grade, item) for item in options if isinstance(item, dict)
-                 for grade in [ja_search.candidate_grade(row, item)]
+                 for grade in [ja_search.candidate_grade(search_row, item)]
                  if grade != "reject"]
         grade = "plausible" if any(g == "plausible" for g, _ in rated) else (
             "review" if rated else "none")
@@ -207,8 +244,13 @@ def acquire_ja(video, row, ja_search, ja_stage, ja_publish, candidates):
     valid.sort(key=lambda c:(-int(c.get("score") or 0),
                              str(c.get("subtitle_id") or "")))
     if not valid:
-        print("JA SOURCING: no candidate passed the strict release identity gate.",
-              flush=True)
+        if candidates:
+            print("JA SOURCING: listings found, but no Japanese track passes "
+                  "the existing identity/download safety gate; "
+                  "trying English translation fallback.",flush=True)
+        else:
+            print("JA SOURCING: no usable Japanese download found; "
+                  "trying English translation fallback.",flush=True)
         return False
     for cand in valid[:1]:  # At most ONE Japanese provider download.
         sid = str(cand["subtitle_id"])
@@ -434,9 +476,10 @@ def process_one(args, daily,ja_search,ja_stage,ja_publish,ff_sync,jellyfin):
         try:
             ja_candidates=cached_or_search_ja(video,row,ja_search)
         except (OSError,RuntimeError,ValueError,sqlite3.Error) as exc:
-            print("JAPANESE-FIRST HOLD:",type(exc).__name__,str(exc)[:125],
+            print("JA SEARCH UNAVAILABLE:",type(exc).__name__,str(exc)[:125],
+                  "| existing Japanese rechecked; trying verified English fallback.",
                   flush=True)
-            continue
+            ja_candidates=[]
         if acquire_ja(video,row,ja_search,ja_stage,ja_publish,ja_candidates):
             return
         try:
