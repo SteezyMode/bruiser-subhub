@@ -3,7 +3,7 @@
 # Does NOT enable a timer or start translation. Uses a fixed source commit.
 set -euo pipefail
 
-PIN="68665b6300ed5f1061b4783226405efbaf9235e0"
+PIN="8183e1acdb54fb14290a258550da82199f68954a"
 BASE="https://raw.githubusercontent.com/SteezyMode/bruiser-subhub/$PIN/tools"
 DEST="$HOME/bruiser-pilot/subhub-control"
 
