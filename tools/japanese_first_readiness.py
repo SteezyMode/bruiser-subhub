@@ -5,6 +5,8 @@ Prints only allowlisted status/metadata. No provider searches, DB writes,
 file downloads, model calls or media edits. API key stays inside container.
 """
 import json
+import os
+import shutil
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -54,6 +56,32 @@ def scalar(obj, names):
 
 print("=== JAPANESE-FIRST: SUBLARR LIVE READ-ONLY PREFLIGHT ===", flush=True)
 
+status = safe_call("/api/v1/health")
+if isinstance(status, dict):
+    print("\\nHealth status:", scalar(status, ("status", "state", "health")))
+    print("Application version:", scalar(status, ("version", "app_version")))
+
+print("\\nSync binaries INSIDE container:")
+for binary in ("ffsubsync", "ffs", "ffmpeg", "ffprobe", "alass"):
+    print(" ", binary, "=", "present" if shutil.which(binary) else "not found")
+
+engines = safe_call("/api/v1/sync/engines")
+print("\\nSync engine status (read-only):")
+if isinstance(engines, dict):
+    for key in ("sanity_threshold_ms", "auto_sync_enabled", "engine_order", "enabled"):
+        val = engines.get(key)
+        if isinstance(val, (str, bool, int, float, list)):
+            print(" ", key, "=", val)
+elif engines is None:
+    print("  status endpoint unavailable")
+for entry in collection(engines, "engines"):
+    if isinstance(entry, dict):
+        print("  engine:", scalar(entry, ("name", "engine", "id")),
+              "| available:", scalar(entry, ("available", "is_available")),
+              "| timeout_s:", scalar(entry, ("timeout_s", "timeout")))
+
+
+
 providers = collection(safe_call("/api/v1/providers"), "providers")
 print("\nProvider inventory:", len(providers))
 for entry in providers:
@@ -94,6 +122,10 @@ for item in folders[:20]:
     print(" ", "id:", scalar(item, ("id",)),
           "| path:", scalar(item, ("path", "folder_path")),
           "| enabled:", scalar(item, ("enabled", "scan_enabled", "active")))
+    mount_path = item.get("path") or item.get("folder_path")
+    if isinstance(mount_path, str) and mount_path.startswith("/") and "\\n" not in mount_path:
+        print("    container_path_exists:", os.path.isdir(mount_path),
+              "| readable:", os.access(mount_path, os.R_OK))
 
 config = safe_call("/api/v1/config")
 if isinstance(config, dict):
@@ -103,6 +135,10 @@ if isinstance(config, dict):
         "wanted_auto_translate", "wanted_auto_extract",
         "wanted_search_on_startup", "wanted_scan_on_startup",
         "source_language", "target_language", "upgrade_enabled",
+        "auto_sync_enabled", "sync_sanity_threshold_ms",
+        "auto_sync_after_download", "wanted_auto_search",
+        "wanted_scan_enabled", "wanted_scan_on_startup",
+        "wanted_upgrade_enabled", "provider_budget_enabled",
     )
     print("\nSelected automation settings:")
     for key in keys:
@@ -143,4 +179,4 @@ if isinstance(spec, dict):
         print(" ", json.dumps(schema, ensure_ascii=False)[:1500])
     else:
         print("  unavailable")
-print("\nDONE: No searches, subtitle downloads, configuration changes or translation started.")
+print("\nDONE: No searches, sync jobs, subtitle downloads, configuration changes or translation started.")
