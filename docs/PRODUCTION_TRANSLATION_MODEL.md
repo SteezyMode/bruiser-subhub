@@ -1,5 +1,7 @@
 # PRODUCTION TRANSLATION MODEL — AUTHORITATIVE DECISION
 
+> **NOVEMBER 5 MODEL SELECTION OVERRIDE (research winner, not yet deployed):** A new, correctly PFN-formatted and matched 100-cue PLaMo 3 Translate 0.8B/2B/8B comparison now selects **PLaMo 3 Translate 8B Q4_K_M** as the **preferred single local machine-draft model**. See [evidence and selection limitations](PLAMO_3_FINAL_MODEL_SELECTION_2026-11-05.md). **This document still describes the actual November 4 installed E4B operational fallback**; no change to running services, scripts, Jellyfin or existing subtitles has been made by model selection. Do not incorrectly call E4B the new research winner, and do not incorrectly claim 8B is already operational or quality-certified for unreviewed auto-publication.
+
 **Decision: November 4, 2026. Status: INSTALLED operational E4B default; quality winner unverified.**
 
 > **NOVEMBER 5 RESEARCH QUALITY OVERRIDE:** [Read the completed historical experiment audit and STOP decision](TRANSLATION_RD_STOP_DECISION_2026-11-05.md). Nine distinct model configurations already produced 2,457 translations on the new three-film Benchmark 006 corpus; its native-Japanese quality winner was never established. The November 4 "best-supported" language below describes an **operational default** and does **not** supersede Benchmark 006's blind-viewing requirement, justify scaling, or approve more E4B prompt tuning. Preserve the currently installed model unchanged while research is paused.
