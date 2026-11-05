@@ -15,4 +15,5 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: bash -n tools/install_plamo3_small_ab.sh
       - run: bash -n tools/run_plamo3_real_film_ab.sh
+      - run: bash -n tools/run_plamo3_8b_challenger.sh
       - run: python -m unittest discover -p 'test_*.py' -v
