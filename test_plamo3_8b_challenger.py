@@ -28,13 +28,15 @@ class Plamo8BTests(unittest.TestCase):
             path.write_bytes(b"GGUF" + b"X" * 20)
             with self.assertRaisesRegex(RuntimeError, "missing_or_incomplete"):
                 trial.validate_weight(path)
-            with mock.patch.object(
-                Path, "stat",
-                autospec=True,
-                side_effect=lambda p: mock.Mock(st_size=5_280_000_000),
-            ):
-                with path.open("rb") as fh:
-                    self.assertEqual(fh.read(4), b"GGUF")
+            # Sparse file tests GGUF header and lower-bound length without
+            # actually allocating 4.5 GB in the test runner.
+            with path.open("r+b") as fh:
+                fh.truncate(4_500_000_001)
+            trial.validate_weight(path)
+            with path.open("r+b") as fh:
+                fh.seek(0)
+                fh.write(b"FAIL")
+            with self.assertRaisesRegex(RuntimeError, "invalid_GGUF_magic"):
                 trial.validate_weight(path)
 
     def test_gpu_layer_offload_is_only_runtime_variation(self):
