@@ -1,5 +1,26 @@
 # SubHub v2 — Japanese-first acquisition and intro-offset safety
 
+## November 5 — One-title real Japanese provider search preview (tested, no subtitle download)
+
+After the owner ran the read-only readiness check, native OpenSubtitles was **enabled, initialized, healthy, and `gate=ok`**; `ffsubsync` and `ffmpeg` were installed, `alass` was absent, two American Dad standalone roots were enabled, and four Movies/TV roots were still disabled. **407 Wanted entries** were visible. Auto-translation, auto-sync-after-download, and upgrades remained off. Do not repeat the previous missing-native-credential diagnosis or change providers blindly.
+
+Use [tools/sublarr_japanese_dryrun_pilot.py](../tools/sublarr_japanese_dryrun_pilot.py) inside the live container to select **exactly one** existing `wanted` Japanese full-dialogue video under `/media/`, skipping matching external Japanese sidecars and unsafe/missing paths, and then call official `POST /api/v1/wanted/dry-run` with its single ID. It **queries real providers and consumes search quota**, but does **not download a subtitle or write a sidecar**. Sublarr may briefly change the Wanted row status to `searching` while processing, then restores the original status; don't describe it as strictly DB-read-only. Do NOT use `Process` or `Batch Search` until one result has been inspected.
+
+One command on Mac mini:
+
+```bash
+ssh optiplex@100.121.156.34 'bash -s' <<'REMOTE'
+set -euo pipefail
+curl -fsSL --retry 3 \
+ 'https://raw.githubusercontent.com/SteezyMode/bruiser-subhub/bdffa91bed7120c3816fab6f989c7c59a642f2e3/tools/sublarr_japanese_dryrun_pilot.py' |
+  docker exec -i -e PYTHONPATH=/app sublarr-pilot python3 -
+REMOTE
+```
+
+Expected report: `NATIVE_OPENSUBTITLES gate=ok`, one `SELECTED` item, then `PROVIDER_DRY_RUN` status. `found` means an **eligible result exists**, not that its Japanese language/provenance, human quality, or sync is verified. `not_found` means the search returned nothing that cleared the scoring bar **for that one title**; `skipped` may mean a stale Wanted item or gating. Treat a failed provider attempt as diagnostic, not a reason to bulk reset limits or enable all roots. Prefer reviewing candidate provenance and a scratch download for a successful first title, then non-destructive **Sync Compare** on a verified existing JA file whose offset is known wrong.
+
+Code is offline safety-tested with fixed request count, JA/full filtering, sidecar exclusions and no-auto-translation preconditions; no real provider result is claimed until the owner runs the command.
+
 ## November 5 — First actual troubleshooting step (NO WRITE)
 
 The next host action is **not a new translator or another install**. Run the existing targeted read-only preflight [tools/japanese_first_readiness.py](../tools/japanese_first_readiness.py) inside the **running** \`sublarr-pilot\` container. It checks provider search gates (including \`no_pool_key\`), native OpenSubtitles/SubDL/Jimaku presence, language profiles, enabled standalone mounts, local ffsubsync/ffmpeg binaries, \`GET /api/v1/sync/engines\`, and selected automation flags. It never starts a scan, provider request, download, sync operation or translation.
