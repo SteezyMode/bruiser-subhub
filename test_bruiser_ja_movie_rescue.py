@@ -47,6 +47,29 @@ class TestMovieRescue(unittest.TestCase):
         r=movie.health(cues,4500)
         self.assertTrue(r["ok"],r)
 
+    def test_symbols_do_not_count_as_untranslated_language(self):
+        # Observed 365-cue shape: 283 Japanese, 80 symbols, two short Latin cues.
+        # The old 283/365 gate incorrectly held this film as 77.5% Japanese.
+        cues=[]
+        for i in range(365):
+            phrase = "日本語です" if i<283 else ("♪…" if i<363 else "OK")
+            start=int((103.56 + i*(4814.91/364))*1000)
+            cues.append({"start":start,"end":start+1200,"text":phrase})
+        out=movie.health(cues,5368.5,allow_offset_sec=30)
+        self.assertTrue(out["ok"],out)
+        self.assertEqual(out["language_bearing_cues"],285)
+        self.assertEqual(out["symbols_only_cues"],80)
+        self.assertEqual(out["japanese_fraction"],0.993)
+
+    def test_actual_untranslated_letter_cues_still_fail(self):
+        cues=[]
+        for i in range(365):
+            phrase = "字幕です" if i<265 else "EN"
+            start=int((103.56 + i*(4814.91/364))*1000)
+            cues.append({"start":start,"end":start+1200,"text":phrase})
+        out=movie.health(cues,5368.5,allow_offset_sec=30)
+        self.assertIn("not_predominantly_japanese",out["holds"])
+
     def test_wrong_language_is_held(self):
         cues=[{"start":10000+i*10000,"end":13000+i*10000,
               "text":"The story is in English"} for i in range(400)]
