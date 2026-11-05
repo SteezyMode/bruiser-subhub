@@ -4,9 +4,15 @@
 
 Currently a local English-to-Japanese subtitle translation coordinator for a personal media server. **Public-source development repository; currently an OptiPlex-specific working pilot, not a portable installer.**
 
+## R&D STOP / quality reality check — November 5, 2026
+
+**READ FIRST: [Evidence audit and explicit STOP decision](docs/TRANSLATION_RD_STOP_DECISION_2026-11-05.md).** The installed subtitle-tuned E4B model is an **operational fallback**, not a proven ~8/10, independently rated, best-quality translator. Nine model arms already produced **2,457 outputs across 273 cues on three films** in Benchmark 006; the recorded independent native-viewer blind-quality decision remains incomplete. **Do not restart prompt/history/quantization/grouped-JSON/HTML-cleanup loops or scale unattended E4B translation to the full library.** Use existing 006 blind outputs first, prioritize verified native Japanese subtitle acquisition, and retain current E4B for clearly labeled rough drafts.
+
+**Only noteworthy newly released candidate:** Preferred Networks' PLaMo 3 Translate 2B GGUF (released 2026-11-05; not yet tested), which warrants at most one strictly bounded, model-native evaluation *after* the 006 viewer decision, never another speculative E4B change. No production model is changed by this documentation update.
+
 ## PRODUCTION TRANSLATION MODEL — CURRENT DECISION (NOVEMBER 4, 2026)
 
-**APPROVED PRIMARY: 17slever17 Translate Gemma 4 Sub E4B — subtitle-tuned, GGUF Q4_K_XL; pinned Ollama ID 9ccfc3b07081.**
+**INSTALLED OPERATIONAL PRIMARY (QUALITY WINNER UNPROVEN): 17slever17 Translate Gemma 4 Sub E4B — subtitle-tuned, GGUF Q4_K_XL; pinned Ollama ID 9ccfc3b07081.**
 
 **EXACT MODEL:** hf.co/17slever17/translate-gemma-4-sub-e4b-GGUF:Q4_K_XL
 
