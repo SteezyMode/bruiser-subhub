@@ -7,7 +7,7 @@ set -euo pipefail
 umask 077
 
 ROOT="$HOME/bruiser-pilot/plamo3-ab"
-PIN="1f2cf4353be21c4949a866f482c3cf73bc51502c"
+PIN="f90473a3796831d6df6dc8064427d15e71480cad"
 URL="https://raw.githubusercontent.com/SteezyMode/bruiser-subhub/$PIN/tools/plamo3_compare_american_dad_2b.py"
 TARGET="$ROOT/plamo3_compare_american_dad_2b.py"
 MODEL="$ROOT/models/plamo-3-translate-2b-Q4_K_M.gguf"
