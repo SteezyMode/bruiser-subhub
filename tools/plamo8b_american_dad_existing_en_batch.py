@@ -408,7 +408,7 @@ def self_test():
     assert safe_roger_name("Roger that.","了解。")=="了解。"
     assert safe_roger_name("Noted, Roger","了解。")=="了解。"
     assert safe_roger_name("Roger, you know","ロジャー、わかる")=="ロジャー、わかる"
-    assert safe_roger_name(r"{\an8}Roger.","{\an8}了解。")==r"{\an8}ロジャー。"
+    assert safe_roger_name(r"{\an8}Roger.",r"{\an8}了解。")==r"{\an8}ロジャー。"
     print("PLaMo8B BATCH SELF-TEST PASSED (Roger + native protocol)")
 
 def main():
