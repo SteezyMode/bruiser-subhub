@@ -9,7 +9,7 @@ umask 077
 ROOT="$HOME/bruiser-pilot/plamo3-ab"
 SOURCE_CODE="$ROOT/source-first-code"
 CONTROL="$HOME/bruiser-pilot/subhub-control"
-PIN="e2f350d6af39fec43d4ba1c2993bd92fadf9324b"
+PIN="2d27542296c615b542e4fbe3136d52c40026a199"
 BASE="https://raw.githubusercontent.com/SteezyMode/bruiser-subhub/$PIN/tools"
 
 for util in python3 curl find sort paste ldd stat; do
