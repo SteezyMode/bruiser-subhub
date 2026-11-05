@@ -1,5 +1,8 @@
 # Engineering priorities
 
+> **Priority update, November 5:** Production strategy is sourced-Japanese-first, with ffsubsync and create-only sidecar publishing. The live OptiPlex controller has completed real source-to-sidecar operations. The historical first section below describes *earlier* translation-centric priorities and does not supersede [the current architecture](WHAT_IS_SUBHUB_AND_HOW_TO_USE_IT_2026-11-05.md), [hybrid source/DIY policy](HYBRID_JAPANESE_SOURCE_VS_DIY_POLICY_2026-11-05.md), or [isolated PLaMo 0.8B / 2B evaluation](PLAMO_3_TRANSLATE_EVALUATION_2026-11-05.md). No model should be automatically deployed or inserted into the currently working source-only scheduler.
+
+
 **Actual mission is [GOAL.md](../GOAL.md).** Deliver free, natural Japanese subs across the household's existing media; the custom code is expendable. Dual-subtitle playback is already handled.
 
 ## Current phase: scale the household library without another one-film debugging cycle
