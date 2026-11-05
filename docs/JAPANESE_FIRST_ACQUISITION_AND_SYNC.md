@@ -1,5 +1,29 @@
 # SubHub v2 — Japanese-first acquisition and intro-offset safety
 
+## November 5 — Actual OpenSubtitles candidate found (owner-run result)
+
+The corrected real-host one-item dry-run selected **Wanted #418**, `American.Dad.S22E02.720p.x264-FENiX.mkv`, and returned **`status=found`**, native **`opensubtitles`**, **score 240**, reported **Japanese ASS**, and proposed `American.Dad.S22E02.720p.x264-FENiX.ja.ass`. This is a **real search match**, not a downloaded or independently quality-verified subtitle. Actual Japanese dialogue, provenance and timing are still unexamined. No file was saved and the Wanted status was restored.
+
+Next experiment: [tools/sublarr_ja_418_scratch_inspect.py](../tools/sublarr_ja_418_scratch_inspect.py) rechecks the exact Wanted identity and provider gate, searches that item for exact Japanese OpenSubtitles full-dialogue candidates, and downloads **one** into private `/tmp` inside the Sublarr container through the native provider's `download()`—**NOT** through the `download-specific` publishing route. Uses the actual downloaded file format, reports parsed cue counts, visible Japanese script, time span and provider machine-translation provenance; when plausible, calls Sublarr's existing `services.sync_preview.sync_compare()` to propose an `ffsubsync` offset against the actual local video, **without applying it**. It stores the raw candidate and summarized report in a private archive for human/contextual quality review. This consumes provider search and download quota, and the interactive search endpoint updates the item's search metadata. It does not mutate media files, original JA or model settings, run translations, enable scanners, or apply sync.
+
+Host command on Mac mini:
+
+```bash
+ssh optiplex@100.121.156.34 'bash -s' <<'REMOTE'
+set -euo pipefail
+curl -fsSL --retry 3 \
+'https://raw.githubusercontent.com/SteezyMode/bruiser-subhub/afc4f548b27ebb61f01a5d01cca2c3a5993fedfb/tools/sublarr_ja_418_scratch_inspect.py' |
+ docker exec -i -e PYTHONPATH=/app sublarr-pilot python3 -
+mkdir -p "$HOME/bruiser-pilot/japanese-source-review"
+docker cp sublarr-pilot:/tmp/bruiser-ja-418-review.tar.gz \
+ "$HOME/bruiser-pilot/japanese-source-review/bruiser-ja-418-review.tar.gz"
+REMOTE
+scp optiplex@100.121.156.34:~/bruiser-pilot/japanese-source-review/bruiser-ja-418-review.tar.gz \
+ ~/Downloads/
+```
+
+**Only after the private candidate archive is reviewed** should the owner decide whether to publish a separately named JA sidecar; do not treat score 240, Japanese script ratio or successful sync estimate as proof of 8/10 localization. A shift measured within the 45-second sanity ceiling can still be wrong. If OpenSubtitles refuses a download (key/JWT/quota), report the actual error and do not bypass credentials or increase quotas.
+
 ## November 5 — Probe fix: actual Wanted API schema
 
 First real owner run returned `WANTED_EXAMINED 0` because the initial helper incorrectly read `response["items"]` while Sublarr 1.18 returns the list in **`response["data"]`** (verified in upstream `backend/db/repositories/wanted.py` and `backend/routes/wanted/list.py`). The prior, independent read-only diagnostic had seen **407 total Wanted records** and an OpenSubtitles `gate=ok`. No provider was queried by that failed probe.
