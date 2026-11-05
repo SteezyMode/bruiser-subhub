@@ -38,13 +38,29 @@ Owner's finished **100-search test** from the OptiPlex source-only timer/control
 
 **Status:** benchmark runner and bootstrap code committed and Python tests passed; **not executed on OptiPlex** until owner runs it.
 
-- Use the pinned standalone installer [install_plamo3_small_ab.sh](../tools/install_plamo3_small_ab.sh) and [Python benchmark](../tools/plamo3_small_ab.py). Private working root: \`~/bruiser-pilot/plamo3-ab\`.
+- Use the pinned standalone installer [install_plamo3_small_ab.sh](../tools/install_plamo3_small_ab.sh) and [Python benchmark](../tools/plamo3_small_ab.py). Private working root: `~/bruiser-pilot/plamo3-ab`.
 - Download exact PFN official Q4_K_M model files **0.8B (~0.57GB)** and **2B (~1.81GB)**. Use a pinned, locally extracted llama.cpp CUDA 12.8 build; no Ollama/model replacement, root package installation, or media writes.
 - Both run in sequence on **the same 16 original, non-movie English dialogue samples** using PFN's actual PFML3 translation prompt, temperature 0 and stop tokens. Include idioms, negation, register, sarcasm and threats. Preserve English cue timecodes. Capture raw JA, latency, provenance, simple mechanical flags and GPU preflight.
 - STOP for runtime incompatibility, missing CUDA libs, unverified weights, insufficient VRAM or active gaming. Don't forcibly unload any other model; no automatic fallback to different models.
 - **Exit criterion:** both model servers start, 16/16 returned without truncation/empty or non-Japanese replies per arm, private run records created and no source-only worker changed. This is a **smoke test only**, NOT quality certification or proof of 8/10 Japanese.
 
-**Command on Mac mini:** see bottom of this document or a future answer. User may close terminal only *after* the foreground model test completes. The source-only timer continues independently.
+**Run the pinned smoke test from the Mac mini (actual code, not just a plan):**
+
+~~~bash
+ssh optiplex@HOST 'bash -s' <<'REMOTE'
+set -euo pipefail
+SCRIPT="$(mktemp)"
+trap 'rm -f "$SCRIPT"' EXIT
+PIN="387fdf7dcb888c4adc772578c994883d7c62e02d"
+curl -fsSL --retry 3 \
+  "https://raw.githubusercontent.com/SteezyMode/bruiser-subhub/$PIN/tools/install_plamo3_small_ab.sh" \
+  -o "$SCRIPT"
+bash -n "$SCRIPT"
+bash "$SCRIPT"
+REMOTE
+~~~
+
+Replace `HOST` with the OptiPlex SSH IP/hostname. This downloads roughly 3–4 GB of pinned model/runtime assets and tests **both** models sequentially on GPU; the shell must remain attached through the test. Smoke-test results stay in `~/bruiser-pilot/plamo3-ab/results/`. If host CUDA/VRAM is incompatible, it stops without changing source-only service. The source-only timer continues independently. A GitHub document cannot install/run models on the user's host by itself.
 
 ### Task 2: Real subtitle A/B, 80–120 continuous cues (SAME DAY if smoke test passes)
 
@@ -53,7 +69,7 @@ Owner's finished **100-search test** from the OptiPlex source-only timer/control
 - Select ONE *fresh* real English-dialogue scene in a horror/drama title with reliably matched existing English SRT: avoid previously overstudied *Primate*, the four sealed Benchmark 006 scenes, and familiar benchmark prompts. Source selection is read-only; record original English SRT SHA256, title identity, selected cue IDs/timing, media hash or trusted binding.
 - Run **the same frozen 80–120 English cues** through each small PLaMo model using the developer-native PFML3 contract. Save both raw outputs and Japanese draft SRT with original timestamps to PRIVATE review storage. Do **not** add model text to public GitHub or publish media-adjacent JA.
 - Inspect obvious meaning reversals, omissions, idioms/profanity, register, names, repeated/spillover lines, reading speed. Ask a Japanese-speaking viewer to watch **one small blind scene**, not 36 runs. A small number of severe plot-reversing errors can disqualify an arm despite 100% structural completion.
-- **Exit criterion:** useful side-by-side private candidate files and time/VRAM metrics; explicit verdict \`0.8B viable\`, \`2B viable\`, \`both draft-only\`, or \`optional 8B comparison warranted\`. Aim for ~7.5–8/10 ordinary viewing quality; no automatically inferred grade. If both disappoint, STOP model prompt fiddling and keep source-only coverage expansion moving.
+- **Exit criterion:** useful side-by-side private candidate files and time/VRAM metrics; explicit verdict `0.8B viable`, `2B viable`, `both draft-only`, or `optional 8B comparison warranted`. Aim for ~7.5–8/10 ordinary viewing quality; no automatically inferred grade. If both disappoint, STOP model prompt fiddling and keep source-only coverage expansion moving.
 
 ### Task 3: Operational source-run report
 
@@ -67,7 +83,7 @@ Owner's finished **100-search test** from the OptiPlex source-only timer/control
 
 ### Task 4: Let scheduled source-only cycle run normally
 
-- No manual second 600-search command while scheduled service is active. Verify \`systemctl --user list-timers --all bruiser-ja-source-autofill.timer\` and, after the run, summarize \`journalctl --user -u bruiser-ja-source-autofill.service -n 100 --no-pager\`.
+- No manual second 600-search command while scheduled service is active. Verify `systemctl --user list-timers --all bruiser-ja-source-autofill.timer` and, after the run, summarize `journalctl --user -u bruiser-ja-source-autofill.service -n 100 --no-pager`.
 - Observe whether the daily software **600-search cap** and provider quota cause a full publication phase within the **8-hour** service limit. If discovery throughput varies, shorten daily search batch *via a deliberate one-time setting*, rather than losing publication to a timeout.
 - **Exit criterion:** report searches actually made, plausible/review/no-result, actual downloads, newly published, deduped, held, elapsed, provider allowance exhausted (if any), and top error/hold causes. Avoid projecting 37/100 as stable long-run coverage.
 
@@ -77,7 +93,7 @@ Owner's finished **100-search test** from the OptiPlex source-only timer/control
 
 **Routing per media ID**, with durable SQLite transitions and a small, auditable number of states:
 
-\`\`\`text
+```text
 existing usable JA ────────────> done / preserve
            │ none
            ▼
@@ -95,7 +111,7 @@ verified exact English source?
                                         deliberate validation and future approval
                                                               │
                                                    create-only JA sidecar
-\`\`\`
+```
 
 - **Priority:** source evidence and existing Japanese > highly plausible human Japanese file > DIY if high-confidence Japanese not available and exact English exists > held source recovery.
 - **Rate-limit scarce resources:** downloaded candidates per provider allowance; PLaMo inference by idle/GPU allocation. Never spend several download credits testing weak candidates when a proven English-to-Japanese fallback is viable.
@@ -125,7 +141,7 @@ At the **START** of each new session, consult:
 1. This file first, then [source-vs-DIY policy](HYBRID_JAPANESE_SOURCE_VS_DIY_POLICY_2026-11-05.md).
 2. Check actual OptiPlex source service status and read-only progress; GitHub code ≠ live deployment.
 3. Confirm last complete source-only cycle's counts from the journal and current provider allowance, without exposing API credentials.
-4. Check private PLaMo results under \`~/bruiser-pilot/plamo3-ab/results/\`. Do not claim a quality win without Japanese viewer feedback.
+4. Check private PLaMo results under `~/bruiser-pilot/plamo3-ab/results/`. Do not claim a quality win without Japanese viewer feedback.
 5. Advance the *first uncompleted* task and update status here **with exact evidence**, not speculative guesses.
 6. Keep all scripts/tests pinned and immutable for any run. Unit tests + syntax check before deployment. Never apply a broad installer while the production source service is running.
 
