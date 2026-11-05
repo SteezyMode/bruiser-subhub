@@ -46,7 +46,8 @@ class TestSublarrJapaneseDryrun(unittest.TestCase):
             return {"results":[{"wanted_id":3,"status":"not_found",
                                 "dry_run":True}]}
         with unittest.mock.patch.object(pilot.os.path,"islink",return_value=False):
-            out = pilot.run(self.fake_get(rows),post,is_file=lambda p:True)
+            out = pilot.run(self.fake_get(rows),post,is_file=lambda p:True,
+                            allowed_roots=(str(self.tmp)+"/",))
         self.assertEqual(len(posts),1)
         self.assertEqual(posts[0][1],{"item_ids":[3]})
         self.assertEqual(posts[0][0],"/api/v1/wanted/dry-run")
@@ -57,7 +58,8 @@ class TestSublarrJapaneseDryrun(unittest.TestCase):
         rows=[wanted_row(3,self.video)]
         post=Mock()
         with unittest.mock.patch.object(pilot.os.path,"islink",return_value=False):
-            out = pilot.run(self.fake_get(rows),post,is_file=lambda p:True)
+            out = pilot.run(self.fake_get(rows),post,is_file=lambda p:True,
+                          allowed_roots=(str(self.tmp)+"/",))
         self.assertIsNone(out)
         post.assert_not_called()
 
@@ -79,7 +81,8 @@ class TestSublarrJapaneseDryrun(unittest.TestCase):
         ]
         response={"items":candidates,"total":4}
         result,seen,total = pilot.find_one_wanted(
-            lambda _:response,is_file=lambda _:True
+            lambda _:response,is_file=lambda _:True,
+            allowed_roots=(str(self.tmp)+"/",)
         )
         self.assertIsNone(result)
         self.assertEqual(seen,4)
