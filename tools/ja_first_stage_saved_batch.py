@@ -13,6 +13,8 @@ Staging is NOT publication, content quality approval or timing verification.
 """
 from __future__ import annotations
 
+import ja_first_priority as priorities
+
 import argparse
 from collections import Counter
 import hashlib
@@ -419,21 +421,23 @@ def choices(inventory, searches, already, budget, kind):
         by_kind[row["kind"]].append((label.casefold(), str(jid),
                                     {"row": row, "candidate": c, "label": label}))
     for k in by_kind:
-        by_kind[k].sort(key=lambda a: (a[0], a[1]))
+        by_kind[k].sort(key=lambda a: (
+            priorities.priority(a[2]["row"]), a[0], a[1]))
     if kind == "movie":
         return [x[2] for x in by_kind["Movie"][:budget]]
     if kind == "episode":
         return [x[2] for x in by_kind["Episode"][:budget]]
-    # Balanced pilot: 1 movie + 1 episode when budget=2; otherwise
-    # start with an episode to exercise the untested TV path.
-    movie_quota = budget // 2
+    # Prefer movies (horror/drama first) while still reserving 25% for
+    # requested TV series; never starve either pool if one is exhausted.
+    movie_quota = max(1, budget * 3 // 4) if budget > 1 else 0
     episode_quota = budget - movie_quota
     chosen = ([x[2] for x in by_kind["Episode"][:episode_quota]] +
               [x[2] for x in by_kind["Movie"][:movie_quota]])
     if len(chosen) < budget:
         picked = {x["row"]["jellyfin_id"] for x in chosen}
         extras = sorted((x for group in by_kind.values() for x in group
-                         if x[1] not in picked), key=lambda x: (x[0], x[1]))
+                         if x[1] not in picked),
+                        key=lambda x: (priorities.priority(x[2]["row"]), x[0], x[1]))
         chosen.extend(x[2] for x in extras[:budget - len(chosen)])
     return chosen
 
