@@ -1,8 +1,10 @@
 # Bruiser SubHub
 
+> **ACTIVE AMERICAN DAD HANDOFF (2026-11-05):** [Read this first in a new chat — 48-episode PLaMo 8B batch, Natsuyo playback acceptance, CPU/GPU cooling, current 24 W LACT cap, status commands, next steps](docs/AMERICAN_DAD_ACTIVE_BATCH_HANDOFF_2026-11-05.md). The owner's real host batch started and the thermal pause/resume was observed; it is **not confirmed complete**. This handoff **overrides older model-R&D and undeployed-pilot statements for the American Dad workflow**. Keep the existing source-only Japanese subtitle discovery timer separate. Avoid model tournaments and duplicate episode reviews.
+
 > **Current verified purpose (2026-11-05):** standalone, OptiPlex-hosted Japanese-subtitle **source / synchronization / publication** utility for Jellyfin (and ordinary external SRT use in Plex). **Not** a Jellyfin plugin, not a downloadable GUI, and **not** a core Bruiser/OptiPlex NOW feature. DIY AI translation is an isolated optional experiment, **not** part of the running source-only timer.
 >
-> **Current action list:** [November 5 execution roadmap — what to do today, tomorrow and next](docs/EXECUTION_ROADMAP_2026-11-05.md). This is the authoritative status handoff and sequence; new work should advance its first unfinished task.
+> **General source-only roadmap:** [November 5 execution roadmap](docs/EXECUTION_ROADMAP_2026-11-05.md), preserved for the separate Japanese-first source service. **For the now-running American Dad PLaMo 8B batch, use the active handoff linked above rather than the older R&D task list.**
 >
 > **Start here:** [What SubHub is and how the current install runs](docs/WHAT_IS_SUBHUB_AND_HOW_TO_USE_IT_2026-11-05.md) · [Source-first versus DIY decision](docs/HYBRID_JAPANESE_SOURCE_VS_DIY_POLICY_2026-11-05.md) · [PLaMo 3 Translate 0.8B/2B research plan](docs/PLAMO_3_TRANSLATE_EVALUATION_2026-11-05.md) · [Translation R&D evidence/stop decision](docs/TRANSLATION_RD_STOP_DECISION_2026-11-05.md).
 >
