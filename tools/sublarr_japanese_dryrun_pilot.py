@@ -68,7 +68,7 @@ def find_one_wanted(get, is_file=os.path.isfile):
                 continue
             # Never run the first provider-search pilot against a file which
             # already has a named JA SRT; sidecar protection is a core policy.
-            if any(p.parent.glob(p.stem + suffix) for suffix in (
+            if any(any(p.parent.glob(p.stem + suffix)) for suffix in (
                 ".ja.srt", ".jpn.srt", ".Japanese.ja.srt",
                 ".Bruiser Japanese.ja.srt",
                 ".Bruiser E4B Review Japanese.ja.srt",
