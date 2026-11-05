@@ -264,6 +264,14 @@ def export_pair(cues, eight_rows, two_rows, reference_sha, wall):
     }
     body=(json.dumps(result,ensure_ascii=False,indent=2)+"\n").encode("utf-8")
     dest=WORK/"s19e13-2b-vs-8b.private.json"
+    if dest.exists():
+        old=json.loads(private(dest).read_text("utf-8"))
+        stable_keys=("schema","episode","cue_count","english_sha256",
+                     "model_2b_sha256","accepted_8b_subtitle_sha256",
+                     "gpu_layers","cpu_threads","entries","private_only")
+        if any(old.get(k)!=result.get(k) for k in stable_keys):
+            raise RuntimeError("previous_private_review_data_changed")
+        return dest
     create_new(dest,body)
     return dest
 
