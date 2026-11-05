@@ -7,7 +7,7 @@ umask 077
 ROOT="$HOME/bruiser-pilot/plamo3-ab"
 STATE="$ROOT/american-dad-existing-english-batch"
 TARGET="$ROOT/plamo8b_american_dad_existing_en_batch.py"
-PIN="b17a81d6714d224975260247d7a55c08cc2da450"
+PIN="bc9be0710519df9fb6e3852b68f200869d1d5307"
 BASE="https://raw.githubusercontent.com/SteezyMode/bruiser-subhub/$PIN/tools"
 URL="$BASE/plamo8b_american_dad_existing_en_batch.py"
 LOG="$STATE/batch.log"
