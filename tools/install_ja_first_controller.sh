@@ -3,7 +3,7 @@
 # Does NOT enable a timer or start translation. Uses a fixed source commit.
 set -euo pipefail
 
-PIN="92dab39011d61925a9f7755c7d4f98cbcdcf53a8"
+PIN="e533801ea514b9c9a40e5ca798f252cdaef943b6"
 BASE="https://raw.githubusercontent.com/SteezyMode/bruiser-subhub/$PIN/tools"
 DEST="$HOME/bruiser-pilot/subhub-control"
 
@@ -24,6 +24,7 @@ NAMES=(
   ja_first_publish_shifted.py
   ja_first_publish_queue.py
   ja_first_ffsubsync.py
+  ja_first_obvious_quality.py
   bruiser_ja_movie_rescue.py
   ja_first_gemma_fallback.py
   daily_japanese.py
@@ -65,6 +66,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 "$DEST/subhub_live_tracker.py" --self-test
 printf '\nCONTROLLER: %s\n' "$DEST/ja_first_cycle.py"
 printf 'STATUS: python3 %s/ja_first_cycle.py status\n' "$DEST"
 printf 'START PINNED E4B JOB (only after model preflight): python3 %s/ja_first_cycle.py start-worker --apply\n' "$DEST"
+printf 'READ-ONLY SOURCED QA: python3 %s/ja_first_obvious_quality.py --audit-staged\n' "$DEST"
 printf 'JA SOURCES ONLY (no AI queue): python3 %s/ja_first_cycle.py cycle --sources-only --apply\n' "$DEST"
 printf 'ONE BOUNDED JA-FIRST CYCLE: python3 %s/ja_first_cycle.py cycle --apply\n' "$DEST"
 printf 'READ-ONLY LIVE TRACKER: python3 %s/ja_first_cycle.py watch\n' "$DEST"
