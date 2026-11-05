@@ -2,6 +2,8 @@
 
 > **Current verified purpose (2026-11-05):** standalone, OptiPlex-hosted Japanese-subtitle **source / synchronization / publication** utility for Jellyfin (and ordinary external SRT use in Plex). **Not** a Jellyfin plugin, not a downloadable GUI, and **not** a core Bruiser/OptiPlex NOW feature. DIY AI translation is an isolated optional experiment, **not** part of the running source-only timer.
 >
+> **Current action list:** [November 5 execution roadmap — what to do today, tomorrow and next](docs/EXECUTION_ROADMAP_2026-11-05.md). This is the authoritative status handoff and sequence; new work should advance its first unfinished task.
+>
 > **Start here:** [What SubHub is and how the current install runs](docs/WHAT_IS_SUBHUB_AND_HOW_TO_USE_IT_2026-11-05.md) · [Source-first versus DIY decision](docs/HYBRID_JAPANESE_SOURCE_VS_DIY_POLICY_2026-11-05.md) · [PLaMo 3 Translate 0.8B/2B research plan](docs/PLAMO_3_TRANSLATE_EVALUATION_2026-11-05.md) · [Translation R&D evidence/stop decision](docs/TRANSLATION_RD_STOP_DECISION_2026-11-05.md).
 >
 > The live source-only test is **deployed on the owner's OptiPlex**, unlike the historical "not deployed" statements below: an interim owner-provided 2026-11-05 monitor reported 100/100 new searches, 50/51 staged downloads and 18 newly published sidecars with 28/56 publication titles examined. **Not a final run result or a native-Japanese viewing certification.** Routine ceiling 600/200/200, actual provider quota enforced, with a one-time 100-search override used in the test.
