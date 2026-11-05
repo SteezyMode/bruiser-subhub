@@ -88,9 +88,8 @@ class SourceAutofillTests(unittest.TestCase):
             self.assertIn(("systemctl","--user","enable","--now",auto.NAME),calls)
             self.assertTrue(auto.native_search_disabled(state))
             self.assertNotIn("start-worker",(units/auto.SVC).read_text())
-            self.assertIn("--sources-only",(base/"units"/auto.SVC).read_text()
-                          if "--sources-only" in (base/"units"/auto.SVC).read_text() else
-                          "source-only via ja_first_autofill.py once")
+            self.assertIn("ja_first_autofill.py once --apply",
+                          (units/auto.SVC).read_text())
 
     def test_failed_enable_restores_original_native_schedule(self):
         with tempfile.TemporaryDirectory() as tmp:
