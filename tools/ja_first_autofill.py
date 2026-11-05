@@ -247,6 +247,9 @@ def enable(*,request=api,action=run):
     settings=config(request=request)
     safe_source_settings(settings)
     check_scheduler_idle(request=request)
+    # Establish that the existing Jellyfin catalog can be refreshed BEFORE
+    # disabling Sublarr's native provider-search schedule.
+    refresh_manifest()
     previous={k:settings[k] for k in
               ("wanted_search_interval_hours","wanted_search_on_startup")}
     if type(previous["wanted_search_interval_hours"]) is not int or not \
