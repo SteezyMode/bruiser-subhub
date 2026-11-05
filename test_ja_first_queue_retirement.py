@@ -29,6 +29,7 @@ class RetiredPublicationTests(unittest.TestCase):
                     [(ident,"1234","0"*64,"staged"),
                      (ident,"1235","1"*64,"staged"),
                      (pending,"5678","2"*64,"staged")])
+            db.chmod(0o600)  # Matches the private host staging DB contract.
             with patch.object(queue.direct,"STAGE_DB",db):
                 self.assertEqual(len(queue.stages()),3)
                 queue.mark_completed(ident)
