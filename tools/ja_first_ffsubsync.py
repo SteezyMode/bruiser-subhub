@@ -18,6 +18,7 @@ import subprocess
 import tempfile
 
 import ja_first_publish_staged as gate
+import ja_first_obvious_quality as source_quality
 from bruiser_ja_movie_rescue import health
 
 CONTAINER = "sublarr-pilot"
@@ -158,6 +159,9 @@ def prepare(jid,sid,*,aligner=align_in_container):
     qa=gate.validate_srt(raw,runtime)
     if qa["cues"] != int(metrics.get("cues") or -1):
         raise RuntimeError("staged_cue_count_changed")
+    # Cheap, high-recall corruption screen before the expensive audio sync.
+    # It does not grade idiom choice, fluent machine translation, or meaning.
+    quality=source_quality.require_not_garbage(raw)
     synced=aligner(video,raw)
     if gate.validate_srt(synced,runtime)!=qa:
         raise RuntimeError("synced_srt_cue_or_language_changed")
@@ -165,7 +169,7 @@ def prepare(jid,sid,*,aligner=align_in_container):
     chosen=raw if decision["mode"]=="original" else synced
     return {"jid":jid,"sid":sid,"row":row,"video":video,
             "target":gate.video_target(video),"original":raw,"chosen":chosen,
-            "assessment":decision}
+            "assessment":decision,"source_quality":quality}
 
 
 def record_path(jid,sid):
