@@ -1,5 +1,8 @@
 # Source-only Japanese autofill — November 5, 2026
 
+> **LIVE STATUS ADDENDUM (later Nov 5):** This document's earlier "not yet deployed" language describes the state when its first version was written. The owner subsequently deployed the daily source-only timer, verified real downloads and publication, and used a one-time 100-search test. Interim observed totals: 100/100 searches, 50/51 staged candidates, **18 new published .ja.srt files at 28/56 publication titles examined**. Full cycle completion and quality remain unverified in the available snapshots. **Current service ceiling is 600 searches / 200 staging attempts / 200 publications**, not the original 8/2 pilot. See [current architecture](WHAT_IS_SUBHUB_AND_HOW_TO_USE_IT_2026-11-05.md) and [hybrid roadmap](HYBRID_JAPANESE_SOURCE_VS_DIY_POLICY_2026-11-05.md).
+
+
 ## Purpose
 
 Source **existing Japanese subtitles first**, reject obvious junk, automatically verify/fix timing against the actual video, and deliver a create-only Japanese sidecar for Jellyfin (also usable by Plex when the same library paths are available). No DIY translation, new cloud credentials, media rewriting, subtitle replacement, or unrelated account creation.
