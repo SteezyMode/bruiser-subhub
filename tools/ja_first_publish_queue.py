@@ -129,8 +129,14 @@ def matches_corrected(jid, sid, original_hash, published_hash):
 
 
 def existing_verdict(jid, candidates):
-    """Return 'absent', 'published', or raise on an unrelated existing file."""
-    row = direct.read_inventory(jid)
+    """Recognize only byte-verified prior publications, even after catalog refresh.
+
+    A refreshed Jellyfin inventory now correctly marks our previously published
+    subtitles as existing_japanese_subtitle. The check below may look up that
+    identity for recognition ONLY; every new publication still requires
+    ready_ja_search and passes the existing no-overwrite gate.
+    """
+    row = direct.read_inventory(jid, allow_existing_ja=True)
     video = direct.safe_media_path(str(row.get("host_path") or ""))
     target = direct.video_target(video)
     if target.is_symlink():
