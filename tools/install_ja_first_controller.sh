@@ -3,7 +3,7 @@
 # Does NOT enable a timer or start translation. Uses a fixed source commit.
 set -euo pipefail
 
-PIN="04859d1e8e6b089c7cc12382247342e131853ad3"
+PIN="9d8a33de840129cfd8a87215cce91f40507c1851"
 BASE="https://raw.githubusercontent.com/SteezyMode/bruiser-subhub/$PIN/tools"
 DEST="$HOME/bruiser-pilot/subhub-control"
 
@@ -20,6 +20,7 @@ NAMES=(
   ja_first_catalog_manifest.py
   ja_first_autofill.py
   ja_first_search_pilot.py
+  ja_first_priority.py
   ja_first_stage_saved_batch.py
   ja_first_stage_timing_audit.py
   ja_first_publish_staged.py
@@ -71,7 +72,7 @@ printf 'START PINNED E4B JOB (only after model preflight): python3 %s/ja_first_c
 printf 'READ-ONLY SOURCED QA: python3 %s/ja_first_obvious_quality.py --audit-staged\n' "$DEST"
 printf 'AUTOFILL PREFLIGHT: python3 %s/ja_first_autofill.py status\n' "$DEST"
 printf 'ENABLE SINGLE DAILY SOURCE TIMER: python3 %s/ja_first_autofill.py enable --apply\n' "$DEST"
-printf 'RUN SOURCE CYCLE NOW: python3 %s/ja_first_autofill.py once --apply\n' "$DEST"
+printf 'RUN HIGH-THROUGHPUT SOURCE CYCLE: systemctl --user start --no-block bruiser-ja-source-autofill.service\n'
 printf 'JA SOURCES ONLY (no AI queue): python3 %s/ja_first_cycle.py cycle --sources-only --apply\n' "$DEST"
 printf 'ONE BOUNDED JA-FIRST CYCLE: python3 %s/ja_first_cycle.py cycle --apply\n' "$DEST"
 printf 'READ-ONLY LIVE TRACKER: python3 %s/ja_first_cycle.py watch\n' "$DEST"
