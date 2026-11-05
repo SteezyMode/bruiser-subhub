@@ -19,7 +19,7 @@ ssh optiplex@100.121.156.34 'bash -s' <<'REMOTE'
 set -euo pipefail
 FILE="$HOME/bruiser-pilot/subhub-control/bruiser_ja_movie_rescue.py"
 curl -fsSL --retry 3 \
- 'https://raw.githubusercontent.com/SteezyMode/bruiser-subhub/4b03e2c700b51c0b9dff2847abc36626e1210500/tools/bruiser_ja_movie_rescue.py' -o "$FILE"
+ 'https://raw.githubusercontent.com/SteezyMode/bruiser-subhub/4cd573da86268f1b9058e3a6e20118da456ea364/tools/bruiser_ja_movie_rescue.py' -o "$FILE"
 docker exec -i -e PYTHONPATH=/app sublarr-pilot python3 - \
   --title 'You Were Never Really Here' --apply --max-downloads 3 < "$FILE"
 REMOTE
