@@ -244,6 +244,10 @@ def preflight(jid, sid):
     qa = validate_srt(content, runtime)
     if abs(qa["cues"] - int(metrics.get("cues") or 0)) > 0:
         raise RuntimeError("srt_cue_count_changed_since_staging")
+    # Lightweight sourcing gate: reject only unmistakable garbage, not
+    # unreviewed phrasing or natural Japanese paraphrases.
+    from ja_first_obvious_quality import require_not_garbage
+    require_not_garbage(content)
     print("=== JAPANESE SUBTITLE PUBLICATION PREFLIGHT ===", flush=True)
     print("MEDIA:", metadata_label(row), flush=True)
     print("TARGET:", target, flush=True)
@@ -269,6 +273,13 @@ def subprocess_duration(video):
 
 
 def publish(row, video, target, content):
+    # Enforce the same low-threshold source sanity gate for every route
+    # (audio ffsubsync, trusted embedded alignment, and corrected fallback).
+    from ja_first_obvious_quality import require_not_garbage
+    gross_qa = require_not_garbage(content)
+    print("SOURCED_GROSS_QA:", gross_qa["verdict"],
+          "warnings", ",".join(gross_qa["warnings"]) or "none",
+          "(not a translation-quality grade)", flush=True)
     # Final existence check just before atomic create; the actual hard-link
     # creation is also no-clobber, even if another process races this run.
     streams, probe_error = ffprobe_streams(video)
