@@ -350,6 +350,9 @@ def benchmark(args):
             details["models"][size] = {
                 "status": record["status"],
                 "cues": len(record["entries"]),
+                "translated_dialogue": record.get("translated_cues"),
+                "non_dialogue_passthrough": record.get("non_dialogue_cues"),
+                "held_untranslated_dialogue": record.get("held_dialogue_cues"),
                 "wall_seconds_including_load": record["wall_seconds_including_load"],
                 "sum_generation_seconds": record["sum_generation_seconds"],
                 "model_sha256": record["model_sha256"],
