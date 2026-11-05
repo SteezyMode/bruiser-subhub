@@ -71,6 +71,33 @@ class TestMovieRescue(unittest.TestCase):
             self.assertEqual(created.read_bytes(),src.read_bytes())
             self.assertEqual(movie.existing_ja_sidecars(p),[created])
 
+    def test_saved_japanese_original_preserved_with_separate_synced_copy(self):
+        with tempfile.TemporaryDirectory() as temp:
+            video=Path(temp)/"You.Were.Never.Really.Here.2017.mkv"
+            video.write_bytes(b"film")
+            original=video.with_name(video.stem+".ja.srt")
+            original.write_text("original Japanese track")
+            aligned=Path(temp)/"aligned.srt"
+            aligned.write_text("corrected Japanese track")
+            published=movie.publish_synced_alternative(video,aligned,".srt")
+            self.assertEqual(original.read_text(),"original Japanese track")
+            self.assertEqual(published.read_text(),"corrected Japanese track")
+            self.assertTrue(published.name.endswith(".BruiserSynced.ja.srt"))
+            with self.assertRaises(FileExistsError):
+                movie.publish_synced_alternative(video,aligned,".srt")
+
+    def test_late_subtitle_is_not_rejected_before_ffsubsync(self):
+        cues=[{"start":5000+i*10000,"end":8500+i*10000,
+              "text":"これは自然な日本語です"} for i in range(400)]
+        # Extend the final line beyond the video by 13 seconds: an offset
+        # candidate must not be rejected before ffsubsync can correct it.
+        cues[-1]["start"]=4500*1000+9000
+        cues[-1]["end"]=4500*1000+13000
+        pre=movie.health(cues,4500,allow_offset_sec=30)
+        self.assertNotIn("invalid_timing",pre["holds"])
+        post=movie.health(cues,4500)
+        self.assertIn("invalid_timing",post["holds"])
+
     def test_filename_discovery_has_no_dialogue_and_no_symlink_follow(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp)
