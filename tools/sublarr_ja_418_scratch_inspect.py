@@ -153,7 +153,6 @@ def run():
     cfg=json_get("/api/v1/config",headers)
     if cfg.get("wanted_auto_translate") is not False or cfg.get("upgrade_enabled") is not False:
         raise RuntimeError("Expected auto-translate and subtitle upgrade disabled")
-    from db.wanted import get_wanted_item
     # We do not initialize a separate Flask database; verify identity through the
     # same HTTP endpoint used by Sublarr's UI.
     item=json_get("/api/v1/wanted?status=wanted&search=American.Dad.S22E02&per_page=20",headers)
