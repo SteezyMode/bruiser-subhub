@@ -148,9 +148,11 @@ def snapshot():
     pid=live_pid()
     lines=recent_log()
     if plan is None:
+        state=("STARTING" if pid else
+               "STARTUP FAILED" if lines else "NOT STARTED")
         return {
             "running":bool(pid),
-            "status":"NOT STARTED" if not pid else "STARTING",
+            "status":state,
             "total":0,"done":0,"held":0,"current":None,
             "log_tail":lines[-4:],
         }
@@ -217,8 +219,13 @@ def display(s):
     print("American Dad — PLaMo 8B subtitle batch")
     print("Status:",s["status"])
     if not s["total"]:
-        print("No saved batch queue or progress log was found.")
-        print("Start with the existing-English batch launcher first.")
+        print("No saved episode queue yet.")
+        if s.get("log_tail"):
+            print("Latest startup log:")
+            for line in s["log_tail"][-4:]:
+                print(" ",line[:180])
+        else:
+            print("Run the batch launcher to create the queue and log.")
         return
     done,total=s["done"],s["total"]
     pct=done*100/total
