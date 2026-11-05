@@ -1,5 +1,19 @@
 # SubHub v2 — Japanese-first acquisition and intro-offset safety
 
+## November 5 — CONFIRMED first full scratch acquisition + timing preview on real host
+
+**Owner-run success.** Running Sublarr **1.18.0** on OptiPlex, source `American.Dad.S22E02.720p.x264-FENiX.mkv` (Wanted **#418**, Japanese/full profile), native **OpenSubtitles**, candidate uploader `ichi131`, source release `American.Dad!.S22E02`, match score **240**, non-forced, provider `machine_translated=false` and `mt_confidence=0` (these flags do **not** prove human linguistic quality).
+
+**Observed real download:** **31,365 bytes**, **SRT** (the provider's pre-download format was `unknown`, and a previous dry-run proposed an `.ass` output; detect actual downloaded bytes rather than trusting prediction), **478 parsed subtitle cues**, **477 containing Japanese script**. Actual video `ffprobe` duration **1,299.36 seconds** (21m 39.36s). This is structurally plausible coverage, not an independent translation rating.
+
+**Observed non-destructive synchronization:** Sublarr's installed `ffsubsync` preview returned **`status=ok, shift_ms=50`** (50 milliseconds = 0.05 seconds). On this particular subtitle, **there is no evidence of a meaningful several-second timing mismatch**, so no correction should be applied merely for 50 ms. Need to independently test an already-known seconds-off candidate before claiming automatic timing repair is robust. Sync compare's success, like a source score, does NOT prove the spoken words and Japanese cues refer to the same dialogue.
+
+**Storage/output:** the scratch tool wrote `/tmp/bruiser-ja-418-review.tar.gz` inside the Sublarr container (contains raw downloaded subtitle plus private `report.json`), and the owner's SSH command successfully copied this to the host then the Mac mini's `~/Downloads/bruiser-ja-418-review.tar.gz`. No subtitles or videos were published/overwritten; no settings, automatic scans, translation queues or model configurations changed. The scratch downloader and separate credential-read fix worked, without exposing secrets.
+
+**Current gate:** owner must provide the private archive for actual Japanese cue review and source quality determination; uploader's non-AI flag is only a reported metadata signal. Until such review, do **not** call this a high-quality Japanese source or promote it to the media library. For timing, the next useful pilot is a **known seconds-off subtitle** from their library (not another micro-adjustment of this 50ms example). Existing curated Japanese sidecars remain protected.
+
+**Decision update:** provider credential setup is complete for native OpenSubtitles; do not re-diagnose it as missing. This successfully proves one independent third-party JP subtitle acquisition and one non-destructive sync preview on the actual OptiPlex, but **does not** yet establish library-wide availability, semantic fidelity or the ability to repair complicated timing drift.
+
 ## November 5 — Scratch-download failure diagnosed and corrected (owner-run)
 
 The owner's first exact-item scratch inspection found **5 candidates**, **1 Japanese native OpenSubtitles** result. Reported `filename=American.Dad.S22E02.ja`, `release_info=American.Dad!.S22E02`, `score=240`, `forced=false`, `machine_translated=false`, `mt_confidence=0`, uploader `ichi131`. No subtitles were downloaded or synced.
