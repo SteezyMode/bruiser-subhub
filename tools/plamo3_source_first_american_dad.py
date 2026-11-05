@@ -54,8 +54,7 @@ def helpers():
     import ja_first_stage_saved_batch as ja_stage
     import ja_first_publish_queue as ja_publish
     import ja_first_ffsubsync as ff_sync
-    import jellyfin_english_sources as jellyfin
-    return daily, ja_search, ja_stage, ja_publish, ff_sync, jellyfin
+    return daily, ja_search, ja_stage, ja_publish, ff_sync, None
 
 
 def candidate_order(daily, wanted=None):
@@ -130,13 +129,10 @@ def latest_row(video):
 
 def cached_or_search_ja(video, row, ja_search):
     if row.get("status") != "ready_ja_search":
-        print("JA SOURCING: no verified series identity; cannot safely search provider.",
-              flush=True)
-        return []
+        raise RuntimeError("japanese_source_identity_not_verified__no_translation")
     request = ja_search.query_for(row)
     if request is None:
-        print("JA SOURCING: metadata fails exact-episode safeguards.", flush=True)
-        return []
+        raise RuntimeError("japanese_source_query_not_safe__no_translation")
     job = {"id": str(row["jellyfin_id"]), "row": row, "query": request}
     with ja_search.open_db() as db:
         cached = db.execute(
@@ -152,9 +148,7 @@ def cached_or_search_ja(video, row, ja_search):
                 print("JA SOURCING: reuse cached provider search, outcome",
                       cached[1], "| candidates", len(items), flush=True)
                 return [x for x in items if isinstance(x, dict)]
-            print("JA SOURCING: prior provider attempt still in cooldown;",
-                  "recorded outcome", cached[1], flush=True)
-            return []
+            raise RuntimeError("japanese_provider_prior_error_or_incomplete")
         print("JA SOURCING: searching existing Sublarr Japanese provider",
               episode.episode_id(video), flush=True)
         ja_search.save_attempt(db, job, "in_progress")
@@ -174,9 +168,7 @@ def cached_or_search_ja(video, row, ja_search):
                 raise RuntimeError("native_sublarr_provider_error")
         except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired):
             ja_search.save_attempt(db, job, "error")
-            print("JA SOURCING: provider unavailable; will report uncertainty.",
-                  flush=True)
-            return []
+            raise RuntimeError("japanese_provider_unavailable__no_english_fallback_yet")
         options = result.get("results") or []
         rated = [(grade, item) for item in options if isinstance(item, dict)
                  for grade in [ja_search.candidate_grade(row, item)]
@@ -393,7 +385,12 @@ def process_one(args, daily,ja_search,ja_stage,ja_publish,ff_sync,jellyfin):
             # This is a missing evidence problem, not proof JP is unavailable;
             # do not silently skip acquisition and translate.
             continue
-        ja_candidates=cached_or_search_ja(video,row,ja_search)
+        try:
+            ja_candidates=cached_or_search_ja(video,row,ja_search)
+        except (OSError,RuntimeError,ValueError,sqlite3.Error) as exc:
+            print("JAPANESE-FIRST HOLD:",type(exc).__name__,str(exc)[:125],
+                  flush=True)
+            continue
         if acquire_ja(video,row,ja_search,ja_stage,ja_publish,ja_candidates):
             return
         try:
