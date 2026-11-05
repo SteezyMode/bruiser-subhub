@@ -87,7 +87,7 @@ class SourceTrackerTests(unittest.TestCase):
                          ("active","running"))
         good=json.dumps({"MESSAGE":"[1/4] SEARCHING: Movie",
                          "__REALTIME_TIMESTAMP":"1000000"})
-        self.assertEqual(monitor.events_from_jsonl(good+"\\nnot JSON\n")[0],
+        self.assertEqual(monitor.events_from_jsonl(good+"\nnot JSON\n")[0],
                          (1.0,"[1/4] SEARCHING: Movie"))
 
     def test_error_never_confused_with_success(self):
