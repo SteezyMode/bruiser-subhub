@@ -137,6 +137,20 @@ class LibraryInventoryTests(unittest.TestCase):
         searches=[x for x in self.client.queries if '/RemoteSearch/' in x]
         self.assertFalse(any(self.items[0]['Id'] in path for path in searches))
 
+    def test_japanese_present_remains_skipped_after_cached_rescan(self):
+        self.items[0]['MediaStreams'].append(
+            {'Type':'Subtitle','Language':'jpn','Codec':'subrip',
+             'IsForced':False})
+        self.scan()
+        self.scan()
+        status=lib.report(self.state,log=lambda *x:None)
+        self.assertEqual(status['states']['japanese_present'],1)
+        searches_before=len(self.client.queries)
+        self.fill(budget=5)
+        searches=self.client.queries[searches_before:]
+        self.assertFalse(any(self.items[0]['Id'] in x and '/RemoteSearch/' in x
+                             for x in searches))
+
     def test_japanese_sidecar_appearing_after_inventory_skips_english(self):
         self.scan()
         target=self.a.parent/(self.a.stem+'.ja.srt')
