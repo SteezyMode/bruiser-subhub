@@ -4,7 +4,7 @@
 set -euo pipefail
 umask 077
 ROOT="$HOME/bruiser-pilot/plamo3-ab"
-PIN="8986c135042807771ab36409655249863f77ddc4"
+PIN="1ff93689bedd1a322f321054fafd686ec6d469c4"
 URL="https://raw.githubusercontent.com/SteezyMode/bruiser-subhub/$PIN/tools/plamo3_real_film_ab.py"
 mkdir -p -m 700 "$ROOT"
 if [[ -L "$ROOT" ]] || [[ "$(stat -c %u "$ROOT")" != "$(id -u)" ]]; then
@@ -48,5 +48,6 @@ fi
 echo "=== VERIFY SOURCE-ONLY TIMER IS UNCHANGED ==="
 systemctl --user list-timers --all bruiser-ja-source-autofill.timer --no-pager || true
 echo "=== BEGIN READ-ONLY REAL FILM 100-CUE PLaMo 0.8B/2B A/B ==="
-python3 -u "$ROOT/plamo3_real_film_ab.py"
+python3 -u "$ROOT/plamo3_real_film_ab.py" \
+  --frozen-run "$ROOT/real-results/film-100-20261105T085111561829Z"
 echo "=== TEST FINISHED: PRIVATE OUTPUTS ONLY ==="
