@@ -313,6 +313,49 @@ def append_result(outcome,tag,reason):
         f.flush()
         os.fsync(f.fileno())
 
+def persist_queue_plan(work, ja, missing):
+    """Save a stable episode denominator, including on subsequent resumes.
+
+    The live scan excludes files that acquire Japanese as translation
+    succeeds. Without an immutable first-run queue, apparent progress would
+    keep resetting to 0% on restart.
+    """
+    import tempfile
+    path = STATE/"queue.json"
+    if path.is_symlink():
+        raise RuntimeError("batch_queue_plan_symlink")
+    if path.exists():
+        plan=json.loads(real._private_path(path).read_text("utf-8"))
+        if plan.get("version") != 1 or plan.get("library") != str(MEDIA):
+            raise RuntimeError("batch_queue_plan_format_or_library_changed")
+    else:
+        plan={"version":1,"library":str(MEDIA),
+              "started_utc":datetime.now(timezone.utc).isoformat(),
+              "episodes":[],"initial_existing_ja":len(ja),
+              "initial_missing_english":len(missing)}
+    known={item["episode"] for item in plan["episodes"]}
+    for tag,video,info in work:
+        if tag not in known:
+            plan["episodes"].append({
+                "episode":tag,"video":str(video),
+                "cue_source":"embedded" if info["embedded_en"] is not None else "local"
+            })
+            known.add(tag)
+    # Preserve initial ordering; the progress reader reports this queue only.
+    fd,temp=tempfile.mkstemp(prefix=".queue-plan-",dir=str(STATE))
+    try:
+        with os.fdopen(fd,"w",encoding="utf-8") as out:
+            json.dump(plan,out,ensure_ascii=False,indent=2)
+            out.write("\n")
+            out.flush()
+            os.fchmod(out.fileno(),0o600)
+            os.fsync(out.fileno())
+        os.replace(temp,path)
+    finally:
+        Path(temp).unlink(missing_ok=True)
+    return len(plan["episodes"])
+
+
 def run(args):
     sys.path.insert(0,str(real.CONTROL))
     import daily_japanese as daily
@@ -342,6 +385,11 @@ def run(args):
         print("English-ready and JA-missing episodes:",len(work),flush=True)
         print("CPU threads:",CPU_THREADS,"GPU layers:",GPU_LAYERS,
               "| GPU power cap unchanged.",flush=True)
+        if args.apply:
+            planned=persist_queue_plan(work,ja,missing)
+            print("TRACKED QUEUE:",planned,
+                  "episodes | progress: american_dad_batch_progress.py",
+                  flush=True)
         if not args.apply:
             for tag,video,info in work:
                 print(tag,"embedded_EN" if info["embedded_en"] is not None
