@@ -190,10 +190,16 @@ def status():
 def run_step(folder, name, file, args):
     path = folder / file
     print("\n=== " + name + " ===", flush=True)
+    # Source-only at library scale can require thousands of sequential,
+    # provider-paced queries and expensive audio synchronization.
+    # Each stage remains bounded and durable if interrupted.
+    minutes = {"ja_first_search_pilot.py": 90,
+               "ja_first_stage_saved_batch.py": 150,
+               "ja_first_publish_queue.py": 270}
     result = subprocess.run(
         [sys.executable, "-u", str(path), *args],
         stdin=subprocess.DEVNULL,
-        timeout=1800,
+        timeout=60 * minutes.get(file, 30),
     )
     if result.returncode:
         raise RuntimeError(name.lower().replace(" ", "_") +
@@ -201,12 +207,12 @@ def run_step(folder, name, file, args):
 
 
 def cycle(folder, search_budget, stage_budget, publish_limit, fallback_budget, sources_only=False):
-    if not 1 <= search_budget <= 12:
-        raise RuntimeError("search_budget_outside_1_to_12")
-    if not 1 <= stage_budget <= 3:
-        raise RuntimeError("stage_budget_outside_1_to_3")
-    if not 1 <= publish_limit <= 3:
-        raise RuntimeError("publish_limit_outside_1_to_3")
+    if not 1 <= search_budget <= 600:
+        raise RuntimeError("search_budget_outside_1_to_600")
+    if not 1 <= stage_budget <= 200:
+        raise RuntimeError("stage_budget_outside_1_to_200")
+    if not 1 <= publish_limit <= 200:
+        raise RuntimeError("publish_limit_outside_1_to_200")
     if not 1 <= fallback_budget <= 20:
         raise RuntimeError("fallback_budget_outside_1_to_20")
     required_code(folder)
@@ -216,7 +222,7 @@ def cycle(folder, search_budget, stage_budget, publish_limit, fallback_budget, s
         ("STAGE CANDIDATES", "ja_first_stage_saved_batch.py",
          ("--budget", str(stage_budget), "--apply")),
         ("PUBLISH VERIFIED JA", "ja_first_publish_queue.py",
-         ("--limit", str(publish_limit), "--max-titles", "12", "--apply")),
+         ("--limit", str(publish_limit), "--max-titles", "1000", "--apply")),
     ]
     if not sources_only:
         steps.append(("QUEUE ENGLISH FALLBACK", "ja_first_gemma_fallback.py",
