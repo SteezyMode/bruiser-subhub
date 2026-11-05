@@ -296,7 +296,10 @@ def stage_private_candidate(video, result, content, fmt, assessment, sync=None,
 def sync_candidate(video, input_path, output_path):
     from services.sync_engines.ffsubsync_output import parse_ffsubsync_shift
     args=["ffsubsync",str(video),"-i",str(input_path),"-o",str(output_path)]
-    p=subprocess.run(args,capture_output=True,text=True,timeout=600)
+    try:
+        p=subprocess.run(args,capture_output=True,text=True,timeout=600)
+    except subprocess.TimeoutExpired:
+        return {"ok":False,"hold":"ffsubsync_timeout"}
     if p.returncode!=0:
         return {"ok":False,"hold":"ffsubsync_error"}
     delta=parse_ffsubsync_shift(p.stdout+"\n"+p.stderr)
