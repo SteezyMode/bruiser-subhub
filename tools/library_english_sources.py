@@ -383,14 +383,14 @@ def fill(client,roots,state=STATE,search_budget=10,now=None,
                 counts['out_of_scope']+=1
                 continue
             try:
-                if sidecar_fingerprint(video)!=row['fingerprint']:
-                    _update(db,row,now,'stale','rescan_before_search',0)
-                    counts['stale']+=1
-                    continue
                 if intake.already_ja(video):
                     _update(db,row,now,'japanese_present',
                             'japanese_already_available',0)
                     counts['japanese_present']+=1
+                    continue
+                if sidecar_fingerprint(video)!=row['fingerprint']:
+                    _update(db,row,now,'stale','rescan_before_search',0)
+                    counts['stale']+=1
                     continue
                 if english_sidecar(video):
                     _update(db,row,now,'ready','existing_english',0)
