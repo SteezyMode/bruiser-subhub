@@ -1,5 +1,8 @@
 # Local operation, inspection, and rollout
 
+> **Current operations are split.** For the live source-only subtitle acquisition service, use [What SubHub is](WHAT_IS_SUBHUB_AND_HOW_TO_USE_IT_2026-11-05.md) and [source-only autofill](SOURCED_JAPANESE_AUTOFILL_2026-11-05.md): \`python3 -u ~/bruiser-pilot/subhub-control/ja_first_source_tracker.py --watch\` is the read-only search/download/publish dashboard. The E4B worker and cue tracker documented below are a **separate legacy translation pipeline**; do not start them to manage source-only jobs. The [PLaMo experiments](PLAMO_3_TRANSLATE_EVALUATION_2026-11-05.md) are documentation only, not a live deployment.
+
+
 **CURRENT TRANSLATOR (2026-11-04): pinned subtitle-tuned 17slever17 E4B, model ID 9ccfc3b07081.** Read [the production model decision](PRODUCTION_TRANSLATION_MODEL.md) before touching any legacy commands. Hy7 and generic Gemma are not current production choices.
 
 The known OptiPlex deployment is **not yet a portable install**. Commands below are for the owner on the server. Never put the media paths, logs, or exported subtitle content into Git.
