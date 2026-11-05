@@ -8,7 +8,7 @@ BASE="$HOME/bruiser-pilot/plamo3-ab"
 RUNTIME="$BASE/runtime"
 MODELS="$BASE/models"
 VERSION="b12119"
-COMMIT="f10686b1fa1c365e3d871c657600738a8a6cc7d6"
+COMMIT="a52f9e4cbc701138c291ea53491626801f5ff93c"
 RELEASE="https://github.com/ggml-org/llama.cpp/releases/download/$VERSION"
 if [[ "$(uname -m)" != "x86_64" ]]; then echo "Requires x86_64" >&2; exit 1; fi
 for app in curl tar python3 nvidia-smi ldd; do
@@ -76,7 +76,7 @@ if ldd "$RUNTIME/llama-server" | grep "not found"; then
   echo "Missing CUDA runtime libraries; no model inference attempted" >&2; exit 1
 fi
 echo "=== GPU STATUS ==="
-nvidia-smi --query-gpu=name,memory.free,utilization.gpu --format=csv,noheader
+nvidia-smi --query-gpu=name,memory.free,utilization.gpu,power.limit --format=csv,noheader
 echo "=== 16-CUE IDENTICAL EN->JA COMPARISON ==="
 python3 -u "$BASE/plamo3_small_ab.py" \
   --binary "$RUNTIME/llama-server" \
