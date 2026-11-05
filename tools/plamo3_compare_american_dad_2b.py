@@ -278,11 +278,6 @@ def export_pair(cues, eight_rows, two_rows, reference_sha, wall):
 
 def publish_alternative(video, manifest, accepted_sha, srt):
     """Only create second named alternate; never overwrite accepted 8B."""
-    target=video.with_name(video.stem+".ja.PLaMo2B.srt")
-    if target.is_symlink() or target.exists():
-        if target.is_file() and target.read_bytes()==srt.encode("utf-8"):
-            return target
-        raise RuntimeError("existing_2b_alternative_conflicts_no_replace")
     st=video.stat()
     if st.st_size!=manifest["video_size"] or st.st_mtime_ns!=manifest["video_mtime_ns"]:
         raise RuntimeError("episode_changed_during_comparison")
@@ -290,6 +285,11 @@ def publish_alternative(video, manifest, accepted_sha, srt):
     if not accepted_track.is_file() or accepted_track.is_symlink() or (
         hashlib.sha256(accepted_track.read_bytes()).hexdigest()!=accepted_sha):
         raise RuntimeError("accepted_8b_track_changed")
+    target=video.with_name(video.stem+".ja.PLaMo2B.srt")
+    if target.is_symlink() or target.exists():
+        if target.is_file() and target.read_bytes()==srt.encode("utf-8"):
+            return target
+        raise RuntimeError("existing_2b_alternative_conflicts_no_replace")
     create_new(target,srt.encode("utf-8"),mode=0o644)
     return target
 
