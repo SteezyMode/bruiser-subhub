@@ -184,7 +184,7 @@ def health(cues, runtime, allow_offset_sec=0):
     if ratio<0.85:reason.append("not_predominantly_japanese")
     if first>runtime*1000*.25:reason.append("begins_too_late")
     if last<runtime*1000*.76:reason.append("ends_too_early")
-    if invalid or over>3:reason.append("invalid_timing")
+    if invalid or over>0:reason.append("invalid_timing")
     if overlaps>len(cues)*.035:reason.append("excessive_overlap")
     if dense>len(dialogue)*.10:reason.append("excessive_reading_speed")
     if dup>len(dialogue)*.07:reason.append("excessive_identical_repetition")
