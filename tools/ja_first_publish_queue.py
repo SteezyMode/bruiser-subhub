@@ -52,6 +52,22 @@ def stages():
         ).fetchall()
 
 
+def mark_completed(jid):
+    """Retire a verified or newly published title from future pending runs.
+
+    Retain its staged bytes and SHA for provenance/repeated-run recognition.
+    A failed DB update leaves publication intact and can be retried safely.
+    """
+    if not direct.EXPECTED_ID_PATTERN.fullmatch(jid):
+        raise RuntimeError("invalid_completed_media_id")
+    direct.private_file(direct.STAGE_DB, "staging_database")
+    with sqlite3.connect(direct.STAGE_DB, timeout=15) as connection:
+        connection.execute(
+            "UPDATE staged SET status='published' "
+            "WHERE jellyfin_id=? AND status='staged'", (jid,))
+        connection.commit()
+
+
 def unique_titles(records, max_titles):
     grouping = OrderedDict()
     for jid, sid, digest in records:
@@ -261,10 +277,17 @@ def main():
             kind, row, value = choose(jid, candidates)
             print("RESULT:", direct.metadata_label(row), "|", kind, flush=True)
             counts[kind] += 1
+            if kind.startswith("published_"):
+                if args.apply:
+                    mark_completed(jid)
+                    counts["retired_completed"] += 1
+                continue
             if kind.startswith("ready_"):
                 seen_ready += 1
                 if args.apply:
                     publish_selected(jid, kind, value)
+                    # Mark only after successful create-only host publication.
+                    mark_completed(jid)
                     counts["published_new"] += 1
         except (ValueError, RuntimeError, OSError, KeyError, sqlite3.Error) as exc:
             counts["held"] += 1
