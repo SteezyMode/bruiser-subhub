@@ -23,12 +23,12 @@ class RetiredPublicationTests(unittest.TestCase):
             with sqlite3.connect(db) as con:
                 con.execute("CREATE TABLE staged "
                             "(jellyfin_id TEXT,subtitle_id TEXT,sha256 TEXT,"
-                            "status TEXT)")
+                            "status TEXT,staged_at INTEGER)")
                 con.executemany(
-                    "INSERT INTO staged VALUES (?,?,?,?)",
-                    [(ident,"1234","0"*64,"staged"),
-                     (ident,"1235","1"*64,"staged"),
-                     (pending,"5678","2"*64,"staged")])
+                    "INSERT INTO staged VALUES (?,?,?,?,?)",
+                    [(ident,"1234","0"*64,"staged",1),
+                     (ident,"1235","1"*64,"staged",2),
+                     (pending,"5678","2"*64,"staged",3)])
             db.chmod(0o600)  # Matches the private host staging DB contract.
             with patch.object(queue.direct,"STAGE_DB",db):
                 self.assertEqual(len(queue.stages()),3)
