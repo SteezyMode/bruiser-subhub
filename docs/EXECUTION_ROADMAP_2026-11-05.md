@@ -10,19 +10,11 @@
 >
 > **2B private result:** `~/bruiser-pilot/plamo3-ab/real-results/film-100-20261105T091839645501Z/2b.json`. **2B completed 100/100**, 87 translated, 13 SDH passthrough, zero held. Reported 2B wall time including model startup **36.24 seconds**, summed generation-request duration **32.608 seconds**. Since 0.8B elapsed time is not in the provided terminal excerpt, read its saved JSON rather than estimating a comparative runtime.
 >
-> **NOW DO ONLY ONE THING: QUALITY REVIEW.** Retrieve the private paired English / 0.8B Japanese / 2B Japanese outputs from the two completed result files and compare naturalness, nuance, meaning, context, and on-screen readability. No more model runs or new implementation work until these outputs are evaluated. Record a single winner if quality supports it; otherwise justify a single 8B challenger test. The public repository must **not** contain film subtitle text, but can record aggregate metrics and editorial findings. **Current sole project priority: select one local translation model.**
-
-**Collect private raw outputs to review, from Mac mini (no inference, no server changes):**
-
-~~~bash
-mkdir -p "$HOME/Downloads"
-scp optiplex@100.121.156.34:/home/optiplex/bruiser-pilot/plamo3-ab/real-results/film-100-20261105T091004064058Z/0.8b.json "$HOME/Downloads/plamo-0.8b.json"
-scp optiplex@100.121.156.34:/home/optiplex/bruiser-pilot/plamo3-ab/real-results/film-100-20261105T091839645501Z/2b.json "$HOME/Downloads/plamo-2b.json"
-~~~
-
-Upload those **two JSON result files privately in the chat** for bilingual, cue-by-cue editorial review. Each contains its own English source text, Japanese generation, status and elapsed time. **Do not commit the raw outputs or film dialogue to GitHub.** The goal is a defensible model selection, not another script iteration.
-
-
+> **QUALITY REVIEW COMPLETE — November 5, 2026.** The owner supplied both original private 100-cue JSON outputs; all 87 dialogue cues were reviewed side-by-side for semantic meaning, Japanese naturalness, character voice, adult humor, and relative subtitle concision. Full outcome: [PLaMo 0.8B vs 2B editorial verdict](PLAMO_0_8B_VS_2B_100_CUE_REVIEW_2026-11-05.md). **Provisional 2B winner**: clearer conversational register and past-tense continuity. Reviewer classification (nonblind, text only): 26 cues favor 2B, 11 favor 0.8B, 10 share material defects, 40 broadly comparable/uncertain. The 13 sound-caption pass-throughs are not translated.
+>
+> **REMAINING MAJOR QUALITY DEFECTS:** sexual slang/punchline lost across cues 173–176 and 239; a door-related prohibition mistaken for a factual denial at 206; wrong vehicle/hitchhiking context at 190–191; wrong one-lap-around-lake meaning at 247; inconsistent female speaker pronouns and occasional weakened profanity. Do **not** mistake fluency or structural acceptance for fidelity.
+>
+> **NEXT SINGLE TASK — OPTIONAL BUT RECOMMENDED 8B QUALITY CHALLENGER:** Evaluate official PLaMo 3 Translate **8B Q4_K_M** against the **same frozen 100 English cues** with identical PFN-native PFML3 framing and 2 translation-history pairs. No prompt tweaks, extra heuristics, new SubHub integration, model crowdsourcing, or source-acquisition changes. The 8B has ~5.28 GB weight file and may need partial CPU offload on this 6 GB RTX 3050; that is a practical performance question, not a reason to skip a quality comparison in active single-user development. Choose **one** final model based chiefly on semantic correctness/voice and secondarily on runtime. If 8B fails to materially improve the shared errors, 2B remains the best tested practical default.
 **THIS IS THE CURRENT OPERATING PLAN.** Read it before starting new subtitle-related development. The earlier American Dad/E4B/Hy-MT/CAT experiments remain historical evidence, not ongoing priorities. See [previous research stop decision](TRANSLATION_RD_STOP_DECISION_2026-11-05.md), [source-vs-DIY policy](HYBRID_JAPANESE_SOURCE_VS_DIY_POLICY_2026-11-05.md), [SubHub architecture](WHAT_IS_SUBHUB_AND_HOW_TO_USE_IT_2026-11-05.md), and [PLaMo test protocol](PLAMO_3_TRANSLATE_EVALUATION_2026-11-05.md).
 
 ## Locked objectives and scope
