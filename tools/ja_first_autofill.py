@@ -15,6 +15,8 @@ import argparse
 import fcntl
 import json
 import os
+import stat
+import tempfile
 from pathlib import Path
 import re
 import sqlite3
@@ -23,6 +25,8 @@ import sys
 import time
 
 ROOT = Path.home() / "bruiser-pilot/ja-first-inventory"
+NEXT_BUDGET_FILE = ROOT / ".source-next-run-budget.json"
+DEFAULT_SEARCH_BUDGET = 600
 CODE = Path.home() / "bruiser-pilot/subhub-control"
 UNIT = "bruiser-ja-source-autofill"
 NAME = UNIT + ".timer"
@@ -197,6 +201,56 @@ def check_scheduler_idle(*, request=api):
         raise RuntimeError("native_sublarr_search_currently_active")
 
 
+def next_run_budget():
+    """Read an explicitly configured, private one-time search budget."""
+    if not NEXT_BUDGET_FILE.exists() and not NEXT_BUDGET_FILE.is_symlink():
+        return DEFAULT_SEARCH_BUDGET, False
+    if NEXT_BUDGET_FILE.is_symlink():
+        raise RuntimeError("one_time_budget_is_symlink")
+    info = NEXT_BUDGET_FILE.stat(follow_symlinks=False)
+    if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
+            or info.st_mode & 0o077):
+        raise RuntimeError("one_time_budget_not_private_owned_file")
+    content = NEXT_BUDGET_FILE.read_bytes()
+    if len(content) > 1024:
+        raise RuntimeError("one_time_budget_invalid_size")
+    value = json.loads(content)
+    if not isinstance(value, dict) or set(value) != {"search_budget"}:
+        raise RuntimeError("one_time_budget_invalid_schema")
+    budget = value["search_budget"]
+    if type(budget) is not int or not 1 <= budget <= 600:
+        raise RuntimeError("one_time_search_budget_outside_1_to_600")
+    return budget, True
+
+
+def set_next_run_budget(budget):
+    """Prepare only the next scheduled or manually started source run.
+
+    No service, provider or subtitle operations here. A successful source run
+    consumes the override; interrupted runs retain it for a safe retry.
+    """
+    if type(budget) is not int or not 1 <= budget <= 600:
+        raise RuntimeError("one_time_search_budget_outside_1_to_600")
+    ROOT.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if ROOT.is_symlink() or ROOT.stat().st_mode & 0o077:
+        raise RuntimeError("inventory_folder_not_private")
+    # Do not overwrite an unrelated file or bypass a symlink.
+    if NEXT_BUDGET_FILE.exists() or NEXT_BUDGET_FILE.is_symlink():
+        next_run_budget()
+    data = (json.dumps({"search_budget":budget}, sort_keys=True) + "\n").encode()
+    fd, tmp = tempfile.mkstemp(prefix=".next-budget-", dir=ROOT)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, NEXT_BUDGET_FILE)
+    finally:
+        Path(tmp).unlink(missing_ok=True)
+    print("NEXT_SOURCE_CYCLE_BUDGET", budget, "one_time_only", flush=True)
+
+
 def once(*, request=api, action=run):
     ensure_installed()
     fd=lock()
@@ -207,18 +261,23 @@ def once(*, request=api, action=run):
             raise RuntimeError("native_wanted_search_still_enabled_no_duplicate_provider_queries")
         check_scheduler_idle(request=request)
         refresh_manifest(action=action)
-        print("RUNNING_SOURCES_ONLY_CYCLE search_budget=600 "
+        search_budget, custom_budget = next_run_budget()
+        print(f"RUNNING_SOURCES_ONLY_CYCLE search_budget={search_budget} "
               "stage_budget=200 publish_limit=200 "
               "(provider allowance still enforced)", flush=True)
         # Let output appear in systemd journal or manual terminal; don't
         # require a persistent shell or start any local translation model.
         result=subprocess.run(
             [sys.executable,"-u",str(CODE/"ja_first_cycle.py"),"cycle",
-             "--sources-only","--apply","--search-budget","600",
+             "--sources-only","--apply","--search-budget",str(search_budget),
              "--stage-budget","200","--publish-limit","200"],
             stdin=subprocess.DEVNULL, timeout=8*3600, check=False)
         if result.returncode:
             raise RuntimeError("sources_only_cycle_failed:"+str(result.returncode))
+        if custom_budget:
+            NEXT_BUDGET_FILE.unlink()
+            print("ONE_TIME_SEARCH_BUDGET_CONSUMED next_cycle_default=600",
+                  flush=True)
         print("AUTOFILL_CYCLE_COMPLETE",flush=True)
     finally:
         os.close(fd)
@@ -352,14 +411,21 @@ def status(*,request=api,action=run):
 
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode",choices=("status","enable","once"),nargs="?",
+    parser.add_argument("mode",choices=("status","enable","once","next-budget"),nargs="?",
                         default="status")
     parser.add_argument("--apply",action="store_true")
+    parser.add_argument("--search-budget",type=int,default=None)
     args=parser.parse_args(argv)
     if args.mode=="status":
         return status()
     if not args.apply:
-        parser.error("enable and once require --apply")
+        parser.error("enable, once and next-budget require --apply")
+    if args.mode=="next-budget":
+        if args.search_budget is None:
+            parser.error("next-budget requires --search-budget 1..600")
+        return set_next_run_budget(args.search_budget)
+    if args.search_budget is not None:
+        parser.error("--search-budget is only valid with next-budget")
     if args.mode=="enable":
         return enable()
     if args.mode=="once":
