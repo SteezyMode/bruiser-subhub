@@ -44,6 +44,7 @@ PAGE_SIZE=200
 MAX_PAGES=250
 SOURCE_TYPES={'Episode','Movie'}
 EN={'en','eng','english'}
+JA={'ja','jp','jpn','japanese'}
 SUB_TEXT={'.srt','.ass','.ssa','.vtt'}
 RECHECK_S=7*86400
 ERROR_RETRY_S=86400
@@ -171,6 +172,7 @@ def item_streams(item):
     if not isinstance(streams,list):
         return None
     langs=[]
+    ja_found=False
     audio=None
     for x in streams:
         if not isinstance(x,dict):continue
@@ -178,23 +180,28 @@ def item_streams(item):
         if x.get('Type')=='Audio' and (
                 audio is None or x.get('IsDefault') is True):
             audio=lang
+        if (x.get('Type')=='Subtitle' and lang in JA and
+                not x.get('IsForced')):
+            ja_found=True
         if (x.get('Type')=='Subtitle' and lang in EN and
             not x.get('IsForced') and
             str(x.get('Codec') or '').casefold() in
                 {'subrip','srt','ass','ssa','webvtt','mov_text','text'}):
             langs.append('en')
-    return {'has_en_text':bool(langs),'audio_lang':audio or 'unknown'}
+    return {'has_en_text':bool(langs),'has_ja':ja_found,
+            'audio_lang':audio or 'unknown'}
 
 
 def inspect(video,item,probe_fn=intake.probe):
-    # ffprobe is used only when Jellyfin did not provide usable stream data.
-    # Source streams in an SRT file may not be indexed by Jellyfin until scan.
     side=english_sidecar(video)
     stream=item_streams(item)
     if stream is None:
         probe=probe_fn(video)
         stream={'has_en_text':probe.get('embedded_en') is not None,
+                'has_ja':bool(probe.get('ja')),
                 'audio_lang':'en' if probe.get('audio_en') else 'unknown'}
+    if intake.already_ja(video) or stream['has_ja']:
+        return 'japanese_present',stream['audio_lang']
     return ('ready' if side or stream['has_en_text'] else 'missing',
             stream['audio_lang'])
 
@@ -234,7 +241,9 @@ def scan(client,roots,state=STATE,probe_fn=intake.probe,
             fingerprint=sidecar_fingerprint(video)
             old=db.execute('SELECT * FROM media WHERE path=?',(path,)).fetchone()
             if old and old['fingerprint']==fingerprint:
-                status=old['state']
+                status=('japanese_present' if (intake.already_ja(video)
+                    or (item_streams(item) or {}).get('has_ja'))
+                    else old['state'])
                 # When provider search previously found no hash result,
                 # preserve that status while the file is unchanged.
                 if status not in SAFE_STATUSES and status!='ready':
@@ -377,6 +386,11 @@ def fill(client,roots,state=STATE,search_budget=10,now=None,
                 if sidecar_fingerprint(video)!=row['fingerprint']:
                     _update(db,row,now,'stale','rescan_before_search',0)
                     counts['stale']+=1
+                    continue
+                if intake.already_ja(video):
+                    _update(db,row,now,'japanese_present',
+                            'japanese_already_available',0)
+                    counts['japanese_present']+=1
                     continue
                 if english_sidecar(video):
                     _update(db,row,now,'ready','existing_english',0)
