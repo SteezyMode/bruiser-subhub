@@ -119,6 +119,43 @@ class TestMovieRescue(unittest.TestCase):
                 again,_=movie.stage_private_candidate(video,source_result,content,".srt",report)
                 self.assertEqual(again,source)
 
+    def test_resume_private_candidate_without_provider_calls_or_overwrite(self):
+        import hashlib
+        with tempfile.TemporaryDirectory() as temp:
+            base=Path(temp)
+            video=base/"You.Were.Never.Really.Here.2017.mp4"
+            video.write_bytes(b"original film")
+            raw=b"provider subtitle source bytes"
+            aligned_file=base/"alignment-output.srt"
+            aligned_file.write_bytes(b"synced subtitle source bytes")
+            cues=[]; corrected=[]
+            for i in range(365):
+                phrase="日本語です" if i<283 else ("♪…" if i<363 else "OK")
+                start=int((103.56+i*(4814.91/364))*1000)
+                cues.append({"start":start,"end":start+1200,"text":phrase})
+                corrected.append({"start":start-19330,"end":start+1200-19330,
+                                  "text":phrase})
+            with patch.object(movie,"OUT_ROOT",base/"private"):
+                assessment={"ok":False,"holds":["not_predominantly_japanese"],
+                            "video_seconds":5368.5}
+                stage,report=movie.stage_private_candidate(
+                    video,Dummy(),raw,".srt",assessment,
+                    sync={"ok":True,"shift_ms":-19330},aligned=aligned_file)
+                def fake_cues(path):
+                    return cues if Path(path)==stage else corrected
+                with patch("services.sync_preview.load_cues",side_effect=fake_cues,create=True):
+                    with patch.object(movie,"has_embedded_japanese",return_value=False):
+                        movie.resume_staged(video,5368.5,str(report),apply=False)
+                        self.assertEqual(list(base.glob("*.ja.srt")),[])
+                        movie.resume_staged(video,5368.5,str(report),apply=True)
+                        result=video.with_name(video.stem+
+                            ".Bruiser Sourced Unverified.ja.srt")
+                        self.assertEqual(result.read_bytes(),aligned_file.read_bytes())
+                        self.assertEqual(video.read_bytes(),b"original film")
+                        self.assertEqual(stage.read_bytes(),raw)
+                        with self.assertRaises(RuntimeError):
+                            movie.resume_staged(video,5368.5,str(report),apply=True)
+
     def test_ffsubsync_timeout_is_a_hold_not_a_crash(self):
         import subprocess
         with patch.object(movie.subprocess,"run",side_effect=subprocess.TimeoutExpired(["ffsubsync"],600)):
