@@ -134,6 +134,60 @@ def find_episode(daily, wanted=None):
                        json.dumps(counts, sort_keys=True))
 
 
+def seed_verified_source(video, tag, cues, origin, source_sha, timing):
+    """Only called AFTER source-first JA search and EN source verification.
+
+    This immutable private input allows ffsubsync-adjusted EN timestamps to
+    survive a restart; we do not secretly revert to an unsynced download.
+    """
+    if not episode_id(video) == tag:
+        raise RuntimeError("wrong_episode_for_verified_english")
+    if len(cues) < 150 or len(cues) > 1500:
+        raise RuntimeError("episode_cue_count_outside_bounds")
+    if [c["number"] for c in cues] != list(range(1, len(cues) + 1)):
+        raise RuntimeError("episode_source_sparse_cue_ids")
+    if not ROOT.is_dir() or ROOT.is_symlink():
+        raise RuntimeError("plamo_private_root_missing")
+    WORK.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if WORK.is_symlink() or WORK.stat().st_mode & 0o077:
+        raise RuntimeError("plamo_episode_workdir_not_private")
+    source_text = small.format_srt(cues, "english")
+    sha = hashlib.sha256(source_text.encode("utf-8")).hexdigest()
+    st = video.stat()
+    data = {
+        "version": 2, "episode": tag, "video": str(video),
+        "size": st.st_size, "mtime_ns": st.st_mtime_ns,
+        "cue_count": len(cues), "english_sha256": sha,
+        "original_english_sha256": source_sha,
+        "origin": origin, "timing": timing, "source_first": True,
+        "model": eight.MODEL, "model_sha256": MODEL_HASH,
+        "gpu_layers": GPU_LAYERS, "temperature": 0,
+        "max_tokens": 512, "history_pairs": 2, "stop": real.STOP,
+        "track_mode": "new",
+        "selected_utc": datetime.now(timezone.utc).isoformat(),
+    }
+    if MANIFEST.exists():
+        previous = json.loads(real._private_path(MANIFEST).read_text("utf-8"))
+        keys = ("version","episode","video","size","mtime_ns","cue_count",
+                "english_sha256","original_english_sha256","origin",
+                "timing","source_first","model","model_sha256",
+                "gpu_layers","temperature","max_tokens","history_pairs",
+                "stop","track_mode")
+        if any(previous.get(k) != data[k] for k in keys):
+            raise RuntimeError("different_existing_episode_checkpoint__do_not_mix")
+        if real._private_path(SOURCE).read_text("utf-8") != source_text:
+            raise RuntimeError("staged_source_changed")
+    else:
+        if SOURCE.exists() and (SOURCE.is_symlink()
+                                or SOURCE.read_text("utf-8") != source_text):
+            raise RuntimeError("staged_source_conflict")
+        if not SOURCE.exists():
+            with SOURCE.open("x", encoding="utf-8") as out:
+                out.write(source_text)
+        small.atomic_json(MANIFEST, data)
+    return data
+
+
 def load_or_select(daily, wanted):
     if MANIFEST.exists() or MANIFEST.is_symlink():
         if MANIFEST.is_symlink():
@@ -141,6 +195,24 @@ def load_or_select(daily, wanted):
         saved = json.loads(real._private_path(MANIFEST).read_text("utf-8"))
         if wanted and wanted != saved["episode"]:
             raise RuntimeError("another_episode_already_selected__do_not_mix_checkpoints")
+        if saved.get("source_first"):
+            from ja_first_stage_timing_audit import safe_media_path
+            video = safe_media_path(saved["video"])
+            stat = video.stat()
+            if (stat.st_size != saved["size"]
+                    or stat.st_mtime_ns != saved["mtime_ns"]):
+                raise RuntimeError("source_first_episode_video_changed")
+            info = daily.probe(video)
+            if not info["audio_en"]:
+                raise RuntimeError("english_audio_track_changed")
+            if info["ja"] or daily.already_ja(video):
+                raise RuntimeError("japanese_already_exists_no_new_translation")
+            stored = real._private_path(SOURCE).read_text("utf-8")
+            cues = small.parse_srt(stored, limit=1500)
+            if (hashlib.sha256(stored.encode("utf-8")).hexdigest()
+                    != saved["english_sha256"] or len(cues) != saved["cue_count"]):
+                raise RuntimeError("source_first_checkpoint_english_changed")
+            return video, cues, saved
         from ja_first_stage_timing_audit import safe_media_path
         video = safe_media_path(saved["video"])
         stat = video.stat()
@@ -251,7 +323,12 @@ def write_new_sidecar(video, saved, daily, srt):
     if st.st_size != saved["size"] or st.st_mtime_ns != saved["mtime_ns"]:
         raise RuntimeError("movie_modified_during_translation")
     now = daily.probe(video)
-    if not now["audio_en"] or (not daily.english_srt(video)
+    if saved.get("source_first"):
+        if daily.already_ja(video) or now["ja"]:
+            raise RuntimeError("japanese_track_appeared_no_machine_overwrite")
+        if not now["audio_en"]:
+            raise RuntimeError("english_audio_track_disappeared")
+    elif not now["audio_en"] or (not daily.english_srt(video)
                                   and now["embedded_en"] is None):
         raise RuntimeError("english_source_track_disappeared")
     tmp = None
