@@ -2,6 +2,28 @@
 
 **One mission:** maximize the number of **usable, naturally translated, correctly timed Japanese subtitles** ready before viewing on the household's existing Jellyfin media. The result, not the number of generated tokens/searches/models/commits, is the success criterion.
 
+> **OVERRIDING IMMEDIATE FOCUS — 2026-11-05, model selection only:** This is a one-user active development session on an OptiPlex. **Do not build around fictional gaming/Wolf activity or treat GPU utilization as a reason to block an explicitly requested benchmark.** The owner's only task right now is to **select ONE best local English-to-Japanese subtitle model**, not deploy any automatic integration, fine-tune prompts, monitor other resources, or revisit the working sourced-subtitle service. Benchmark 0.8B and 2B on **the exact same 100 cues**, assess Japanese quality, and if neither is sufficient, consider 8B as a deliberate next tier. No automatic model assignment to SubHub until one model is selected.
+
+> **Live progress:** 0.8B finished 100/100 original Friday the 13th (1984) cues, IDs 153–252, with 13 non-dialogue SDH passthroughs and 87 Japanese-script dialogue outputs; no reported held dialogue. Full results are privately saved in \`~/bruiser-pilot/plamo3-ab/real-results/film-100-20261105T091004064058Z/0.8b.json\` and companion review SRT. Immediately afterward the old wrapper's separate GPU preflight saw 84% utilization (VRAM still 5,678 MiB free) and erroneously refused to start 2B. **No evidence of gaming**; this is our inappropriate development-time protection. No 2B film result yet. We have removed that GPU-utilization gate from this isolated developer test. Next command runs **ONLY 2B** using the *same frozen source and verified completed 0.8B file*, without translating 0.8B again.
+
+**NEXT COMMAND (Mac mini):**
+
+~~~bash
+ssh optiplex@100.121.156.34 'bash -s' <<'REMOTE'
+set -euo pipefail
+PIN="53601f84a66aa81f9b540d11fcdf7817db6e1f1a"
+SCRIPT="$(mktemp)"
+trap 'rm -f "$SCRIPT"' EXIT
+curl -fsSL --retry 3 \
+  "https://raw.githubusercontent.com/SteezyMode/bruiser-subhub/$PIN/tools/run_plamo3_real_film_ab.sh" \
+  -o "$SCRIPT"
+bash -n "$SCRIPT"
+bash "$SCRIPT"
+REMOTE
+~~~
+
+**Exit gate:** 2B reaches 100/100 original cues 153–252 with the same SHA256 d4394793c9608ab8935cdba89a6bfb9be41d0e51e1274123966b78939fe1174a. Save its original model output in private review storage. Compare the two arms for semantic correctness, slang/idiom nuance, natural spoken Japanese, character voice, line length and speed. Choose a single model on actual subtitle quality; 8B is optional only if needed. The official PLaMo PFML3 generation settings are unchanged.
+
 **THIS IS THE CURRENT OPERATING PLAN.** Read it before starting new subtitle-related development. The earlier American Dad/E4B/Hy-MT/CAT experiments remain historical evidence, not ongoing priorities. See [previous research stop decision](TRANSLATION_RD_STOP_DECISION_2026-11-05.md), [source-vs-DIY policy](HYBRID_JAPANESE_SOURCE_VS_DIY_POLICY_2026-11-05.md), [SubHub architecture](WHAT_IS_SUBHUB_AND_HOW_TO_USE_IT_2026-11-05.md), and [PLaMo test protocol](PLAMO_3_TRANSLATE_EVALUATION_2026-11-05.md).
 
 ## Locked objectives and scope
