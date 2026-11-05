@@ -35,6 +35,41 @@ HISTORY = 2
 STOP = ["<|plamo:tag|>", "<|plamo:bos|>"]
 PFN_URL = "https://huggingface.co/pfnet/plamo-3-translate-0.8b-GGUF"
 
+GPU_SAMPLES = 10
+GPU_SAMPLE_DELAY_SECONDS = 3
+
+
+def await_gpu_idle(sampler=None, pause=None, samples=GPU_SAMPLES,
+                   interval=GPU_SAMPLE_DELAY_SECONDS):
+    """Bounded safety preflight; avoid interpreting one stale utilization
+    sample immediately after shutting down the previous model as gaming.
+    Require TWO consecutive safe samples and never unload another process.
+    """
+    sampler = sampler or small.gpu_preflight
+    pause = pause or time.sleep
+    consecutive = 0
+    last = None
+    for attempt in range(samples):
+        try:
+            values = sampler()
+            consecutive += 1
+            if consecutive >= 2:
+                print("GPU SAFETY: two consecutive idle samples", values,
+                      flush=True)
+                return values
+        except RuntimeError as exc:
+            if not str(exc).startswith("GPU_BUSY "):
+                raise
+            last = str(exc)
+            consecutive = 0
+            print("GPU SAFETY: busy sample", attempt + 1, "/", samples,
+                  "; waiting, not interfering with other workloads:", last,
+                  flush=True)
+        if attempt < samples - 1:
+            pause(interval)
+    raise RuntimeError("GPU_BUSY_PERSISTENT; no model started; " + str(last))
+
+
 # SRT/SDH is not uniformly spoken dialogue. PLaMo's job is to translate
 # language, not to invent speech for a pure sound-effects caption. An
 # untranslated isolated [SIGHS] or [MUSIC PLAYING] is a valid non-dialogue
@@ -86,6 +121,28 @@ def load_frozen_run(folder):
             "frozen_embedded_english_text", meta.get("manifest"),
             original.name, meta["source_sha256"])
 
+
+
+def verify_completed_reference(frozen_path, cues):
+    """The previous 0.8B arm must be complete and mapped to the exact EN
+    IDs/timestamps before running only 2B. No copying/editing original data.
+    """
+    path = _private_path(Path(frozen_path).resolve(strict=True) / "0.8b.json")
+    data = path.read_bytes()
+    record = json.loads(data)
+    entries = record.get("entries")
+    if record.get("status") != "complete" or not isinstance(entries, list):
+        raise RuntimeError("reference_0_8b_not_complete")
+    if len(entries) != len(cues) or len(cues) != LIMIT:
+        raise RuntimeError("reference_0_8b_cue_count_mismatch")
+    for en, translated in zip(cues, entries):
+        if any(en[k] != translated.get(k)
+               for k in ("number", "start", "end", "english")):
+            raise RuntimeError("reference_0_8b_source_mismatch")
+        if translated.get("status") not in (
+                "translated", "non_dialogue_passthrough"):
+            raise RuntimeError("reference_0_8b_contains_held_dialogue")
+    return hashlib.sha256(data).hexdigest()
 
 
 def native_prompt(source, history):
@@ -246,7 +303,7 @@ def benchmark(args):
         model = model_dir / filename
         if not model.is_file() or model.is_symlink() or model.stat().st_size < 100_000_000:
             raise RuntimeError("missing_original_pinned_model_" + filename)
-    small.gpu_preflight()
+    await_gpu_idle()
     frozen_name = None
     if args.frozen_run:
         (row, video, cues, total, origin, manifest_name,
@@ -254,6 +311,12 @@ def benchmark(args):
     else:
         row, video, cues, total, origin, manifest_name = choose_embedded_english()
         original_source_sha = None
+    if args.arm == "2b":
+        if not args.frozen_run:
+            raise RuntimeError("2b_only_requires_frozen_completed_0_8b_run")
+        prior_0_8b_sha = verify_completed_reference(args.frozen_run, cues)
+    else:
+        prior_0_8b_sha = None
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     base = ROOT / "real-results"
     base.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -278,6 +341,8 @@ def benchmark(args):
         "temperature": 0, "max_tokens": 512, "stop": STOP,
         "published_to_jellyfin": False, "models": {},
         "frozen_prior_run": frozen_name,
+        "requested_arm": args.arm,
+        "reference_completed_0_8b_sha256": prior_0_8b_sha,
     }
     if original_source_sha and details["source_sha256"] != original_source_sha:
         raise RuntimeError("frozen_source_changed_during_snapshot")
@@ -290,7 +355,9 @@ def benchmark(args):
     print("No media or production service writes. PRIVATE output:", out, flush=True)
 
     for size, name in small.MODEL_FILES.items():
-        small.gpu_preflight()
+        if args.arm != "all" and size != args.arm:
+            continue
+        await_gpu_idle()
         model = model_dir / name
         record = {"model": size, "model_filename": name,
                   "model_sha256": small.digest(model), "entries": [],
@@ -398,6 +465,8 @@ def tests():
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--self-test", action="store_true")
+    p.add_argument("--arm", choices=("all", "0.8b", "2b"), default="all",
+                   help="run both arms by default; use 2b to complement a completed frozen 0.8b result")
     p.add_argument("--frozen-run", type=Path,
                    help="reuse exact 100-cue source from earlier private held run")
     p.add_argument("--port", type=int, default=18879)
