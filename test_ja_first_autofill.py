@@ -80,7 +80,8 @@ class SourceAutofillTests(unittest.TestCase):
                 return "active\n"
             with patch.object(auto,"CODE",control), \
                  patch.object(auto,"USER_UNITS",units), \
-                 patch.object(auto,"ensure_installed"):
+                 patch.object(auto,"ensure_installed"), \
+                 patch.object(auto,"refresh_manifest"):
                 auto.enable(request=request,action=action)
             self.assertTrue((units/auto.NAME).exists())
             self.assertTrue((units/auto.SVC).exists())
@@ -111,7 +112,8 @@ class SourceAutofillTests(unittest.TestCase):
                 return "ok"
             with patch.object(auto,"CODE",control), \
                  patch.object(auto,"USER_UNITS",base/"units"), \
-                 patch.object(auto,"ensure_installed"):
+                 patch.object(auto,"ensure_installed"), \
+                 patch.object(auto,"refresh_manifest"):
                 with self.assertRaisesRegex(RuntimeError,"systemd_enable_failed"):
                     auto.enable(request=request,action=action)
             self.assertEqual(state["wanted_search_interval_hours"],24)
