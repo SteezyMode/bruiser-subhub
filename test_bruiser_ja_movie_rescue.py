@@ -10,6 +10,7 @@ from tools import bruiser_ja_movie_rescue as movie
 class Dummy:
     def __init__(self,language="ja",forced=False,subtitle_id="12",
                  release="You.Were.Never.Really.Here.2017",matches=None):
+        self.provider_name="opensubtitles"
         self.language=language
         self.forced=forced
         self.subtitle_id=subtitle_id
