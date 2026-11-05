@@ -36,9 +36,9 @@ import ja_first_publish_staged as direct
 import ja_first_publish_shifted as shifted
 import ja_first_ffsubsync as ff
 
-MAX_ROWS = 60
-MAX_TITLES = 12
-MAX_NEW_PUBLISH = 3
+MAX_ROWS = 3000
+MAX_TITLES = 1000
+MAX_NEW_PUBLISH = 200
 
 
 def stages():
@@ -179,6 +179,16 @@ def direct_candidate(jid, candidates):
     return eligible[0]
 
 
+def report_title(row):
+    """Label existing JA titles even if refreshed catalog omitted episode metadata."""
+    if (row.get("kind") == "Episode" and row.get("series_title")
+            and type(row.get("season")) is int
+            and type(row.get("episode")) is int):
+        return direct.metadata_label(row)
+    title = str(row.get("title") or "").strip()
+    return title if title else "media " + str(row.get("jellyfin_id") or "unknown")
+
+
 def choose(jid, candidates):
     published_state, row = existing_verdict(jid, candidates)
     if published_state != "absent":
@@ -252,10 +262,10 @@ def self_test():
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--self-test", action="store_true")
-    parser.add_argument("--limit", type=int, default=2,
-                        help="new publications permitted per run 1..3")
-    parser.add_argument("--max-titles", type=int, default=10,
-                        help="maximum distinct titles to examine 1..12")
+    parser.add_argument("--limit", type=int, default=3,
+                        help="new publications permitted per run 1..200")
+    parser.add_argument("--max-titles", type=int, default=300,
+                        help="maximum distinct titles to examine 1..1000")
     parser.add_argument("--apply", action="store_true",
                         help="create at most --limit new Japanese subtitle sidecars")
     args = parser.parse_args()
@@ -264,7 +274,7 @@ def main():
         return
     if not (1 <= args.limit <= MAX_NEW_PUBLISH
             and 1 <= args.max_titles <= MAX_TITLES):
-        parser.error("limit must be 1..3, max-titles 1..12")
+        parser.error("limit must be 1..200, max-titles 1..1000")
     records = stages()
     title_groups = unique_titles(records, args.max_titles)
     print("=== UNIFIED JAPANESE SUBTITLE PUBLISH QUEUE ===", flush=True)
@@ -281,7 +291,7 @@ def main():
               ",".join(sid for sid, _ in candidates), flush=True)
         try:
             kind, row, value = choose(jid, candidates)
-            print("RESULT:", direct.metadata_label(row), "|", kind, flush=True)
+            print("RESULT:", report_title(row), "|", kind, flush=True)
             counts[kind] += 1
             if kind.startswith("published_"):
                 if args.apply:
