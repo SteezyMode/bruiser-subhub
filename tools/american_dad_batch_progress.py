@@ -163,7 +163,7 @@ def snapshot():
     held=[
         r for r in tasks
         if r["episode"] not in complete and
-        results.get(r["episode"],{}).get("status") in ("source_held","paused")
+        results.get(r["episode"],{}).get("status") in ("source_held","episode_held","paused")
     ]
     current=None
     for line in reversed(lines):
