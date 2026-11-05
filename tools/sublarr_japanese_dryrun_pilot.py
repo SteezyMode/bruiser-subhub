@@ -45,7 +45,13 @@ def find_one_wanted(get, is_file=os.path.isfile, allowed_roots=("/media/",)):
                 + "&page=" + str(page)
                 + "&sort_by=search_count&sort_dir=asc")
         document = get(path)
-        rows = document.get("items", []) if isinstance(document, dict) else []
+        # Sublarr 1.18's GET /api/v1/wanted returns "data", NOT "items".
+        # Fail loudly on schema drift rather than falsely claiming zero jobs.
+        if not isinstance(document, dict) or not isinstance(document.get("data"), list):
+            raise RuntimeError('Unexpected Sublarr Wanted response: expected "data" list')
+        rows = document["data"]
+        if page == 1:
+            print("FILTERED_WANTED_TOTAL", document.get("total", "unknown"), flush=True)
         for row in rows:
             examined += 1
             if not isinstance(row, dict):
@@ -77,7 +83,7 @@ def find_one_wanted(get, is_file=os.path.isfile, allowed_roots=("/media/",)):
             return row, examined, int(document.get("total", 0))
         if len(rows) < PER_PAGE:
             break
-    return None, examined, 0
+    return None, examined, int(document.get("total", 0))
 
 
 def summary(item, result):
