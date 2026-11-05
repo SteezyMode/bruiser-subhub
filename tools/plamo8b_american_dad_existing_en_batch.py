@@ -377,8 +377,18 @@ def run(args):
                         # engine.run() will load the exact saved English source.
                         cues=[];origin="";raw_sha="";timing={}
                     else:
-                        cues,origin,raw_sha,timing=frozen_english(
-                            video,info,daily,sync)
+                        try:
+                            cues,origin,raw_sha,timing=frozen_english(
+                                video,info,daily,sync)
+                        except (OSError,ValueError,UnicodeError,RuntimeError,
+                                subprocess.SubprocessError) as exc:
+                            # A bad English sidecar or failed ffsubsync should
+                            # not hold back other already-ready episodes.
+                            held+=1
+                            print("SOURCE_HELD",tag,type(exc).__name__,
+                                  str(exc)[:140],flush=True)
+                            append_result("source_held",tag,str(exc))
+                            continue
                 thermal_gate()
                 with_batch_inference(tag,video,cues,origin,raw_sha,timing)
                 good+=1
