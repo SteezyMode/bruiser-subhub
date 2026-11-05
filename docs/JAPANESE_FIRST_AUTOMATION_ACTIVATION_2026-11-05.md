@@ -1,5 +1,15 @@
 # Bruiser Japanese-first activation — November 5, 2026
 
+## November 5 — Exact movie source mechanically approved; publish blocked by read-only container mount
+
+**Real host run:** the preserved 365-cue source was examined without any repeat provider download. It contains 283 cues with Japanese writing, 80 punctuation/number/symbol-only cues and two Latin-letter cues. Correct language denominator is 285 letter-bearing cues, **283/285 = 99.3%**; the old 77.5% figure was a false gate failure. The exact saved aligned file passed in-container content and sync screening, with correction shifts **−24.25 to −19.43 seconds** (nonconstant shift, still needs playback verification).
+
+The initial `--from-staged --apply` attempted to write in `/media/bigdisk-video` and failed **`OSError [Errno 30] Read-only file system`**. The video and originals remain unchanged. The container movie mount should stay read-only, not remounted or chmodded.
+
+**Fix committed:** [host-side publisher](../tools/bruiser_ja_publish_host.py) uses the existing in-container `--from-staged` **plan-only** safety screen, derives the host movie from Docker's actual bind-mount map, copies only previously aligned private bytes via `docker cp`, and atomically creates an explicitly **unverified** JA sidecar on the writable host filesystem, refusing all existing Japanese tracks. It calls no provider, ffsubsync, model, upgrades or remounts. Offline regression tests: [test_bruiser_ja_publish_host.py](../test_bruiser_ja_publish_host.py) (four local tests passed). The new host publisher is **not yet executed on OptiPlex** and must be confirmed by `HOST_PUBLISHED_UNVERIFIED_JAPANESE`; a host-level read-only mount or permissions issue remains a safe HOLD.
+
+Use commit `cb7b32f2ec348c70e5bc4f32cfb00e6b6491c191` for the pair of scripts. This is a one-film publication of an unverified source for normal Jellyfin viewing, **not** certification of human-made subtitles or automatic library-scale QA. Do **not** rerun the OpenSubtitles fetch, re-enable all roots, or loosen container write protections to solve this one held publication.
+
 ## November 5 — Live activation and first feature-film hold (spoiler-free)
 
 **CONFIRMED ON OWNER'S OPTIPLEX:** the previously disabled standalone roots **#3–#6 were enabled**, the 6-root setup is active, scheduled Japanese-source scans/searches are on (max 40 Wanted items/cycle), `ffsubsync` after download is on, AI translation and automatic upgrades remain off. An initial standalone catalog scan was requested. **Do not rerun the rollout just because a single movie search failed.**
