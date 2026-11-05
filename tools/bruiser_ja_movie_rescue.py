@@ -457,10 +457,13 @@ def run(title=TARGET_TITLE,apply=False,max_downloads=3):
                 syn=sync_candidate(video,source,corrected)
                 after=(health(load_cues(str(corrected)),length)
                        if syn["ok"] and corrected.is_file() else None)
-                stage_private_candidate(video,result,raw,fmt,before,syn,
+                staged_source,staged_report=stage_private_candidate(
+                    video,result,raw,fmt,before,syn,
                     corrected if corrected.is_file() else None)
-                print("CANDIDATE_STAGED_PRIVATELY",ix,"original_preserved",True,
-                      "no_media_sidecar_written_yet",flush=True)
+                print("CANDIDATE_STAGED_PRIVATELY",ix,
+                      "source_file",str(staged_source),
+                      "report_file",str(staged_report),
+                      "original_preserved",True,flush=True)
                 if not before["ok"]:
                     print("HELD_CONTENT",json.dumps(before,ensure_ascii=False),flush=True)
                     print("SYNC_DIAGNOSTIC_ONLY",syn,flush=True)
