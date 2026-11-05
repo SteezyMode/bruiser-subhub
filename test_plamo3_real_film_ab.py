@@ -109,6 +109,61 @@ class RealFilmPFNTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "sha_mismatch"):
                     real.load_frozen_run(frozen)
 
+    def test_two_safe_gpu_samples_and_busy_backoff(self):
+        seen = iter([
+            RuntimeError("GPU_BUSY free_MiB=5678 util_pct=84"),
+            {"free_mib": 5678, "util_pct": 0},
+            {"free_mib": 5678, "util_pct": 0},
+        ])
+        delays = []
+        def sample():
+            val = next(seen)
+            if isinstance(val, Exception):
+                raise val
+            return val
+        out = real.await_gpu_idle(sampler=sample, pause=delays.append,
+                                  samples=4, interval=2)
+        self.assertEqual(out["free_mib"], 5678)
+        self.assertEqual(delays, [2, 2])
+
+    def test_sustained_gpu_load_must_stop(self):
+        busy = lambda: (_ for _ in ()).throw(
+            RuntimeError("GPU_BUSY free_MiB=5678 util_pct=84"))
+        with self.assertRaisesRegex(RuntimeError, "GPU_BUSY_PERSISTENT"):
+            real.await_gpu_idle(sampler=busy, pause=lambda _: None,
+                                samples=4, interval=0)
+        with self.assertRaisesRegex(RuntimeError, "other_problem"):
+            real.await_gpu_idle(
+                sampler=lambda: (_ for _ in ()).throw(RuntimeError("other_problem")),
+                pause=lambda _: None, samples=4)
+
+    def test_completed_0_8b_reference_must_match_all_100_english_cues(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)
+            rows = [
+                {"number": 153 + i, "start": real.small.timestamp(i*5),
+                 "end": real.small.timestamp(i*5+4), "english": "Hello."}
+                for i in range(100)]
+            reference = {
+                "status": "complete",
+                "entries": [dict(row, status="translated", japanese="こんにちは")
+                            for row in rows],
+            }
+            ref = path / "0.8b.json"
+            ref.write_text(json.dumps(reference), encoding="utf-8")
+            ref.chmod(0o600)
+            got = real.verify_completed_reference(path, rows)
+            self.assertEqual(got, hashlib.sha256(ref.read_bytes()).hexdigest())
+            reference["entries"][19]["english"] = "changed"
+            ref.write_text(json.dumps(reference), encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError,"reference_0_8b_source_mismatch"):
+                real.verify_completed_reference(path, rows)
+            reference["entries"][19]["english"] = "Hello."
+            reference["status"] = "started"
+            ref.write_text(json.dumps(reference), encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError,"reference_0_8b_not_complete"):
+                real.verify_completed_reference(path, rows)
+
     def test_self_test(self):
         real.tests()
 
