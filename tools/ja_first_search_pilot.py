@@ -287,7 +287,8 @@ def pick(rows, db, budget):
 
     # More movies than television, prioritizing horror/drama and the owner's
     # two explicitly requested series. Fill with other content when exhausted.
-    quotas = {"Movie": (budget * 3 + 3) // 4, "Episode": budget // 4}
+    movie_quota = max(1, budget * 3 // 4)
+    quotas = {"Movie": movie_quota, "Episode": budget - movie_quota}
     chosen = []
     for kind in ("Movie", "Episode"):
         count = 0
