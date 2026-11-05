@@ -52,7 +52,7 @@ class TestMovieRescue(unittest.TestCase):
         # The old 283/365 gate incorrectly held this film as 77.5% Japanese.
         cues=[]
         for i in range(365):
-            phrase = "日本語です" if i<283 else ("♪…" if i<363 else "OK")
+            phrase = f"日本語です{i}" if i<283 else (f"♪{i}" if i<363 else f"OK{i}")
             start=int((103.56 + i*(4814.91/364))*1000)
             cues.append({"start":start,"end":start+1200,"text":phrase})
         out=movie.health(cues,5368.5,allow_offset_sec=30)
@@ -130,7 +130,7 @@ class TestMovieRescue(unittest.TestCase):
             aligned_file.write_bytes(b"synced subtitle source bytes")
             cues=[]; corrected=[]
             for i in range(365):
-                phrase="日本語です" if i<283 else ("♪…" if i<363 else "OK")
+                phrase=f"日本語です{i}" if i<283 else (f"♪{i}" if i<363 else f"OK{i}")
                 start=int((103.56+i*(4814.91/364))*1000)
                 cues.append({"start":start,"end":start+1200,"text":phrase})
                 corrected.append({"start":start-19330,"end":start+1200-19330,
