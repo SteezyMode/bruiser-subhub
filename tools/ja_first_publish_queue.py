@@ -28,6 +28,7 @@ import hashlib
 import json
 from pathlib import Path
 import sqlite3
+import subprocess
 import sys
 from urllib.parse import quote
 
@@ -169,8 +170,8 @@ def choose(jid, candidates):
                   flush=True)
             return "ready_ffsubsync", row, ready
         except (ValueError, OSError, RuntimeError, KeyError, sqlite3.Error,
-                __import__("subprocess").CalledProcessError,
-                __import__("subprocess").TimeoutExpired) as exc:
+                subprocess.CalledProcessError,
+                subprocess.TimeoutExpired) as exc:
             print("  FFSUBSYNC HELD:", sid, type(exc).__name__,
                   str(exc)[:95], flush=True)
     # The pre-existing trusted embedded-English alignment remains a
