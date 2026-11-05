@@ -482,7 +482,7 @@ def main():
     args = cli.parse_args()
     if args.self_test:
         return self_test()
-    if args.episode and not re.fullmatch("S\d{2}E\d{2,3}", args.episode):
+    if args.episode and not re.fullmatch(r"S\d{2}E\d{2,3}", args.episode):
         cli.error("--episode must be S19E07 etc")
     if not 1025 <= args.port <= 65535:
         cli.error("port must be unprivileged")
