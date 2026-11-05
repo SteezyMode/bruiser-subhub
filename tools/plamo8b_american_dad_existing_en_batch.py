@@ -319,6 +319,21 @@ def start_cool_server(binary,model,port,gpu_layers,logfile):
             try:
                 result=small.json_request(port,"/health",timeout=3)
                 if isinstance(result,dict) and result.get("status")=="ok":
+                    # -ngl 28 is only a request, not evidence of GPU use.
+                    # A previous overnight resume omitted bundled CUDA
+                    # library paths and silently ran entirely on the CPU.
+                    # 28 Q4_K_M layers must allocate much more than 512 MiB.
+                    _, post_load_free = gpu_state()
+                    allocated = free - post_load_free
+                    if allocated < 512:
+                        raise RuntimeError(
+                            "GPU_OFFLOAD_NOT_ACTIVE__"
+                            f"free_before={free}MiB "
+                            f"free_after={post_load_free}MiB "
+                            "check_LD_LIBRARY_PATH_and_llama_log")
+                    print(f"GPU_OFFLOAD_VERIFIED allocated_at_least="
+                          f"{allocated}MiB with {gpu_layers} requested layers",
+                          flush=True)
                     return proc
             except (urllib.error.URLError,TimeoutError,ValueError):
                 pass
