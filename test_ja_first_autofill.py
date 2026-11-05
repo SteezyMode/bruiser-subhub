@@ -151,7 +151,7 @@ class SourceAutofillTests(unittest.TestCase):
             target=base/"actual"
             target.mkdir()
             link=base/"user"
-            link.symlink_to(target,directory=True)
+            link.symlink_to(target,target_is_directory=True)
             with patch.object(auto,"USER_UNITS",link):
                 with self.assertRaisesRegex(RuntimeError,"is_symlink"):
                     auto.unit_file(auto.NAME,auto.TIMER)
