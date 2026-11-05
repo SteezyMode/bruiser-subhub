@@ -51,8 +51,9 @@ Nice=10
 IOSchedulingClass=idle
 UMask=0077
 NoNewPrivileges=true
-TimeoutStartSec=90min
+TimeoutStartSec=8h
 """
+LEGACY_SERVICE = SERVICE.replace("TimeoutStartSec=8h", "TimeoutStartSec=90min")
 TIMER = """[Unit]
 Description=Daily Japanese sourced-subtitle acquisition and synchronization
 
@@ -206,15 +207,16 @@ def once(*, request=api, action=run):
             raise RuntimeError("native_wanted_search_still_enabled_no_duplicate_provider_queries")
         check_scheduler_idle(request=request)
         refresh_manifest(action=action)
-        print("RUNNING_SOURCES_ONLY_CYCLE search_budget=8 stage_budget=2 publish_limit=3",
-              flush=True)
+        print("RUNNING_SOURCES_ONLY_CYCLE search_budget=600 "
+              "stage_budget=200 publish_limit=200 "
+              "(provider allowance still enforced)", flush=True)
         # Let output appear in systemd journal or manual terminal; don't
         # require a persistent shell or start any local translation model.
         result=subprocess.run(
             [sys.executable,"-u",str(CODE/"ja_first_cycle.py"),"cycle",
-             "--sources-only","--apply","--search-budget","8",
-             "--stage-budget","2","--publish-limit","3"],
-            stdin=subprocess.DEVNULL, timeout=5000, check=False)
+             "--sources-only","--apply","--search-budget","600",
+             "--stage-budget","200","--publish-limit","200"],
+            stdin=subprocess.DEVNULL, timeout=8*3600, check=False)
         if result.returncode:
             raise RuntimeError("sources_only_cycle_failed:"+str(result.returncode))
         print("AUTOFILL_CYCLE_COMPLETE",flush=True)
@@ -251,8 +253,27 @@ def unit_file(name,content):
     if path.is_symlink():
         raise RuntimeError("existing_unit_is_symlink")
     if path.exists():
-        if not path.is_file() or path.read_text("utf8")!=content:
+        if not path.is_file() or path.stat().st_uid!=os.getuid():
+            raise RuntimeError("existing_user_unit_not_owned_regular_file")
+        current=path.read_text("utf8")
+        if current==content:
+            return
+        # Only migrate a byte-for-byte match of the previously installed
+        # Bruiser service. Never replace unrelated/custom systemd units.
+        if name!=SVC or current!=LEGACY_SERVICE:
             raise RuntimeError("different_existing_user_unit_refusing_overwrite")
+        import tempfile
+        fd,tmp=tempfile.mkstemp(prefix=".ja-source-unit-",dir=USER_UNITS)
+        try:
+            with os.fdopen(fd,"w",encoding="utf8") as stream:
+                stream.write(content)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.chmod(tmp,0o600)
+            os.replace(tmp,path)
+            print("SOURCE_TIMER_SERVICE_UPDATED longer_batch_window",flush=True)
+        finally:
+            Path(tmp).unlink(missing_ok=True)
         return
     fd=os.open(path,os.O_CREAT|os.O_EXCL|os.O_WRONLY|getattr(os,"O_NOFOLLOW",0),0o600)
     with os.fdopen(fd,"w",encoding="utf8") as out:
