@@ -29,6 +29,7 @@ import subprocess
 import sys
 import time
 from urllib.parse import quote
+from urllib.request import Request, urlopen
 
 try:
     from . import plamo3_watch_american_dad as episode
@@ -229,19 +230,49 @@ def acquire_ja(video, row, ja_search, ja_stage, ja_publish, candidates):
     return False
 
 
+class NativeJellyfin:
+    """Existing private localhost Jellyfin API token, never print/store again."""
+    def __init__(self):
+        credential = Path.home()/".config/bruiser/jellyfin-english-source-auth.json"
+        if not credential.is_file() or credential.is_symlink() or (
+                credential.stat().st_mode & 0o077):
+            raise RuntimeError("saved_private_jellyfin_auth_unavailable")
+        auth=json.loads(credential.read_text("utf-8"))
+        self.token = auth.get("token")
+        self.device = auth.get("device_id")
+        if not isinstance(self.token,str) or not isinstance(self.device,str):
+            raise RuntimeError("invalid_saved_jellyfin_auth")
+        if not re.fullmatch(r"[a-z0-9-]{8,64}",self.device):
+            raise RuntimeError("invalid_jellyfin_device_id")
+
+    def request(self,method,path):
+        if not path.startswith("/") or path.startswith("//"):
+            raise RuntimeError("jellyfin_api_unsafe_path")
+        authorization=('MediaBrowser Client="Bruiser PLaMo8B", '
+                       'Device="OptiPlex", DeviceId="'+self.device+'", '
+                       'Version="1.0", Token="'+self.token+'"')
+        req=Request("http://127.0.0.1:8096"+path,method=method,
+                    headers={"Authorization":authorization,
+                             "Accept":"application/json"})
+        with urlopen(req,timeout=40) as response:
+            raw=response.read(2_000_000)
+        return json.loads(raw) if raw else None
+
+    def get(self,path):
+        return self.request("GET",path)
+
+    def post(self,path):
+        return self.request("POST",path)
+
+
 def jellyfin_english_download(row, jellyfin):
     """One provider search. Only exact-VIDEO-hash-matched English SRT eligible."""
     jid = str(row.get("jellyfin_id") or "")
     if not re.fullmatch(r"[a-f0-9]{32}", jid):
         print("EN SOURCING: episode lacks verified Jellyfin item identity.",flush=True)
         return False
-    saved = jellyfin.load_token()
-    if saved is None:
-        print("EN SOURCING: native Jellyfin token not present; no provider call.",
-              flush=True)
-        return False
-    client = jellyfin.Jellyfin(token=saved["token"],device_id=saved["device_id"])
     try:
+        client = jellyfin if jellyfin is not None else NativeJellyfin()
         results = client.get("/Items/"+jid+"/RemoteSearch/Subtitles/eng")
         if not isinstance(results, list):
             raise RuntimeError("jellyfin_english_search_not_list")
