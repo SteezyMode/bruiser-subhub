@@ -6,8 +6,14 @@ import unittest
 from unittest.mock import patch
 import hashlib
 
-sys.path.insert(0, str(Path(__file__).resolve().parent / "tools"))
-import ja_first_ffsubsync as sync
+# The whole repo's test suite shares one process. Restore import search order
+# immediately so this test does not alter unrelated legacy test imports.
+TOOLS = str(Path(__file__).resolve().parent / "tools")
+sys.path.insert(0, TOOLS)
+try:
+    import ja_first_ffsubsync as sync
+finally:
+    sys.path.remove(TOOLS)
 
 
 def clock(milliseconds):
