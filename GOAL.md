@@ -1,5 +1,8 @@
 # The actual goal
 
+> **2026-11-05 implementation update:** The household's highest-yield current route is **existing Japanese subtitle sourcing + ffsubsync + create-only publication**, which the user has now verified live. Automatic DIY translation is intentionally disabled in the source-only daily timer; test new PLaMo 3 Translate 0.8B/2B only as a separate prospective fallback for titles lacking satisfactory Japanese but having correctly timed English. See [hybrid policy](docs/HYBRID_JAPANESE_SOURCE_VS_DIY_POLICY_2026-11-05.md). Older model-first production goals and proposals below are historical; they do not authorize activating translation in the live source service.
+
+
 This is **not a software product**. The user has nearly 6 TB of existing movies and television on an OptiPlex media server. The user is a native English speaker; his wife is a native Japanese speaker. They want to watch that media together, especially English-audio films, with **good, natural Japanese subtitles**.
 
 Good existing Japanese subtitles are often difficult to find and have already been pursued. Dual-subtitle playback has **already been solved** and is not part of this project. The user's existing edited Japanese subtitles are valuable and must be preserved.
