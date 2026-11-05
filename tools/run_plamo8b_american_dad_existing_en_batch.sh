@@ -7,10 +7,12 @@ umask 077
 ROOT="$HOME/bruiser-pilot/plamo3-ab"
 STATE="$ROOT/american-dad-existing-english-batch"
 TARGET="$ROOT/plamo8b_american_dad_existing_en_batch.py"
-PIN="a0373eb7ea9da60783182383970cd32d5ed85740"
+PIN="b17a81d6714d224975260247d7a55c08cc2da450"
 BASE="https://raw.githubusercontent.com/SteezyMode/bruiser-subhub/$PIN/tools"
 URL="$BASE/plamo8b_american_dad_existing_en_batch.py"
 LOG="$STATE/batch.log"
+PROGRESS="$ROOT/american_dad_batch_progress.py"
+PROGRESS_URL="$BASE/american_dad_batch_progress.py"
 
 for util in python3 curl find sort paste ldd stat nohup; do
   command -v "$util" >/dev/null || { echo "Missing $util" >&2; exit 1; }
@@ -55,6 +57,22 @@ fi
 mv -f -- "$TMP" "$TARGET"
 python3 "$TARGET" --self-test
 
+TMPPROGRESS="$(mktemp "$ROOT/.american-dad-progress-XXXXXXXX.py")"
+trap 'rm -f "$TMP" "$TMPPROGRESS"' EXIT
+curl -fsSL --retry 3 --connect-timeout 15 --max-time 60 \
+  "$PROGRESS_URL" -o "$TMPPROGRESS"
+python3 - "$TMPPROGRESS" <<'PY'
+from pathlib import Path
+import ast,sys
+ast.parse(Path(sys.argv[1]).read_text("utf-8"))
+print("Live progress display syntax verified")
+PY
+chmod 600 "$TMPPROGRESS"
+if [[ -L "$PROGRESS" ]]; then
+  echo "Refusing progress controller symlink." >&2; exit 1
+fi
+mv -f -- "$TMPPROGRESS" "$PROGRESS"
+
 LIBDIRS="$(find "$ROOT/runtime/llama" "$ROOT/runtime/cudart" -type f \
   \( -name 'lib*.so' -o -name 'lib*.so.*' \) -printf '%h\n' \
   | sort -u | paste -sd: -)"
@@ -74,6 +92,12 @@ echo "PLaMo8B Q4, two CPU threads, 28 GPU layers, automatic thermal pauses."
 echo "Original 32W GPU cap unchanged. Every episode resumes from saved cues."
 echo "No provider searches or additional account setup in this pass."
 
+if [[ $# -gt 0 && "$1" == "--status" ]]; then
+  exec python3 -u "$PROGRESS"
+fi
+if [[ $# -gt 0 && "$1" == "--watch" ]]; then
+  exec python3 -u "$PROGRESS" --watch
+fi
 if [[ $# -gt 0 && "$1" == "--preview" ]]; then
   exec python3 -u "$TARGET"
 fi
@@ -82,7 +106,7 @@ if [[ $# -gt 0 && "$1" == "--foreground" ]]; then
   exec python3 -u "$TARGET" --apply "$@"
 fi
 if [[ $# -ne 0 ]]; then
-  echo "Usage: no args (background start), --preview, or --foreground" >&2
+  echo "Usage: no args (start), --watch, --status, --preview, or --foreground" >&2
   exit 2
 fi
 if [[ -f "$STATE/batch.pid" ]]; then
@@ -105,4 +129,6 @@ fi
 echo "STARTED background PID $PID"
 echo "LOG: $LOG"
 echo "Status: tail -f \"$LOG\""
+echo "Live progress: python3 -u \"$PROGRESS\" --watch"
+python3 -u "$PROGRESS"
 echo "Stop safely: kill -INT $PID (completed cues remain saved)"
