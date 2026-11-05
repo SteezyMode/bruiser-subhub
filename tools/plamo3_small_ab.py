@@ -315,13 +315,20 @@ def run(args):
                 "sha256": record["model_sha256"]
             }
             atomic_json(outdir / "manifest.json", manifest)
-    manifest["status"] = "finished"
+    complete = all(
+        manifest["models"][key]["completed"] == len(dataset)
+        and manifest["models"][key]["errors"] == 0
+        for key in MODEL_FILES
+    )
+    manifest["status"] = "complete" if complete else "partial_or_failed"
     atomic_json(outdir / "manifest.json", manifest)
     print("\nPRIVATE PLaMo test outputs:", outdir, flush=True)
     print("SOURCE-ONLY SERVICE: UNCHANGED. NO JELLYFIN FILES MODIFIED.", flush=True)
     for key, data in manifest["models"].items():
         print(f"  {key} {data['completed']}/{len(dataset)} cues, "
               f"{data['errors']} errors, {data['seconds']}s inference", flush=True)
+    if not complete:
+        raise RuntimeError("plamo_models_partial_or_failed_see_private_results")
 
 
 def self_test():
