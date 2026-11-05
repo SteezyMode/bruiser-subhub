@@ -1,5 +1,12 @@
 # Bruiser SubHub
 
+> **Current verified purpose (2026-11-05):** standalone, OptiPlex-hosted Japanese-subtitle **source / synchronization / publication** utility for Jellyfin (and ordinary external SRT use in Plex). **Not** a Jellyfin plugin, not a downloadable GUI, and **not** a core Bruiser/OptiPlex NOW feature. DIY AI translation is an isolated optional experiment, **not** part of the running source-only timer.
+>
+> **Start here:** [What SubHub is and how the current install runs](docs/WHAT_IS_SUBHUB_AND_HOW_TO_USE_IT_2026-11-05.md) · [Source-first versus DIY decision](docs/HYBRID_JAPANESE_SOURCE_VS_DIY_POLICY_2026-11-05.md) · [PLaMo 3 Translate 0.8B/2B research plan](docs/PLAMO_3_TRANSLATE_EVALUATION_2026-11-05.md) · [Translation R&D evidence/stop decision](docs/TRANSLATION_RD_STOP_DECISION_2026-11-05.md).
+>
+> The live source-only test is **deployed on the owner's OptiPlex**, unlike the historical "not deployed" statements below: an interim owner-provided 2026-11-05 monitor reported 100/100 new searches, 50/51 staged downloads and 18 newly published sidecars with 28/56 publication titles examined. **Not a final run result or a native-Japanese viewing certification.** Routine ceiling 600/200/200, actual provider quota enforced, with a one-time 100-search override used in the test.
+
+
 **Mission: help one household watch its existing ~6 TB media library together by automatically producing genuinely good Japanese subtitles for English-language films and shows.** Free and local on the existing OptiPlex; preserve existing editorial subtitles. Dual-subtitle playback is already solved. **SubHub itself is optional and may be replaced by a better free application.** See [GOAL.md](GOAL.md).
 
 Currently a local English-to-Japanese subtitle translation coordinator for a personal media server. **Public-source development repository; currently an OptiPlex-specific working pilot, not a portable installer.**
