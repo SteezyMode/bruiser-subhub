@@ -13,7 +13,10 @@ Staging is NOT publication, content quality approval or timing verification.
 """
 from __future__ import annotations
 
-import ja_first_priority as priorities
+try:
+    from . import ja_first_priority as priorities
+except ImportError:
+    import ja_first_priority as priorities
 
 import argparse
 from collections import Counter
