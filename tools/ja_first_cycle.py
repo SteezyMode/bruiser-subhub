@@ -199,7 +199,7 @@ def run_step(folder, name, file, args):
                            "_failed_rc_" + str(result.returncode))
 
 
-def cycle(folder, search_budget, stage_budget, publish_limit, fallback_budget):
+def cycle(folder, search_budget, stage_budget, publish_limit, fallback_budget, sources_only=False):
     if not 1 <= search_budget <= 12:
         raise RuntimeError("search_budget_outside_1_to_12")
     if not 1 <= stage_budget <= 3:
@@ -216,16 +216,17 @@ def cycle(folder, search_budget, stage_budget, publish_limit, fallback_budget):
          ("--budget", str(stage_budget), "--apply")),
         ("PUBLISH VERIFIED JA", "ja_first_publish_queue.py",
          ("--limit", str(publish_limit), "--max-titles", "12", "--apply")),
-        ("QUEUE ENGLISH FALLBACK", "ja_first_gemma_fallback.py",
-         ("--probe-budget", str(fallback_budget), "--queue-one")),
     ]
+    if not sources_only:
+        steps.append(("QUEUE ENGLISH FALLBACK", "ja_first_gemma_fallback.py",
+                      ("--probe-budget", str(fallback_budget), "--queue-one")))
     print("=== ONE BOUNDED JAPANESE-FIRST PROCESSING CYCLE ===", flush=True)
     print("Limits:", json.dumps({
         "provider_searches": search_budget,
         "JA_downloads": stage_budget,
         "new_JA_publications": publish_limit,
         "fallback_EN_candidates_probed": fallback_budget,
-        "Gemma_jobs_queued": 1,
+        "Gemma_jobs_queued": 0 if sources_only else 1,
         "Gemma_jobs_started": 0
     }), flush=True)
     for name, file, args in steps:
@@ -285,7 +286,7 @@ def watch(folder, job_id=None, interval=10):
 
 def self_test():
     import inspect
-    assert len(FILES) == 13
+    assert len(FILES) == 15
     assert len(STEPS) == 4
     for _, file, args in STEPS:
         assert file in FILES
@@ -314,6 +315,8 @@ def main(argv=None):
     parser.add_argument("--stage-budget", type=int, default=2)
     parser.add_argument("--publish-limit", type=int, default=2)
     parser.add_argument("--fallback-budget", type=int, default=8)
+    parser.add_argument("--sources-only", action="store_true",
+                        help="search, stage and sync Japanese only; do not queue AI fallback")
     args = parser.parse_args(argv)
     if args.self_test:
         self_test()
@@ -331,7 +334,7 @@ def main(argv=None):
         parser.error(args.action + " requires --apply")
     if args.action == "cycle":
         cycle(folder, args.search_budget, args.stage_budget,
-              args.publish_limit, args.fallback_budget)
+              args.publish_limit, args.fallback_budget, args.sources_only)
     elif args.action == "start-worker":
         job = start_existing_worker(folder)
         if args.watch and job:
