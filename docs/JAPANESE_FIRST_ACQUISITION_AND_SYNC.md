@@ -1,5 +1,30 @@
 # SubHub v2 — Japanese-first acquisition and intro-offset safety
 
+## November 5 — First actual troubleshooting step (NO WRITE)
+
+The next host action is **not a new translator or another install**. Run the existing targeted read-only preflight [tools/japanese_first_readiness.py](../tools/japanese_first_readiness.py) inside the **running** \`sublarr-pilot\` container. It checks provider search gates (including \`no_pool_key\`), native OpenSubtitles/SubDL/Jimaku presence, language profiles, enabled standalone mounts, local ffsubsync/ffmpeg binaries, \`GET /api/v1/sync/engines\`, and selected automation flags. It never starts a scan, provider request, download, sync operation or translation.
+
+From a computer with SSH to the OptiPlex:
+
+\`\`\`bash
+ssh YOUR_OPTIPLEX_HOST 'bash -s' <<'REMOTE'
+set -euo pipefail
+echo "=== SUBLARR INSTANCE ==="
+docker inspect -f 'State={{.State.Status}} Image={{.Config.Image}}' sublarr-pilot
+docker port sublarr-pilot 5765/tcp || true
+curl -fsSL --retry 3 \
+  'https://raw.githubusercontent.com/SteezyMode/bruiser-subhub/a16a5939465436900a390dcdbf3476311bb1f161/tools/japanese_first_readiness.py' |
+  docker exec -i -e PYTHONPATH=/app sublarr-pilot python3 -
+REMOTE
+\`\`\`
+
+**Interpret before any writes:** an enabled provider with no key/no pool is NOT working; a real test/download is needed. If a folder is disabled, leave it disabled until verifying container path exists and the target Japanese profile is correct. Never enable global automatic translation or automatic subtitle upgrades as an incidental setup step.
+
+**Next tested workflow when readiness passes:** configure **native** OpenSubtitles in Sublarr Settings → Providers using the legitimate REST API key from the user's OpenSubtitles account; optionally add SubDL via its own key. Search **one real missing-JA episode** from Wanted, not Search All. For a known out-of-sync Japanese sidecar, use the **Sync Compare** menu for that subtitle to preview the measured offset without changing the file. Review early, middle and late cues; only Apply after verifying the result and backup/sidecar protection. Keep originals and user-curated JA unmodified in the pilot.
+
+Official UI references: https://sublarr.de/docs/user-guide/settings/providers/ and https://sublarr.de/docs/user-guide/sync-compare/ . 
+See [November 5 broader source/sync-quality research](JAPANESE_FIRST_SOURCE_SYNC_QUALITY_RESEARCH_2026-11-05.md).
+
 ## Observations (November 4, 2026)
 
 - Japanese profile already exists; the four main movie/TV folders are registered but scanning-disabled.
