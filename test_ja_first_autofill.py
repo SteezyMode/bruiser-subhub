@@ -58,7 +58,9 @@ class SourceAutofillTests(unittest.TestCase):
             cmd=calls[1]
             self.assertIn("--sources-only",cmd)
             self.assertNotIn("start-worker",cmd)
-            self.assertEqual(cmd[cmd.index("--stage-budget")+1],"2")
+            self.assertEqual(cmd[cmd.index("--search-budget")+1],"600")
+            self.assertEqual(cmd[cmd.index("--stage-budget")+1],"200")
+            self.assertEqual(cmd[cmd.index("--publish-limit")+1],"200")
 
     def test_enable_creates_only_own_units_and_hands_off_search(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -156,6 +158,21 @@ class SourceAutofillTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError,"is_symlink"):
                     auto.unit_file(auto.NAME,auto.TIMER)
             self.assertEqual(list(target.iterdir()),[])
+
+    def test_only_our_legacy_timer_service_is_migrated_to_eight_hours(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder=Path(tmp)
+            old=folder/auto.SVC
+            old.write_text(auto.LEGACY_SERVICE)
+            old.chmod(0o600)
+            (folder/"someone-elses.service").write_text("preserved")
+            with patch.object(auto,"USER_UNITS",folder):
+                auto.unit_file(auto.SVC,auto.SERVICE)
+            self.assertIn("TimeoutStartSec=8h",old.read_text())
+            self.assertEqual((folder/"someone-elses.service").read_text(),"preserved")
+            with patch.object(auto,"USER_UNITS",folder):
+                with self.assertRaisesRegex(RuntimeError,"different_existing"):
+                    auto.unit_file(auto.SVC,"unrecognized contents")
 
     def test_unit_file_does_not_replace_unexpected_content(self):
         with tempfile.TemporaryDirectory() as tmp:
