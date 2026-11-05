@@ -4,6 +4,8 @@
 
 Currently a local English-to-Japanese subtitle translation coordinator for a personal media server. **Public-source development repository; currently an OptiPlex-specific working pilot, not a portable installer.**
 
+**NEW PRIMARY DIRECTION (NOVEMBER 5): [Japanese-first sourcing, sync and quality research](docs/JAPANESE_FIRST_SOURCE_SYNC_QUALITY_RESEARCH_2026-11-05.md).** First prove real Japanese coverage on 50 representative library titles via native OpenSubtitles/SubDL/Jimaku when relevant, verify full dialogue, stage and safely sync to actual videos, and hold questionable AI/partial sources. Installed Sublarr already has most required source/sync/health machinery. Slower local translation is a *last resort* after measuring actual source success; never infer quality from GPU use or complete cue counts. No deployment changes authorized by this document.
+
 ## R&D STOP / quality reality check — November 5, 2026
 
 **READ FIRST: [Evidence audit and explicit STOP decision](docs/TRANSLATION_RD_STOP_DECISION_2026-11-05.md).** The installed subtitle-tuned E4B model is an **operational fallback**, not a proven ~8/10, independently rated, best-quality translator. Nine model arms already produced **2,457 outputs across 273 cues on three films** in Benchmark 006; the recorded independent native-viewer blind-quality decision remains incomplete. **Do not restart prompt/history/quantization/grouped-JSON/HTML-cleanup loops or scale unattended E4B translation to the full library.** Use existing 006 blind outputs first, prioritize verified native Japanese subtitle acquisition, and retain current E4B for clearly labeled rough drafts.
