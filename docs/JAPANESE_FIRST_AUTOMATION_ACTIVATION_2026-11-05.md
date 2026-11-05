@@ -1,5 +1,32 @@
 # Bruiser Japanese-first activation — November 5, 2026
 
+## November 5 — Live activation and first feature-film hold (spoiler-free)
+
+**CONFIRMED ON OWNER'S OPTIPLEX:** the previously disabled standalone roots **#3–#6 were enabled**, the 6-root setup is active, scheduled Japanese-source scans/searches are on (max 40 Wanted items/cycle), `ffsubsync` after download is on, AI translation and automatic upgrades remain off. An initial standalone catalog scan was requested. **Do not rerun the rollout just because a single movie search failed.**
+
+For *You Were Never Really Here* (2017), exact file `You.Were.Never.Really.Here.2017.720p.BluRay.x264-[YTS.AM].mp4`, 5,368.5 seconds, one Japanese candidate was downloaded. It contained **365 cues**, only **77.5% with Japanese-script characters**; the rest could be English text, punctuation or non-Japanese material. It had no obvious overlap, too-dense text or invalid timestamps, but the **old 85% script-ratio gate prevented even checking ffsubsync**. Film remains unsolved. No sidecar was published. The source uploader's `machine_translated=false` was an **unpopulated adapter default**, not confirmed proof of human subtitles.
+
+**Root cause of missed alternatives:** Sublarr v1.18.0 `OpenSubtitlesProvider.search(VideoQuery(file_path=...))` sends a `moviehash` **instead of a title query**; it only falls back to title if **zero results**. Thus a solitary incomplete/mislabeled hash candidate prematurely ended discovery. New [movie rescue code](../tools/bruiser_ja_movie_rescue.py) searches **both file-hash and title+year**, deduplicates provider IDs, and tries up to three distinct candidates. It **does not lower the script-ratio threshold** or claim good translation from the 77.5% source. It now reports spoiler-free counts of non-Japanese cues by category and film quarter, always attempts a separate non-destructive `ffsubsync` preview even when linguistic coverage fails, and permanently stages the original + proposed aligned bytes + metadata privately in `/config/bruiser-ja-screened/` for review without repeat provider downloads. No film dialogue, plot, twists or ending appears in status logs.
+
+This is **not yet a demonstrated usable Japanese track**. If broadened source search still finds only the incomplete source, its content must be reviewed or a new provider/licensed original pursued. Do not make the movie watchable by silently lowering the gate and labeling a suspect source "good." Also do not keep re-running the identical source fetch once a private staged copy exists.
+
+Quality distinction: common Japanese paraphrases and subtitle condensation that keep intent are acceptable; genuine English-only dialogue without Japanese coverage, material meaning changes and wrong scenes are substantive failures.
+
+**Next command (Mac mini; only rerun movie rescue, NOT the already-applied library rollout):**
+
+```bash
+ssh optiplex@100.121.156.34 'bash -s' <<'REMOTE'
+set -euo pipefail
+FILE="$HOME/bruiser-pilot/subhub-control/bruiser_ja_movie_rescue.py"
+curl -fsSL --retry 3 \
+ 'https://raw.githubusercontent.com/SteezyMode/bruiser-subhub/4b03e2c700b51c0b9dff2847abc36626e1210500/tools/bruiser_ja_movie_rescue.py' -o "$FILE"
+docker exec -i -e PYTHONPATH=/app sublarr-pilot python3 - \
+  --title 'You Were Never Really Here' --apply --max-downloads 3 < "$FILE"
+REMOTE
+```
+
+This consumes up to two OpenSubtitles search queries and at most three downloads; existing source results are not published if they fail independent content/timing gates. The client may have a cloud-only Plex subtitle that Sublarr cannot access as a local file; a different provider candidate must not be misrepresented as the exact same Plex subtitle.
+
 ## Objective
 
 **Provide usable Japanese subtitles for English-language media without translating every title.** This is the first working automatic native-source track: it uses the already installed Sublarr 1.18.0, not a seventh account or a replacement Bazarr server. Earlier repeated E4B context/prompt research is stopped: see [STOP decision](TRANSLATION_RD_STOP_DECISION_2026-11-05.md).
