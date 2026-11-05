@@ -188,15 +188,104 @@ def health(cues, runtime, allow_offset_sec=0):
     if overlaps>len(cues)*.035:reason.append("excessive_overlap")
     if dense>len(dialogue)*.10:reason.append("excessive_reading_speed")
     if dup>len(dialogue)*.07:reason.append("excessive_identical_repetition")
+    non_ja=[c for c in dialogue if not JA_CHARS.search(str(c.get("text") or ""))]
+    latin=[c for c in non_ja if re.search(r"[A-Za-z]{3,}",str(c.get("text") or ""))]
+    non_latin=[c for c in non_ja if c not in latin]
+    # Publish only aggregated spoiler-free content diagnostics, no quotes or cues.
+    latin_quartiles=[0,0,0,0]
+    for item in latin:
+        bucket=min(3,max(0,int(int(item["start"])/(runtime*1000)*4)))
+        latin_quartiles[bucket]+=1
     return {
         "ok":not reason,"holds":reason,"cue_count":len(cues),
         "japanese_fraction":round(ratio,3),
+        "non_japanese_cues":len(non_ja),
+        "non_japanese_latin_word_cues":len(latin),
+        "non_japanese_non_latin_cues":len(non_latin),
+        "latin_word_cues_by_film_quarter":latin_quartiles,
         "first_seconds":round(first/1000,2),
         "last_seconds":round(last/1000,2),
         "overlap_events":overlaps,"dense_events":dense,
         "video_seconds":round(runtime,2)
     }
 
+
+
+def search_movie_sources(provider, video, title):
+    """Search both exact file-hash and title/year; bad hash match must not end discovery.
+
+    Upstream 1.18 provider queries by moviehash *instead of* title when a file
+    path is present and only falls back to title on empty results. A poor hash
+    hit is not proof that no alternate human-quality Japanese subtitle exists.
+    """
+    from providers.base import VideoQuery
+    exact = provider.search(VideoQuery(
+        title=title, year=2017, languages=["ja"], file_path=str(video)
+    ))
+    general = provider.search(VideoQuery(
+        title=title, year=2017, languages=["ja"]
+    ))
+    seen=set()
+    merged=[]
+    for item in list(exact or [])+list(general or []):
+        key=(str(item.provider_name),str(item.subtitle_id))
+        if key not in seen:
+            merged.append(item)
+            seen.add(key)
+    return merged
+
+
+def stage_private_candidate(video, result, content, fmt, assessment, sync=None,
+                            aligned=None):
+    """Persist downloaded source and its spoiler-free assessment; no media writes.
+
+    Avoids losing quota-counted files on a quality hold, creates only private
+    /config records, and refuses to overwrite a different archived candidate.
+    """
+    if fmt not in SUB_EXT:
+        raise RuntimeError("Unsafe subtitle staging format")
+    root = OUT_ROOT / hashlib.sha256(str(video).encode()).hexdigest()[:20]
+    if root.is_symlink():
+        raise RuntimeError("Unsafe private staging path")
+    root.mkdir(parents=True,exist_ok=True,mode=0o700)
+    if not root.is_dir():
+        raise RuntimeError("Unable to create private staging folder")
+    digest=hashlib.sha256(content).hexdigest()
+    name=digest[:20]
+    source=root/("source-"+name+fmt)
+    data=root/("report-"+name+".json")
+    def create_once(file,body):
+        if file.exists():
+            if file.read_bytes()!=body:
+                raise RuntimeError("Conflicting private staged candidate")
+            return
+        fd=os.open(file,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+        try:
+            with os.fdopen(fd,"wb") as f:
+                f.write(body)
+        except BaseException:
+            file.unlink(missing_ok=True)
+            raise
+    create_once(source,content)
+    if aligned is not None and Path(aligned).is_file():
+        translated_path=root/("aligned-"+name+fmt)
+        create_once(translated_path,Path(aligned).read_bytes())
+    metadata={
+        "video_file":video.name,
+        "source":"opensubtitles",
+        "subtitle_id":str(getattr(result,"subtitle_id","")),
+        "uploader":str(getattr(result,"uploader_name","")),
+        "sha256":digest,
+        "original_filename":str(getattr(result,"filename","")),
+        "source_format":fmt,
+        "language_flag":"Japanese",
+        "human_translation_verified":False,
+        "quality_gate":assessment,
+        "sync_preview":sync,
+        "notes":"Source stored privately; never published automatically when held.",
+    }
+    create_once(data,(json.dumps(metadata,ensure_ascii=False,indent=2)+"\n").encode("utf-8"))
+    return source, data
 
 def sync_candidate(video, input_path, output_path):
     from services.sync_engines.ffsubsync_output import parse_ffsubsync_shift
@@ -325,7 +414,6 @@ def run(title=TARGET_TITLE,apply=False,max_downloads=3):
         print("ALREADY_HAS_EMBEDDED_JAPANESE",video.name,flush=True)
         return
     from providers.opensubtitles import OpenSubtitlesProvider
-    from providers.base import VideoQuery
     from services.sync_preview import load_cues
     kwargs=credentials(settings)
     client=OpenSubtitlesProvider(**kwargs)
@@ -333,12 +421,9 @@ def run(title=TARGET_TITLE,apply=False,max_downloads=3):
         client.initialize()
         if not getattr(client,"session",None):
             raise RuntimeError("Provider could not initialize")
-        query=VideoQuery(title=title,languages=["ja"],file_path=str(video))
-        # A moviehash is exact-version evidence; title-only fallback if absent.
-        results=client.search(query)
-        if not results:
-            results=client.search(VideoQuery(title=title,languages=["ja"]))
+        results=search_movie_sources(client,video,title)
         candidates=select_candidates(results,title)[:max_downloads]
+        print("SOURCE_SEARCH_STRATEGY hash_plus_title_and_year",flush=True)
         print("JAPANESE_CANDIDATES",len(candidates),flush=True)
         if not candidates:
             print("SOURCE_MISS: no safely identified Japanese source; NO TRANSLATION run")
@@ -360,16 +445,24 @@ def run(title=TARGET_TITLE,apply=False,max_downloads=3):
                 source.write_bytes(raw)
                 cues=load_cues(str(source))
                 before=health(cues,length,allow_offset_sec=30)
-                if not before["ok"]:
-                    print("HELD_CONTENT",json.dumps(before,ensure_ascii=False),flush=True)
-                    continue
+                # A language hold must not prevent a non-destructive timing
+                # inspection: separately diagnose alignment and translation.
                 corrected=Path(t)/("aligned"+fmt)
                 syn=sync_candidate(video,source,corrected)
+                after=(health(load_cues(str(corrected)),length)
+                       if syn["ok"] and corrected.is_file() else None)
+                stage_private_candidate(video,result,raw,fmt,before,syn,
+                    corrected if corrected.is_file() else None)
+                print("CANDIDATE_STAGED_PRIVATELY",ix,"original_preserved",True,
+                      "no_media_sidecar_written_yet",flush=True)
+                if not before["ok"]:
+                    print("HELD_CONTENT",json.dumps(before,ensure_ascii=False),flush=True)
+                    print("SYNC_DIAGNOSTIC_ONLY",syn,flush=True)
+                    continue
                 if not syn["ok"]:
                     print("HELD_TIMING",syn,flush=True)
                     continue
-                after=health(load_cues(str(corrected)),length)
-                if not after["ok"] or after["cue_count"]!=before["cue_count"]:
+                if not after or not after["ok"] or after["cue_count"]!=before["cue_count"]:
                     print("HELD_ALIGNED_CONTENT",json.dumps(after,ensure_ascii=False),flush=True)
                     continue
                 target=publish_create_only(video,corrected,fmt)
