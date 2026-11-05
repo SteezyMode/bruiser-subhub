@@ -186,6 +186,8 @@ def classify(item, series, mounts, sidecache):
         "imdb_id": "", "tmdb_id": "", "series_title": "",
         "series_imdb_id": "", "series_tmdb_id": "", "series_tvdb_id": "",
         "season": None, "episode": None, "year": item.get("ProductionYear"),
+        "genres": [str(v) for v in (item.get("Genres") or [])[:20]
+                   if isinstance(v, str)][:20],
     }
     path = data["host_path"]
     if not path:
