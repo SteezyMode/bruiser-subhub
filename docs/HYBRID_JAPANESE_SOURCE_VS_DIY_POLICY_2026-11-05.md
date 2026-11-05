@@ -7,6 +7,36 @@ Keep the **working existing-Japanese-source acquisition/sync pipeline as primary
 This is a *policy document*, not activation of automatic translation. The user explicitly wants the provider-search/sync production worker left alone while exploring the newly released PLaMo 3 small translation models.
 
 ## Why
+## Quota-aware decision detail (November 5)
+
+**OpenSubtitles' public API documentation states that subtitle searches do not have a daily numeric allowance; downloads are quota-limited by account rank.** Requests may still face throttling/rate limits, Sublarr delays, or other provider-specific limits. Don't equate the existing SubHub software search budget of 600 with an OpenSubtitles "600 daily searches" allocation. Official source: https://opensubtitles.tawk.help/article/getting-started.
+
+The optimal first move is usually one **non-download** lookup, not immediate machine translation. A cheap, non-quota-consuming search is valuable evidence of human Japanese availability even for a title with perfect English.
+
+Before spending any provider download allowance:
+
+1. Check the Jellyfin catalog and existing media-adjacent or embedded Japanese. If usable, stop.
+2. Check the private **saved provider-search database** and cached plausible result metadata. If a strong matching Japanese candidate exists, prefer acquiring *one* high-confidence candidate and verifying it.
+3. For unsearched titles, use **one metadata-correct provider search**. Strong Japanese candidate -> one prioritized download; no reliable candidate -> queue for DIY if English is already proven. No need to poll dozens of sources or download weak matches.
+4. Record searched_none, review_needed, download_held, published, and diy_eligible as distinct **proposed workflow outcomes**. Present source code already has its own none, review, plausible, error history and a 30-day eligibility cooldown; do not assert the proposed unified router already exists.
+5. When download quota is low, prioritize a confirmed match with likely human-authored subtitles and good identity over speculative alternatives. If a title has only ambiguous candidate metadata, hold it rather than spend downloads in a brute-force search.
+6. Once English source is exact and Japanese searches have failed/are low confidence, **local translation becomes the default fallback** if native-viewed quality meets the household threshold. Prefer 2B/0.8B based on a measured subtitle trial, not the parameter count or model-vendor benchmark alone.
+7. If English source is absent/untrusted and reliable Japanese sources are also absent, hold for English-source/OCR/ASR recovery; do not fabricate translated text.
+8. Persist outcome/provenance and avoid repeated failed provider requests. Existing 30-day search history should eventually be upgraded to status-sensitive TTL (longer for reliable no-result, shorter for recoverable provider failures, reconsider when new providers are added), but **don't modify the live production search scheduler without a separate safe rollout**.
+
+### Proposed economical priority (not coded)
+
+| Availability / evidence | Work to do | Provider download cost |
+| --- | --- | --- |
+| Verified existing Japanese | Keep | 0 |
+| Prior saved plausible JA candidate, no published sidecar | Download only the strongest and sync | Usually 1 |
+| Unsearched title with accurate English | Search once; download if credible JA, otherwise DIY | 0 or 1 |
+| Reliable no-JA search + exact English subtitles | DIY when model quality verified | 0 |
+| Multiple weak Japanese matches + exact English subtitles | Hold or DIY; don't burn quota on multiple guesses | 0 |
+| No EN and no useful JA | Recover an English transcription source or hold | 0 until evidence |
+
+The user cares about **actual watchable Japanese coverage**, not minimizing search count at the expense of quality. Source-first does not mean quota-blind; local translation does not mean automatically better than human work.
+
 
 A single provider query and downloadable Japanese SRT normally uses orders of magnitude less compute than local translation of hundreds or thousands of cues. A properly sourced human-authored Japanese subtitle is usually the better quality candidate; a mistranslated or edited-for-a-different-release SRT is not automatically good just because it was downloadable. ffsubsync can often correct timestamp drift when video editions are compatible, but cannot fix missing dialogue, alternate scene order, semantic errors, or poor translations.
 
