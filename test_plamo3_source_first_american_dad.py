@@ -77,22 +77,72 @@ class SourceFirstEpisodeTests(TestCase):
         self.assertEqual(translate.call_args.args[0].episode,"S19E10")
         self.assertTrue(translate.call_args.args[0].install)
 
-    def test_failed_japanese_search_is_not_treated_as_no_japanese(self):
-        video=Path("/media/American.Dad.S08E02.mkv")
-        choices=[((0,0,"S08E02",str(video)),"S08E02",video,True)]
+    def test_only_american_dad_missing_series_id_is_searchable(self):
+        video = Path("/media/TV/American.Dad.S19E13.mkv")
+        row = {
+            "status": "review_missing_series_identity",
+            "kind": "Episode", "host_path": str(video),
+            "jellyfin_id": "a"*32, "series_title": "American Dad!",
+            "season": 19, "episode": 13,
+            "series_imdb_id": "", "series_tmdb_id": "",
+            "series_tvdb_id": "",
+        }
+        ready = source.query_eligible_episode(video, row)
+        self.assertEqual(ready["status"], "ready_ja_search")
+        self.assertEqual(ready["series_title"], "American Dad!")
+        self.assertEqual(row["status"], "review_missing_series_identity")
+        self.assertNotIn("source_first_verified", row)
+        changed = dict(row, episode=14)
+        with self.assertRaisesRegex(RuntimeError, "episode_number_conflicts"):
+            source.query_eligible_episode(video, changed)
+        changed = dict(row, series_title="The Simpsons")
+        with self.assertRaisesRegex(RuntimeError, "not_american_dad"):
+            source.query_eligible_episode(video, changed)
+        changed = dict(row, jellyfin_id="")
+        with self.assertRaisesRegex(RuntimeError, "invalid_jellyfin_item"):
+            source.query_eligible_episode(video, changed)
+        changed = dict(row, status="review_missing_media_streams")
+        with self.assertRaisesRegex(RuntimeError, "unverified_japanese_catalog"):
+            source.query_eligible_episode(video, changed)
+
+    def test_missing_series_id_generates_real_japanese_provider_query(self):
+        video = Path("/media/TV/American.Dad.S19E13.mkv")
+        row = {"status": "review_missing_series_identity", "kind": "Episode",
+               "host_path": str(video), "jellyfin_id": "c"*32,
+               "series_title": "American Dad!", "season": 19, "episode": 13}
+        query = {"file_path": "", "language": "ja",
+                 "series_title": "American Dad!", "season": 19, "episode": 13}
+        fake = SimpleNamespace(
+            query_for=mock.Mock(return_value=query),
+            open_db=mock.Mock(side_effect=RuntimeError("STOP_BEFORE_PROVIDER"))
+        )
+        with self.assertRaisesRegex(RuntimeError, "STOP_BEFORE_PROVIDER"):
+            source.cached_or_search_ja(video,row,fake)
+        sent = fake.query_for.call_args.args[0]
+        self.assertEqual(sent["status"],"ready_ja_search")
+        self.assertEqual(sent["season"],19)
+        self.assertEqual(sent["episode"],13)
+
+    def test_japanese_provider_error_allows_verified_english_fallback(self):
+        video=Path("/media/American.Dad.S19E13.mkv")
+        choices=[((0,0,"S19E13",str(video)),"S19E13",video,True)]
         daily=SimpleNamespace(probe=lambda _:{"ja":False},
                               already_ja=lambda _:False)
+        sample=small.samples()[:2]
         with tempfile.TemporaryDirectory() as d, \
              mock.patch.object(episode,"MANIFEST",Path(d)/"episode.json"), \
              mock.patch.object(source,"candidate_order",return_value=(choices,[])), \
              mock.patch.object(source,"latest_row",return_value={"jellyfin_id":"x"}), \
              mock.patch.object(source,"cached_or_search_ja",
-                               side_effect=RuntimeError("japanese_provider_unavailable")), \
-             mock.patch.object(source,"english_source") as en, \
+                               side_effect=RuntimeError("ja_search_unavailable")), \
+             mock.patch.object(source,"english_source",
+                               return_value=(sample,"embedded", "f"*64, {"mode":"embedded"})) as english, \
+             mock.patch.object(episode,"seed_verified_source") as seed, \
              mock.patch.object(episode,"run") as model:
-            source.process_one(args(),daily,None,None,None,None,None)
-        en.assert_not_called()
-        model.assert_not_called()
+            source.process_one(args(), daily,None,None,None,None,None)
+        english.assert_called_once()
+        seed.assert_called_once()
+        model.assert_called_once()
 
     def test_no_english_subtitles_does_not_fabricate_from_audio(self):
         video=Path("/media/American.Dad.S08E02.mkv")
