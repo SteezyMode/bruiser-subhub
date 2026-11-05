@@ -33,6 +33,7 @@ from urllib.parse import quote
 
 import ja_first_publish_staged as direct
 import ja_first_publish_shifted as shifted
+import ja_first_ffsubsync as ff
 
 MAX_ROWS = 60
 MAX_TITLES = 12
@@ -130,6 +131,8 @@ def existing_verdict(jid, candidates):
     for sid, recorded_hash in candidates:
         if matches_corrected(jid, sid, recorded_hash, existing_hash):
             return "published_corrected", row
+        if ff.provenance_matches(jid, sid, recorded_hash, existing_hash):
+            return "published_ffsubsync", row
     raise RuntimeError("existing_japanese_subtitle_not_matching_saved_provenance")
 
 
@@ -157,6 +160,21 @@ def choose(jid, candidates):
     published_state, row = existing_verdict(jid, candidates)
     if published_state != "absent":
         return published_state, row, None
+    # First use audio-derived ffsubsync to test every candidate selected
+    # for possible publication, including titles without embedded English.
+    for sid, _ in candidates[:3]:
+        try:
+            ready = ff.prepare(jid, sid)
+            print("  FFSUBSYNC:", sid, json.dumps(ready["assessment"]),
+                  flush=True)
+            return "ready_ffsubsync", row, ready
+        except (ValueError, OSError, RuntimeError, KeyError, sqlite3.Error,
+                __import__("subprocess").CalledProcessError,
+                __import__("subprocess").TimeoutExpired) as exc:
+            print("  FFSUBSYNC HELD:", sid, type(exc).__name__,
+                  str(exc)[:95], flush=True)
+    # The pre-existing trusted embedded-English alignment remains a
+    # conservative independent fallback when audio matching cannot conclude.
     result = direct_candidate(jid, candidates)
     if result is not None:
         return "ready_direct", row, result
@@ -167,6 +185,11 @@ def choose(jid, candidates):
 
 def publish_selected(jid, kind, chosen):
     """Recalculate all gates immediately before the only permitted write."""
+    if kind == "ready_ffsubsync":
+        ff.preserve(chosen)
+        direct.publish(chosen["row"], chosen["video"],
+                       chosen["target"], chosen["chosen"])
+        return
     if kind == "ready_direct":
         _, sid, _, _, _, _ = chosen
         row, video, target, data = direct.preflight(jid, sid)
@@ -196,6 +219,8 @@ def self_test():
     assert direct.TIMING_THRESHOLD >= 0.75
     assert shifted.MIN_MATCH >= 0.95
     assert callable(shifted.preparation)
+    assert callable(ff.prepare)
+    assert callable(ff.preserve)
     assert callable(direct.publish)
     print("SELF-TEST PASSED: grouped candidates, trusted thresholds and native publication hooks; no writes",
           flush=True)
