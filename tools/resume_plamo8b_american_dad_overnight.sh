@@ -104,7 +104,7 @@ if [[ ! -x "$ROOT/runtime/llama-server" ||
   exit 1
 fi
 LIBDIRS="$(find "$ROOT/runtime/llama" "$ROOT/runtime/cudart" -type f \
-  \( -name 'lib*.so' -o -name 'lib*.so.*' \\) -printf '%h\n' \
+  \( -name 'lib*.so' -o -name 'lib*.so.*' \) -printf '%h\n' \
   | sort -u | paste -sd: -)"
 if [[ -z "$LIBDIRS" ]]; then
   echo "No pinned CUDA runtime shared libraries found." >&2
