@@ -124,6 +124,13 @@ class LibraryInventoryTests(unittest.TestCase):
         self.assertEqual(before,{str(p):p.read_bytes()
                            for p in self.media.rglob('*') if p.is_file()})
 
+    def test_high_nightly_budget_is_bounded_and_compatible(self):
+        self.scan()
+        result=self.fill(budget=300)
+        self.assertEqual(result['attempted'],5)
+        with self.assertRaises(ValueError):
+            self.fill(budget=301)
+
     def test_existing_japanese_subtitles_preempt_english_acquisition(self):
         # Native Japanese in Jellyfin metadata is sufficient to skip EN.
         self.items[0]['MediaStreams'].append(
