@@ -18,7 +18,7 @@ from tools import plamo3_small_ab as small
 class AmericanDadRealUseTests(unittest.TestCase):
     def test_creator_format_model_and_season_preference(self):
         app.self_test()
-        self.assertEqual(app.GPU_LAYERS, 32)
+        self.assertEqual(app.GPU_LAYERS, 28)
         self.assertEqual(app.MODEL_HASH, "6b429549113ce0a61281ac72be195697241f89266f4247efec4893e4f580cf10")
         self.assertEqual(app.real.HISTORY, 2)
         self.assertEqual(app.real.STOP, ["<|plamo:tag|>", "<|plamo:bos|>"])
