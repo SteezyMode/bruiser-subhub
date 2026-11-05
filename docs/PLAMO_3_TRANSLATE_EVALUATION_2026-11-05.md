@@ -29,6 +29,8 @@ Total resident GPU memory includes CUDA/llama.cpp runtime buffers and KV-cache, 
 
 Developer benchmark reports near-BF16 translation scores at Q4_K_M. Avoid Q2_K solely to reduce footprint: official card flags quality loss on some metrics.
 
+> **IMPLEMENTATION UPDATE (later November 5):** The isolated [small-model runner](../tools/plamo3_small_ab.py), [pinned CUDA/GGUF bootstrap](../tools/install_plamo3_small_ab.sh), and [authoritative execution roadmap](EXECUTION_ROADMAP_2026-11-05.md) are committed and tested offline. Model weights have **not been downloaded or run on the host** by these GitHub commits. The 16-line demo is only a runtime/speed check; a real private English-SRT sample and Japanese viewing comparison remain the decisive next step.
+
 ## Exact model-native prompting contract
 
 PFN provides a **separate \`chat_template.jinja\` file** beside each GGUF. Their card specifically warns that the *legacy embedded GGUF template does not handle translation history correctly*. Their GGUF **Chat Completions** route ignores system-role messages; reference context belongs in supported \`chat_template_kwargs\`. They recommend **PFML3 + Completions API** for production integrations. Their history mechanism uses alternating previous **source/translation** messages and translates **only the final user/source** message.
