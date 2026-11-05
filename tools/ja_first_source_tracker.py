@@ -289,7 +289,7 @@ def self_test():
     assert s["stage_attempts"] == 1 and s["staged"] == 1
     assert s["published"] == 1 and s["complete"]
     assert "50%" in bar(2, 4)
-    assert "Fargo" in render(s, now=29)
+    assert "Newly published: 1" in render(s, now=29)
     print("SOURCE TRACKER SELF-TEST PASSED: journal parsing, bars, no worker actions")
 
 
