@@ -50,7 +50,16 @@ def video_target(video):
     return video.with_name(video.stem + ".ja.srt")
 
 
-def read_inventory(jid):
+def read_inventory(jid, *, allow_existing_ja=False):
+    """Read current Jellyfin identity.
+
+    New publication only accepts ready_ja_search. The queue may opt in to
+    existing_japanese_subtitle strictly to authenticate a sidecar it already
+    created before the newest Jellyfin inventory refresh. That exception
+    never authorizes publication or replacement.
+    """
+    if not EXPECTED_ID_PATTERN.fullmatch(jid):
+        raise RuntimeError("invalid_jellyfin_identity")
     if not ROOT.is_dir() or ROOT.is_symlink() or ROOT.stat().st_mode & 0o077:
         raise RuntimeError("unsafe_inventory_root")
     manifests = sorted(ROOT.glob("ja-intake-*.json"))
@@ -63,7 +72,12 @@ def read_inventory(jid):
         raise RuntimeError("unsupported_inventory_schema")
     matches = [x for x in data.get("items", [])
                if isinstance(x, dict) and str(x.get("jellyfin_id")) == jid]
-    if len(matches) != 1 or matches[0].get("status") != "ready_ja_search":
+    if len(matches) != 1:
+        raise RuntimeError("jellyfin_identity_not_unique_or_no_longer_eligible")
+    allowed = {"ready_ja_search"}
+    if allow_existing_ja:
+        allowed.add("existing_japanese_subtitle")
+    if matches[0].get("status") not in allowed:
         raise RuntimeError("jellyfin_identity_not_unique_or_no_longer_eligible")
     return matches[0]
 
