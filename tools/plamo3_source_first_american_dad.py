@@ -507,7 +507,7 @@ def self_test():
     assert MAX_CANDIDATES==6
     assert episode.episode_id(Path("/tv/American.Dad.S08E01.mkv"))=="S08E01"
     assert not episode.episode_id(Path("/tv/The.Simpsons.S08E01.mkv"))
-    assert episode.GPU_LAYERS==32
+    assert episode.GPU_LAYERS==28
     assert real.HISTORY==2
     print("SOURCE-FIRST AMERICAN DAD SELF-TEST PASSED (no network/media/AI)")
 
