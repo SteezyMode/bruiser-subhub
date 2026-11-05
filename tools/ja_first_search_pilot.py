@@ -20,6 +20,8 @@ import subprocess
 import sys
 import time
 
+import ja_first_priority as priorities
+
 ROOT = Path.home() / "bruiser-pilot/ja-first-inventory"
 DB = ROOT / "japanese-search.sqlite3"
 EXTS = {".srt", ".ass", ".ssa", ".vtt"}
@@ -281,9 +283,11 @@ def pick(rows, db, budget):
         by_type[kind].append((hashlib.sha256(key.encode()).hexdigest(), row))
 
     for kind in by_type:
-        by_type[kind].sort(key=lambda pair: pair[0])
+        by_type[kind].sort(key=lambda pair: (priorities.priority(pair[1]), pair[0]))
 
-    quotas = {"Movie": (budget + 1) // 2, "Episode": budget // 2}
+    # More movies than television, prioritizing horror/drama and the owner's
+    # two explicitly requested series. Fill with other content when exhausted.
+    quotas = {"Movie": (budget * 3 + 3) // 4, "Episode": budget // 4}
     chosen = []
     for kind in ("Movie", "Episode"):
         count = 0
@@ -300,7 +304,7 @@ def pick(rows, db, budget):
         extras = sorted(
             (pair for values in by_type.values() for pair in values
              if str(pair[1]["jellyfin_id"]) not in known),
-            key=lambda pair: pair[0]
+            key=lambda pair: (priorities.priority(pair[1]), pair[0])
         )
         for _, row in extras:
             if len(chosen) >= budget:
