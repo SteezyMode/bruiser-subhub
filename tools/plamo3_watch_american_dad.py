@@ -42,12 +42,65 @@ CHECKPOINT = WORK / "progress.sqlite3"
 SOURCE = WORK / "source.en.srt"
 MANIFEST = WORK / "episode.json"
 MODEL_HASH = "6b429549113ce0a61281ac72be195697241f89266f4247efec4893e4f580cf10"
-GPU_LAYERS = 28
+GPU_LAYERS = 32  # try more RTX 3050 layers; fall back only if OOM at startup
+GPU_LAYER_FALLBACKS = (32, 30, 28)
+CPU_THREADS = 2  # thermal-aware; original full-film tests used four
 SHOW = re.compile(r"american[\s._!()-]*dad", re.I)
 EPISODE = re.compile(r"(?<![a-z0-9])s(\d{1,2})[\s._-]*e(\d{1,3})(?!\d)", re.I)
 ALT_EP = re.compile(r"(?<!\d)(\d{1,2})x(\d{1,3})(?!\d)", re.I)
 SOLO_SDH = "non_dialogue_passthrough"
 SPOKEN = "translated"
+
+
+def start_thermal_aware_server(binary, model, port, logfile,
+                               attempts=GPU_LAYER_FALLBACKS):
+    """Identical PLaMo PFML3 and decoding, better hardware placement.
+
+    Each attempt uses only two CPU threads. Existing checkpoint survives an
+    unsuccessful model load; never retry or discard already translated cues.
+    """
+    import time
+    import urllib.error
+
+    small.check_port(port)
+    for layers in attempts:
+        output = logfile.with_name(logfile.stem + f"-ngl{layers}.log")
+        cmd = [
+            str(binary), "-m", str(model), "-c", "4096",
+            "--host", "127.0.0.1", "--port", str(port),
+            "-ngl", str(layers), "-t", str(CPU_THREADS),
+            "--alias", "plamo-3-translate",
+        ]
+        print(f"THERMAL PROFILE: GPU layers {layers}, CPU threads "
+              f"{CPU_THREADS}; no GPU utilization gate.", flush=True)
+        with output.open("xb") as handle:
+            proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL,
+                                    stdout=handle, stderr=subprocess.STDOUT,
+                                    start_new_session=True)
+        try:
+            deadline = time.monotonic() + 120
+            while time.monotonic() < deadline:
+                if proc.poll() is not None:
+                    raise RuntimeError("llama_server_exited_early_check_private_log")
+                try:
+                    health = small.json_request(port, "/health", timeout=3)
+                    if isinstance(health, dict) and health.get("status") == "ok":
+                        return proc, layers
+                except (urllib.error.URLError, TimeoutError, ValueError):
+                    pass
+                time.sleep(1)
+            raise RuntimeError("llama_server_health_timeout")
+        except BaseException as exc:
+            small.stop_server(proc)
+            if (isinstance(exc, RuntimeError)
+                    and str(exc) == "llama_server_exited_early_check_private_log"
+                    and layers != attempts[-1]):
+                print(f"Model did not fit at {layers} GPU layers; "
+                      "trying fewer layers with the same two CPU threads.",
+                      flush=True)
+                continue
+            raise
+    raise RuntimeError("thermal_aware_model_load_failed")
 
 
 def episode_id(path):
@@ -370,7 +423,8 @@ def run(args):
         destination = safe_dest(video)
         if destination.exists() or destination.is_symlink():
             raise RuntimeError("target_track_already_exists__no_overwrite")
-        if saved["model_sha256"] != MODEL_HASH or saved["gpu_layers"] != GPU_LAYERS:
+        if (saved["model_sha256"] != MODEL_HASH or
+                saved["gpu_layers"] not in GPU_LAYER_FALLBACKS):
             raise RuntimeError("checkpoint_model_settings_changed")
         model = ROOT / "models" / eight.MODEL
         eight.validate_weight(model)
@@ -391,9 +445,12 @@ def run(args):
                     raise RuntimeError("llama_runtime_missing")
                 logfile = WORK / ("llama-" + datetime.now(timezone.utc)
                                    .strftime("%Y%m%dT%H%M%S") + ".log")
-                print("MODEL: PLaMo 8B Q4, 28 GPU layers, official PFML3.", flush=True)
-                proc = small.start_server(binary, model, args.port,
-                                          GPU_LAYERS, logfile)
+                print("MODEL: PLaMo 8B Q4, official PFML3; "
+                      "CPU thermals limited with two threads.", flush=True)
+                proc, selected_layers = start_thermal_aware_server(
+                    binary, model, args.port, logfile)
+                print("MODEL LOADED: GPU layers", selected_layers,
+                      "| CPU threads", CPU_THREADS, flush=True)
                 try:
                     for i in range(len(output), len(cues)):
                         row = cues[i]
