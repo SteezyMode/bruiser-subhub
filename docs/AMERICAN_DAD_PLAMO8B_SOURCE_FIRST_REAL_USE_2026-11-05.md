@@ -2,6 +2,12 @@
 
 **Goal:** Watch one episode of *American Dad!* with the household, not run another model-size benchmark. The selected machine fallback is **PLaMo 3 Translate 8B Q4_K_M**, using Preferred Networks' official PFML3 format and the exact same fixed settings tested on the OptiPlex (28 GPU layers, 2 previous successful English→Japanese pairs, temperature 0, max_tokens 512, official stop markers). Existing sourced-Japanese service, Gemma translator, prior episode subtitles and timers are unchanged.
 
+**Actual first host run (2026-11-05):** The launcher found 13 American Dad episodes with existing Japanese, then identified S19E13–S19E18 with local English, but refused Japanese discovery on all six with `japanese_source_identity_not_verified__no_translation`. Root cause: the private Jellyfin catalog labeled these episodes `review_missing_series_identity` because the registered series lacked a third-party provider ID, even though Jellyfin episode metadata and filenames identified the actual show/episode. **No movie/episode files, subtitles or PLaMo outputs were created.** This is a one-episode selection block, not evidence of absent Japanese or bad 8B output.
+
+**Repair (2026-11-05):** The narrow one-show lookup now cross-checks *American Dad!* series title, the media filename, Jellyfin season and episode numbers, matching host path and 32-character item ID. Only when those agree does it send Sublarr a Japanese-language provider query by title and episode **without a nonexistent provider ID**. It does not alter the global production manifest or loosen its saved Japanese publication gate; a Japanese download missing provenance may still be held. The single-episode runner may then use verified English and the selected 8B even if an unavailable Japanese provider could not answer; it labels that condition explicitly rather than claiming a definitive no-Japanese result. Added real query and no-wrong-show tests. A Python regex `SyntaxWarning` was fixed as cosmetic. **Host re-run not yet completed; GitHub CI is offline tests only.**
+
+**Product scope:** No embedded show guide or duplicate Jellyfin episode browser. Jellyfin already provides show navigation. A simple episode-local subtitle state might be useful if this becomes a recurring workflow, but only after actual watching works.
+
 ## Exact precedence
 
 1. **Embedded Japanese or local Japanese sidecar:** finished; do nothing. Check each real episode/copy, do not translate merely because English is present.
@@ -16,7 +22,7 @@
 ```bash
 ssh optiplex@100.121.156.34 'bash -s' <<'REMOTE'
 set -euo pipefail
-PIN="6f3e7becd5384f27195e6c8f7497d5afe6671952"
+PIN="c548a7bfa238b78e893052bb9141acb1abdb6708"
 SCRIPT="$(mktemp)"
 trap 'rm -f "$SCRIPT"' EXIT
 curl -fsSL --retry 3 \
