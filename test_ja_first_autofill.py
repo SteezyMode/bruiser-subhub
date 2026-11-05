@@ -119,6 +119,44 @@ class SourceAutofillTests(unittest.TestCase):
             self.assertEqual(state["wanted_search_interval_hours"],24)
             self.assertEqual(changed[-1]["wanted_search_interval_hours"],24)
 
+    def test_preexisting_group_writable_systemd_directory_is_hardened(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            unit_dir=root/"systemd"/"user"
+            unit_dir.mkdir(parents=True)
+            unrelated=unit_dir/"existing.service"
+            unrelated.write_text("original unit content")
+            unit_dir.chmod(0o775)
+            with patch.object(auto,"USER_UNITS",unit_dir):
+                auto.unit_file(auto.NAME,auto.TIMER)
+            self.assertEqual(unit_dir.stat().st_mode&0o777,0o700)
+            self.assertEqual(unrelated.read_text(),"original unit content")
+            self.assertEqual((unit_dir/auto.NAME).read_text(),auto.TIMER)
+
+    def test_foreign_owned_systemd_directory_not_modified(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            unit_dir=Path(tmp)/"user"
+            unit_dir.mkdir()
+            unit_dir.chmod(0o775)
+            with patch.object(auto,"USER_UNITS",unit_dir), \
+                 patch.object(auto.os,"getuid",return_value=unit_dir.stat().st_uid+1):
+                with self.assertRaisesRegex(RuntimeError,"not_owned"):
+                    auto.unit_file(auto.NAME,auto.TIMER)
+            self.assertEqual(unit_dir.stat().st_mode&0o777,0o775)
+            self.assertFalse((unit_dir/auto.NAME).exists())
+
+    def test_symlinked_user_systemd_directory_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base=Path(tmp)
+            target=base/"actual"
+            target.mkdir()
+            link=base/"user"
+            link.symlink_to(target,directory=True)
+            with patch.object(auto,"USER_UNITS",link):
+                with self.assertRaisesRegex(RuntimeError,"is_symlink"):
+                    auto.unit_file(auto.NAME,auto.TIMER)
+            self.assertEqual(list(target.iterdir()),[])
+
     def test_unit_file_does_not_replace_unexpected_content(self):
         with tempfile.TemporaryDirectory() as tmp:
             with patch.object(auto,"USER_UNITS",Path(tmp)):
