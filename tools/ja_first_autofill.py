@@ -222,12 +222,31 @@ def once(*, request=api, action=run):
         os.close(fd)
 
 
-def unit_file(name,content):
+def secure_user_unit_directory():
+    """Safely normalize only this user's systemd unit directory.
+
+    A pre-existing group-writable user directory is common on older systems.
+    Never chmod a foreign-owned path or a symlink. Narrow the permissions to
+    0700 rather than rejecting forever or bypassing the security check.
+    """
     if USER_UNITS.is_symlink():
         raise RuntimeError("user_systemd_directory_is_symlink")
     USER_UNITS.mkdir(parents=True,exist_ok=True,mode=0o700)
-    if USER_UNITS.stat().st_mode&0o022:
-        raise RuntimeError("user_systemd_directory_writable_by_others")
+    if USER_UNITS.is_symlink():
+        raise RuntimeError("user_systemd_directory_is_symlink")
+    info=USER_UNITS.stat(follow_symlinks=False)
+    if not USER_UNITS.is_dir() or info.st_uid != os.getuid():
+        raise RuntimeError("user_systemd_directory_not_owned_by_current_user")
+    if info.st_mode&0o077:
+        USER_UNITS.chmod(0o700)
+        fresh=USER_UNITS.stat(follow_symlinks=False)
+        if fresh.st_uid != os.getuid() or fresh.st_mode&0o077:
+            raise RuntimeError("user_systemd_directory_permissions_not_private")
+        print("USER_SYSTEMD_PERMISSIONS_HARDENED 0700",flush=True)
+
+
+def unit_file(name,content):
+    secure_user_unit_directory()
     path=USER_UNITS/name
     if path.is_symlink():
         raise RuntimeError("existing_unit_is_symlink")
