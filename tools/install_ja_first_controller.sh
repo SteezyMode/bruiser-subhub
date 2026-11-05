@@ -3,7 +3,7 @@
 # Does NOT enable a timer or start translation. Uses a fixed source commit.
 set -euo pipefail
 
-PIN="9d8a33de840129cfd8a87215cce91f40507c1851"
+PIN="30d6163596c8c94207cf316715cd694628581341"
 BASE="https://raw.githubusercontent.com/SteezyMode/bruiser-subhub/$PIN/tools"
 DEST="$HOME/bruiser-pilot/subhub-control"
 
@@ -36,6 +36,7 @@ NAMES=(
   subtitle_quality_010.py
   subtitle_tuned_production.py
   subhub_live_tracker.py
+  ja_first_source_tracker.py
 )
 for name in "${NAMES[@]}"; do
   target="$DEST/$name"
@@ -66,12 +67,14 @@ PY
 
 PYTHONDONTWRITEBYTECODE=1 python3 "$DEST/ja_first_cycle.py" --self-test
 PYTHONDONTWRITEBYTECODE=1 python3 "$DEST/subhub_live_tracker.py" --self-test
+PYTHONDONTWRITEBYTECODE=1 python3 "$DEST/ja_first_source_tracker.py" --self-test
 printf '\nCONTROLLER: %s\n' "$DEST/ja_first_cycle.py"
 printf 'STATUS: python3 %s/ja_first_cycle.py status\n' "$DEST"
 printf 'START PINNED E4B JOB (only after model preflight): python3 %s/ja_first_cycle.py start-worker --apply\n' "$DEST"
 printf 'READ-ONLY SOURCED QA: python3 %s/ja_first_obvious_quality.py --audit-staged\n' "$DEST"
 printf 'AUTOFILL PREFLIGHT: python3 %s/ja_first_autofill.py status\n' "$DEST"
 printf 'ENABLE SINGLE DAILY SOURCE TIMER: python3 %s/ja_first_autofill.py enable --apply\n' "$DEST"
+printf 'WATCH LIVE SOURCED-JAPANESE PROGRESS: python3 -u %s/ja_first_source_tracker.py --watch\n' "$DEST"
 printf 'RUN HIGH-THROUGHPUT SOURCE CYCLE: systemctl --user start --no-block bruiser-ja-source-autofill.service\n'
 printf 'JA SOURCES ONLY (no AI queue): python3 %s/ja_first_cycle.py cycle --sources-only --apply\n' "$DEST"
 printf 'ONE BOUNDED JA-FIRST CYCLE: python3 %s/ja_first_cycle.py cycle --apply\n' "$DEST"
