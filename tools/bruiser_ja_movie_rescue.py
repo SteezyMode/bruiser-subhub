@@ -271,7 +271,10 @@ def stage_private_candidate(video, result, content, fmt, assessment, sync=None,
     create_once(source,content)
     if aligned is not None and Path(aligned).is_file():
         translated_path=root/("aligned-"+name+fmt)
-        create_once(translated_path,Path(aligned).read_bytes())
+        # Preserve the first independently measured correction; a retry must
+        # never replace a previous scratch file on the same digest.
+        if not translated_path.exists():
+            create_once(translated_path,Path(aligned).read_bytes())
     metadata={
         "video_file":video.name,
         "source":"opensubtitles",
@@ -286,7 +289,8 @@ def stage_private_candidate(video, result, content, fmt, assessment, sync=None,
         "sync_preview":sync,
         "notes":"Source stored privately; never published automatically when held.",
     }
-    create_once(data,(json.dumps(metadata,ensure_ascii=False,indent=2)+"\n").encode("utf-8"))
+    if not data.exists():
+        create_once(data,(json.dumps(metadata,ensure_ascii=False,indent=2)+"\n").encode("utf-8"))
     return source, data
 
 def sync_candidate(video, input_path, output_path):
