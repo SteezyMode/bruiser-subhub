@@ -75,7 +75,7 @@ def read_staging(jid, sid):
             """SELECT host_path,sha256,status,metrics_json FROM staged
                WHERE jellyfin_id=? AND subtitle_id=?""", (jid, sid)
         ).fetchall()
-    if len(records) != 1 or records[0][2] != "staged":
+    if len(records) != 1 or records[0][2] not in {"staged", "published"}:
         raise RuntimeError("not_in_successfully_staged_database")
     filename, digest, _, metrics_text = records[0]
     if not STAGED.is_dir() or STAGED.is_symlink() or STAGED.stat().st_mode & 0o077:
