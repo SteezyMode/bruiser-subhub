@@ -10,7 +10,7 @@ S19E13 PLaMo 8B engine, not a new translation framework.
 - Episodes in Season 20 then 21 then 19, then remaining after Season 2.
 - Never touch the existing S19E13 8B / 2B tracks or completed checkpoints.
 - Create private per-episode SQLite checkpoints and an atomic .ja.PLaMo8B.srt.
-- CPU 2 threads, GPU 28 layers; owner-supplied 32 W GPU cap unchanged.
+- CPU 2 threads, GPU 28 layers; owner-managed LACT cap is untouched (24 W reported 2026-11-05).
 - Pause if CPU/GPU rises above configured thermal limits; don't run if
   temperatures cannot be observed.
 - Correct Roger-as-「了解」 only for clear English name-address cues.
