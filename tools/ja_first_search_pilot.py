@@ -20,7 +20,10 @@ import subprocess
 import sys
 import time
 
-import ja_first_priority as priorities
+try:
+    from . import ja_first_priority as priorities
+except ImportError:
+    import ja_first_priority as priorities
 
 ROOT = Path.home() / "bruiser-pilot/ja-first-inventory"
 DB = ROOT / "japanese-search.sqlite3"
