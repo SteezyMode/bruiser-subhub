@@ -100,7 +100,7 @@ class TestMovieRescue(unittest.TestCase):
         import subprocess
         with patch.object(movie.subprocess,"run",side_effect=subprocess.TimeoutExpired(["ffsubsync"],600)):
             result=movie.sync_candidate(Path("/tmp/movie.mp4"),Path("/tmp/candidate.srt"),
-                                        Path("/tmp/aligned.srt"))
+                                        Path("/tmp/aligned.srt"),parse_shift=lambda _:0)
         self.assertEqual(result,{"ok":False,"hold":"ffsubsync_timeout"})
 
     def test_non_japanese_cues_are_counted_without_dialogue_disclosure(self):
