@@ -71,7 +71,7 @@ done
 
 LIBDIRS="$(find "$RUNTIME/llama" "$RUNTIME/cudart" -type f \
   \( -name 'lib*.so' -o -name 'lib*.so.*' \) -printf '%h\n' | sort -u | paste -sd: -)"
-export LD_LIBRARY_PATH="$LIBDIRS:$LD_LIBRARY_PATH"
+export LD_LIBRARY_PATH="$LIBDIRS:${LD_LIBRARY_PATH-}"
 if ldd "$RUNTIME/llama-server" | grep "not found"; then
   echo "Missing CUDA runtime libraries; no model inference attempted" >&2; exit 1
 fi
