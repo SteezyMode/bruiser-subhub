@@ -1,5 +1,21 @@
 # SubHub v2 — Japanese-first acquisition and intro-offset safety
 
+## November 5 — Scratch-download failure diagnosed and corrected (owner-run)
+
+The owner's first exact-item scratch inspection found **5 candidates**, **1 Japanese native OpenSubtitles** result. Reported `filename=American.Dad.S22E02.ja`, `release_info=American.Dad!.S22E02`, `score=240`, `forced=false`, `machine_translated=false`, `mt_confidence=0`, uploader `ichi131`. No subtitles were downloaded or synced.
+
+The helper crashed with `/app/providers/opensubtitles.py:455: ProviderError("OpenSubtitles not initialized")`. The subsequent `docker cp` and `scp` failures simply reflected the missing scratch archive. **This was a helper defect, not an unhealthy live provider.**
+
+**Root cause verified against the EXACT upstream [Sublarr v1.18.0 source](https://github.com/Abrechen2/sublarr/tree/v1.18.0):** `config_singleton.get_settings()` in a NEW `docker exec python3` process only creates boot/default UI settings. The **real** Flask `app.create_app()` loads saved UI overrides from DB `config_entries` through `reload_settings()` on startup (app.py ~589), including OpenSubtitles credentials. The initial helper incorrectly constructed a new `OpenSubtitlesProvider(api_key=get_settings().opensubtitles_api_key)` before applying the existing DB override. The key was absent there, so `initialize()` silently returned without a session. Do **not** change the live API key or install a second Sublarr.
+
+**Fix:** [tools/sublarr_ja_418_scratch_inspect.py](../tools/sublarr_ja_418_scratch_inspect.py) now reads the existing `config_entries` rows in **SQLite mode=ro, PRAGMA query_only=ON**, and decrypts any `enc:v1` stored credential using **only an already-existing** `/config/.encryption_key` (never generating a new key). It supplies API key + optional login credentials to a privately initialized provider, and refuses to proceed if a credential is unavailable. It never prints, uploads, or stores credentials in the private subtitle archive. No Flask `create_app()` invocation, DB migrations, provider setting writes or media changes. This path currently requires the configured Sublarr DB to be SQLite; a Postgres configuration holds rather than making an unsafe assumption.
+
+Offline tests include plaintext DB settings, read-only persistence, missing credentials, and wrong DB backend. Encrypted test cases run where the Sublarr `cryptography` dependency is available; GitHub's lightweight CI skips those optional cases. Main GitHub CI passed at **`11dc353794c9416dd5b7106c687d1aa735425dcd`**. A successful host download/ffsubsync result remains UNVERIFIED until the owner reruns.
+
+**Corrected host inspection:** use the same command under this record's prior section with this updated code URL:
+`https://raw.githubusercontent.com/SteezyMode/bruiser-subhub/11dc353794c9416dd5b7106c687d1aa735425dcd/tools/sublarr_ja_418_scratch_inspect.py`
+The downloader consumes one provider download and a candidate search; only the private `/tmp/bruiser-ja-418-review.tar.gz` is written. Preserve all existing video and JA sidecars.
+
 ## November 5 — Actual OpenSubtitles candidate found (owner-run result)
 
 The corrected real-host one-item dry-run selected **Wanted #418**, `American.Dad.S22E02.720p.x264-FENiX.mkv`, and returned **`status=found`**, native **`opensubtitles`**, **score 240**, reported **Japanese ASS**, and proposed `American.Dad.S22E02.720p.x264-FENiX.ja.ass`. This is a **real search match**, not a downloaded or independently quality-verified subtitle. Actual Japanese dialogue, provenance and timing are still unexamined. No file was saved and the Wanted status was restored.
@@ -12,7 +28,7 @@ Host command on Mac mini:
 ssh optiplex@100.121.156.34 'bash -s' <<'REMOTE'
 set -euo pipefail
 curl -fsSL --retry 3 \
-'https://raw.githubusercontent.com/SteezyMode/bruiser-subhub/afc4f548b27ebb61f01a5d01cca2c3a5993fedfb/tools/sublarr_ja_418_scratch_inspect.py' |
+'https://raw.githubusercontent.com/SteezyMode/bruiser-subhub/11dc353794c9416dd5b7106c687d1aa735425dcd/tools/sublarr_ja_418_scratch_inspect.py' |
  docker exec -i -e PYTHONPATH=/app sublarr-pilot python3 -
 mkdir -p "$HOME/bruiser-pilot/japanese-source-review"
 docker cp sublarr-pilot:/tmp/bruiser-ja-418-review.tar.gz \
