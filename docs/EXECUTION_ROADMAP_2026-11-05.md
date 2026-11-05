@@ -69,6 +69,14 @@ REMOTE
 
 Replace `HOST` with the OptiPlex SSH IP/hostname. This downloads roughly 3–4 GB of pinned model/runtime assets and tests **both** models sequentially on GPU; the shell must remain attached through the test. Smoke-test results stay in `~/bruiser-pilot/plamo3-ab/results/`. If host CUDA/VRAM is incompatible, it stops without changing source-only service. The source-only timer continues independently. A GitHub document cannot install/run models on the user's host by itself.
 
+### Task 1B: Review actual Japanese from the 16-cue synthetic test — COMPLETE (November 5)
+
+**Evidence:** owner pasted all 16 English cues and both unmodified PLaMo outputs from private `0.8b.json` and `2b.json`. This was an **unblinded, assistant-only, text-only** review, not Japanese native-viewer playback and not a formal accuracy score. No subtitles or models were modified.
+
+**Findings:** Most lines are grammatical and largely faithful; both models successfully render *out of the woods*, *you've got some nerve*, *make a scene*, and negated testimony. 0.8B is sometimes more natural in terse horror dialogue (basement); 2B is sometimes more idiomatic (showing up) and correctly interprets `Keep your voice down` as reducing voice level, while 0.8B's `声を低くして` can imply pitch instead. **Both fail `If this goes sideways, we walk` by translating `we walk` literally as walking rather than withdrawing/aborting.** Both render `Well, that's just great` literally; sarcasm cannot be established without real scene context. Both weaken the *It can hear us* warning by eliding the external listener.
+
+**Decision:** Both 0.8B and 2B **ADVANCE to a fresh real-video English-SRT scene test**. No evidence that 2B wins reliably over 0.8B; no evidence either reaches 8/10 viewing quality. **Do not prompt-tweak the 16 demo cues** or change the production source-only pipeline. Next test must use 80–120 consecutive cues and actual viewing, not another synthetic phrase tournament.
+
 ### Task 2: Real subtitle A/B, 80–120 continuous cues (SAME DAY if smoke test passes)
 
 **Status:** not run. A real source must be selected and its provenance verified first.
