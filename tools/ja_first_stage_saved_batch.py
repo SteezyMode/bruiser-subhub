@@ -378,7 +378,7 @@ def read_staged():
     uri = "file:" + quote(str(STAGE_DB.resolve()), safe="/") + "?mode=ro"
     with sqlite3.connect(uri, uri=True, timeout=10) as db:
         entries = db.execute(
-            "SELECT jellyfin_id,subtitle_id,host_path FROM staged WHERE status='staged'"
+            "SELECT jellyfin_id,subtitle_id,host_path FROM staged WHERE status IN ('staged','published')"
         ).fetchall()
     valid = set()
     for jid, sid, path in entries:
