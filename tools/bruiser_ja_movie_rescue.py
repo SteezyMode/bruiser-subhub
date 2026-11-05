@@ -211,18 +211,20 @@ def health(cues, runtime, allow_offset_sec=0):
 
 
 
-def search_movie_sources(provider, video, title):
+def search_movie_sources(provider, video, title, query_type=None):
     """Search both exact file-hash and title/year; bad hash match must not end discovery.
 
     Upstream 1.18 provider queries by moviehash *instead of* title when a file
     path is present and only falls back to title on empty results. A poor hash
     hit is not proof that no alternate human-quality Japanese subtitle exists.
     """
-    from providers.base import VideoQuery
-    exact = provider.search(VideoQuery(
+    if query_type is None:
+        from providers.base import VideoQuery
+        query_type=VideoQuery
+    exact = provider.search(query_type(
         title=title, year=2017, languages=["ja"], file_path=str(video)
     ))
-    general = provider.search(VideoQuery(
+    general = provider.search(query_type(
         title=title, year=2017, languages=["ja"]
     ))
     seen=set()
