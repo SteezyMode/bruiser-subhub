@@ -124,6 +124,29 @@ class LibraryInventoryTests(unittest.TestCase):
         self.assertEqual(before,{str(p):p.read_bytes()
                            for p in self.media.rglob('*') if p.is_file()})
 
+    def test_existing_japanese_subtitles_preempt_english_acquisition(self):
+        # Native Japanese in Jellyfin metadata is sufficient to skip EN.
+        self.items[0]['MediaStreams'].append(
+            {'Type':'Subtitle','Language':'jpn','Codec':'subrip',
+             'IsForced':False})
+        counts=self.scan()
+        self.assertEqual(counts['japanese_present'],1)
+        self.assertEqual(counts['missing'],4)
+        result=self.fill()
+        self.assertEqual(result['attempted'],4)
+        searches=[x for x in self.client.queries if '/RemoteSearch/' in x]
+        self.assertFalse(any(self.items[0]['Id'] in path for path in searches))
+
+    def test_japanese_sidecar_appearing_after_inventory_skips_english(self):
+        self.scan()
+        target=self.a.parent/(self.a.stem+'.ja.srt')
+        target.write_bytes(srt())
+        self.set_success(self.a)
+        result=self.fill(budget=1)
+        self.assertEqual(result['outcomes']['japanese_present'],1)
+        self.assertFalse(self.client.downloads)
+        self.assertFalse(any('/RemoteSearch/' in x for x in self.client.queries))
+
     def test_existing_english_sidecar_and_embedded_english_are_ready(self):
         (self.a.parent/(self.a.stem+'.en.srt')).write_bytes(srt())
         self.items[1]['MediaStreams'].append(
