@@ -143,7 +143,12 @@ class TestMovieRescue(unittest.TestCase):
                     sync={"ok":True,"shift_ms":-19330},aligned=aligned_file)
                 def fake_cues(path):
                     return cues if Path(path)==stage else corrected
-                with patch("services.sync_preview.load_cues",side_effect=fake_cues,create=True):
+                import sys, types
+                service=types.ModuleType("services")
+                sync=types.ModuleType("services.sync_preview")
+                sync.load_cues=fake_cues
+                service.sync_preview=sync
+                with patch.dict(sys.modules,{"services":service,"services.sync_preview":sync}):
                     with patch.object(movie,"has_embedded_japanese",return_value=False):
                         movie.resume_staged(video,5368.5,str(report),apply=False)
                         self.assertEqual(list(base.glob("*.ja.srt")),[])
