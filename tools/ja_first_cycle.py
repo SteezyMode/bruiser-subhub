@@ -40,6 +40,7 @@ FILES = {
     "ja_first_publish_shifted.py",
     "ja_first_publish_queue.py",
     "ja_first_ffsubsync.py",
+    "ja_first_obvious_quality.py",
     "bruiser_ja_movie_rescue.py",
     "ja_first_gemma_fallback.py",
     "daily_japanese.py",
@@ -286,7 +287,7 @@ def watch(folder, job_id=None, interval=10):
 
 def self_test():
     import inspect
-    assert len(FILES) == 15
+    assert len(FILES) == 16
     assert len(STEPS) == 4
     for _, file, args in STEPS:
         assert file in FILES
