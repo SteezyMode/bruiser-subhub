@@ -96,6 +96,13 @@ class TestMovieRescue(unittest.TestCase):
                 again,_=movie.stage_private_candidate(video,source_result,content,".srt",report)
                 self.assertEqual(again,source)
 
+    def test_ffsubsync_timeout_is_a_hold_not_a_crash(self):
+        import subprocess
+        with patch.object(movie.subprocess,"run",side_effect=subprocess.TimeoutExpired(["ffsubsync"],600)):
+            result=movie.sync_candidate(Path("/tmp/movie.mp4"),Path("/tmp/candidate.srt"),
+                                        Path("/tmp/aligned.srt"))
+        self.assertEqual(result,{"ok":False,"hold":"ffsubsync_timeout"})
+
     def test_non_japanese_cues_are_counted_without_dialogue_disclosure(self):
         cues=[{"start":10000+i*10000,"end":13000+i*10000,
               "text":"日本語です" if i%4 else "English dialogue"} for i in range(400)]
