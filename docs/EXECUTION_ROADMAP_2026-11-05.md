@@ -14,27 +14,18 @@
 >
 > **REMAINING MAJOR QUALITY DEFECTS:** sexual slang/punchline lost across cues 173–176 and 239; a door-related prohibition mistaken for a factual denial at 206; wrong vehicle/hitchhiking context at 190–191; wrong one-lap-around-lake meaning at 247; inconsistent female speaker pronouns and occasional weakened profanity. Do **not** mistake fluency or structural acceptance for fidelity.
 >
-> **8B IMPLEMENTATION READY, HOST NOT YET RUN (November 5):** New isolated [PLaMo 8B challenger evaluator](../tools/plamo3_8b_challenger.py), [one-command launcher](../tools/run_plamo3_8b_challenger.sh), and offline tests are committed. They check the original 0.8B + 2B review files and reproduce the exact frozen English SHA256 and cue IDs, use 8B Q4_K_M official GGUF and the same **PFN-native PFML3 + two prior source/translation pairs**, temperature 0/max_tokens 512/official stops. No prompt changes, retry paraphrases, source rescans, external subtitle requests or publication. Retain 8B Japanese and timing in a NEW private directory. Unlike old experiments, there is **no utilization gate**. The single 8B model is tried with 28, 20, 12, or 0 GPU layers **only if loading fails**; this changes hardware placement, not translation behavior. The official 8B Q4_K_M model requires roughly 5.28 GB for weights; on 6GB VRAM some CPU offload is probable. The command downloads that weight file, so ensure storage space.
-
-**RUN FROM MAC MINI after the new CI check passes:**
-
+> **8B HOST RUN COMPLETE — 2026-11-05 09:50 UTC (18:50 JST).** Owner ran [pinned one-command 8B runner](../tools/run_plamo3_8b_challenger.sh). It downloaded official **PLaMo 3 Translate 8B Q4_K_M** (~5.28 GB), loaded successfully at **28 GPU layers** on RTX 3050 (no fallback needed), and generated **100/100 frozen source cues**, original IDs **153–252**, with **87 Japanese-script dialogue outputs, 13 unchanged standalone SDH captions, and zero held dialogue**. Wall time **143.526 seconds** including model load. This uses the unchanged PFN-native PFML3 two-pair history and the identical frozen English source SHA256 `d4394793c9608ab8935cdba89a6bfb9be41d0e51e1274123966b78939fe1174a` verified against BOTH completed 0.8B/2B records. This is a **mechanical and runtime success, NOT a Japanese-language quality victory**.
+>
+> **Private 8B output:** `/home/optiplex/bruiser-pilot/plamo3-ab/real-results/film-100-8b-20261105T095007474812Z/8b.json`. Unchanged 0.8B wall time **13.431 s**, 2B **36.24 s** (both from their saved JSON records); all three are operationally feasible for offline subtitles. **No Jellyfin files, source-only timer, or existing model outputs were changed.**
+>
+> **ONE NEXT ACTION: upload private 8b.json to the ChatGPT comparison conversation** (not GitHub). From Mac mini:
+>
 ~~~bash
-ssh optiplex@100.121.156.34 'bash -s' <<'REMOTE'
-set -euo pipefail
-PIN="6cd44247d5af5dafbf96a7c575d15c2607528a8d"
-SCRIPT="$(mktemp)"
-trap 'rm -f "$SCRIPT"' EXIT
-curl -fsSL --retry 3 \
-  "https://raw.githubusercontent.com/SteezyMode/bruiser-subhub/$PIN/tools/run_plamo3_8b_challenger.sh" \
-  -o "$SCRIPT"
-bash -n "$SCRIPT"
-bash "$SCRIPT"
-REMOTE
+scp optiplex@100.121.156.34:/home/optiplex/bruiser-pilot/plamo3-ab/real-results/film-100-8b-20261105T095007474812Z/8b.json "$HOME/Downloads/plamo-8b.json"
 ~~~
 
-**After execution:** check output for 100 original cues 153–252, 87 translated dialogue + 13 SDH pass-throughs if no model holds, a new \`~/bruiser-pilot/plamo3-ab/real-results/film-100-8b-.../8b.json\`, actual offloaded GPU layers, wall time. Upload **8b.json only** privately to compare against the existing 2B and 0.8B files. Commit summary findings, not copyrighted dialogue. The 8B experiment is NOT yet evidence of a winner until its Japanese has been reviewed.
+Compare 8B with the uploaded 2B/0.8B outputs **on all 87 dialogue cues**, focusing on known shared failures: sexual innuendo 173–176 and 239, vehicle context 190–191, bark imitation 193, stop-action sentence 206, one-lap-around-lake 247, gender/register continuity. Assess meaning and natural spoken Japanese first, timing/readability second, runtime third. **Choose ONE PLaMo model; do not prompt-tweak or build infrastructure to prolong the selection process.** The earlier [editorial review](PLAMO_0_8B_VS_2B_100_CUE_REVIEW_2026-11-05.md) found 2B the provisional winner over 0.8B. **8B quality status: UNREVIEWED.**
 
-> **NEXT SINGLE TASK — OPTIONAL BUT RECOMMENDED 8B QUALITY CHALLENGER:** Evaluate official PLaMo 3 Translate **8B Q4_K_M** against the **same frozen 100 English cues** with identical PFN-native PFML3 framing and 2 translation-history pairs. No prompt tweaks, extra heuristics, new SubHub integration, model crowdsourcing, or source-acquisition changes. The 8B has ~5.28 GB weight file and may need partial CPU offload on this 6 GB RTX 3050; that is a practical performance question, not a reason to skip a quality comparison in active single-user development. Choose **one** final model based chiefly on semantic correctness/voice and secondarily on runtime. If 8B fails to materially improve the shared errors, 2B remains the best tested practical default.
 **THIS IS THE CURRENT OPERATING PLAN.** Read it before starting new subtitle-related development. The earlier American Dad/E4B/Hy-MT/CAT experiments remain historical evidence, not ongoing priorities. See [previous research stop decision](TRANSLATION_RD_STOP_DECISION_2026-11-05.md), [source-vs-DIY policy](HYBRID_JAPANESE_SOURCE_VS_DIY_POLICY_2026-11-05.md), [SubHub architecture](WHAT_IS_SUBHUB_AND_HOW_TO_USE_IT_2026-11-05.md), and [PLaMo test protocol](PLAMO_3_TRANSLATE_EVALUATION_2026-11-05.md).
 
 ## Locked objectives and scope
