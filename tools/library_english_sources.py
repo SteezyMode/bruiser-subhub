@@ -357,14 +357,16 @@ def _update(db,row,now,state,detail,delay):
 
 
 def fill(client,roots,state=STATE,search_budget=10,now=None,
-         log=print,probe_fn=intake.probe):
+         log=print,probe_fn=intake.probe,provider_delay_s=0):
     """One bounded provider pass; never contacts providers on inventory scan.
 
     Each miss receives a 7-day cooldown; errors receive 1 day. Repeating
     the command moves to the next candidate, not the same top-of-list item.
     """
-    if not 1<=search_budget<=30:
-        raise ValueError('Provider search budget must be 1..30')
+    if not 1<=search_budget<=300:
+        raise ValueError('Provider search budget must be 1..300')
+    if not 0<=provider_delay_s<=10:
+        raise ValueError('Provider pacing must be 0..10 seconds')
     roots=intake.ensure_roots(roots)
     now=int(now if now is not None else time.time())
     counts=Counter()
@@ -403,6 +405,9 @@ def fill(client,roots,state=STATE,search_budget=10,now=None,
                     continue
                 route=('/Items/'+quote(row['jellyfin_id'],safe='')+
                        '/RemoteSearch/Subtitles/eng')
+                # Keep high-volume provider lookups sequential and paced.
+                if provider_delay_s:
+                    time.sleep(provider_delay_s)
                 results=client.get(route)
                 subtitle=choose(results,row)
                 if not subtitle:
@@ -470,6 +475,7 @@ def cli(argv=None):
     p.add_argument('action',choices=('scan','fill','run','status'))
     p.add_argument('--state',type=Path,default=STATE)
     p.add_argument('--budget',type=int,default=10)
+    p.add_argument('--provider-delay',type=float,default=1.0)
     args=p.parse_args(argv)
     try:
         if args.action=='status':
@@ -481,7 +487,8 @@ def cli(argv=None):
         if args.action in ('scan','run'):
             scan(client,intake.service.SOURCE_ROOTS,args.state)
         if args.action in ('fill','run'):
-            fill(client,intake.service.SOURCE_ROOTS,args.state,args.budget)
+            fill(client,intake.service.SOURCE_ROOTS,args.state,args.budget,
+                 provider_delay_s=args.provider_delay)
         if args.action!='status':
             report(args.state)
     except Exception as exc:
