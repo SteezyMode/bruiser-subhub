@@ -30,7 +30,7 @@ class TestSublarrJapaneseDryrun(unittest.TestCase):
                 return {"wanted_auto_translate":auto_translate,
                         "upgrade_enabled":upgrade}
             if path.startswith("/api/v1/wanted?"):
-                return {"items":rows,"total":len(rows)}
+                return {"data":rows,"total":len(rows)}
             self.fail("Unexpected GET "+path)
         return get
 
@@ -80,13 +80,21 @@ class TestSublarrJapaneseDryrun(unittest.TestCase):
             wanted_row(3,self.video,language="ja",status="failed"),
             wanted_row(4,"/not/media/test.mkv"),
         ]
-        response={"items":candidates,"total":4}
+        response={"data":candidates,"total":4}
         result,seen,total = pilot.find_one_wanted(
             lambda _:response,is_file=lambda _:True,
             allowed_roots=(str(self.tmp)+"/",)
         )
         self.assertIsNone(result)
         self.assertEqual(seen,4)
+
+    def test_fails_loudly_on_wrong_wanted_json_shape(self):
+        # Regression: former code read "items" and silently showed zero,
+        # while Sublarr 1.18 actually returns the list as "data".
+        with self.assertRaisesRegex(RuntimeError, 'expected "data" list'):
+            pilot.find_one_wanted(lambda _:{"items":[wanted_row(1,self.video)],
+                                            "total":1},
+                                  allowed_roots=(str(self.tmp)+"/",))
 
     def test_search_refused_when_api_gate_blocked(self):
         post=Mock()
