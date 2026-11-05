@@ -79,7 +79,31 @@ Replace `HOST` with the OptiPlex SSH IP/hostname. This downloads roughly 3–4 G
 
 ### Task 2: Real subtitle A/B, 80–120 continuous cues (SAME DAY if smoke test passes)
 
-**LIVE RUN — HELD 2026-11-05 08:51 UTC (17:51 JST), NOT A QUALITY FAILURE YET.** On the OptiPlex, original production-safe test selected **Friday the 13th: The Final Chapter (1984)**, 764 English embedded subtitle cues; frozen source **cue IDs 153–252** (100 cues), SHA256 **d4394793c9608ab8935cdba89a6bfb9be41d0e51e1274123966b78939fe1174a**. Result directory: `~/bruiser-pilot/plamo3-ab/real-results/film-100-20261105T085111561829Z`. 0.8B returned cue 1 successfully and the very next cue triggered **RuntimeError: missing_or_malformed_japanese** in our *post-response* validator. The model did **not** necessarily crash or fail the PFML3 prompt; the validator collapsed several causes (empty, roman-only, leftover control tokens) without saving the offending raw response. Both arms were stopped; **2B was never tested on this film**. No media or source-service mutations; November 6 timer unchanged.
+**ROOT CAUSE VERIFIED — November 5, follow-up diagnostic (Task 2A DONE).** Private 0.8B run completed **6** cues; the seventh, **original English cue 159**, is HTML-wrapped [SIGHS] (no spoken dialogue). The unchanged creator-native PFML3 call returned the same HTML-wrapped [SIGHS] caption, finish_reason=stop, 15 completion tokens. This was a **false-positive QA failure in our wrapper**, *not* bad Japanese output or a model crash. The earlier statement that only "cue 1" completed misread the progress logger (which printed at 1 and every 10); the verified diagnostic says **6 completed**.
+
+**IMPLEMENTED FIX — isolated real-film research only; host rerun NOT YET PERFORMED.** The runner now recognizes *only standalone bracketed uppercase SDH / sound-effect captions*, with optional known SRT font/italic/bold/underline tags. These cues are **preserved verbatim, labeled non_dialogue_passthrough, not sent to PLaMo and not supplied as model translation-history pairs**. This is a temporary benchmark policy, **not Japanese localization of SDH**; eventual production SDH requires separate translation/suppression policy. For spoken dialogue, PLaMo's PFML3 grammar, two history pairs, temperature 0, 512 tokens and stop tokens are **unchanged**. A Roman-only spoken-line response is marked held_non_japanese, never counted as translated; invalid/empty/truncated output still stops safely. Both models produce independently recorded 100-cue review tracks.
+
+**REPRODUCIBILITY:** The rerun reads the **same private original SRT file** from film-100-20261105T085111561829Z, validates SHA256, all cue IDs 153–252 and original media identity, and creates a **new private results directory**. Original partial outputs and raw failure evidence remain untouched. No model weights, provider calls, Jellyfin writes or source-timer changes. CI covers bracketed SDH, mixed dialogue, non-Japanese response holds and frozen source integrity.
+
+**NEXT COMMAND from Mac mini:**
+
+~~~bash
+ssh optiplex@100.121.156.34 'bash -s' <<'REMOTE'
+set -euo pipefail
+SCRIPT="$(mktemp)"
+trap 'rm -f "$SCRIPT"' EXIT
+PIN="b3c49ae2cd56d65937bf157320c4298bde354a40"
+curl -fsSL --retry 3 \
+  "https://raw.githubusercontent.com/SteezyMode/bruiser-subhub/$PIN/tools/run_plamo3_real_film_ab.sh" \
+  -o "$SCRIPT"
+bash -n "$SCRIPT"
+bash "$SCRIPT"
+REMOTE
+~~~
+
+**Gate:** collect actual translated_dialogue, non_dialogue_passthrough and held_untranslated_dialogue counts for EACH model, timing and review SRTs, and then review Japanese meaning across the original continuous scene. A preserved English SDH cue is NOT a Japanese translation success.
+
+**LIVE RUN — HELD 2026-11-05 08:51 UTC (17:51 JST), NOT A QUALITY FAILURE YET.** On the OptiPlex, original production-safe test selected **Friday the 13th: The Final Chapter (1984)**, 764 English embedded subtitle cues; frozen source **cue IDs 153–252** (100 cues), SHA256 **d4394793c9608ab8935cdba89a6bfb9be41d0e51e1274123966b78939fe1174a**. Result directory: `~/bruiser-pilot/plamo3-ab/real-results/film-100-20261105T085111561829Z`. 0.8B completed six cues, then cue 159 triggered **RuntimeError: missing_or_malformed_japanese** in our *post-response* validator. The model did **not** necessarily crash or fail the PFML3 prompt; the validator collapsed several causes (empty, roman-only, leftover control tokens) without saving the offending raw response. Both arms were stopped; **2B was never tested on this film**. No media or source-service mutations; November 6 timer unchanged.
 
 **Immediate Task 2A: DIAGNOSE exact second cue before altering model rules or rerunning 100 cues.** New [`tools/plamo3_reproduce_held_cue.py`](../tools/plamo3_reproduce_held_cue.py) is a minimal, offline-tested reproduction helper. It reads and hashes the *original frozen* SRT, verifies the saved 0.8B partial history, starts ONLY the original 0.8B GGUF in a separate local llama.cpp server, and replays **one** exact PFN-native PFML3 call at unchanged temperature 0 / max_tokens 512 / original stop tokens. The raw completion, termination reason, source cue ID, input and history are stored in a new PRIVATE `diagnostic-0.8b-*.json` alongside original outputs. Nothing is written to source/media/production. No prompt modifications, no blind retries and no new provider searches.
 
