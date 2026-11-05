@@ -102,26 +102,81 @@ def temperatures():
     return cpu,gpu
 
 def thermal_gate():
+    """Resume promptly after the sensor(s) that actually overheated cool down.
+
+    A second sensor crossing its pause limit during cooling becomes a blocker
+    too. Always enforce both emergency abort limits. No hardware limits change.
+    """
     started=None
+    cpu_triggered=False
+    gpu_triggered=False
     while True:
         cpu,gpu=temperatures()
         if cpu >= CPU_ABORT or gpu >= GPU_ABORT:
             raise RuntimeError(
                 f"THERMAL_ABORT cpu={cpu:.1f}C gpu={gpu:.1f}C; "
                 "no more episodes, checkpoints preserved")
-        if started is None and cpu < CPU_PAUSE and gpu < GPU_PAUSE:
-            return
         if started is None:
+            cpu_triggered=cpu >= CPU_PAUSE
+            gpu_triggered=gpu >= GPU_PAUSE
+            if not (cpu_triggered or gpu_triggered):
+                return
             started=time.monotonic()
             print(f"THERMAL_PAUSE cpu={cpu:.1f}C gpu={gpu:.1f}C "
-                  f"until <= {CPU_RESUME:.0f}C CPU and <= {GPU_RESUME:.0f}C GPU",
+                  f"(CPU triggered={cpu_triggered}, GPU triggered={gpu_triggered})",
                   flush=True)
-        if cpu <= CPU_RESUME and gpu <= GPU_RESUME:
+        else:
+            cpu_triggered=cpu_triggered or cpu >= CPU_PAUSE
+            gpu_triggered=gpu_triggered or gpu >= GPU_PAUSE
+        if ((not cpu_triggered or cpu <= CPU_RESUME) and
+                (not gpu_triggered or gpu <= GPU_RESUME)):
             print(f"THERMAL_RESUME cpu={cpu:.1f}C gpu={gpu:.1f}C",flush=True)
             return
         if time.monotonic()-started > COOL_TIMEOUT:
             raise RuntimeError("THERMAL_COOLDOWN_TIMEOUT__resume_later")
-        time.sleep(20)
+        time.sleep(5)
+
+CUE_MODEL_RETRY_ERRORS=frozenset((
+    "missing_model_completion",
+    "model_output_truncated",
+    "empty_or_malformed_model_output",
+))
+
+
+def translate_with_one_retry(request, port, english, history):
+    """One bounded replay of a defective model response, with no prompt changes.
+
+    Never checkpoint an empty/Latin-only answer as translated Japanese. The
+    episode will be held if a second identical PFML3 request also fails.
+    """
+    for attempt in range(2):
+        try:
+            japanese,usage,status=request(port,english,history)
+        except RuntimeError as exc:
+            if str(exc) not in CUE_MODEL_RETRY_ERRORS:
+                raise
+            if attempt:
+                raise RuntimeError("cue_model_error_after_retry:"+str(exc)) from exc
+            print("CUE_RETRY invalid_model_output attempt=2/2",flush=True)
+            continue
+        if status == engine.SPOKEN:
+            return japanese,usage,status
+        if attempt == 0:
+            print("CUE_RETRY non_japanese_output attempt=2/2",flush=True)
+            continue
+        return japanese,usage,status
+    raise AssertionError("unreachable_translation_retry")
+
+
+def episode_only_cue_failure(exc):
+    """Distinguish a defective cue from GPU, thermal, disk or model failures."""
+    reason=str(exc)
+    return bool(
+        re.fullmatch(r"model_did_not_translate_spoken_cue_[1-9][0-9]*",reason)
+        or (reason.startswith("cue_model_error_after_retry:")
+            and reason.split(":",1)[1] in CUE_MODEL_RETRY_ERRORS)
+    )
+
 
 def safe_roger_name(english, japanese):
     """Correct name-address hallucinations, not legitimate acknowledgments.
@@ -290,7 +345,8 @@ def with_batch_inference(tag, video, source_rows, origin, raw_sha, timing):
             if request_count%10==0:
                 thermal_gate()
             request_count+=1
-            ja,usage,status=original_request(port,english,history)
+            ja,usage,status=translate_with_one_retry(
+                original_request,port,english,history)
             if status==engine.SPOKEN:
                 ja=safe_roger_name(english,ja)
             return ja,usage,status
@@ -449,8 +505,16 @@ def run(args):
                 append_result("source_held",tag,str(exc))
                 continue
             except RuntimeError as exc:
-                # Thermal, GPU/engine, output and checkpoint errors stop the
-                # batch immediately so nothing is silently skipped.
+                if episode_only_cue_failure(exc):
+                    # All completed cues remain in the episode's SQLite DB.
+                    # No partial Japanese subtitle is published. Keep going.
+                    held+=1
+                    print("EPISODE_HELD",tag,"untranslated_cue",
+                          str(exc)[:120],flush=True)
+                    append_result("episode_held",tag,str(exc))
+                    continue
+                # Never ignore thermal, CUDA, disk, model identity, or
+                # checkpoint errors as if they were bad subtitle cues.
                 print("BATCH_PAUSED",tag,str(exc)[:180],flush=True)
                 append_result("paused",tag,str(exc))
                 raise
@@ -462,6 +526,9 @@ def self_test():
     engine.eight.check_native_contract()
     assert engine.GPU_LAYERS==GPU_LAYERS==28
     assert CPU_THREADS==2
+    assert episode_only_cue_failure(RuntimeError("model_did_not_translate_spoken_cue_117"))
+    assert not episode_only_cue_failure(RuntimeError("THERMAL_ABORT"))
+    assert not episode_only_cue_failure(RuntimeError("checkpoint_source_mismatch"))
     assert safe_roger_name("Roger, you know","了解、わかる")=="ロジャー、わかる"
     assert safe_roger_name("Roger that.","了解。")=="了解。"
     assert safe_roger_name("Noted, Roger","了解。")=="了解。"
