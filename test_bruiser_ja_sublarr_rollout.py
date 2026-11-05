@@ -95,8 +95,9 @@ class TestRollout(unittest.TestCase):
         folders=[dict(id=i,path=p,enabled=True,outside_media_path=False)
                  for i,p in flow.EXPECTED.items()]
         folders[4]["path"]="/media/unknown"
-        with self.assertRaisesRegex(RuntimeError,"path changed"):
-            flow.folder_plan(folders,isdir=lambda x:True)
+        with patch.object(flow.os,"access",return_value=True):
+            with self.assertRaisesRegex(RuntimeError,"path changed"):
+                flow.folder_plan(folders,isdir=lambda x:True)
 
     def test_idempotent_plan_after_activation(self):
         srv=FakeServer(before=False)
