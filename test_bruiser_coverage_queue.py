@@ -78,7 +78,8 @@ class CoverageQueueTests(unittest.TestCase):
                 self.assertEqual(queue.next_tasks(db)[0]["action"],
                                  "repair_existing_timing")
                 self.assertEqual(queue.import_snapshot(
-                    db,[row],"a"*64,"test.json")["result"],"already_imported")
+                    db,[row],"a"*64,"test.json")["result"],
+                    "reconciled_existing_snapshot")
 
     def test_task_state_survives_new_snapshot(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -92,6 +93,21 @@ class CoverageQueueTests(unittest.TestCase):
                 repaired=media(japanese_subtitles=True,category="both")
                 queue.import_snapshot(db,[repaired],"c"*64,"newer")
                 self.assertEqual(queue.report(db)["active_tasks"],0)
+
+    def test_same_matrix_new_saved_provider_candidate_reactivates_hold(self):
+        with tempfile.TemporaryDirectory() as temp:
+            with queue.queue_db(Path(temp)/"state") as db:
+                row=media()
+                queue.import_snapshot(db,[row],"a"*64,"test")
+                queue.update_task_state(db,"jid-one","ja","held","prior lack of match")
+                refreshed=queue.import_snapshot(
+                    db,[row],"a"*64,"test",
+                    searches={"jid-one":("plausible",1,2000000000)})
+                self.assertEqual(refreshed["result"],
+                                 "reconciled_existing_snapshot")
+                task=db.execute("SELECT action,state FROM tasks").fetchone()
+                self.assertEqual(tuple(task),("download_saved_ja","pending"))
+                self.assertEqual(queue.report(db)["snapshots"],1)
 
     def test_refuse_timing_repair_without_existing_track(self):
         with tempfile.TemporaryDirectory() as temp:
