@@ -21,6 +21,7 @@ class LiveViewTests(unittest.TestCase):
                  "last_item":"Example S01E01",
                  "updated_utc":"2026-11-06T03:15:34+00:00",
                  "counts":{"search_started":27,"search_plausible":3,
+                           "search_review":22,"search_none":1,"search_errors":0,
                            "staged":2,"published_new":1,"held_titles":4}}
         result=live.terminal_screen(fixture,True,
                  ["[27/600] SEARCHING: Example"],88)
@@ -28,6 +29,9 @@ class LiveViewTests(unittest.TestCase):
         self.assertIn("27 / 600",result)
         self.assertIn("3,000",result)
         self.assertIn("Newly published: 1",result)
+        self.assertIn("Completed: 26",result)
+        self.assertIn("In-flight: 1",result)
+        self.assertIn("Review needed: 22",result)
         self.assertIn("LIVE BATCH",result)
         self.assertIn("Ctrl+C closes this VIEW, NOT the batch.",result)
 
