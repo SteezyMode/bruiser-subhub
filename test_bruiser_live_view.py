@@ -99,13 +99,13 @@ class LiveViewTests(unittest.TestCase):
                 pass
         window=Window()
         with patch.object(live.curses, "doupdate"):
-            snapshot,size=live.draw_changed_lines(window, "TITLE\\nSEARCH 9\\n", (), None)
+            snapshot,size=live.draw_changed_lines(window, "TITLE\nSEARCH 9\n", (), None)
             self.assertEqual(window.erases,1)
             self.assertEqual(len(window.calls),2)
-            snapshot,size=live.draw_changed_lines(window, "TITLE\\nSEARCH 9\\n",snapshot,size)
+            snapshot,size=live.draw_changed_lines(window, "TITLE\nSEARCH 9\n",snapshot,size)
             self.assertEqual(window.erases,1)
             self.assertEqual(len(window.calls),2)
-            snapshot,size=live.draw_changed_lines(window, "TITLE\\nSEARCH 10\\n",snapshot,size)
+            snapshot,size=live.draw_changed_lines(window, "TITLE\nSEARCH 10\n",snapshot,size)
             self.assertEqual(window.erases,1)
             self.assertEqual(len(window.calls),3)
             self.assertEqual(window.calls[-1][0],1)
