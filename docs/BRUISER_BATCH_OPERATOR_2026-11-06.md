@@ -118,6 +118,14 @@ The viewer implementation has been replaced with `curses.wrapper(interactive_vie
 
 **Deployment:** New viewer code + tests committed to GitHub; owner must rerun the *same safe viewer-only installer* pinned to the latest verified commit while the active batch continues. Installation never restarts, changes or stops the current five-cycle batch. Ctrl+C exits the viewer only.
 
+## New owner requirement — zero-touch new Jellyfin media intake (issue #65)
+
+**Owner requirement confirmed Nov 6:** After adding a new movie or any show episode, the owner expects Bruiser to discover it and initiate subtitle acquisition and eventual local translation automatically, without manually starting a batch. This is the intended release behavior, **not implemented or installed on the host** as of this handoff.
+
+Implementation tracked in [GitHub issue #65](https://github.com/SteezyMode/bruiser-subhub/issues/65). Prefer lightweight periodic Jellyfin discovery / durable checkpoint (e.g. 10 minute polling) without an extra plugin, wait for stable file and complete media metadata, check actual existing EN/JA tracks and sidecars, upsert **only the new item** into the persistent coverage queue, prioritize fresh items without starving backlog, and launch source/translation safely at an existing cycle boundary or when the unified worker is idle. Strict no duplicate provider calls, no overwrite, account-quota and GPU/game-session safeguards, and expose new media intake in the same in-place curses viewer. Bulk new season imports become multiple independently tracked episodes. Do not hot-patch the running 12-cycle job.
+
+Current gaps proven from repo: `ja_first_autofill.refresh_manifest()` may reuse a catalog for 20h, `bruiser_coverage_queue.py init` reads an old snapshot, and unseen media are placed behind the existing queue at fallback rank 300. Thus automatic immediate event-driven ingestion **does not currently exist**; do not imply the daily timer already performs it.
+
 ## Permanent developer instructions
 
 - Start and inspect batches using the CLI, not dozens of bespoke scripts. Operator progress must be observable without interpreting raw logs.
