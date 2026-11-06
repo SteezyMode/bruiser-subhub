@@ -111,6 +111,29 @@ Code has been committed for `ja_first_priority.py` (read-only, secure queue acce
 
 **Remaining issue #62 work:** the guard/test/deployment is now owner-confirmed. Verify real candidate selections in tomorrow's scheduled logs, and measure *published new JA* per download allowance. The existing cycle still runs search → stage → publication, and the current queue remains a *priority selector*, not a complete job dispatcher. Full future integration must retain timing-repair support for both EN and JA.
 
+## Nov 6 deployed source selector and quota-free staged subtitle recovery
+
+The owner confirmed installation of queue-driven Japanese sourcing selectors:
+
+```text
+SOURCE_SELECTOR_PREFLIGHT_OK
+Ran 5 tests ... OK
+SOURCE_QUEUE_IDENTITY_MATCH 8736 of 9981 manifest-ready titles; 10190 pending queue targets
+QUEUE_DRIVEN_SOURCE_SELECTOR_INSTALLED
+Next sourcing timer: 2026-11-07 09:28:45 JST
+Previous controller backup: ~/bruiser-pilot/subhub-control/.pre-coverage-sourcing-IPvh0pAI
+```
+
+**Deployment verified:** both discover and saved-match staging now use queue priorities; there is no 75% movie/TV restriction. This proves code installation and preflight, *not* next day's provider acquisition outcome. The existing provider quota, exact episode/release checks, ffsubsync ±30-second conservative shift checks and create-only media publication remain unchanged.
+
+### Recover the already-downloaded 21 Japanese candidates first
+
+The existing publisher `ja_first_publish_queue.py` is a validated source-only, staged-file processing pipeline: it recognizes previously published sidecars by provenance; tries ffsubsync audio alignment while preserving every dialogue cue; then a trusted direct alignment and small-offset rescue; holds corrupt/wrong edition or untrusted candidates. It never calls OpenSubtitles, reruns provider search, or invokes PLaMo.
+
+To avoid touching other historical held staging rows, the optional `--queue-staged-only` flag was added. It limits processing to pending `align_existing_staged_ja` tasks from the actual Bruiser queue; with `--apply`, the existing publisher still requires strict QA and **create-only** `.ja.srt` publication. A separate [guarded installer](../tools/install_staged_ja_recovery.sh) checks queue installation/source-service idleness, runs offline regression tests, and backs up the previous publisher; it **does not** start publication itself. The actual synchronized publication is a separately invoked `ja_first_publish_queue.py --queue-staged-only --limit 21 --max-titles 25 --apply`. The 21 queue records are **candidates, not guaranteed passes**; record `QUEUE SUMMARY` and *held* reasons before claiming additional Japanese coverage.
+
+**Status:** staged publisher update committed to GitHub; **not deployed or run on owner host** until owner executes and shares output. It does not alter next night's 09:28 source timer or trigger GPU. Subsequent matrix refresh can retire newly published work; no status string alone certifies viewing quality.
+
 ## Next engineering change — do not substitute another audit
 
 **Integrate the queue into the existing source-only Japanese cycle** ([tracked as GitHub issue #62](https://github.com/SteezyMode/bruiser-subhub/issues/62)). In order: pick `align_existing_staged_ja` → `download_saved_ja` → identity review → `search_ja` according to available allowance. Remove the historic 75% movie / 25% episode quotas from *both* discovery and staging after tests, replacing them with ordered eligible work and measured publish yield. Keep search-history cooldowns, strict media/episode identity, provider download quota, ffsubsync bounds, on-disk source QA and create-only publication. The 9:15 JST source timer is already deployed and should not be changed merely to integrate selection.
