@@ -195,6 +195,13 @@ def tasks_for(row, searches=None, staged=None, now=None):
     has_en = is_true(row.get("english_subtitles"))
     has_ja = is_true(row.get("japanese_subtitles"))
     audio = language(row.get("audio_language"))
+    # The coverage category (e.g. neither) describes available subtitle tracks,
+    # NOT the original audio language. It cannot authorize JA provider search.
+    if audio in UNKNOWN_AUDIO:
+        if has_en and has_ja:
+            return []
+        return [("review", "review_uncertain",
+                 "primary_audio_language_unverified", 100)]
     rank = preference(row)
     result = []
     if audio in JA:
