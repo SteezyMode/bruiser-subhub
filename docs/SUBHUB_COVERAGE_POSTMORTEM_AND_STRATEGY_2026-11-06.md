@@ -84,6 +84,12 @@ English inventory at end: **12,399** records; `japanese_present=572`, `jellyfin_
 - Alternative existing providers / better subtitle identifiers might improve coverage, but this requires provider-specific evidence; do not assume OpenSubtitles, Jimaku or SubDL coverage in advance.
 - A 75/25, 25/75, or 50/50 category quota is optimal: **none of these claims is supported** until yield is broken down by media type and provider.
 
+## Complete EN/JA matrix finished on owner host (November 6)
+
+The owner completed [the full read-only matrix](FULL_EN_JA_SUBTITLE_MATRIX_2026-11-06.md), **not** merely the earlier English-without-Japanese subset. All **12,386** Jellyfin items were classified: **522 both**, **2,563 English only**, **41 Japanese only**, **8,336 neither**, **924 uncertain**. Independent detection totals are **3,112 English** and **572 Japanese**, including ambiguous-category cases. Previously verified embedded English: 2,270; stale Jellyfin English metadata mismatches: 265; unlabeled subtitle sidecars: 675. No provider calls or subtitle writes occurred in this inventory.
+
+**Actionable backlog already exists privately:** `subtitle-matrix-20261106T015513Z.english_only.csv` contains the full **2,563 English-only** titles/episodes. Do not order another blanket catalog or ffprobe audit to regenerate these numbers. Begin with source-text/codec verification *only when an individual title is selected* for Japanese translation; use existing per-title source validation and never overwrite JA. Continue Japanese-first provider acquisition for the **8,336 neither** records subject to actual quota; avoid treating unresolved/unlabeled as definitely without subtitles.
+
 ## Implementation strategy — maximize incremental playable coverage
 
 ### P0 — Do not spend additional quota blindly
