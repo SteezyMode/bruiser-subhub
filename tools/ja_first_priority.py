@@ -7,6 +7,68 @@ Keep all other media eligible for later passes. No user-level private data here.
 from __future__ import annotations
 
 import re
+from pathlib import Path
+import sqlite3
+
+QUEUE_DB = Path.home() / "bruiser-pilot/coverage-queue/coverage.sqlite3"
+
+
+def active_coverage_queue(path=QUEUE_DB):
+    """Read installed Bruiser queue, never create a DB or change task states.
+
+    Return None only when the queue has not been initialized. An unexpected
+    installed schema or unsafe permissions is a hard stop, not a fallback to
+    quota-inefficient old source selection.
+    """
+    path = Path(path)
+    if not path.exists() and not path.is_symlink():
+        return None
+    if (path.is_symlink() or not path.is_file() or path.stat().st_mode & 0o077
+            or path.parent.is_symlink() or path.parent.stat().st_mode & 0o077):
+        raise RuntimeError("Unsafe installed Bruiser coverage queue")
+    with sqlite3.connect("file:" + str(path.resolve()) + "?mode=ro",
+                         uri=True, timeout=15) as db:
+        rows = db.execute("""
+            SELECT m.jellyfin_id, t.action, t.state, t.priority, m.path
+            FROM tasks AS t JOIN media AS m ON m.path = t.path
+            WHERE t.active=1 AND t.target='ja'
+        """).fetchall()
+    result = {}
+    for jid, action, state, priority, pathstr in rows:
+        key = str(jid)
+        if key in result:
+            raise RuntimeError("Multiple JA tasks for same Jellyfin identity")
+        result[key] = (str(action), str(state), int(priority), str(pathstr))
+    return result
+
+
+def queue_position(row, action, tasks):
+    """Return queue priority for action, None for deferred/unready rows.
+
+    Newly added media absent from a stale snapshot may still receive a new
+    provider search, but AFTER eligible known pending items.
+    """
+    jid = str(row.get("jellyfin_id") or "")
+    if tasks is None:
+        return (100, priority(row))
+    known = tasks.get(jid)
+    if known is None:
+        return (300, priority(row))
+    queued_action, state, rank, path = known
+    if state != "pending":
+        return None
+    if str(row.get("host_path") or "") != path:
+        return None
+    if action == "search":
+        return (rank, priority(row)) if queued_action == "search_ja" else None
+    if action == "stage":
+        if queued_action in ("download_saved_ja", "search_ja"):
+            return (rank if queued_action == "download_saved_ja"
+                    else 200, priority(row))
+        return None
+    raise ValueError("Unknown coverage queue action")
+
+
 
 PREFERRED_SHOWS = {"thexfiles", "xfiles", "itsalwayssunnyinphiladelphia"}
 
