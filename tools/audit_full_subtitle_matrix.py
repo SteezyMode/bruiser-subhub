@@ -146,6 +146,10 @@ def scan_one(video, item, cache, verified=None):
     # opposite language is absent inside the video.
     if streams is None and category in ("english_only", "japanese_only"):
         category = "unknown"
+    # An unlabeled same-stem subtitle could contain either language. The
+    # single-language and neither labels require unambiguous evidence.
+    if unlabeled and category in ("english_only", "japanese_only", "neither"):
+        category = "unknown"
 
     verification = (verified or {}).get("ffprobe_status", "not_checked")
     if verification == "jellyfin_track_not_in_video":
