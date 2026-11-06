@@ -38,8 +38,9 @@ SUB_EXT = {".srt", ".ass", ".ssa", ".vtt"}
 VIDEO_EXT = {".mp4", ".mkv", ".avi", ".m4v", ".wmv", ".webm", ".ts", ".mov", ".mpg", ".mpeg", ".m2ts"}
 IMDB = re.compile(r"tt\d{5,12}\Z", re.I)
 CLEAN_TAG = re.compile(r"[^a-z0-9]+")
+UNKNOWN_AUDIO = {"", "und", "unknown", "mul", "zxx", "none"}
 COUNTS = ("existing_japanese_subtitle", "japanese_audio", "ready_ja_search",
-          "review_no_movie_imdb", "review_missing_series_identity",
+          "review_audio_language_unverified", "review_no_movie_imdb", "review_missing_series_identity",
           "review_missing_episode_number", "review_missing_media_streams",
           "review_missing_path", "review_unmapped_path", "review_host_file_missing")
 
@@ -250,6 +251,10 @@ def classify(item, series, mounts, sidecache):
     # Hold these items instead of creating a misleading search-ready queue.
     if info_state != "known":
         data["status"] = "review_missing_media_streams"
+    elif audio_lang in UNKNOWN_AUDIO:
+        # A present audio stream with no language tag is NOT evidence of EN
+        # audio. Never spend JA search quota on a potentially Japanese show.
+        data["status"] = "review_audio_language_unverified"
     else:
         data["status"] = "ready_ja_search"
     return data
@@ -273,6 +278,7 @@ def self_test():
     assert stream_state({"MediaStreams": [
         {"Type": "Subtitle", "Language": "ja-JP", "IsForced": False}
     ]})[2] is True
+    assert lang("und") in UNKNOWN_AUDIO and lang("jpn") not in UNKNOWN_AUDIO
     print("SELF-TEST PASSED (no network or writes)")
 
 
