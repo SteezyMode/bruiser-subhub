@@ -426,6 +426,62 @@ def recover_held_cue(request, retry, port, english, history, spoken):
     return japanese, usage, status
 
 
+
+# A failed isolated dialogue cue must not abort a feature-length subtitle.
+# This is explicitly a small, auditable omission budget, never a fake translation.
+HELD_STATUS = "held_translation"
+MAX_HELD_CUES = 10
+MAX_CONSECUTIVE_HELD = 2
+
+
+def verify_movie_checkpoints(engine, db, cues):
+    """Validate every saved cue, including explicitly recorded held dialogue.
+
+    Identical invariants to the proven engine's verifier, with one additional
+    movie-only status: held, with an EMPTY Japanese field. This cannot be
+    mistaken for translated or non-dialogue text, and survives restart.
+    """
+    rows=db.execute(
+        "SELECT idx,id,start,end,english,japanese,status,seconds "
+        "FROM translation ORDER BY idx").fetchall()
+    if len(rows)>len(cues):
+        raise RuntimeError("checkpoint_longer_than_source")
+    if not any(r[6]==HELD_STATUS for r in rows):
+        return engine.verify_checkpoints(db,cues)
+    output=[]
+    for position,(idx,number,begin,end,en,ja,status,seconds) in enumerate(rows):
+        cue=cues[position]
+        if ((idx,number,begin,end,en)!=(position,cue["number"],
+                cue["start"],cue["end"],cue["english"])):
+            raise RuntimeError("checkpoint_source_mismatch")
+        if status==HELD_STATUS:
+            if ja not in ("",None):
+                raise RuntimeError("held_cue_must_not_contain_fake_translation")
+        elif status==engine.SPOKEN:
+            if not engine.small.JP.search(ja or "") or "<|plamo:" in ja:
+                raise RuntimeError("checkpoint_invalid_japanese")
+        elif status==engine.SOLO_SDH:
+            if ja!=en or not engine.real.is_non_dialogue_caption(en):
+                raise RuntimeError("checkpoint_invalid_SDH")
+        else:
+            raise RuntimeError("checkpoint_invalid_status")
+        output.append(dict(cue,japanese=ja or "",status=status,seconds=seconds))
+    return output
+
+
+def held_summary(output):
+    """Bound omissions while keeping the original complete EN source frozen."""
+    held=[row for row in output if row["status"]==HELD_STATUS]
+    streak=0
+    for row in output:
+        streak=streak+1 if row["status"]==HELD_STATUS else 0
+        if streak>MAX_CONSECUTIVE_HELD:
+            raise RuntimeError("too_many_consecutive_held_cues_manual_review")
+    if len(held)>MAX_HELD_CUES:
+        raise RuntimeError("too_many_held_cues_manual_review")
+    return held
+
+
 def translate(row, folder, mod, port=18888):
     batch,engine,source,small,daily,sync,safe_media_path=mod
     if recent_running_source():
@@ -449,7 +505,8 @@ def translate(row, folder, mod, port=18888):
     with scoped_engine(engine,folder):
         db=engine.checkpoints()
         try:
-            output=engine.verify_checkpoints(db,cues)
+            output=verify_movie_checkpoints(engine,db,cues)
+            held_summary(output)
             print(f"SUBHUB_AI_START media={row['jellyfin_id']} "
                   f"cues={len(cues)} resumed={len(output)}",flush=True)
             if len(output)<len(cues):
@@ -473,9 +530,16 @@ def translate(row, folder, mod, port=18888):
                                 port,cue["english"],engine.previous_pairs(output),
                                 engine.SPOKEN)
                             if status!=engine.SPOKEN:
-                                raise RuntimeError("model_cue_held_"+str(cue["number"]))
+                                # Never count Latin-only model output as Japanese.
+                                # Commit a held marker so the next cue can run
+                                # and so restarts never retry the same bad cue.
+                                ja,status="",HELD_STATUS
+                                print("SUBHUB_AI_CUE_HELD number="+str(cue["number"])
+                                      +" reason=non_japanese_after_retries",
+                                      flush=True)
                             # Name-specific repair applies only to that series.
-                            if row.get("series","").casefold().startswith("american dad"):
+                            if (status==engine.SPOKEN and
+                                    row.get("series","").casefold().startswith("american dad")):
                                 ja=batch.safe_roger_name(cue["english"],ja)
                         seconds=round(time.monotonic()-started,3)
                         db.execute(
@@ -486,6 +550,7 @@ def translate(row, folder, mod, port=18888):
                         db.commit()
                         output.append(dict(cue,japanese=ja,status=status,
                                            seconds=seconds))
+                        held_summary(output)
                         if idx==0 or (idx+1)%25==0 or idx+1==len(cues):
                             print("SUBHUB_AI_PROGRESS",
                                   str(idx+1)+"/"+str(len(cues)),flush=True)
@@ -493,7 +558,15 @@ def translate(row, folder, mod, port=18888):
                     small.stop_server(proc)
             if len(output)!=len(cues):
                 raise RuntimeError("incomplete_cue_translation_no_publication")
-            content,spoken=engine.jellyfin_srt(output)
+            held=held_summary(output)
+            if held:
+                print("SUBHUB_AI_REVIEW_NEEDED held_cues="+str(len(held))
+                      +" cue_numbers="+",".join(str(c["number"]) for c in held),
+                      flush=True)
+            # Omit only explicitly held dialogue, not fake a Japanese line.
+            # Original EN is retained for targeted future correction.
+            content,spoken=engine.jellyfin_srt(
+                [c for c in output if c["status"]!=HELD_STATUS])
             if not content.strip() or spoken<50:
                 raise RuntimeError("insufficient_translated_dialogue")
             # engine.write_new_sidecar is create-only, validates source video,
@@ -504,9 +577,12 @@ def translate(row, folder, mod, port=18888):
             atomic_json(folder/"result.json",{
                 "state":"published","jellyfin_id":row["jellyfin_id"],
                 "cue_count":len(cues),"dialogue_count":spoken,
+                "held_cue_numbers":[c["number"] for c in held],
+                "held_count":len(held),
                 "published_utc":utc(),"subtitle_name":published.name})
-            print("SUBHUB_AI_PUBLISHED media="+row["jellyfin_id"]+
-                  " spoken="+str(spoken),flush=True)
+            print(("SUBHUB_AI_PUBLISHED_WITH_HELD_CUES" if held
+                   else "SUBHUB_AI_PUBLISHED")+" media="+row["jellyfin_id"]+
+                  " spoken="+str(spoken)+" held="+str(len(held)),flush=True)
         finally:
             db.close()
 
