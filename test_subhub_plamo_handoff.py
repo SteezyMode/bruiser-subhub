@@ -129,8 +129,12 @@ class HandoffTests(unittest.TestCase):
         original=("\n\n".join(blocks)+
                   "\n\n\n\n151\n00:00:0,500 --> 00:00:2,00\nJUNK\n")
         self.assertEqual(len(Sync.parse_cues(("\n\n".join(blocks)).encode())),150)
+        # The raw sample deliberately includes redundant blank lines. The
+        # normalizer handles these BEFORE examining the bad terminal clock.
+        normalized_separators=re.sub(
+            r"\n[ \t]*\n(?:[ \t]*\n)+","\n\n",original)
         with self.assertRaisesRegex(RuntimeError,"bad_srt_timestamp"):
-            Sync.parse_cues(original.encode())
+            Sync.parse_cues(normalized_separators.encode())
         clean=ai.normalize_external_english(original.encode(),Sync)
         self.assertEqual(len(Sync.parse_cues(clean)),150)
         self.assertNotIn(b"JUNK",clean)
