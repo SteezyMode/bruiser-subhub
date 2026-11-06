@@ -198,6 +198,44 @@ def modules():
     return batch,engine,source,small,daily,sync,safe_media_path
 
 
+def normalize_external_english(raw, sync):
+    """Repair only excess blank separators, never text, cue timing or numbers.
+
+    Downloaded SRT files sometimes contain four or more successive newlines.
+    Those produce empty blocks in the strict ffsubsync input parser. Normalize
+    a PRIVATE IN-MEMORY COPY only; the downloaded media sidecar is untouched.
+    More serious malformed cues are held, not silently dropped.
+    """
+    if not raw or len(raw) > 2_000_000:
+        raise RuntimeError("english_srt_size_invalid")
+    try:
+        text=raw.decode("utf-8-sig")
+    except UnicodeError:
+        raise RuntimeError("english_srt_non_utf8") from None
+    if "\x00" in text:
+        raise RuntimeError("english_srt_contains_nul")
+    line_text=text.replace("\r\n","\n").replace("\r","\n")
+    clean=re.sub(r"\n[ \t]*\n(?:[ \t]*\n)+", "\n\n", line_text)
+    clean=clean.strip("\n")+"\n"
+    # Verbatim nonblank lines must survive in the same order. No subtitle
+    # dialogue, number, time or textual annotation may be edited or discarded.
+    if ([v for v in line_text.splitlines() if v.strip()] !=
+            [v for v in clean.splitlines() if v.strip()]):
+        raise RuntimeError("unsafe_english_normalization_modified_content")
+    encoded=clean.encode("utf-8")
+    before_count=len(re.findall(
+        r"(?m)^[ \t]*\d{1,3}:\d{2}:\d{2}[,.]\d{3}[ \t]*-->",
+        line_text))
+    after=sync.parse_cues(encoded)
+    if len(after)!=before_count:
+        raise RuntimeError("english_normalization_cue_count_changed")
+    if encoded!=raw:
+        print("SUBHUB_AI_EN_SOURCE_NORMALIZED"
+              " whitespace_or_line_endings_only original_file_unchanged",
+              flush=True)
+    return encoded
+
+
 def saved_media(video, jid, info, daily, source, small, sync, safe_media_path):
     """Exact-file EN only; hold bad external sync, missing EN, unexpected audio."""
     video = safe_media_path(str(video))
@@ -228,7 +266,9 @@ def saved_media(video, jid, info, daily, source, small, sync, safe_media_path):
             raise RuntimeError("external_english_source_unsafe")
         raw = candidate.read_bytes()
         provenance = "external_audio_synced"
-        aligned,timing=source.validate_timing_source(video,raw,"external",sync)
+        normalized = normalize_external_english(raw, sync)
+        aligned,timing=source.validate_timing_source(
+            video,normalized,"external",sync)
     cues = small.parse_srt(aligned.decode("utf-8-sig"),limit=1501)
     if not 150 <= len(cues) <= 1500:
         raise RuntimeError("source_cue_count_outside_safe_initial_pilot_bounds")
