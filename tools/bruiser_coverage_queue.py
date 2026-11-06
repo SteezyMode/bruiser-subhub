@@ -349,6 +349,32 @@ def flag_timing(db, jellyfin_id, target, reason):
             "plan":"keep_original_validate_shift_then_create_versioned_corrected_track"}
 
 
+def update_task_state(db, jellyfin_id, target, desired, note):
+    """Record resumable human/worker handoffs; does not run any work.
+
+    'completed' is deliberately NOT a task state: a verified new JA/EN file
+    must appear in a fresh matrix before the task can retire safely.
+    """
+    if target not in VALID_TARGETS or desired not in STATES:
+        raise ValueError("Invalid target language or queue state")
+    note = str(note or "").strip()
+    if len(note) > 400:
+        raise RuntimeError("State note too long")
+    matched = db.execute(
+        "SELECT t.path,t.action,m.title FROM tasks t "
+        "JOIN media m ON m.path=t.path WHERE m.jellyfin_id=? "
+        "AND t.target=? AND t.active=1", (jellyfin_id,target)).fetchall()
+    if len(matched) != 1:
+        raise RuntimeError("Exactly one active media/language task required")
+    row = matched[0]
+    with db:
+        db.execute("UPDATE tasks SET state=?,note=?,attempts=attempts+1,"
+                   "updated_utc=? WHERE path=? AND target=?",
+                   (desired,note,stamp(),row["path"],target))
+    return {"title":row["title"],"target":target,
+            "action":row["action"],"state":desired}
+
+
 def next_tasks(db, limit=20, action=None):
     args = []
     where = "WHERE t.active=1 AND t.state='pending'"
@@ -378,7 +404,7 @@ def report(db):
 
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("action", choices=("init","status","next","flag-timing"))
+    p.add_argument("action", choices=("init","status","next","flag-timing","set-state"))
     p.add_argument("--matrix", type=Path)
     p.add_argument("--reports", type=Path, default=REPORTS)
     p.add_argument("--state", type=Path, default=STATE)
@@ -387,6 +413,8 @@ def main(argv=None):
     p.add_argument("--jellyfin-id")
     p.add_argument("--language", choices=("en","ja"))
     p.add_argument("--reason")
+    p.add_argument("--queue-state", choices=sorted(STATES))
+    p.add_argument("--note", default="")
     args = p.parse_args(argv)
     if not 1 <= args.limit <= 100:
         raise ValueError("next limit must be between 1 and 100")
@@ -413,6 +441,13 @@ def main(argv=None):
         with queue_db(args.state) as db:
             value=flag_timing(db,args.jellyfin_id,args.language,args.reason)
             print("TIMING_REPAIR_QUEUED",json.dumps(value,ensure_ascii=False))
+    elif args.action == "set-state":
+        if not args.jellyfin_id or not args.language or not args.queue_state:
+            raise ValueError("set-state needs --jellyfin-id --language --queue-state")
+        with queue_db(args.state) as db:
+            result=update_task_state(
+                db,args.jellyfin_id,args.language,args.queue_state,args.note)
+            print("COVERAGE_TASK_UPDATED",json.dumps(result,ensure_ascii=False))
     return 0
 
 
