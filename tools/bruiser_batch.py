@@ -87,6 +87,19 @@ def unit_status():
     return active_unit(UNIT)
 
 
+def lingering_user_manager():
+    """A user service won't survive the final SSH logout without linger."""
+    try:
+        result=subprocess.run(
+            ["loginctl","show-user",str(os.getuid()),"--property=Linger","--value"],
+            capture_output=True,text=True,check=False,timeout=10)
+        if result.returncode == 0:
+            return result.stdout.strip().lower()
+    except (OSError,subprocess.TimeoutExpired):
+        pass
+    return "unknown"
+
+
 def check_manual_publishers():
     result = subprocess.run(
         ["pgrep", "-u", str(os.getuid()), "-f", "ja_first_publish_queue.py"],
@@ -117,6 +130,10 @@ def start(args):
         return status()
     if active_unit(SCHEDULED):
         raise RuntimeError("daily_source_job_active_try_again_after_it_finishes")
+    if lingering_user_manager() == "no":
+        raise RuntimeError(
+            "systemd_linger_disabled_enable_with_sudo_loginctl_enable-linger_"
+            + str(os.getuid()) + "_before_detached_batch")
     if check_manual_publishers():
         raise RuntimeError("manual_staged_subtitle_publisher_is_still_running")
     for p in (CODE / "ja_first_autofill.py",
