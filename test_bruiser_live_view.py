@@ -1,5 +1,6 @@
 """Offline tests for live monitor: honest progress, activity and no mutation."""
 import json
+import sqlite3
 from pathlib import Path
 import tempfile
 import unittest
@@ -8,6 +9,62 @@ from tools import bruiser_live_view as live
 
 
 class LiveViewTests(unittest.TestCase):
+    def test_movie_dashboard_displays_actual_live_bar(self):
+        row={"title":"As Above, So Below (2014) [1080p]",
+             "completed":125,"total":1455,"seconds":140.0,
+             "active":True,"published":False,"state":"TRANSLATING"}
+        display=live.movie_screen(row,pace=1.0,cols=100,
+            metrics="GPU 60°C | draw 24W",
+            events=["SUBHUB_AI_PROGRESS 125/1455"])
+        for expected in ("As Above, So Below","125 / 1,455",
+                         "8.6%","60.0 cues/min","24W",
+                         "SUBHUB_AI_PROGRESS 125/1455",
+                         "Ctrl+C exits VIEW only"):
+            self.assertIn(expected,display)
+
+    def test_movie_state_reads_live_sqlite_checkpoints_not_log(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary)
+            folder=root/"ja-pilot"
+            folder.mkdir(mode=0o700)
+            media=root/"As Above, So Below (2014)"
+            media.mkdir()
+            video=media/"As.Above.So.Below.mp4"
+            video.write_bytes(b"fake")
+            (folder/"manifest.json").write_text(json.dumps({
+                "jellyfin_id":live.PLAMO_JID,"video":str(video),
+                "cue_count":1455}))
+            (folder/"manifest.json").chmod(0o600)
+            with sqlite3.connect(folder/"progress.sqlite3") as db:
+                db.execute("CREATE TABLE translation (idx INTEGER, seconds REAL)")
+                db.executemany("INSERT INTO translation VALUES (?,?)",
+                               [(i,0.5) for i in range(125)])
+            with patch.object(live,"service_running",return_value=True):
+                job=live.movie_job(root=root)
+            self.assertEqual(job["completed"],125)
+            self.assertEqual(job["total"],1455)
+            self.assertTrue(job["active"])
+            self.assertFalse(job["published"])
+
+    def test_checkpoint_complete_not_equal_published(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary)
+            folder=root/"ja-pilot"
+            folder.mkdir(mode=0o700)
+            media=root/"movie.mp4"
+            media.write_bytes(b"fake")
+            (folder/"manifest.json").write_text(json.dumps({
+                "jellyfin_id":live.PLAMO_JID,"video":str(media),
+                "cue_count":1}))
+            (folder/"manifest.json").chmod(0o600)
+            with sqlite3.connect(folder/"progress.sqlite3") as db:
+                db.execute("CREATE TABLE translation (idx INTEGER,seconds REAL)")
+                db.execute("INSERT INTO translation VALUES (0,1)")
+            with patch.object(live,"service_running",return_value=False):
+                job=live.movie_job(root=root)
+            self.assertEqual(job["state"],"FINAL QC / PUBLISH PENDING")
+            self.assertFalse(job["published"])
+
     def test_progress_bars_are_numeric_and_not_faked(self):
         self.assertIn("24 / 600",live.bar(24,600))
         self.assertIn("4%",live.bar(24,600))
