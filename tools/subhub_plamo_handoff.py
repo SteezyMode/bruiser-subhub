@@ -212,27 +212,41 @@ def prepared_source(row, folder, mod):
     st=video.stat()
     manifest=folder/"manifest.json"
     srt=folder/"source.en.srt"
-    if manifest.exists() or srt.exists():
+    if manifest.exists() or srt.exists() or manifest.is_symlink() or srt.is_symlink():
         if any(x.is_symlink() for x in (manifest,srt)):
             raise RuntimeError("unsafe_pinned_source_symlink")
-        if not (manifest.is_file() and srt.is_file()):
+        # A crash between writing EN source and committing its immutable
+        # manifest leaves an orphan. Safe recovery is allowed ONLY when no
+        # model checkpoint exists, so no translated cues could depend on it.
+        if srt.is_file() and not manifest.exists():
+            checkpoint = folder/"progress.sqlite3"
+            if checkpoint.exists() or checkpoint.is_symlink():
+                raise RuntimeError("orphan_source_with_checkpoints_hold")
+            if srt.stat().st_size>2_000_000 or srt.stat().st_mode & 0o077:
+                raise RuntimeError("unsafe_orphan_source_hold")
+            srt.unlink()
+        elif not (manifest.is_file() and srt.is_file()):
             raise RuntimeError("incomplete_pinned_source_hold")
-        m=json.loads(manifest.read_text("utf-8"))
-        if (m.get("jellyfin_id")!=row["jellyfin_id"] or
-                m.get("video")!=str(video) or m.get("size")!=st.st_size or
-                m.get("mtime_ns")!=st.st_mtime_ns or
-                m.get("model_sha256")!=engine.MODEL_HASH):
-            raise RuntimeError("pinned_source_or_model_identity_changed")
-        src=srt.read_text("utf-8")
-        if hashlib.sha256(src.encode()).hexdigest()!=m.get("english_sha256"):
-            raise RuntimeError("pinned_english_source_hash_changed")
-        cues=small.parse_srt(src,limit=1501)
-        if len(cues)!=m["cue_count"] or len(cues)>1500:
-            raise RuntimeError("pinned_english_cue_count_changed")
-        return video,cues,m
+        else:
+            m=json.loads(manifest.read_text("utf-8"))
+            if (m.get("jellyfin_id")!=row["jellyfin_id"] or
+                    m.get("video")!=str(video) or m.get("size")!=st.st_size or
+                    m.get("mtime_ns")!=st.st_mtime_ns or
+                    m.get("model_sha256")!=engine.MODEL_HASH):
+                raise RuntimeError("pinned_source_or_model_identity_changed")
+            src=srt.read_text("utf-8")
+            if hashlib.sha256(src.encode()).hexdigest()!=m.get("english_sha256"):
+                raise RuntimeError("pinned_english_source_hash_changed")
+            cues=small.parse_srt(src,limit=1501)
+            if len(cues)!=m["cue_count"] or len(cues)>1500:
+                raise RuntimeError("pinned_english_cue_count_changed")
+            return video,cues,m
     info=daily.probe(video)
     video,cues,sha,origin,timing=saved_media(
         video,row["jellyfin_id"],info,daily,source,small,sync,safe_media_path)
+    now=video.stat()
+    if (now.st_size!=st.st_size or now.st_mtime_ns!=st.st_mtime_ns):
+        raise RuntimeError("media_changed_during_english_preparation")
     canonical=small.format_srt(cues,"english")
     m={
         "schema":1,"jellyfin_id":row["jellyfin_id"],"video":str(video),
