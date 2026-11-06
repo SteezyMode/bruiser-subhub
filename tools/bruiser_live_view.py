@@ -149,10 +149,10 @@ def published_stage_progress(log_path, phase):
 
 def bar(number, total, width=29):
     if not isinstance(total, int) or total <= 0:
-        return "[" + "." * width + "]  not yet measurable"
+        return "[" + "░" * width + "]  not yet measurable"
     number = max(0, min(int(number or 0), total))
     filled = round(number * width / total)
-    return ("[" + "#" * filled + "-" * (width - filled) +
+    return ("[" + "█" * filled + "░" * (width - filled) +
             f"]  {number:,} / {total:,} ({100*number/total:.0f}%)")
 
 
