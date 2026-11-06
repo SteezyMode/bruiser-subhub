@@ -42,6 +42,36 @@ class HandoffTests(unittest.TestCase):
         path.chmod(0o600)
         return path
 
+    def test_movie_thermal_hysteresis_preserves_abort_and_isolated_runtime(self):
+        from types import SimpleNamespace
+        batch=SimpleNamespace(GPU_PAUSE=73.0,GPU_RESUME=67.0,
+                              GPU_ABORT=83.0)
+        ai.movie_thermal_limits(batch)
+        self.assertEqual((batch.GPU_PAUSE,batch.GPU_RESUME,batch.GPU_ABORT),
+                         (78.0,72.0,83.0))
+
+    def test_failed_spoken_cue_retries_with_fresh_history(self):
+        requests=[]
+        def retry(request,port,english,history):
+            requests.append(list(history))
+            if history:
+                return ("Paris", {}, "held_non_japanese")
+            return ("パリ", {}, "translated")
+        result=ai.recover_held_cue(None,retry,18888,"Paris",
+                                   [("Hello","こんにちは")],"translated")
+        self.assertEqual(result[0],"パリ")
+        self.assertEqual(requests,[[("Hello","こんにちは")],[]])
+
+    def test_cue_recovery_never_checkpoints_untranslated_latin(self):
+        requests=[]
+        def retry(request,port,english,history):
+            requests.append(history)
+            return ("Paris",{}, "held_non_japanese")
+        result=ai.recover_held_cue(None,retry,18888,"Paris",
+                                   [("Hi","やあ")],"translated")
+        self.assertEqual(result[2],"held_non_japanese")
+        self.assertEqual(len(requests),2)
+
     def test_only_source_exhausted_targets_offered(self):
         with tempfile.TemporaryDirectory() as t:
             path=self.db(t)
