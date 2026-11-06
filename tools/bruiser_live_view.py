@@ -8,6 +8,7 @@ Displays only observable state; never treats provider candidates as publications
 from __future__ import annotations
 
 import argparse
+import curses
 from collections import Counter
 from datetime import datetime, timezone
 import json
@@ -267,30 +268,83 @@ def terminal_screen(data, active, log_lines, columns=88):
     return "\n".join(rows) + "\n"
 
 
+def draw_changed_lines(window, output, previous=(), previous_size=None):
+    """Update only changed terminal rows, not the entire screen.
+
+    ncurses keeps an off-screen buffer and flushes only modified cells.
+    Never clear/redraw the terminal on each polling cycle. A resize is the
+    only reason to erase the viewport. The source worker is never touched.
+    """
+    height, width = window.getmaxyx()
+    height, width = max(1, height), max(2, width)
+    size = (height, width)
+    lines = output.splitlines()
+    # Preserve footer on short terminals; prefer real counters to old events.
+    capacity = max(0, height - 1)  # avoid writing lower-right corner
+    if len(lines) > capacity:
+        footer = lines[-2:] if capacity >= 3 else []
+        head = min(capacity - len(footer), len(lines))
+        lines = lines[:head] + footer
+    lines = lines[:capacity]
+    if size != previous_size:
+        window.erase()
+        previous = ()
+    for row in range(max(len(previous), len(lines))):
+        value = lines[row] if row < len(lines) else ""
+        old = previous[row] if row < len(previous) else None
+        if value != old or size != previous_size:
+            # Padded overwrite, not clrtoeol: changed cells alone get flushed.
+            padded = value[:width-1].ljust(width-1)
+            try:
+                window.addnstr(row, 0, padded, width-1)
+            except curses.error:
+                # A narrower or newly resized terminal must never kill the view.
+                pass
+    window.noutrefresh()
+    curses.doupdate()
+    return tuple(lines), size
+
+
+def interactive_view(window, interval, recent_count):
+    """One stable ncurses dashboard; incremental rows, no screen flicker."""
+    try:
+        curses.curs_set(0)
+    except curses.error:
+        pass
+    previous, size = (), None
+    while True:
+        doc = state()
+        active = service_running()
+        recent = recent_log(doc.get("log"), recent_count) if doc else []
+        columns = max(64, window.getmaxyx()[1])
+        output = terminal_screen(doc, active, recent, columns)
+        previous, size = draw_changed_lines(window, output, previous, size)
+        time.sleep(interval)
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--once", action="store_true", help="draw a single snapshot")
     p.add_argument("--interval", type=float, default=2.0,
-                   help="seconds between redraws, 1..30")
+                   help="seconds between updates, 1..30")
     p.add_argument("--recent", type=int, default=8,
                    help="recent events to display, 1..15")
     args = p.parse_args(argv)
     if not 1 <= args.interval <= 30 or not 1 <= args.recent <= 15:
         p.error("invalid refresh interval or event count")
     try:
-        while True:
+        if args.once:
             doc = state()
             active = service_running()
-            recent = recent_log(doc.get("log"),args.recent) if doc else []
-            cols = shutil.get_terminal_size(fallback=(88,30)).columns
-            output = terminal_screen(doc, active, recent, cols)
-            if not args.once and sys.stdout.isatty():
-                sys.stdout.write("\033[2J\033[H")
-            sys.stdout.write(output)
-            sys.stdout.flush()
-            if args.once:
-                break
-            time.sleep(args.interval)
+            recent = recent_log(doc.get("log"), args.recent) if doc else []
+            columns = shutil.get_terminal_size(fallback=(88,30)).columns
+            sys.stdout.write(terminal_screen(doc,active,recent,columns))
+            return 0
+        if not (sys.stdout.isatty() and sys.stdin.isatty()):
+            raise RuntimeError("Interactive viewer requires a TTY: use ssh -t; "
+                               "for snapshots use --once")
+        # curses.wrapper restores terminal and cursor when Ctrl+C is pressed.
+        curses.wrapper(interactive_view, args.interval, args.recent)
     except KeyboardInterrupt:
         print("\nLive view closed. Background batch unchanged.")
     return 0
