@@ -28,7 +28,7 @@ UNIT = "bruiser-subhub-batch.service"
 JST = ZoneInfo("Asia/Tokyo")
 ESCAPE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
 CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
-HIGHLIGHTS = ("SEARCHING:", "STAGING:", "PUBLISHED:", "STAGED:",
+HIGHLIGHTS = ("SEARCHING:", "STAGING:", "PUBLISHED:", "STAGED:", "RESULT:",
               "HELD:", "FFSUBSYNC HELD:", "DIRECT HELD:",
               "BRUISER_PUBLISH_ITEM:", "PROVIDER_LIMIT_REACHED",
               "BRUISER_BATCH_FAILED:", "BRUISER_BATCH_COMPLETE",
@@ -106,7 +106,7 @@ def recent_log(path, count=8):
     return selected[-count:]
 
 
-def published_stage_progress(log_path, phase):
+def published_stage_details(log_path, phase):
     """Count titles processed in the current publication pass from worker log.
 
     Controller's state currently does not increment phase_current for MEDIA
@@ -135,17 +135,34 @@ def published_stage_progress(log_path, phase):
     section = lines[current:]
     total = 0
     done = 0
+    last_result = ""
     for line in section:
         if line.startswith("=== UNIFIED JAPANESE SUBTITLE PUBLISH QUEUE ==="):
             total = 0
             done = 0
+            last_result = ""
         if "unique titles:" in line:
             m = re.search(r"unique titles:\s*(\d+)",line)
             if m:
                 total = int(m.group(1))
         if line.startswith("MEDIA:"):
             done += 1
-    return done, total
+            last_result = ""
+        if line.startswith("RESULT:"):
+            last_result = scrub(line[len("RESULT:"):].split(" | ",1)[0].strip(),100)
+    position = f"{done} / {total}" if total else str(done)
+    if last_result:
+        label = f"Last evaluated: {last_result} (item {position})"
+    elif done:
+        label = f"Validating subtitle {position} (title not yet reported)"
+    else:
+        label = "Preparing Japanese subtitle validation"
+    return done, total, label
+
+
+def published_stage_progress(log_path, phase):
+    details = published_stage_details(log_path, phase)
+    return details[:2] if details is not None else None
 
 
 def bar(number, total, width=29):
@@ -195,10 +212,15 @@ def terminal_screen(data, active, log_lines, columns=88):
         cycles if raw_state == "completed" else min(max(cycle-1,0),cycles))
     current = data.get("phase_current")
     total = data.get("phase_total")
-    if phase in ("recover_already_staged", "sync_and_publish") and not total:
-        reported = published_stage_progress(data.get("log"),phase)
+    title = scrub(data.get("last_item"), 93)
+    if phase in ("recover_already_staged", "sync_and_publish"):
+        reported = published_stage_details(data.get("log"),phase)
         if reported is not None:
-            current, total = reported
+            current, total, title = reported
+        else:
+            title = "Validating Japanese subtitles (title unavailable)"
+    elif phase not in ("search_opensubtitles", "stage_matched_japanese"):
+        title = "Processing " + scrub(PHASES.get(phase,phase.replace("_"," ")), 65)
     phase_progress = bar(current, total)
     counts = Counter(data.get("counts") or {})
     upper = cycles * int(data.get("search_budget") or 0)
@@ -221,7 +243,7 @@ def terminal_screen(data, active, log_lines, columns=88):
         "All runs: " + bar(searched, upper) + " maximum planned attempts",
         "This step:" + phase_progress if phase == "search_opensubtitles"
         else "This step:" + phase_progress,
-        f"Title:    {scrub(data.get('last_item'), 93) or '(awaiting current title)'}",
+        f"Title:    {title or '(awaiting current title)'}",
         "",
         "REAL WORK COUNTS (THIS BATCH)",
         f"  Searches started: {searched:<8}   Completed: {completed_searches:<8}   In-flight: {in_flight}",
