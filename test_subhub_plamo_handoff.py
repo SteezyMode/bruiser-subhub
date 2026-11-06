@@ -95,13 +95,13 @@ class HandoffTests(unittest.TestCase):
                  for i in range(22)])
 
     def test_malformed_one_cue_is_recoverable_but_infrastructure_errors_are_not(self):
-        def bad(port, english, history):
+        def bad(request, port, english, history):
             raise RuntimeError("cue_model_error_after_retry:empty_or_malformed_model_output")
         ja,usage,status=ai.recover_held_cue(
             None,bad,18888,"Hello",[("Yes","はい")],"translated")
         self.assertEqual(status,"held_non_japanese")
         self.assertEqual(ja,"")
-        def failure(port, english, history):
+        def failure(request, port, english, history):
             raise RuntimeError("GPU_OFFLOAD_NOT_ACTIVE")
         with self.assertRaisesRegex(RuntimeError,"GPU_OFFLOAD_NOT_ACTIVE"):
             ai.recover_held_cue(None,failure,18888,"Hello",[],"translated")
