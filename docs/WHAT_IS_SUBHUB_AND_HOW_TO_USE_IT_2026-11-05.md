@@ -1,5 +1,7 @@
 # What SubHub actually is — November 5, 2026
 
+> **Later evidence (November 6):** [SubHub coverage postmortem and recovery strategy](SUBHUB_COVERAGE_POSTMORTEM_AND_STRATEGY_2026-11-06.md). Source jobs completed but conversion was limited by provider downloads, synchronization holds and English file recovery. User priority is usable Japanese coverage across *all* media, not hard-coded genre/series allocation. Treat November 5 results in this document as historical.
+
 ## Identity and product boundary
 
 **Bruiser SubHub is a standalone server-side utility, not a Jellyfin plugin, a desktop application, or a flagship Bruiser/OptiPlex NOW feature.** It is currently a collection of tested Python controllers, inventory/search/QA/publishing tools, and a host-side \`systemd --user\` service. It uses **Sublarr** as a separate installed subtitle search/download service, and **ffsubsync** to synchronize third-party Japanese SRTs to the media on the user's home server.
