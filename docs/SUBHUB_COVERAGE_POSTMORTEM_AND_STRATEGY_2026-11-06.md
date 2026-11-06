@@ -119,6 +119,10 @@ English inventory at end: **12,399** records; `japanese_present=572`, `jellyfin_
 - Require offline tests for priority consistency, source provenance, media path safety, correct release / episode, 429 stop, publish create-only, resumption, and no double counting. Run on a small live sample before enabling broad automatic rollout.
 - Keep live host deployment separate from GitHub commits. Deploy only verified changes, preserving checkpoints/timers and the independent PLaMo batch. If a change reduces actual coverage or produces misaligned subtitles, revert that component without discarding saved evidence.
 
+## Implementation added November 6: all-English / missing-Japanese census
+
+A **new read-only whole-library census** is committed as [`tools/audit_english_without_japanese.py`](../tools/audit_english_without_japanese.py), together with [offline tests](../test_audit_english_without_japanese.py), a [guarded host runner](../tools/run_english_no_japanese_audit.sh) and a [usage/interpretation guide](BRUISER_LIBRARY_COVERAGE_AUDIT_2026-11-06.md). It enumerates every Jellyfin Movie/Episode and produces private CSV/JSON candidates for Bruiser: parsed English SRT, unverified embedded English text, other text subtitle formats; excludes known Japanese sidecars/streams, flags Japanese-audio media and previous `jellyfin_only` cases, and exports unresolved metadata separately. It does **not** automatically download, sync or translate anything. **Not executed on the real host yet; no candidate totals established.** A host census is the next authoritative step before designing batch translation scope or English fallback export.
+
 ## Next development session: actionable order
 
 1. **QA without altering running work:** privately export a sample of the 28 Japanese publications and inspect their text/playback; identify any actual quality faults.
