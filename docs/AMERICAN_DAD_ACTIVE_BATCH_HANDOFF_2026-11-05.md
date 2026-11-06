@@ -1,5 +1,7 @@
 # American Dad — active PLaMo 8B batch: new-chat handoff (2026-11-05 JST)
 
+> **General library policy (Nov 6):** [Canonical Bruiser source/timing/GPU order](BRUISER_SUBTITLE_POLICY_CANONICAL_2026-11-06.md). The American Dad PLaMo 8B work is independently validated; the general queue must not trigger a duplicate batch. GPU translation is expected to be widely used after source-first/English preflight, not avoided. This historic batch handoff does not override the newly fixed whole-library priorities.
+
 **Read this first in a new chat before touching the OptiPlex.** This document supersedes older *American Dad* and PLaMo experiment notes **for the current household batch**. It is a running private-install pilot, not a general-purpose product release. Keep the source-only Japanese subtitle acquisition pipeline separate.
 
 ## Owner's actual goal and decisions
