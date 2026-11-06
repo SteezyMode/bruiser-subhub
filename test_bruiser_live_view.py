@@ -71,12 +71,12 @@ class LiveViewTests(unittest.TestCase):
             base.mkdir(mode=0o700)
             path = base / "job.log"
             logs = (
-                "=== PHASE stage_matched_japanese 2026-11-06T04:01Z ===\\n"
-                "[12/30] STAGING: Bowfinger (1999)\\n"
-                "=== PHASE sync_and_publish 2026-11-06T04:02Z ===\\n"
-                "=== UNIFIED JAPANESE SUBTITLE PUBLISH QUEUE ===\\n"
-                "Staged candidates: 29 | unique titles: 29 | max new sidecars: 30\\n"
-                "MEDIA: one | candidate IDs: 123\\n"
+                "=== PHASE stage_matched_japanese 2026-11-06T04:01Z ===\n"
+                "[12/30] STAGING: Bowfinger (1999)\n"
+                "=== PHASE sync_and_publish 2026-11-06T04:02Z ===\n"
+                "=== UNIFIED JAPANESE SUBTITLE PUBLISH QUEUE ===\n"
+                "Staged candidates: 29 | unique titles: 29 | max new sidecars: 30\n"
+                "MEDIA: one | candidate IDs: 123\n"
             )
             path.write_text(logs, encoding="utf-8")
             path.chmod(0o600)
@@ -89,7 +89,7 @@ class LiveViewTests(unittest.TestCase):
                 text = live.terminal_screen(data, True, [], 88)
                 self.assertIn("Validating subtitle 1 / 29", text)
                 self.assertNotIn("Bowfinger", text)
-                path.write_text(logs + "RESULT: The Shining (1980) | ready_ffsubsync\\n",
+                path.write_text(logs + "RESULT: The Shining (1980) | ready_ffsubsync\n",
                                 encoding="utf-8")
                 text = live.terminal_screen(data, True, [], 88)
                 self.assertIn("Last evaluated: The Shining (1980)", text)
