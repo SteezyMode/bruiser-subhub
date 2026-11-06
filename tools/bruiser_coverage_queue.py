@@ -253,9 +253,11 @@ def queue_db(folder=STATE):
 
 
 def import_snapshot(db, rows, digest, source, searches=None, staged=None):
-    if db.execute("SELECT 1 FROM snapshots WHERE hash=?", (digest,)).fetchone():
-        return {"result": "already_imported", "snapshot": digest[:12],
-                "active_tasks": db.execute("SELECT COUNT(*) FROM tasks WHERE active=1").fetchone()[0]}
+    # The same library snapshot can have NEW provider search/staging evidence.
+    # Reconcile plans even on repeat imports; never reset old held/cue history
+    # unless the concrete next action actually changed.
+    same_snapshot = bool(db.execute(
+        "SELECT 1 FROM snapshots WHERE hash=?", (digest,)).fetchone())
     searches, staged = searches or {}, staged or set()
     flags = {(r["path"],r["target"]): r["reason"] for r in db.execute(
         "SELECT path,target,reason FROM timing_flags")}
@@ -304,6 +306,8 @@ def import_snapshot(db, rows, digest, source, searches=None, staged=None):
                     ON CONFLICT(path,target) DO UPDATE SET
                         action=excluded.action,reason=excluded.reason,
                         priority=excluded.priority,active=1,
+                        state=CASE WHEN tasks.action<>excluded.action
+                            THEN 'pending' ELSE tasks.state END,
                         updated_utc=excluded.updated_utc""",
                     (path,target,action,reason,priority,timestamp))
         for old in db.execute("SELECT path,target FROM tasks WHERE active=1"):
@@ -311,9 +315,11 @@ def import_snapshot(db, rows, digest, source, searches=None, staged=None):
                 db.execute("UPDATE tasks SET active=0,updated_utc=? "
                            "WHERE path=? AND target=?",
                            (timestamp,old["path"],old["target"]))
-        db.execute("INSERT INTO snapshots VALUES(?,?,?,?)",
-                   (digest,str(source),timestamp,len(rows)))
-    return {"result":"imported","source_snapshot":digest[:12],
+        if not same_snapshot:
+            db.execute("INSERT INTO snapshots VALUES(?,?,?,?)",
+                       (digest,str(source),timestamp,len(rows)))
+    return {"result":"reconciled_existing_snapshot" if same_snapshot else "imported",
+            "source_snapshot":digest[:12],
             "media":len(rows),"active_tasks":len(live),
             "by_action":dict(sorted(outcomes.items()))}
 
