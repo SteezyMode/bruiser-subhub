@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import argparse
 import curses
+import sqlite3
+import hashlib
 from collections import Counter
 from datetime import datetime, timezone
 import json
@@ -25,6 +27,9 @@ HOME = Path.home()
 ROOT = HOME / "bruiser-pilot" / "batch-control"
 STATUS = ROOT / "current.json"
 UNIT = "bruiser-subhub-batch.service"
+PLAMO_UNIT = "bruiser-asabove-plamo.service"
+PLAMO_WORK = HOME / "bruiser-pilot/subhub-translation"
+PLAMO_JID = "d789e397319aad9a860633811b528b40"
 JST = ZoneInfo("Asia/Tokyo")
 ESCAPE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
 CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
@@ -172,6 +177,143 @@ def bar(number, total, width=29):
     filled = round(number * width / total)
     return ("[" + "█" * filled + "░" * (width - filled) +
             f"]  {number:,} / {total:,} ({100*number/total:.0f}%)")
+
+
+def movie_job(jid=PLAMO_JID, root=PLAMO_WORK):
+    """Read-only PLaMo SQLite checkpoints, not sparse journal progress samples.
+
+    Exact Jellyfin ID prevents mixing this film with American Dad or future jobs.
+    Results count as published only with both a result marker AND real JA file.
+    """
+    if not re.fullmatch(r"[a-f0-9]{32}", jid):
+        raise RuntimeError("invalid_movie_identity")
+    if not root.is_dir() or root.is_symlink():
+        return None
+    for folder in root.glob("ja-*"):
+        if folder.is_symlink() or not folder.is_dir():
+            continue
+        manifest = folder / "manifest.json"
+        if manifest.is_symlink() or not manifest.is_file():
+            continue
+        if manifest.stat().st_mode & 0o077:
+            continue
+        try:
+            data = json.loads(manifest.read_text("utf-8"))
+        except (ValueError, OSError):
+            continue
+        if not isinstance(data,dict) or data.get("jellyfin_id") != jid:
+            continue
+        video=Path(str(data.get("video") or ""))
+        total=int(data.get("cue_count") or 0)
+        if not video.is_absolute() or total<=0:
+            raise RuntimeError("invalid_movie_checkpoint_identity")
+        checkpoint=folder/"progress.sqlite3"
+        completed=0
+        seconds=0.0
+        if checkpoint.exists():
+            if checkpoint.is_symlink() or not checkpoint.is_file():
+                raise RuntimeError("unsafe_movie_checkpoint")
+            with sqlite3.connect("file:"+str(checkpoint.resolve())+"?mode=ro",
+                                 uri=True,timeout=5) as db:
+                db.execute("PRAGMA query_only=ON")
+                completed,seconds=db.execute(
+                    "SELECT COUNT(*),COALESCE(SUM(seconds),0) FROM translation"
+                ).fetchone()
+        if completed>total:
+            raise RuntimeError("movie_checkpoint_overruns_source")
+        published=False
+        result=folder/"result.json"
+        if result.exists():
+            if result.is_symlink() or not result.is_file() or result.stat().st_mode & 0o077:
+                raise RuntimeError("unsafe_movie_publication_record")
+            info=json.loads(result.read_text("utf-8"))
+            name=info.get("subtitle_name")
+            if (info.get("jellyfin_id")==jid and info.get("state")=="published"
+                    and isinstance(name,str) and
+                    name==video.stem+".ja.PLaMo8B.srt"):
+                sidecar=video.parent/name
+                published=sidecar.is_file() and not sidecar.is_symlink()
+        active=service_running(PLAMO_UNIT)
+        return {"jellyfin_id":jid,"title":video.parent.name,
+                "completed":int(completed),"total":total,
+                "seconds":float(seconds),"published":published,
+                "active":active,"state":("PUBLISHED" if published else
+                    "TRANSLATING" if active else "FINAL QC / PUBLISH PENDING"
+                    if completed==total else "STOPPED / NEEDS RESUME")}
+    return None
+
+
+def movie_metrics():
+    try:
+        result=subprocess.run([
+            "nvidia-smi",
+            "--query-gpu=temperature.gpu,utilization.gpu,memory.used,memory.total,power.draw,power.limit",
+            "--format=csv,noheader,nounits"],
+            capture_output=True,text=True,timeout=5)
+        if result.returncode != 0:
+            return "GPU data temporarily unavailable"
+        x=[v.strip() for v in result.stdout.splitlines()[0].split(",")]
+        return (f"GPU {x[0]}°C | load {x[1]}% | VRAM {x[2]}/{x[3]} MiB"
+                f" | draw {x[4]}W / cap {x[5]}W")
+    except (OSError,IndexError,subprocess.TimeoutExpired):
+        return "GPU data temporarily unavailable"
+
+
+def movie_events():
+    try:
+        result=subprocess.run([
+            "journalctl","--user","-u",PLAMO_UNIT,"-o","cat",
+            "-n","75","--no-pager"],
+            capture_output=True,text=True,timeout=5)
+        if result.returncode:
+            return []
+        prefixes=("SUBHUB_AI_PROGRESS","SUBHUB_AI_START","SUBHUB_AI_PUBLISHED",
+                  "SUBHUB_AI_HELD","THERMAL_PAUSE","THERMAL_RESUME",
+                  "GPU_OFFLOAD_VERIFIED")
+        return [scrub(line,105) for line in result.stdout.splitlines()
+                if any(v in line for v in prefixes)][-5:]
+    except (OSError,subprocess.TimeoutExpired):
+        return []
+
+
+def movie_screen(job, pace=None, cols=88, metrics=None, events=None):
+    """Stable live bar for the CURRENT movie, sourced from committed SQLite cues."""
+    cols=max(55,min(int(cols),132))
+    n,t=job["completed"],job["total"]
+    pct=100*n/t
+    # Startup estimate from checkpointed per-cue compute time; live pace
+    # overrides when we have enough real wall-clock observations.
+    rate=pace if pace and pace>0 else (
+        n/job["seconds"] if n>0 and job["seconds"]>0 else None)
+    eta=round((t-n)/rate) if rate and rate>0 else None
+    label=(f"{eta//3600}h {(eta%3600)//60}m"
+           if eta is not None else "calculating")
+    lines=[
+        "="*min(cols,90),
+        "BRUISER SUBHUB | LIVE JAPANESE MOVIE TRANSLATION | "+clock_str(),
+        "="*min(cols,90),
+        "",
+        "MOVIE    "+scrub(job["title"],cols-10),
+        "STATE    "+job["state"],
+        "",
+        "PLaMo 8B  "+bar(n,t,width=max(20,min(48,cols-36))),
+        f"COMPLETE {n:,} / {t:,} CUES  ({pct:.1f}%)",
+        ("PACE     "+f"{rate*60:.1f} cues/min" if rate else "PACE     Measuring..."),
+        "ETA      "+("Done" if job["published"] else label),
+        "",
+        metrics if metrics is not None else "",
+        "",
+        "RECENT TRANSLATION ACTIVITY"
+    ]
+    lines+=["  "+scrub(x,cols-4) for x in (events or [])] or [
+        "  Waiting for PLaMo event"]
+    lines+=["","="*min(cols,90),
+            "Refreshing every 2 seconds. Ctrl+C exits VIEW only; translation continues."]
+    if job["published"]:
+        lines.append("JAPANESE SUBTITLES PUBLISHED - available in Jellyfin.")
+    if not job["active"] and not job["published"]:
+        lines.append("Service inactive. Check journal before deciding to resume.")
+    return "\n".join(lines)+"\n"
 
 
 def clock_str(when=None):
@@ -335,11 +477,25 @@ def interactive_view(window, interval, recent_count):
         pass
     previous, size = (), None
     while True:
-        doc = state()
-        active = service_running()
-        recent = recent_log(doc.get("log"), recent_count) if doc else []
+        movie = movie_job()
         columns = max(64, window.getmaxyx()[1])
-        output = terminal_screen(doc, active, recent, columns)
+        if movie:
+            # Pace from checkpoint movement; never fabricate progress from GPU utilization.
+            tick=time.monotonic()
+            if not hasattr(interactive_view, "_samples"):
+                interactive_view._samples=[]
+            samples=interactive_view._samples
+            samples.append((tick,movie["completed"]))
+            del samples[:-25]
+            pace=((samples[-1][1]-samples[0][1])/(samples[-1][0]-samples[0][0])
+                  if len(samples)>1 and samples[-1][1]>samples[0][1] and
+                  samples[-1][0]>samples[0][0] else None)
+            output=movie_screen(movie,pace,columns,movie_metrics(),movie_events())
+        else:
+            doc = state()
+            active = service_running()
+            recent = recent_log(doc.get("log"), recent_count) if doc else []
+            output = terminal_screen(doc, active, recent, columns)
         previous, size = draw_changed_lines(window, output, previous, size)
         time.sleep(interval)
 
@@ -356,11 +512,17 @@ def main(argv=None):
         p.error("invalid refresh interval or event count")
     try:
         if args.once:
-            doc = state()
-            active = service_running()
-            recent = recent_log(doc.get("log"), args.recent) if doc else []
+            movie = movie_job()
             columns = shutil.get_terminal_size(fallback=(88,30)).columns
-            sys.stdout.write(terminal_screen(doc,active,recent,columns))
+            if movie:
+                sys.stdout.write(movie_screen(movie,cols=columns,
+                                              metrics=movie_metrics(),
+                                              events=movie_events()))
+            else:
+                doc = state()
+                active = service_running()
+                recent = recent_log(doc.get("log"), args.recent) if doc else []
+                sys.stdout.write(terminal_screen(doc,active,recent,columns))
             return 0
         if not (sys.stdout.isatty() and sys.stdin.isatty()):
             raise RuntimeError("Interactive viewer requires a TTY: use ssh -t; "
