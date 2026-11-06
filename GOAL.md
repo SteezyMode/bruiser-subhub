@@ -1,5 +1,7 @@
 # The actual goal
 
+> **MOST RECENT OWNER DECISION (November 6, 2026):** [Canonical Bruiser coverage/sourcing/repair/GPU-fallback contract](docs/BRUISER_SUBTITLE_POLICY_CANONICAL_2026-11-06.md) supersedes conflicting previous model-first/source-only proposals. Repair otherwise good **English or Japanese** timing before discarding it. Search real Japanese OpenSubtitles sources first, then verified EN recovery and significant eventual local GPU translation as **last resort, not an option to avoid**. PLaMo 8B has already been accepted for American Dad; E4B model statements below are legacy context, not permission to restart model comparisons. The full existing EN+JA library baseline is complete; do not rescan without a real reason.
+
 > **2026-11-05 implementation update:** The household's highest-yield current route is **existing Japanese subtitle sourcing + ffsubsync + create-only publication**, which the user has now verified live. Automatic DIY translation is intentionally disabled in the source-only daily timer; test new PLaMo 3 Translate 0.8B/2B only as a separate prospective fallback for titles lacking satisfactory Japanese but having correctly timed English. See [hybrid policy](docs/HYBRID_JAPANESE_SOURCE_VS_DIY_POLICY_2026-11-05.md). Older model-first production goals and proposals below are historical; they do not authorize activating translation in the live source service.
 
 
