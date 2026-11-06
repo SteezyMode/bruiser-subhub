@@ -102,6 +102,14 @@ It shows **filled/empty progress bars** for completed source cycles, actual sear
 
 **Important: first live batch** was confirmed started by the owner at `2026-11-06T03:15:34Z` (`12:15:34 JST`): `Linger=yes`, `BATCH_STARTED batch-20261106T031534Z`, `State: running`, `source lock acquired`. The two immediate status samples showed `queued / Cycle 0 of 5`, still in opaque startup; they do not prove provider activity. The viewer will show either actual subsequent progress or a startup-staleness warning. **Live viewer is committed to GitHub, not host-deployed until confirmed by owner output.**
 
+## Nov 6, 12:28 JST — live dashboard deployed and first real results
+
+Owner successfully installed `~/.local/bin/bruiser-live`; **6/6 offline viewer tests passed**, and the read-only full-screen display updated repeatedly at two-second intervals over the same running `batch-20261106T031534Z`. The first source-only recovery phase completed with **21 staged-Japanese media held**, **0 new JA published**; this is real low publication yield, not a display problem. The worker then entered `SEARCH OPENSUBTITLES`, cycle **1/5**, reporting **9 started** provider searches of up to **600** that cycle (up to **3,000** over five cycles), focused on pending TV entries. The same title remained in-flight for approximately 23 seconds across repeated snapshots; the request subprocess allows up to **110 seconds** before recording an error, so 23 seconds alone is not a stalled worker. Provider download attempts, newly staged files and new publications at this snapshot: **0**.
+
+**Live-view telemetry issue:** Original viewer displayed plausible/no-match/error counters, but omitted **review-only search results**. Thus 9 searches started with zero plausible/none/errors does *not* prove zero searches completed: they may have been classified `review`. GitHub viewer code was updated to distinguish `Searches started`, `Completed`, `In-flight`, and `Review needed` alongside `Plausible`/`No match`/`Error`; test updated. This is **viewer-only and read-only**. The owner has **not yet installed this newer viewer revision**; its GitHub commit alone does not alter the currently open terminal.
+
+**Source publication issue:** 21/21 held, including several source-format and timing-gate classifications. See [issue #64](https://github.com/SteezyMode/bruiser-subhub/issues/64) for targeted validation repair (including high-trust constant offsets beyond legacy ±2s), and **do not hot-patch or restart the running worker**. The original staged subtitle bytes and private per-title investigation evidence remain on host.
+
 ## Permanent developer instructions
 
 - Start and inspect batches using the CLI, not dozens of bespoke scripts. Operator progress must be observable without interpreting raw logs.
