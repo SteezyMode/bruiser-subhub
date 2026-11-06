@@ -263,14 +263,18 @@ def pick(rows, db, budget):
             OR (outcome NOT IN ('in_progress', 'error') AND searched_at >= ?)""",
         (now - 6 * 3600, now - 86400, now - 30 * 86400)
     )}
-    by_type = {"Movie": [], "Episode": []}
+    # The persistent coverage queue ranks missing Japanese subtitle work;
+    # never burn provider calls on titles already staged, held or headed to AI.
+    # A new library item not yet in the last matrix is eligible only AFTER
+    # known pending queue items. No arbitrary Movie/Episode quota.
+    queue = priorities.active_coverage_queue()
+    choices = []
     for row in rows:
         kind = row.get("kind")
         key = str(row.get("jellyfin_id") or "")
-        if (kind not in by_type or not key or key in done
+        if (kind not in ("Movie", "Episode") or not key or key in done
                 or row.get("status") != "ready_ja_search"):
             continue
-        # Cheap checks only. Do not stat media or enumerate directories here.
         if not isinstance(row.get("host_path"), str):
             continue
         if Path(row["host_path"]).suffix.lower() not in SUPPORTED:
@@ -283,41 +287,20 @@ def pick(rows, db, budget):
             if not (row.get("series_title") and type(season) is int
                     and season >= 1 and type(episode) is int and episode >= 1):
                 continue
-        by_type[kind].append((hashlib.sha256(key.encode()).hexdigest(), row))
-
-    for kind in by_type:
-        by_type[kind].sort(key=lambda pair: (priorities.priority(pair[1]), pair[0]))
-
-    # More movies than television, prioritizing horror/drama and the owner's
-    # two explicitly requested series. Fill with other content when exhausted.
-    movie_quota = max(1, budget * 3 // 4)
-    quotas = {"Movie": movie_quota, "Episode": budget - movie_quota}
+        order = priorities.queue_position(row, "search", queue)
+        if order is None:
+            continue
+        choices.append((order, hashlib.sha256(key.encode()).hexdigest(), row))
+    choices.sort(key=lambda item: (item[0], item[1]))
     chosen = []
-    for kind in ("Movie", "Episode"):
-        count = 0
-        for _, row in by_type[kind]:
-            if count >= quotas[kind]:
-                break
-            query = query_for(row)  # Only now access the media drive.
-            if query is None:
-                continue
-            chosen.append({"id": str(row["jellyfin_id"]), "row": row, "query": query})
-            count += 1
-    if len(chosen) < budget:
-        known = {item["id"] for item in chosen}
-        extras = sorted(
-            (pair for values in by_type.values() for pair in values
-             if str(pair[1]["jellyfin_id"]) not in known),
-            key=lambda pair: (priorities.priority(pair[1]), pair[0])
-        )
-        for _, row in extras:
-            if len(chosen) >= budget:
-                break
-            query = query_for(row)
-            if query is not None:
-                chosen.append({"id": str(row["jellyfin_id"]), "row": row, "query": query})
+    for _, _, row in choices:
+        if len(chosen) >= budget:
+            break
+        query = query_for(row)  # Only short-listed files get media access.
+        if query is not None:
+            chosen.append({"id": str(row["jellyfin_id"]), "row": row,
+                           "query": query})
     return chosen
-
 
 def save_attempt(db, job, outcome, total=None, rated=None):
     """Write each search result immediately, including interrupted attempts."""
