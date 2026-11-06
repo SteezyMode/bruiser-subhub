@@ -140,6 +140,49 @@ class HandoffTests(unittest.TestCase):
                 ai.saved_media(video,"fid",info,Daily,
                                None,None,None,lambda p:Path(p))
 
+    def test_orphan_english_source_after_crash_is_reprepared(self):
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as t:
+            video=Path(t)/"movie.mkv"
+            video.write_bytes(b"fixture")
+            work=Path(t)/"checkpoint"
+            work.mkdir(mode=0o700)
+            orphan=work/"source.en.srt"
+            orphan.write_text("interrupted prepare",encoding="utf-8")
+            orphan.chmod(0o600)
+            cues=[{"number":1,"start":"00:00:00,000","end":"00:00:01,000",
+                   "english":"Hi."}]
+            engine=SimpleNamespace(MODEL_HASH="testhash")
+            daily=SimpleNamespace(probe=lambda v:{"audio_en":True,"ja":False,
+                                                  "embedded_en":0})
+            small=SimpleNamespace(format_srt=lambda rows,lang:"fresh English SRT")
+            mod=(None,engine,None,small,daily,None,lambda v:Path(v))
+            row={"jellyfin_id":"real-id","path":str(video),"kind":"Movie"}
+            with patch.object(ai,"saved_media",return_value=(
+                    video,cues,"rawhash","same_file",{"mode":"embedded"})):
+                _,got,m=ai.prepared_source(row,work,mod)
+            self.assertEqual(got,cues)
+            self.assertEqual(orphan.read_text(),"fresh English SRT")
+            self.assertEqual(m["jellyfin_id"],"real-id")
+            self.assertTrue((work/"manifest.json").is_file())
+
+    def test_orphan_source_with_cue_checkpoint_must_hold(self):
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as t:
+            video=Path(t)/"movie.mkv"
+            video.write_bytes(b"fixture")
+            work=Path(t)/"checkpoint"
+            work.mkdir(mode=0o700)
+            orphan=work/"source.en.srt"
+            orphan.write_text("orphan",encoding="utf-8")
+            orphan.chmod(0o600)
+            (work/"progress.sqlite3").write_bytes(b"checkpoint")
+            mod=(None,SimpleNamespace(MODEL_HASH="test"),None,None,
+                 None,None,lambda p:Path(p))
+            with self.assertRaisesRegex(RuntimeError,"orphan_source_with_checkpoints"):
+                ai.prepared_source({"jellyfin_id":"x","path":str(video)},work,mod)
+            self.assertEqual(orphan.read_text(),"orphan")
+
     def test_source_routing_is_not_based_on_filename_only(self):
         self.assertNotIn("American Dad",ai.__doc__ or "")
         self.assertTrue(ai.ALLOWED_ACTIONS.issubset(ai.PLANNABLE_ACTIONS))
