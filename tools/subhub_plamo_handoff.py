@@ -223,6 +223,7 @@ def normalize_external_english(raw, sync):
             [v for v in clean.splitlines() if v.strip()]):
         raise RuntimeError("unsafe_english_normalization_modified_content")
     encoded=clean.encode("utf-8")
+    trailer_quarantined=False
     before_count=len(re.findall(
         r"(?m)^[ \t]*\d{1,3}:\d{2}:\d{2}[,.]\d{3}[ \t]*-->",
         line_text))
@@ -265,6 +266,7 @@ def normalize_external_english(raw, sync):
               hashlib.sha256(blocks[-1].encode()).hexdigest()[:16],
               " prior_valid_cues="+str(len(preceding)),
               " original_file_unchanged",flush=True)
+        trailer_quarantined=True
         clean=shortened
         encoded=clean.encode("utf-8")
         after=preceding
@@ -272,7 +274,9 @@ def normalize_external_english(raw, sync):
         raise RuntimeError("english_normalization_cue_count_changed")
     if encoded!=raw:
         print("SUBHUB_AI_EN_SOURCE_NORMALIZED"
-              " whitespace_or_line_endings_only original_file_unchanged",
+              " mode="+("separators_and_quarantined_trailer"
+                         if trailer_quarantined else "separators_or_line_endings")
+              +" original_file_unchanged",
               flush=True)
     return encoded
 
