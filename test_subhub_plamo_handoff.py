@@ -54,6 +54,55 @@ class HandoffTests(unittest.TestCase):
                     ai.validate_row(rows[1])
                 self.assertEqual(ai.eligible(db,"fid_A")[0]["series"],"")
 
+    def test_explicit_new_movie_requires_verified_jellyfin_id_and_path(self):
+        from types import SimpleNamespace
+        jid="d789e397319aad9a860633811b528b40"
+        with tempfile.TemporaryDirectory() as folder:
+            movie=Path(folder)/"As.Above.So.Below.2014.mp4"
+            movie.write_bytes(b"synthetic-movie")
+            path_gate=lambda path:Path(path)
+            class Client:
+                def get(self, path):
+                    self_checked = "/Items/" + jid
+                    assert path == self_checked
+                    return {"Id":jid,"Type":"Movie",
+                            "Path":str(movie),"Name":"As Above, So Below"}
+            source=SimpleNamespace(NativeJellyfin=Client)
+            row=ai.explicit_movie_pilot(jid,str(movie),source,path_gate)
+            self.assertEqual(row["path"],str(movie))
+            self.assertEqual(row["kind"],"Movie")
+            self.assertEqual(row["action"],"explicit_owner_movie_pilot")
+            self.assertEqual(row["jellyfin_id"],jid)
+            with self.assertRaisesRegex(RuntimeError,"invalid_explicit_jellyfin_id"):
+                ai.explicit_movie_pilot("invalid",str(movie),source,path_gate)
+            with self.assertRaisesRegex(RuntimeError,"absolute_explicit_movie_path"):
+                ai.explicit_movie_pilot(jid,"movie.mp4",source,path_gate)
+
+    def test_explicit_new_movie_refuses_jellyfin_type_and_mismatch(self):
+        from types import SimpleNamespace
+        jid="d789e397319aad9a860633811b528b40"
+        with tempfile.TemporaryDirectory() as folder:
+            movie=Path(folder)/"Movie.mp4"
+            movie.write_bytes(b"synthetic")
+            def gate(path): return Path(path)
+            class Client:
+                item={"Id":jid,"Type":"Episode",
+                      "Path":str(movie),"Name":"Example"}
+                def get(self,path): return self.item
+            cli=Client()
+            source=SimpleNamespace(NativeJellyfin=lambda:cli)
+            with self.assertRaisesRegex(RuntimeError,"jellyfin_movie_identity"):
+                ai.explicit_movie_pilot(jid,str(movie),source,gate)
+            cli.item={"Id":jid,"Type":"Movie",
+                      "Path":"/wrong/place.mp4","Name":"Example"}
+            with self.assertRaisesRegex(RuntimeError,"jellyfin_movie_identity"):
+                ai.explicit_movie_pilot(jid,str(movie),source,gate)
+            cli.item={"Id":jid,"Type":"Movie",
+                      "Path":str(movie),"Name":"Example"}
+            movie.unlink()
+            with self.assertRaisesRegex(RuntimeError,"explicit_movie_file_missing"):
+                ai.explicit_movie_pilot(jid,str(movie),source,gate)
+
     def test_initial_search_candidate_must_not_translate(self):
         row={"jellyfin_id":"a","path":"/media/a.mkv",
              "target":"ja","kind":"Movie","state":"pending",
