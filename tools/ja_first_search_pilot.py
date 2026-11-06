@@ -200,6 +200,14 @@ def private_manifest(path):
 def query_for(row):
     if row.get("status") != "ready_ja_search":
         return None
+    # Defense against a stale intake manifest: never query a Japanese source
+    # for media that could itself have Japanese audio or has untagged audio.
+    # A fresh review/ffprobe must confirm the primary audio first.
+    audio = str(row.get("audio_language") or "").casefold().strip()
+    audio = audio.replace("_", "-").split("-", 1)[0]
+    if audio in {"", "unknown", "und", "mul", "zxx", "none",
+                 "ja", "jp", "jpn", "japanese"}:
+        return None
     path = row.get("host_path")
     if not isinstance(path, str) or not path.startswith("/"):
         return None
