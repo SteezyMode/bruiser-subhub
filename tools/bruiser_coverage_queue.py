@@ -118,6 +118,35 @@ def read_staged(path=STAGES):
     return found
 
 
+def read_published_staged(path=STAGES):
+    """Reconcile actual published JA without another library-wide audit.
+
+    Provider-staging DB status is only accepted when an actual create-only
+    published JA sidecar can still be observed beside its exact source video.
+    """
+    if not path.is_file() or path.is_symlink():
+        return set()
+    try:
+        with sqlite3.connect("file:" + str(path.resolve()) + "?mode=ro",
+                             uri=True, timeout=10) as con:
+            return {str(jid) for (jid,) in con.execute(
+                "SELECT DISTINCT jellyfin_id FROM staged WHERE status='published'")}
+    except (OSError, ValueError, sqlite3.Error):
+        return set()
+
+
+def real_published_sidecar(row):
+    video=Path(str(row.get("video_path") or ""))
+    if not video.is_absolute():
+        return False
+    target=video.with_name(video.stem+".ja.srt")
+    try:
+        return (not target.is_symlink() and target.is_file()
+                and 0 < target.stat().st_size <= 2_000_000)
+    except OSError:
+        return False
+
+
 def preference(row):
     """Soft ordering only; no 75/25 movie or TV quota."""
     name = re.sub(r"[^a-z0-9]+", "", str(row.get("series") or "").casefold())
@@ -252,13 +281,15 @@ def queue_db(folder=STATE):
             yield db
 
 
-def import_snapshot(db, rows, digest, source, searches=None, staged=None):
+def import_snapshot(db, rows, digest, source, searches=None, staged=None,
+                    published=None):
     # The same library snapshot can have NEW provider search/staging evidence.
     # Reconcile plans even on repeat imports; never reset old held/cue history
     # unless the concrete next action actually changed.
     same_snapshot = bool(db.execute(
         "SELECT 1 FROM snapshots WHERE hash=?", (digest,)).fetchone())
     searches, staged = searches or {}, staged or set()
+    published = read_published_staged() if published is None else published
     flags = {(r["path"],r["target"]): r["reason"] for r in db.execute(
         "SELECT path,target,reason FROM timing_flags")}
     seen = set()
@@ -291,6 +322,8 @@ def import_snapshot(db, rows, digest, source, searches=None, staged=None):
                  language(row.get("audio_language")),int(en),int(ja),
                  int(is_true(row.get("english_text"))),digest))
             planned = tasks_for(row, searches, staged)
+            if str(row.get("jellyfin_id") or "") in published and real_published_sidecar(row):
+                planned = [task for task in planned if task[0] != "ja"]
             for lang in ("en","ja"):
                 flagged = flags.get((path,lang))
                 if flagged and (en if lang=="en" else ja):
