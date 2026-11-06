@@ -33,7 +33,7 @@ PHASES = {
     "failed": "Batch failed",
 }
 CLEAN = re.compile(r"[\x00-\x1f\x7f-\x9f]")
-EVENTS = ("SEARCHING:", "STAGING:", "STAGED:", "PUBLISHED:",
+EVENTS = ("SEARCHING:", "STAGING:", "STAGED:", "PUBLISHED:", "RESULT:",
           "HELD:", "FFSUBSYNC HELD:", "DIRECT HELD:",
           "PROVIDER_LIMIT_REACHED", "BRUISER_BATCH_COMPLETE",
           "BRUISER_BATCH_FAILED", "QUEUE SUMMARY:", "BATCH RESULT:")
@@ -133,6 +133,37 @@ def publishing_progress(lines, phase):
     return {"current": completed, "total": total}
 
 
+def publishing_item_label(lines, phase):
+    """Show the actual publication phase, never a stale search/staging title.
+
+    The running worker logs MEDIA IDs before processing but only reveals the
+    human-readable title in a RESULT line after validation. Until then, show
+    the actual live position, not a guessed movie name.
+    """
+    progress = publishing_progress(lines, phase)
+    if progress is None:
+        return "Checking saved Japanese subtitles (current title unavailable)"
+    current, total = progress["current"], progress["total"]
+    result_title = ""
+    seen_phase = False
+    for line in lines:
+        if line.startswith("=== PHASE "):
+            stage = line[len("=== PHASE "):].split(" ", 1)[0]
+            seen_phase = stage == phase
+            if seen_phase:
+                result_title = ""
+        elif seen_phase and line.startswith("MEDIA:"):
+            result_title = ""
+        elif seen_phase and line.startswith("RESULT:"):
+            result_title = safe_text(line[len("RESULT:"):].split(" | ", 1)[0].strip(), 110)
+    position = f"{current} / {total}" if total else str(current)
+    if result_title:
+        return f"Last evaluated: {result_title} (item {position})"
+    if current:
+        return f"Validating subtitle {position} (title not yet reported)"
+    return "Preparing Japanese subtitles for validation"
+
+
 def int_value(value):
     try:
         return max(0, int(value))
@@ -195,7 +226,13 @@ def snapshot(doc, batch_active=False, scheduled_active=False, lines=()):
         "batch_id": safe_text(doc.get("batch_id"), 65),
         "cycle": cycle, "cycles": cycles,
         "cycle_done": cycles if stored == "completed" else max(0, cycle-1),
-        "current_item": safe_text(doc.get("last_item"), 160),
+        "current_item": (publishing_item_label(lines, phase)
+                         if phase in ("sync_and_publish", "recover_already_staged")
+                         else safe_text(doc.get("last_item"), 160)
+                         if phase in ("search_opensubtitles", "stage_matched_japanese")
+                         else "Checking saved subtitle queue" if phase == "reconcile_queue"
+                         else "Batch complete" if phase == "completed"
+                         else "Worker preparing next operation"),
         "updated_utc": updated, "stale_seconds": stale,
         "phase_progress": progress,
         "search_progress": {"current": started, "total": total_searches},
