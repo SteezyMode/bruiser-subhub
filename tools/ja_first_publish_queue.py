@@ -318,6 +318,9 @@ def main():
                 if args.apply:
                     mark_completed(jid)
                     counts["retired_completed"] += 1
+                print("BRUISER_PUBLISH_ITEM:", json.dumps({
+                    "jellyfin_id": jid, "result": "already_published",
+                    "proof": kind}, sort_keys=True), flush=True)
                 continue
             if kind.startswith("ready_"):
                 seen_ready += 1
@@ -326,9 +329,16 @@ def main():
                     # Mark only after successful create-only host publication.
                     mark_completed(jid)
                     counts["published_new"] += 1
+                    print("BRUISER_PUBLISH_ITEM:", json.dumps({
+                        "jellyfin_id": jid, "result": "published",
+                        "proof": kind}, sort_keys=True), flush=True)
         except (ValueError, RuntimeError, OSError, KeyError, sqlite3.Error) as exc:
             counts["held"] += 1
             print("HELD:", jid, type(exc).__name__, str(exc)[:135], flush=True)
+            print("BRUISER_PUBLISH_ITEM:", json.dumps({
+                "jellyfin_id": jid, "result": "held",
+                "reason": type(exc).__name__ + ": " + str(exc)[:120]
+            }, sort_keys=True), flush=True)
     print("QUEUE SUMMARY:", json.dumps(dict(counts)), flush=True)
     print("No provider searches, downloads or translation jobs.", flush=True)
     if not args.apply:
