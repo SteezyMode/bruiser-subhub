@@ -1,6 +1,7 @@
 """Offline tests for standalone, read-only SubHub dashboard."""
 import json
 import os
+import sqlite3
 from pathlib import Path
 import tempfile
 import threading
@@ -37,6 +38,75 @@ class StatusTests(unittest.TestCase):
         self.assertEqual(data["cycle_done"], 1)
         self.assertEqual(data["translation"]["state"], "not_connected")
         self.assertFalse(data["controls"]["available"])
+
+    def test_web_dashboard_shows_real_movie_cues_and_held_count(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            movie=root/"subhub-translation"/"ja-abcdef0123456789"
+            movie.mkdir(parents=True,mode=0o700)
+            video=root/"As Above, So Below (2014)"/"As.Above.So.Below.mp4"
+            video.parent.mkdir()
+            video.write_bytes(b"fake video")
+            jid="d789e397319aad9a860633811b528b40"
+            manifest=movie/"manifest.json"
+            manifest.write_text(json.dumps({
+                "jellyfin_id":jid,"video":str(video),"cue_count":1455}))
+            manifest.chmod(0o600)
+            with sqlite3.connect(movie/"progress.sqlite3") as db:
+                db.execute("CREATE TABLE translation (status TEXT, seconds REAL)")
+                db.executemany(
+                    "INSERT INTO translation VALUES (?,?)",
+                    [("translated",0.5)]*1299+[("held_translation",0.5)])
+            with patch.object(dashboard,"_plamo_running_ids",return_value={jid}):
+                jobs=dashboard.translation_jobs(
+                    movie_root=movie.parent,
+                    episode_root=root/"unused",
+                    single_root=root/"nonexistent")
+            self.assertEqual(len(jobs),1)
+            item=jobs[0]
+            self.assertEqual(item["state"],"translating")
+            self.assertEqual(item["processed"],1300)
+            self.assertEqual(item["translated"],1299)
+            self.assertEqual(item["held"],1)
+            self.assertAlmostEqual(item["percent"],89.3)
+            self.assertFalse(item["published"])
+
+    def test_stopped_movie_not_claimed_active_or_published(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            movie=root/"ja-a1"
+            movie.mkdir(mode=0o700)
+            video=root/"film.mp4"
+            video.write_bytes(b"video")
+            jid="d789e397319aad9a860633811b528b40"
+            manifest=movie/"manifest.json"
+            manifest.write_text(json.dumps({
+                "jellyfin_id":jid,"video":str(video),"cue_count":5}))
+            manifest.chmod(0o600)
+            with sqlite3.connect(movie/"progress.sqlite3") as db:
+                db.execute("CREATE TABLE translation (status TEXT,seconds REAL)")
+                db.execute("INSERT INTO translation VALUES ('translated',1.0)")
+            job=dashboard._plamo_checkpoint(movie,{
+                "jellyfin_id":jid,"video":str(video),"cue_count":5},
+                "movie",set(),False)
+            self.assertEqual(job["state"],"needs_resume")
+            self.assertFalse(job["published"])
+            video.with_name(video.stem+".ja.PLaMo8B.srt").write_text(
+                "1\n00:00:01,000 --> 00:00:02,000\nはい\n")
+            published=dashboard._plamo_checkpoint(movie,{
+                "jellyfin_id":jid,"video":str(video),"cue_count":5},
+                "movie",set(),False)
+            self.assertTrue(published["published"])
+
+    def test_real_translation_contract_without_running_source_batch(self):
+        with patch.object(dashboard,"translation_jobs",return_value=[{
+            "state":"needs_resume","active":False,"published":False,
+            "held":1,"title":"Example","processed":900,"total":1455}]):
+            result=dashboard.translation_snapshot()
+            self.assertEqual(result["engine"],"PLaMo 8B")
+            self.assertEqual(result["held_cues"],1)
+            self.assertEqual(result["active_jobs"],0)
+            self.assertEqual(result["total_jobs"],1)
 
     def test_shutdown_marks_interruption_even_if_json_claims_running(self):
         data = dashboard.snapshot(sample(), False, False, [])
