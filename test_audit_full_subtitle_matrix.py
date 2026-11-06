@@ -39,6 +39,13 @@ class MatrixTests(unittest.TestCase):
         result=self.scan(en, {"ffprobe_status":"jellyfin_track_not_in_video"})
         self.assertEqual(result["category"], "unknown")
         self.assertFalse(result["english_subtitles"])
+    def test_unlabeled_subtitle_is_not_misclassified_as_no_languages(self):
+        (self.video.parent/"Film.srt").write_text("unspecified")
+        self.assertEqual(self.scan([])["category"], "unknown")
+    def test_unknown_metadata_cannot_prove_absence_of_other_language(self):
+        r = mat.scan_one(self.video, {}, {})
+        self.assertEqual(r["category"], "unknown")
+
     def test_bitmap_english_counts_as_subtitle_but_not_text(self):
         subs=[{"Type":"Subtitle","Language":"eng","Codec":"hdmv_pgs_subtitle"}]
         result=self.scan(subs)
