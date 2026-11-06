@@ -97,6 +97,78 @@ class HandoffTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError,"malformed_srt_cue"):
             ai.normalize_external_english(raw,Sync)
 
+    def test_rewind_to_zero_malformed_terminal_cue_is_quarantined(self):
+        """Actual As Above So Below provider failure pattern (without media)."""
+        import re
+        class Sync:
+            @staticmethod
+            def parse_cues(raw):
+                blocks=re.split(r"\n[ \t]*\n",raw.decode().strip())
+                result=[]
+                for block in blocks:
+                    lines=block.splitlines()
+                    ix=int(bool(lines[0].isdigit()))
+                    if len(lines)<ix+2:
+                        raise RuntimeError("malformed_srt_cue")
+                    match=re.fullmatch(
+                        r"(\d{2}:\d{2}:\d{2},\d{3}) --> "
+                        r"(\d{2}:\d{2}:\d{2},\d{3})",lines[ix])
+                    if match is None:
+                        raise RuntimeError("bad_srt_timestamp")
+                    h,m,sec=match.group(2).split(":")
+                    end=(int(h)*3600+int(m)*60+float(sec.replace(",",".")))*1000
+                    result.append({"end":end})
+                return result
+        blocks=[]
+        for i in range(1,151):
+            t=i*21
+            def stamp(seconds):
+                return f"{seconds//3600:02}:{seconds//60%60:02}:{seconds%60:02},000"
+            blocks.append(
+                f"{i}\n{stamp(t)} --> {stamp(t+1)}\nCue number {i}")
+        original=("\n\n".join(blocks)+
+                  "\n\n\n\n151\n00:00:0,500 --> 00:00:2,00\nJUNK\n")
+        self.assertEqual(len(Sync.parse_cues(("\n\n".join(blocks)).encode())),150)
+        with self.assertRaisesRegex(RuntimeError,"bad_srt_timestamp"):
+            Sync.parse_cues(original.encode())
+        clean=ai.normalize_external_english(original.encode(),Sync)
+        self.assertEqual(len(Sync.parse_cues(clean)),150)
+        self.assertNotIn(b"JUNK",clean)
+        self.assertIn(b"JUNK",original.encode())
+        self.assertEqual(clean.decode().splitlines()[-1],"Cue number 150")
+
+    def test_invalid_terminal_timestamp_not_silently_quarantined(self):
+        import re
+        class Sync:
+            @staticmethod
+            def parse_cues(raw):
+                blocks=re.split(r"\n[ \t]*\n",raw.decode().strip())
+                out=[]
+                for block in blocks:
+                    lines=block.splitlines()
+                    ix=int(bool(lines[0].isdigit()))
+                    if len(lines)<ix+2:
+                        raise RuntimeError("malformed_srt_cue")
+                    m=re.fullmatch(
+                        r"(\d{2}):(\d{2}):(\d{2}),(\d{3}) --> "
+                        r"(\d{2}):(\d{2}):(\d{2}),(\d{3})",lines[ix])
+                    if not m:
+                        raise RuntimeError("bad_srt_timestamp")
+                    out.append({"end":(int(m[5])*3600+int(m[6])*60+int(m[7]))*1000})
+                return out
+        originals=[]
+        for i in range(1,151):
+            minute=i//2
+            second=i%2*30
+            originals.append(
+                f"{i}\n01:{minute:02}:{second:02},000 --> "
+                f"01:{minute:02}:{second+1:02},000\nLine")
+        source="\n\n".join(originals)
+        with self.assertRaisesRegex(RuntimeError,"bad_srt_timestamp"):
+            ai.normalize_external_english(
+                (source+"\n\n151\n00:50:0,500 --> 00:50:2,00\nReal-looking\n").encode(),
+                Sync)
+
     def test_explicit_new_movie_requires_verified_jellyfin_id_and_path(self):
         from types import SimpleNamespace
         jid="d789e397319aad9a860633811b528b40"
