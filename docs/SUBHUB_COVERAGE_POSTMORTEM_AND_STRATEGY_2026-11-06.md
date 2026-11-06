@@ -123,6 +123,12 @@ English inventory at end: **12,399** records; `japanese_present=572`, `jellyfin_
 
 A **new read-only whole-library census** is committed as [`tools/audit_english_without_japanese.py`](../tools/audit_english_without_japanese.py), together with [offline tests](../test_audit_english_without_japanese.py), a [guarded host runner](../tools/run_english_no_japanese_audit.sh) and a [usage/interpretation guide](BRUISER_LIBRARY_COVERAGE_AUDIT_2026-11-06.md). It enumerates every Jellyfin Movie/Episode and produces private CSV/JSON candidates for Bruiser: parsed English SRT, unverified embedded English text, other text subtitle formats; excludes known Japanese sidecars/streams, flags Japanese-audio media and previous `jellyfin_only` cases, and exports unresolved metadata separately. It does **not** automatically download, sync or translate anything. **Not executed on the real host yet; no candidate totals established.** A host census is the next authoritative step before designing batch translation scope or English fallback export.
 
+## New evidence: full-library English/no-Japanese census
+
+The owner ran the read-only audit on the OptiPlex November 6: **12,386** movies/episodes, **2,552** English text candidate/no-JA, of which **2,550 are Jellyfin metadata-only text tracks** and **2 validated external SRTs**. Japanese was detected for 573 items, 8,640 had no English text detected, 620 had unlabeled SRTs, 72 prior `jellyfin_only` cases remained unresolved, and 120 potential English-source candidates have Japanese audio.
+
+**Immediate priority:** do not silently infer that 2,550 metadata streams are extractable English dialogue. The guarded second-pass verifier checks real video subtitle stream metadata across all 2,550 and extracts a balanced sample to validate actual SRT text. See [Bruiser coverage audit and verified census](BRUISER_LIBRARY_COVERAGE_AUDIT_2026-11-06.md). This is the most useful next step before designing an entire-library local translation queue.
+
 ## Next development session: actionable order
 
 1. **QA without altering running work:** privately export a sample of the 28 Japanese publications and inspect their text/playback; identify any actual quality faults.
