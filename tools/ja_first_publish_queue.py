@@ -35,6 +35,7 @@ from urllib.parse import quote
 import ja_first_publish_staged as direct
 import ja_first_publish_shifted as shifted
 import ja_first_ffsubsync as ff
+import ja_first_priority as priorities
 
 MAX_ROWS = 3000
 MAX_TITLES = 1000
@@ -66,6 +67,20 @@ def mark_completed(jid):
             "UPDATE staged SET status='published' "
             "WHERE jellyfin_id=? AND status='staged'", (jid,))
         connection.commit()
+
+
+def queued_staged_titles(records, *, queue_reader=priorities.active_coverage_queue):
+    """Filter ONLY unresolved, on-disk staged JA tasks from Bruiser queue.
+
+    Read-only. Does not cause a provider search, queue-state transition, or
+    automatic model launch. A missing/unsafe queue blocks this explicit mode.
+    """
+    queue = queue_reader()
+    if queue is None:
+        raise RuntimeError("bruiser_coverage_queue_not_installed")
+    eligible = {jid for jid, (action, state, _, _) in queue.items()
+                if action == "align_existing_staged_ja" and state == "pending"}
+    return [row for row in records if str(row[0]) in eligible]
 
 
 def unique_titles(records, max_titles):
@@ -268,6 +283,8 @@ def main():
                         help="maximum distinct titles to examine 1..1000")
     parser.add_argument("--apply", action="store_true",
                         help="create at most --limit new Japanese subtitle sidecars")
+    parser.add_argument("--queue-staged-only", action="store_true",
+                        help="only titles with pending staged-JA work in Bruiser coverage queue")
     args = parser.parse_args()
     if args.self_test:
         self_test()
@@ -276,6 +293,10 @@ def main():
             and 1 <= args.max_titles <= MAX_TITLES):
         parser.error("limit must be 1..200, max-titles 1..1000")
     records = stages()
+    if args.queue_staged_only:
+        records = queued_staged_titles(records)
+        print("BRUISER_PENDING_STAGED_TITLES:",
+              len({str(item[0]) for item in records}), flush=True)
     title_groups = unique_titles(records, args.max_titles)
     print("=== UNIFIED JAPANESE SUBTITLE PUBLISH QUEUE ===", flush=True)
     print("Staged candidates:", len(records),
