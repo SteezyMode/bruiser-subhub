@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 import fcntl
 import json
 import os
+import pwd
 from pathlib import Path
 import re
 import signal
@@ -132,8 +133,8 @@ def start(args):
         raise RuntimeError("daily_source_job_active_try_again_after_it_finishes")
     if lingering_user_manager() == "no":
         raise RuntimeError(
-            "systemd_linger_disabled_enable_with_sudo_loginctl_enable-linger_"
-            + str(os.getuid()) + "_before_detached_batch")
+            "detached_batch_requires_user_linger: sudo loginctl enable-linger "
+            + pwd.getpwuid(os.getuid()).pw_name)
     if check_manual_publishers():
         raise RuntimeError("manual_staged_subtitle_publisher_is_still_running")
     for p in (CODE / "ja_first_autofill.py",
