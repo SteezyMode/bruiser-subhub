@@ -202,6 +202,9 @@ def terminal_screen(data, active, log_lines, columns=88):
     counts = Counter(data.get("counts") or {})
     upper = cycles * int(data.get("search_budget") or 0)
     searched = int(counts.get("search_started", 0))
+    completed_searches = sum(int(counts.get(key, 0)) for key in (
+        "search_plausible", "search_review", "search_none", "search_errors"))
+    in_flight = max(0, searched - completed_searches)
     rows = [
         hr,
         "BRUISER SUBTITLES  |  LIVE BATCH  |  " + clock_str(),
@@ -220,8 +223,9 @@ def terminal_screen(data, active, log_lines, columns=88):
         f"Title:    {scrub(data.get('last_item'), 93) or '(awaiting current title)'}",
         "",
         "REAL WORK COUNTS (THIS BATCH)",
-        f"  Searches attempted: {searched:<8}   Plausible matches: {counts.get('search_plausible',0):<8}   No matches: {counts.get('search_none',0)}",
-        f"  Download attempts: {counts.get('download_attempted',0):<8}   Newly staged: {counts.get('staged',0):<8}   Provider errors: {counts.get('search_errors',0)}",
+        f"  Searches started: {searched:<8}   Completed: {completed_searches:<8}   In-flight: {in_flight}",
+        f"  Plausible: {counts.get('search_plausible',0):<8}   Review needed: {counts.get('search_review',0):<8}   No matches: {counts.get('search_none',0)}",
+        f"  Download attempts: {counts.get('download_attempted',0):<8}   Newly staged: {counts.get('staged',0):<8}   Search errors: {counts.get('search_errors',0)}",
         f"  Newly published: {counts.get('published_new',0):<8}   Held titles: {counts.get('held_titles',0):<8}   Recognized old: {counts.get('recognized_prior',0)}",
         f"  Provider quota reached: {'YES - no further download attempt this quota period' if data.get('quota_exhausted') else 'not reported'}",
         "",
