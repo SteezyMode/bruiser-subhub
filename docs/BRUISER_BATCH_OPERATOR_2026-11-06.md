@@ -110,6 +110,14 @@ Owner successfully installed `~/.local/bin/bruiser-live`; **6/6 offline viewer t
 
 **Source publication issue:** 21/21 held, including several source-format and timing-gate classifications. See [issue #64](https://github.com/SteezyMode/bruiser-subhub/issues/64) for targeted validation repair (including high-trust constant offsets beyond legacy ±2s), and **do not hot-patch or restart the running worker**. The original staged subtitle bytes and private per-title investigation evidence remain on host.
 
+## Nov 6 terminal rendering fix — incremental curses dashboard, not repeated screen prints
+
+Owner pointed out the first `bruiser-live` viewer visibly cleared and repainted the entire screen every two seconds. **That implementation was wrong for the requested interactive progress display.**
+
+The viewer implementation has been replaced with `curses.wrapper(interactive_view,...)` and `draw_changed_lines`. After the initial TTY setup, **only changed terminal rows/cells are updated**, via `noutrefresh` and `curses.doupdate()`; there is no `ESC[2J` clear on each tick. An actual terminal resize may clear the viewport once. This preserves the single, stable chart with progress bars advancing in place. Added regression tests asserting no redraws or erase calls on unchanged frames, and only one updated row when a value changes. The viewer remains read-only, with no worker/service changes.
+
+**Deployment:** New viewer code + tests committed to GitHub; owner must rerun the *same safe viewer-only installer* pinned to the latest verified commit while the active batch continues. Installation never restarts, changes or stops the current five-cycle batch. Ctrl+C exits the viewer only.
+
 ## Permanent developer instructions
 
 - Start and inspect batches using the CLI, not dozens of bespoke scripts. Operator progress must be observable without interpreting raw logs.
