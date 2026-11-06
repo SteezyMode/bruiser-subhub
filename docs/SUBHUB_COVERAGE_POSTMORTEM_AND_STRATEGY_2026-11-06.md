@@ -35,6 +35,22 @@ Concrete evidence: *Terrifier 3* (2024) and *The Amityville Horror* (2005) recei
 
 At end-of-run, SubHub status reported: catalog **12,386 items**, **9,981 ready for JA search** in its manifest; **cumulative** source search history `none=448, plausible=198, review=127`; staging `published=74, staged=29`. **Do not equate historical 74 staged-publications with 74 new tracks on November 6**, nor assume staged 29 will publish successfully. The status includes `jobs.sqlite3` legacy-permissions warning; not proven causal for acquisition limits.
 
+### Confirmed provider cap and scheduling mismatch (follow-up log)
+
+The owner's follow-up log exposed the precise terminating message:
+
+```text
+[54/160] STAGING: The Black Phone (2022)
+HELD: The Black Phone (2022) RuntimeError container_staging_blocked:OpenSubtitles download quota exhausted (resets: 2026-11-05T23:59:59.00...
+PROVIDER_LIMIT_REACHED: stop further downloads for this cycle; staged files retained
+```
+
+**Confirmed cause:** the OpenSubtitles download allowance was exhausted; this was neither a SubHub software search-budget failure nor a hardware shutdown. The exact account quota ceiling was **not** present in the truncated message; 43 staged files does **not** establish a 43-download daily allowance. Other previously made downloads and held cases can contribute.
+
+**Important scheduling finding:** OpenSubtitles' API describes its reset as `reset_time_utc`. For the shown 23:59:59 UTC reset, that is **08:59:59 JST on November 6, 2026**. The Japanese source timer fired around **05:23 JST** and finished 07:01 JST, **before the allowance refreshed**. This means the 05:15 + 0–20 min nightly schedule can be strategically misaligned with the provider's renewal window. **Recommended future change (NOT DEPLOYED):** schedule provider-download staging after ~09:15 JST, preserving provider limits and not automatically rerunning a large search at 09:00. First determine if other configured subtitle providers have different quota resets; seek reliable quota remaining before spending. Avoid representing the published 28 as the maximum obtainable in a refreshed allowance.
+
+OpenSubtitles API reference: https://ai.opensubtitles.com/api-docs (the `/download` response includes `requests`, `remaining`, `reset_time` and `reset_time_utc`). This timestamp is a *reset time*, not proof of a specific daily numerical cap. If it is exposed through a Sublarr response or log, record exact quota remaining and reset time **without** exposing secrets.
+
 ### English source fallback service
 
 **Job:** `bruiser-english-source.service`; completed **07:10:13 JST**, systemd `Result=success` / exit 0. The unit's actual `ExecStart` was verified with `--budget 300 --provider-delay 1`; early English timer disabled; run occurred after the Japanese service.
