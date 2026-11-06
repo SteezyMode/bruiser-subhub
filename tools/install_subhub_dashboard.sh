@@ -102,7 +102,10 @@ chmod 644 "$SHORTCUT.new"
 mv -f "$SHORTCUT.new" "$SHORTCUT"
 
 systemctl --user daemon-reload
-systemctl --user enable --now bruiser-subhub-dashboard.service
+systemctl --user enable bruiser-subhub-dashboard.service
+# Updated read-only code requires a restart of the DASHBOARD service only.
+# The independent subtitle sourcing worker remains untouched.
+systemctl --user restart bruiser-subhub-dashboard.service
 # Server may need a moment to bind, but the installer must not claim it is
 # running just because systemd accepted the unit configuration.
 healthy=0
