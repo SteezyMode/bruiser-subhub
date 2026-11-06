@@ -54,6 +54,50 @@ class HandoffTests(unittest.TestCase):
                     ai.validate_row(rows[1])
                 self.assertEqual(ai.eligible(db,"fid_A")[0]["series"],"")
 
+    def test_extra_blank_srt_blocks_normalized_before_sync(self):
+        import re
+        class Sync:
+            @staticmethod
+            def parse_cues(raw):
+                text=raw.decode("utf-8-sig").strip()
+                blocks=re.split(r"\r?\n[ \t]*\r?\n",text)
+                result=[]
+                for block in blocks:
+                    lines=block.splitlines()
+                    if len(lines)<3 or "-->" not in lines[1]:
+                        raise RuntimeError("malformed_srt_cue")
+                    result.append(lines)
+                return result
+        raw=(b"1\n00:00:01,000 --> 00:00:02,000\nHello\n"
+             b"\n"
+             b"2\n00:00:03,000 --> 00:00:04,000\nGoodbye\n"
+             b"\n\n\n\n")
+        # The exact failure mode: an isolated empty cue between delimiters.
+        raw=raw.replace(b"Goodbye\n",b"Goodbye\n\n\n")
+        with self.assertRaisesRegex(RuntimeError,"malformed_srt_cue"):
+            Sync.parse_cues(raw)
+        cleaned=ai.normalize_external_english(raw,Sync)
+        self.assertEqual(len(Sync.parse_cues(cleaned)),2)
+        self.assertIn(b"Goodbye",cleaned)
+        self.assertEqual(
+            [x for x in raw.decode().splitlines() if x.strip()],
+            [x for x in cleaned.decode().splitlines() if x.strip()])
+        # Original subtitle bytes remain unchanged, only private copy cleaned.
+        self.assertIn(b"\n\n\n",raw)
+        self.assertNotIn(b"\n\n\n",cleaned)
+
+    def test_srt_normalization_does_not_drop_bad_extra_text(self):
+        class Sync:
+            @staticmethod
+            def parse_cues(raw):
+                if b"ADVERTISEMENT" in raw:
+                    raise RuntimeError("malformed_srt_cue")
+                return [{"start":1}]
+        raw=(b"1\n00:00:01,000 --> 00:00:02,000\nHello"
+             b"\n\n\nADVERTISEMENT\n")
+        with self.assertRaisesRegex(RuntimeError,"malformed_srt_cue"):
+            ai.normalize_external_english(raw,Sync)
+
     def test_explicit_new_movie_requires_verified_jellyfin_id_and_path(self):
         from types import SimpleNamespace
         jid="d789e397319aad9a860633811b528b40"
