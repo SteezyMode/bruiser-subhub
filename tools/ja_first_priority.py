@@ -15,6 +15,13 @@ def simplify(text):
     return re.sub(r"[^a-z0-9]+", "", str(text or "").casefold())
 
 
+
+def exclude_from_new_sourcing(row):
+    """Pause *American Dad!* acquisition; its existing AI batch is separate."""
+    return (row.get("kind") == "Episode" and
+            simplify(row.get("series_title")) == "americandad")
+
+
 def priority(row):
     kind = row.get("kind")
     if kind == "Episode":
