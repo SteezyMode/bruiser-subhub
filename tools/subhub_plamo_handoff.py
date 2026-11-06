@@ -419,10 +419,25 @@ def recover_held_cue(request, retry, port, english, history, spoken):
     The proven two-attempt model call runs first. Only a non-Japanese response
     triggers one context-free two-attempt retry. Never store Latin-only dialogue.
     """
-    japanese, usage, status = retry(request, port, english, history)
+    def attempt(context):
+        try:
+            return retry(request, port, english, context)
+        except RuntimeError as exc:
+            # Only exact known *response-format* failures are local to a cue.
+            # GPU, thermal, network, disk and model-server failures must
+            # propagate rather than being disguised as subtitle omissions.
+            if not re.fullmatch(
+                r"cue_model_error_after_retry:"
+                r"(?:missing_model_completion|model_output_truncated|"
+                r"empty_or_malformed_model_output)",str(exc)):
+                raise
+            print("SUBHUB_AI_CUE_RECOVERY"
+                  " malformed_completion_after_internal_retry",flush=True)
+            return "", {}, "held_non_japanese"
+    japanese, usage, status = attempt(history)
     if status != spoken and history:
         print("SUBHUB_AI_CUE_RECOVERY retry_without_history", flush=True)
-        japanese, usage, status = retry(request, port, english, [])
+        japanese, usage, status = attempt([])
     return japanese, usage, status
 
 
