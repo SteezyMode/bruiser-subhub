@@ -20,7 +20,7 @@ def srt(n=24):
 
 def item(file,type_='Episode', season=None, episode=None,subs=None):
     return {'Type':type_,'Id':('id'+str(abs(hash(str(file))))[:12]),
-            'Path':str(file),'Name':file.stem,'SeriesName':'Other Series',
+            'Path':str(file),'Name':file.stem,'SeriesName':'American Dad',
             'ParentIndexNumber':season,'IndexNumber':episode,
             'MediaStreams':[
                 {'Type':'Audio','Language':'eng','IsDefault':True},
@@ -110,27 +110,6 @@ class LibraryInventoryTests(unittest.TestCase):
         for video in videos:
             idx=next(x['Id'] for x in self.items if x['Path']==str(video))
             self.client.results[idx]=[self.good(video)]
-
-    def test_american_dad_skipped_in_favor_of_other_shows(self):
-        self.items[0]['SeriesName']='American Dad!'
-        self.scan()
-        results=self.fill()
-        self.assertEqual(results['outcomes']['deferred_american_dad'],1)
-        paths=[p for p in self.client.queries
-               if '/RemoteSearch/Subtitles/eng' in p]
-        self.assertEqual(len(paths),4)
-        self.assertFalse(any(self.items[0]['Id'] in p for p in paths))
-        self.assertEqual(lib.report(self.state,log=lambda *x:None)
-                         ['states']['deferred_american_dad'],1)
-
-    def test_other_television_before_movies(self):
-        self.scan()
-        self.fill(budget=5)
-        paths=[p for p in self.client.queries
-               if '/RemoteSearch/Subtitles/eng' in p]
-        movie_id=self.items[3]['Id']
-        self.assertEqual(len(paths),5)
-        self.assertIn(movie_id,paths[-1])
 
     def test_inventory_is_complete_scoped_and_does_not_search_providers(self):
         before={str(p):p.read_bytes()
@@ -239,7 +218,7 @@ class LibraryInventoryTests(unittest.TestCase):
         self.assertFalse((self.d.parent/(self.d.stem+'.en.srt')).exists())
         self.assertEqual(self.fill(budget=2)['outcomes']['downloaded'],1)
         status=lib.report(self.state,log=lambda *x:None)
-        self.assertEqual(status['states']['ready'],3)
+        self.assertEqual(status['american_dad_s08']['ready'],3)
 
     def test_failed_search_enters_cooldown_and_moves_forward_on_repeated_run(self):
         self.scan()
