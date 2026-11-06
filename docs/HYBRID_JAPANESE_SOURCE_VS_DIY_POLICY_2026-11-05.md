@@ -1,5 +1,7 @@
 # Japanese subtitle coverage: source-first + separate DIY fallback — decision 2026-11-05
 
+> **SUPERSEDED AS TO PRIORITY (Nov 6):** Follow [the canonical owner-confirmed policy](BRUISER_SUBTITLE_POLICY_CANONICAL_2026-11-06.md): existing subtitle preservation, **timing repair in either language**, cached/staged provider results, correct subtitle sourcing, English recovery, and **GPU-based PLaMo translation as a real, substantial last resort**. Do not interpret the earlier experiments as a reason to avoid GPU translation or repeatedly benchmark models.
+
 ## Decision
 
 Keep the **working existing-Japanese-source acquisition/sync pipeline as primary**. Test local DIY translation as an explicitly distinct, low-priority path **only** for missing/unusable Japanese tracks with a verified, correctly timed English transcript. Do **not** translate the entire library simply because an English SRT exists.
