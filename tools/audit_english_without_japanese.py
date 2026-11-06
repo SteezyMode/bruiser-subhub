@@ -264,7 +264,15 @@ def collect(*, client, roots, probe=intake.probe, source_reader=intake.source):
     counts["english_no_japanese_candidates"] = len(rows)
     counts["unresolved"] = len(unresolved)
     counts["prior_jellyfin_only_inventory"] = len(old_jellyfin_only)
-    return dict(counts), rows, unresolved
+    summary = dict(counts)
+    summary["by_english_source"] = dict(sorted(Counter(
+        r["english_source"] for r in rows).items()))
+    summary["by_queue_readiness"] = dict(sorted(Counter(
+        r["queue_readiness"] for r in rows).items()))
+    summary["episodes_by_series"] = dict(sorted(Counter(
+        (r["series"] or "unknown series") for r in rows
+        if r["kind"] == "Episode").items(), key=lambda x: (-x[1], x[0])))
+    return summary, rows, unresolved
 
 
 def save_private(folder, base, summary, rows, unresolved):
