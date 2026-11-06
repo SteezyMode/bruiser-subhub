@@ -1,5 +1,7 @@
 # Bruiser SubHub
 
+> **COMPLETE ENGLISH + JAPANESE SUBTITLE INVENTORY (2026-11-06):** [Full bilingual media matrix](docs/FULL_EN_JA_SUBTITLE_MATRIX_2026-11-06.md), including **both languages on the same file**. The earlier English-without-Japanese report is a subset, **not** the complete subtitle inventory. Full matrix tool is committed but not yet run on host; retains private reports only.
+
 > **NEW — FULL-LIBRARY COVERAGE CENSUS (2026-11-06):** [Private English-text/no-Japanese inventory for Bruiser](docs/BRUISER_LIBRARY_COVERAGE_AUDIT_2026-11-06.md). Source code and offline tests committed; **not yet run on the actual media library**. Report excludes existing JA, distinguishes validated EN SRT vs embedded/text candidates and flags prior Jellyfin-only cases. No automatic translation or provider calls.
 
 > **CURRENT SOURCING STATUS (2026-11-06):** [Verified acquisition results, failure analysis and coverage-first recovery strategy](docs/SUBHUB_COVERAGE_POSTMORTEM_AND_STRATEGY_2026-11-06.md). 600 Japanese searches produced 28 new published tracks before provider quota stopped staging; 300 English searches produced 0 verified external SRTs. **Goal: maximum usable Japanese subtitle coverage across the entire library**—not a fixed TV/movie/series preference. This supersedes the provisional November 5 source-result narrative below; code changes in GitHub do not change the live host.
