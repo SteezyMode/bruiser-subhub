@@ -90,13 +90,26 @@ Allowed progress states: `pending`, `held`, `candidate_found`, `ready_for_transl
 
 Private queue DB exists: `~/bruiser-pilot/coverage-queue/coverage.sqlite3`. **Queue initialization was confirmed on the actual host.**
 
-### Next guarded source-selector integration prepared, NOT YET DEPLOYED
+### Queue-driven OpenSubtitles selectors installed on host — November 6, 2026
+
+**Owner-verified deployment:**
+- `SOURCE_SELECTOR_PREFLIGHT_OK`
+- 5/5 offline selection regression tests passed
+- `SOURCE_QUEUE_IDENTITY_MATCH 8736 of 9981 manifest-ready titles; 10190 pending queue targets`. The 1,245 non-matches are **not diagnosed as an error**: this preflight only counts entries with exact identity and an actionable pending search/download task, and excludes other source/repair/review/deferred cases. The count is not a fresh library census.
+- `QUEUE_DRIVEN_SOURCE_SELECTOR_INSTALLED`: `ja_first_priority.py`, `ja_first_search_pilot.py`, `ja_first_stage_saved_batch.py` running files updated with actual queue priorities, no 75/25 media-type allocation.
+- Existing saved copies in `~/bruiser-pilot/subhub-control/.pre-coverage-sourcing-IPvh0pAI`.
+- No provider API requests, model inference, timer restart or media mutation on deployment.
+- **Next JA source timer: Saturday November 7, 2026 at 09:28:45 JST.** This is the scheduled time, not evidence of run success.
+
+**Remaining issue #62 work:** The source selector deployment is complete. Observe the next actual timer and compare staged/downloaded/synced/published yields; do **not** equate a passing offline test with confirmed end-to-end future cycle. Independently recover the **21 already-staged Japanese candidates** using existing ffsubsync and create-only publication, with no OpenSubtitles download allowance.
+
+
 
 Code has been committed for `ja_first_priority.py` (read-only, secure queue access), `ja_first_search_pilot.py` and `ja_first_stage_saved_batch.py` (both remove old 75%-movie quotas and rank eligible work from the persistent queue). The search selector **skips** held, already-staged, source-fallback or otherwise deferred tasks; staging favors saved high-confidence matches and allows discoveries from the current cycle. All identity, cooldown, ffsubsync QA, provider quota stop and create-only publish code is untouched.
 
 [`tools/install_queue_driven_sourcing.sh`](../tools/install_queue_driven_sourcing.sh) is a **guarded** live-host deployment: refuses an active Japanese source service; confirms safe existing controller and queue files; downloads pinned code and a [separate offline regression suite](../test_ja_first_queue_selection.py); parses files and runs those tests **before changing controller files**, then backs up and installs the three selectors. No provider request, timer restart or GPU work. Host acceptance and next scheduled daily run still need verification.
 
-**Remaining issue #62 work:** apply/test this guarded host update, verify real candidate selections in tomorrow's scheduled logs, and measure *published new JA* per download allowance. The existing cycle still runs search → stage → publication, and the current queue remains a *priority selector*, not a complete job dispatcher. Full future integration must retain timing-repair support for both EN and JA.
+**Remaining issue #62 work:** the guard/test/deployment is now owner-confirmed. Verify real candidate selections in tomorrow's scheduled logs, and measure *published new JA* per download allowance. The existing cycle still runs search → stage → publication, and the current queue remains a *priority selector*, not a complete job dispatcher. Full future integration must retain timing-repair support for both EN and JA.
 
 ## Next engineering change — do not substitute another audit
 
