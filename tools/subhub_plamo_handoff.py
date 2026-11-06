@@ -395,12 +395,45 @@ def scoped_engine(engine, folder):
         engine.WORK,engine.CHECKPOINT,engine.SOURCE,engine.MANIFEST=old
 
 
+MOVIE_GPU_PAUSE = 78.0
+MOVIE_GPU_RESUME = 72.0
+MOVIE_GPU_ABORT = 83.0
+
+
+def movie_thermal_limits(batch):
+    """Movie-only in-process override; do not patch the American Dad runtime."""
+    if not 0 < MOVIE_GPU_RESUME < MOVIE_GPU_PAUSE < MOVIE_GPU_ABORT:
+        raise RuntimeError("unsafe_movie_thermal_thresholds")
+    if batch.GPU_ABORT != MOVIE_GPU_ABORT:
+        raise RuntimeError("unexpected_proven_runtime_gpu_abort_limit")
+    batch.GPU_PAUSE = MOVIE_GPU_PAUSE
+    batch.GPU_RESUME = MOVIE_GPU_RESUME
+    print("SUBHUB_AI_GPU_THERMALS"
+          f" pause={MOVIE_GPU_PAUSE:g}C resume={MOVIE_GPU_RESUME:g}C"
+          f" abort={MOVIE_GPU_ABORT:g}C", flush=True)
+
+
+def recover_held_cue(request, retry, port, english, history, spoken):
+    """Preserve checkpoints; retry a Latin-only answer without preceding cues.
+
+    The proven two-attempt model call runs first. Only a non-Japanese response
+    triggers one context-free two-attempt retry. Never store Latin-only dialogue.
+    """
+    japanese, usage, status = retry(request, port, english, history)
+    if status != spoken and history:
+        print("SUBHUB_AI_CUE_RECOVERY retry_without_history", flush=True)
+        japanese, usage, status = retry(request, port, english, [])
+    return japanese, usage, status
+
+
 def translate(row, folder, mod, port=18888):
     batch,engine,source,small,daily,sync,safe_media_path=mod
     if recent_running_source():
         raise RuntimeError("source_batch_still_running_retry_after_it_finishes")
     if other_translation_running():
         raise RuntimeError("existing_american_dad_translator_active")
+    # Movie-only thermal profile: no changes to legacy American Dad scripts.
+    movie_thermal_limits(batch)
     # Independent gate: other PLaMo or Wolf sessions must release GPU RAM.
     batch.thermal_gate()
     video,cues,m=prepared_source(row,folder,mod)
@@ -435,9 +468,10 @@ def translate(row, folder, mod, port=18888):
                         if engine.real.is_non_dialogue_caption(cue["english"]):
                             ja,status=cue["english"],engine.SOLO_SDH
                         else:
-                            ja,_,status=batch.translate_with_one_retry(
-                                engine.real.request,port,cue["english"],
-                                engine.previous_pairs(output))
+                            ja,_,status=recover_held_cue(
+                                engine.real.request,batch.translate_with_one_retry,
+                                port,cue["english"],engine.previous_pairs(output),
+                                engine.SPOKEN)
                             if status!=engine.SPOKEN:
                                 raise RuntimeError("model_cue_held_"+str(cue["number"]))
                             # Name-specific repair applies only to that series.
