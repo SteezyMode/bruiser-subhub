@@ -4,7 +4,7 @@
 This is a bounded, opt-in bridge to the existing proven PLaMo 8B GGUF runtime,
 not a second subtitle provider or a replacement for the active source worker.
 
-Default: read-only queue plan.  --prepare: write verified English checkpoint
+Default: read-only queue plan. Explicit owner movie pilot accepts new Jellyfin\nitems before matrix refresh, without creating automatic provider or AI work.\n--prepare: write verified English checkpoint
 without GPU use.  --apply: after source-only batch is idle, resume cue translation
 and create ONE Japanese sidecar; never overwrite.  The planned unattended
 dispatcher can use the same one-item API after reboot-safe controller exists.
@@ -19,6 +19,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import sqlite3
 import subprocess
 import sys
@@ -37,6 +38,7 @@ PLANNABLE_ACTIONS = {
     "search_en",
 }
 MODEL_NAME = "plamo-3-translate-8b-Q4_K_M.gguf"
+JELLYFIN_ID = re.compile(r"[a-f0-9]{32}\Z")
 
 
 def utc():
@@ -83,6 +85,36 @@ def validate_row(row):
         raise RuntimeError("invalid_media_kind")
     if not row["english_text"]:
         raise RuntimeError("english_text_not_indicated")
+
+
+def explicit_movie_pilot(jid, movie_path, source, safe_media_path):
+    """ONE owner-selected new Jellyfin movie, not an unattended queue override.
+
+    A new item may appear in Jellyfin before the global 13k-item coverage
+    snapshot. Verify exact Jellyfin ID, movie type and literal local path
+    before using the same verified-English and create-only translation gates.
+    Do NOT create a queue task, consume a provider quota, or claim Japanese
+    sourcing is exhausted. This bypass is deliberately opt-in for a pilot.
+    """
+    if not JELLYFIN_ID.fullmatch(str(jid or "")):
+        raise RuntimeError("invalid_explicit_jellyfin_id")
+    if not isinstance(movie_path, str) or not movie_path.startswith("/"):
+        raise RuntimeError("absolute_explicit_movie_path_required")
+    video = safe_media_path(movie_path)
+    if video.is_symlink() or not video.is_file():
+        raise RuntimeError("explicit_movie_file_missing_or_symlink")
+    client = source.NativeJellyfin()
+    item = client.get("/Items/" + jid)
+    if (not isinstance(item, dict) or item.get("Id") != jid
+            or item.get("Type") != "Movie"
+            or item.get("Path") != str(video)):
+        raise RuntimeError("jellyfin_movie_identity_or_path_does_not_match")
+    return {
+        "jellyfin_id": jid, "path": str(video), "kind": "Movie",
+        "title": str(item.get("Name") or ""), "series": "",
+        "target": "ja", "action": "explicit_owner_movie_pilot",
+        "state": "pending", "english_text": 1,
+    }
 
 
 def recent_running_source():
@@ -369,28 +401,44 @@ def main(argv=None):
                        help="translate exactly one eligible title with proven GPU engine")
     parser.add_argument("--jellyfin-id",help="exact Jellyfin item ID; mandatory for writes")
     parser.add_argument("--limit",type=int,default=15)
+    parser.add_argument("--explicit-movie-pilot",action="store_true",
+                        help="owner-opt-in newly added movie before queue refresh; no JA provider attempts")
+    parser.add_argument("--movie-path",help="exact host path for the explicit Jellyfin movie pilot")
     args=parser.parse_args(argv)
     if not 1<=args.limit<=50:
         parser.error("--limit must be 1..50")
     if (args.prepare or args.apply) and not args.jellyfin_id:
         parser.error("--prepare/--apply requires --jellyfin-id")
-    with safe_db(QUEUE) as db:
-        rows=eligible(db,args.jellyfin_id,args.limit)
-    if not (args.prepare or args.apply):
-        from collections import Counter
-        print("SUBHUB_AI_HANDOFF_READ_ONLY")
-        print("Pending source-exhausted JA:",len(rows),
-              "(bounded view, not total backlog)")
-        print("Routes:",json.dumps(dict(Counter(r["action"] for r in rows))))
-        for r in rows:
-            print(r["jellyfin_id"],r["kind"],r["title"],
-                  r["action"],"EN indicated" if r["english_text"] else "EN missing")
-        print("No GPU, Jellyfin, media, queue or provider changes")
-        return
-    if len(rows)!=1:
-        raise RuntimeError("requested_exact_pending_fallback_task_not_found")
-    row=rows[0]
-    validate_row(row)
+    if args.explicit_movie_pilot:
+        if not (args.prepare or args.apply) or not args.movie_path:
+            parser.error("--explicit-movie-pilot requires --prepare or --apply and --movie-path")
+    elif args.movie_path:
+        parser.error("--movie-path is only valid with --explicit-movie-pilot")
+    rows = []
+    if not args.explicit_movie_pilot:
+        with safe_db(QUEUE) as db:
+            rows=eligible(db,args.jellyfin_id,args.limit)
+        if not (args.prepare or args.apply):
+            from collections import Counter
+            print("SUBHUB_AI_HANDOFF_READ_ONLY")
+            print("Pending source-exhausted JA:",len(rows),
+                  "(bounded view, not total backlog)")
+            print("Routes:",json.dumps(dict(Counter(r["action"] for r in rows))))
+            for r in rows:
+                print(r["jellyfin_id"],r["kind"],r["title"],
+                      r["action"],"EN indicated" if r["english_text"] else "EN missing")
+            print("No GPU, Jellyfin, media, queue or provider changes")
+            return
+        if len(rows)!=1:
+            raise RuntimeError("requested_exact_pending_fallback_task_not_found")
+        row=rows[0]
+        validate_row(row)
+    if args.explicit_movie_pilot:
+        if recent_running_source():
+            raise RuntimeError("source_batch_still_running_retry_after_it_finishes")
+        mod=modules()
+        row=explicit_movie_pilot(args.jellyfin_id,args.movie_path,
+                                 mod[2],mod[6])
     if WORK.is_symlink():
         raise RuntimeError("unsafe_translation_work_root")
     WORK.mkdir(parents=True,exist_ok=True,mode=0o700)
@@ -409,7 +457,15 @@ def main(argv=None):
         fcntl.flock(lock.fileno(),fcntl.LOCK_EX|fcntl.LOCK_NB)
         if recent_running_source():
             raise RuntimeError("source_batch_still_running_retry_after_it_finishes")
-        mod=modules()
+        if not args.explicit_movie_pilot:
+            mod=modules()
+        else:
+            # Recheck current Jellyfin identity immediately before first write;
+            # no past queue snapshot can authorize an unrelated file.
+            row=explicit_movie_pilot(args.jellyfin_id,args.movie_path,
+                                     mod[2],mod[6])
+            print("SUBHUB_AI_EXPLICIT_MOVIE_PILOT media="+row["jellyfin_id"]+
+                  " title="+row["title"],flush=True)
         if args.prepare:
             video,cues,m=prepared_source(row,folder,mod)
             print("SUBHUB_AI_ENGLISH_PREPARED media="+row["jellyfin_id"]+
