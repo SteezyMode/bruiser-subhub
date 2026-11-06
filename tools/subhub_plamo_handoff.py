@@ -58,10 +58,10 @@ def eligible(db, jid=None, limit=15):
     cond = " AND m.jellyfin_id=?" if jid else ""
     params = [jid] if jid else []
     params.append(limit)
-    return [dict(zip(("jellyfin_id","path","kind","title","action",
+    return [dict(zip(("jellyfin_id","path","kind","title","series","action",
                       "state","target","english_text"), r))
             for r in db.execute("""
-                SELECT m.jellyfin_id,m.path,m.kind,m.title,t.action,t.state,
+                SELECT m.jellyfin_id,m.path,m.kind,m.title,m.series,t.action,t.state,
                        t.target,m.en_text
                   FROM tasks AS t JOIN media AS m ON m.path=t.path
                  WHERE t.active=1 AND t.target='ja'
@@ -127,7 +127,7 @@ def private_folder(jid, path, root=WORK):
 
 
 def atomic_json(path, data):
-    if path.exists() and path.is_symlink():
+    if path.is_symlink():
         raise RuntimeError("unsafe_state_symlink")
     fd, temporary = tempfile.mkstemp(prefix=".state-", dir=str(path.parent))
     try:
@@ -152,6 +152,8 @@ def modules():
     batch=import_module("plamo8b_american_dad_existing_en_batch")
     engine=import_module("plamo3_watch_american_dad")
     source=import_module("plamo3_source_first_american_dad")
+    sys.path.insert(0,str(engine.real.CONTROL))
+    sys.path.insert(0,str(source.CONTROL))
     small=engine.small
     daily=import_module("daily_japanese")
     sync=import_module("ja_first_ffsubsync")
@@ -302,8 +304,8 @@ def translate(row, folder, mod, port=18888):
                                 engine.previous_pairs(output))
                             if status!=engine.SPOKEN:
                                 raise RuntimeError("model_cue_held_"+str(cue["number"]))
-                            # This name-specific repair is only for American Dad.
-                            if "american dad" in row["title"].casefold():
+                            # Name-specific repair applies only to that series.
+                            if row.get("series","").casefold().startswith("american dad"):
                                 ja=batch.safe_roger_name(cue["english"],ja)
                         seconds=round(time.monotonic()-started,3)
                         db.execute(
