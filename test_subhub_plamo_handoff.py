@@ -42,6 +42,58 @@ class HandoffTests(unittest.TestCase):
         path.chmod(0o600)
         return path
 
+    def test_movie_held_checkpoint_survives_restart_and_excludes_fake_japanese(self):
+        from types import SimpleNamespace
+        import re
+        from tools import subhub_plamo_handoff as ai
+        def cue(i):
+            return {"number":i+1,"start":"00:01:00,000",
+                    "end":"00:01:02,000","english":f"Input {i+1}"}
+        cues=[cue(i) for i in range(4)]
+        class Engine:
+            SPOKEN="translated"
+            SOLO_SDH="sdh_only"
+            small=SimpleNamespace(JP=re.compile("[\u3040-\u30ff\u4e00-\u9fff]"))
+            real=SimpleNamespace(is_non_dialogue_caption=lambda text:False)
+            def verify_checkpoints(self, db, cues):
+                raise AssertionError("existing verifier must not silently accept held rows")
+            @staticmethod
+            def jellyfin_srt(output):
+                assert all(x["status"]!="held_translation" for x in output)
+                return "valid japanese srt",len(output)
+        with tempfile.TemporaryDirectory() as temp:
+            with sqlite3.connect(Path(temp)/"progress.sqlite3") as db:
+                db.execute("CREATE TABLE translation (idx INTEGER,id INTEGER,"
+                           "start TEXT,end TEXT,english TEXT,japanese TEXT,"
+                           "status TEXT,seconds REAL)")
+                rows=[(0,1,cues[0]["start"],cues[0]["end"],cues[0]["english"],
+                       "これは字幕","translated",0.5),
+                      (1,2,cues[1]["start"],cues[1]["end"],cues[1]["english"],
+                       "","held_translation",0.5),
+                      (2,3,cues[2]["start"],cues[2]["end"],cues[2]["english"],
+                       "続けます","translated",0.5)]
+                db.executemany("INSERT INTO translation VALUES (?,?,?,?,?,?,?,?)", rows)
+                output=ai.verify_movie_checkpoints(Engine(),db,cues)
+                self.assertEqual(len(output),3)
+                self.assertEqual(ai.held_summary(output)[0]["number"],2)
+                with self.assertRaisesRegex(RuntimeError,"checkpoint_source_mismatch"):
+                    changed=list(cues)
+                    changed[1]=dict(cues[1],english="changed cue")
+                    ai.verify_movie_checkpoints(Engine(),db,changed)
+                ja,count=Engine.jellyfin_srt(
+                    [x for x in output if x["status"]!=ai.HELD_STATUS])
+                self.assertEqual(count,2)
+                self.assertTrue(ja)
+
+    def test_movie_held_budget_guards_quality(self):
+        from tools import subhub_plamo_handoff as ai
+        with self.assertRaisesRegex(RuntimeError,"too_many_consecutive_held"):
+            ai.held_summary([{"status":ai.HELD_STATUS} for _ in range(3)])
+        with self.assertRaisesRegex(RuntimeError,"too_many_held_cues"):
+            ai.held_summary(
+                [{"status":ai.HELD_STATUS if i%2==0 else "translated"}
+                 for i in range(22)])
+
     def test_movie_thermal_hysteresis_preserves_abort_and_isolated_runtime(self):
         from types import SimpleNamespace
         batch=SimpleNamespace(GPU_PAUSE=73.0,GPU_RESUME=67.0,
