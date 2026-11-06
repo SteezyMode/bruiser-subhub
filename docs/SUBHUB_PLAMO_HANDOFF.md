@@ -10,7 +10,7 @@ The existing working PLaMo 8B translator is specific to American Dad episodes; i
 - --prepare --jellyfin-id EXACT-ID: check trusted media path, absence of JA, EN audio and matching EN source. Extract embedded text or ffsubsync-audit external EN. Save immutable private English cue source and SHA/video/model identity. No GPU start or published sidecar. First pilot accepts only 150–1500 cues; other cases hold.
 - --apply --jellyfin-id EXACT-ID: requires source batch and daily source worker inactive and prior American Dad translator inactive. Uses installed PLaMo 8B engine with measured GPU offload and thermal safety, commits every translated cue, recovers from checkpoints, validates entire output and creates a Japanese sidecar only when none exists. Do not use until after owner verifies preflight and test installation.
 
-The pinned installer tools/install_subhub_plamo_handoff.sh runs AST preflight and 12 isolated offline tests, checks the previously installed PLaMo runtime without replacing it, and provides the local command ~/.local/bin/subhub-ai. Installing does not start GPU work, change any source batch, or alter OptiPlex NOW.
+The pinned installer tools/install_subhub_plamo_handoff.sh runs AST preflight and 14 isolated offline tests, checks the previously installed PLaMo runtime without replacing it, and provides the local command ~/.local/bin/subhub-ai. Installing does not start GPU work, change any source batch, or alter OptiPlex NOW.
 
 ## Still needed for completely unattended operation
 
