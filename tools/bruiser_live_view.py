@@ -105,6 +105,48 @@ def recent_log(path, count=8):
     return selected[-count:]
 
 
+def published_stage_progress(log_path, phase):
+    """Count titles processed in the current publication pass from worker log.
+
+    Controller's state currently does not increment phase_current for MEDIA
+    events. This read-only view can recover the count without restarting the
+    live batch or writing to its state database.
+    """
+    if phase not in ("recover_already_staged", "sync_and_publish") or not log_path:
+        return None
+    path = Path(log_path)
+    if (path.parent != ROOT or path.is_symlink() or not path.is_file()
+            or path.stat().st_mode & 0o077):
+        return None
+    with path.open("rb") as stream:
+        stream.seek(max(0,path.stat().st_size - 1000000))
+        lines = stream.read(1000000).decode("utf-8",errors="replace").splitlines()
+    current = None
+    for i, line in enumerate(lines):
+        if line.startswith("=== PHASE "):
+            stage = line[len("=== PHASE "):].split(" ",1)[0]
+            if stage == phase:
+                current = i
+            elif current is not None:
+                current = None
+    if current is None:
+        return None
+    section = lines[current:]
+    total = 0
+    done = 0
+    for line in section:
+        if line.startswith("=== UNIFIED JAPANESE SUBTITLE PUBLISH QUEUE ==="):
+            total = 0
+            done = 0
+        if "unique titles:" in line:
+            m = re.search(r"unique titles:\s*(\d+)",line)
+            if m:
+                total = int(m.group(1))
+        if line.startswith("MEDIA:"):
+            done += 1
+    return done, total
+
+
 def bar(number, total, width=29):
     if not isinstance(total, int) or total <= 0:
         return "[" + "." * width + "]  not yet measurable"
@@ -152,6 +194,10 @@ def terminal_screen(data, active, log_lines, columns=88):
         cycles if raw_state == "completed" else min(max(cycle-1,0),cycles))
     current = data.get("phase_current")
     total = data.get("phase_total")
+    if phase in ("recover_already_staged", "sync_and_publish") and not total:
+        reported = published_stage_progress(data.get("log"),phase)
+        if reported is not None:
+            current, total = reported
     phase_progress = bar(current, total)
     counts = Counter(data.get("counts") or {})
     upper = cycles * int(data.get("search_budget") or 0)
