@@ -62,7 +62,7 @@ TIMER = """[Unit]
 Description=Daily Japanese sourced-subtitle acquisition and synchronization
 
 [Timer]
-OnCalendar=*-*-* 05:15:00
+OnCalendar=*-*-* 09:15:00
 RandomizedDelaySec=20min
 Persistent=false
 Unit=bruiser-ja-source-autofill.service
@@ -70,6 +70,8 @@ Unit=bruiser-ja-source-autofill.service
 [Install]
 WantedBy=timers.target
 """
+# Previous timer ran BEFORE OpenSubtitles' 09:00 JST quota reset.
+LEGACY_TIMER = TIMER.replace('09:15:00', '05:15:00')
 
 # Execute inside the already installed Sublarr image, reusing existing local
 # API auth. The only allowed API write is PUT config of the two wanted-search
@@ -317,9 +319,11 @@ def unit_file(name,content):
         current=path.read_text("utf8")
         if current==content:
             return
-        # Only migrate a byte-for-byte match of the previously installed
-        # Bruiser service. Never replace unrelated/custom systemd units.
-        if name!=SVC or current!=LEGACY_SERVICE:
+        # Migrate ONLY known Bruiser service/time configurations.
+        # Unknown/custom user systemd units are never overwritten.
+        is_old_service = name==SVC and current==LEGACY_SERVICE
+        is_old_timer = name==NAME and current==LEGACY_TIMER
+        if not (is_old_service or is_old_timer):
             raise RuntimeError("different_existing_user_unit_refusing_overwrite")
         import tempfile
         fd,tmp=tempfile.mkstemp(prefix=".ja-source-unit-",dir=USER_UNITS)
@@ -330,7 +334,7 @@ def unit_file(name,content):
                 os.fsync(stream.fileno())
             os.chmod(tmp,0o600)
             os.replace(tmp,path)
-            print("SOURCE_TIMER_SERVICE_UPDATED longer_batch_window",flush=True)
+            print("SOURCE_UNIT_UPDATED",name,flush=True)
         finally:
             Path(tmp).unlink(missing_ok=True)
         return
@@ -374,7 +378,7 @@ def enable(*,request=api,action=run):
             raise RuntimeError("native_search_disable_not_verified")
         action(["systemctl","--user","enable","--now",NAME],timeout=25)
         action(["systemctl","--user","is-active","--quiet",NAME],timeout=20)
-        print("JA_SOURCE_AUTOFILL_TIMER_ENABLED daily_05:15_local_plus_0_to_20min",
+        print("JA_SOURCE_AUTOFILL_TIMER_ENABLED daily_09:15_local_plus_0_to_20min",
               "sublarr_native_provider_search_disabled",
               "sublarr_library_scanning_unchanged",
               "no_automatic_translation",flush=True)
