@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>SubHub · Subtitle Automation</title>
+  <style>
+    :root { color-scheme:dark; --bg:#0a0d13; --panel:#131925; --panel2:#171f2d; --line:#293343; --text:#f2f5fa; --muted:#96a6bd; --blue:#85aaff; --green:#5edab1; --amber:#f4bc6b; --red:#ff8995; --track:#303b4e; }
+    * { box-sizing:border-box }
+    html { min-height:100%; background:var(--bg) }
+    body { margin:0; background:radial-gradient(ellipse at 80% -15%,#202d4a 0%,transparent 52%),var(--bg); color:var(--text); font:15px/1.5 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    .shell { max-width:1180px; padding:32px 28px 62px; margin:0 auto }
+    header { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:18px; margin-bottom:30px }
+    .brand { display:flex; align-items:center; gap:14px }
+    .mark { display:grid; place-items:center; width:49px; height:49px; border-radius:15px; border:1px solid #5c6e9a; background:linear-gradient(145deg,#415b92,#222e4a); font-size:25px; font-weight:700; box-shadow:0 8px 25px #0004 }
+    .brand h1 { margin:0; line-height:1.05; font-size:24px; letter-spacing:-.6px; font-weight:730 }
+    .brand p { margin:5px 0 0; font-size:12px; color:var(--muted); letter-spacing:.6px; text-transform:uppercase }
+    .status { display:flex; align-items:center; gap:12px; flex-wrap:wrap }
+    .pill { display:inline-flex; align-items:center; gap:8px; padding:8px 12px; font-size:13px; font-weight:650; border-radius:99px; background:#1d2936; border:1px solid #3d5368 }
+    .dot { height:8px; width:8px; border-radius:50%; background:var(--muted) }
+    .dot.running { background:var(--green); box-shadow:0 0 0 4px #5edab121 }
+    .dot.failed,.dot.interrupted { background:var(--red) }
+    .dot.completed { background:var(--blue) }
+    button { font:inherit; background:#202a3a; color:var(--text); border:1px solid #44516a; padding:8px 15px; border-radius:10px; font-size:13px; cursor:pointer }
+    button:hover { background:#303d52 }
+    button:focus-visible { outline:2px solid var(--blue);outline-offset:2px }
+    .eyebrow { text-transform:uppercase; letter-spacing:1.3px; font-size:11px; color:var(--muted); font-weight:750 }
+    .top { display:grid; grid-template-columns:minmax(0,1.8fr) minmax(270px,1fr); gap:18px; margin-bottom:18px }
+    .panel { background:linear-gradient(180deg,#171f2c,#121925); border:1px solid var(--line); border-radius:18px; padding:24px; box-shadow:0 10px 32px #0002; min-width:0 }
+    .hero { padding:28px; display:flex; flex-direction:column; justify-content:space-between; min-height:266px }
+    .hero h2 { margin:12px 0 7px; font-size:26px; font-weight:690; letter-spacing:-.6px; line-height:1.25; overflow-wrap:anywhere }
+    .subtext { color:var(--muted); font-size:14px; margin:0; overflow-wrap:anywhere }
+    .hero .caption { color:var(--muted); font-size:12px; margin-top:20px }
+    .progress-group { margin-top:22px }
+    .progress-row { display:flex; justify-content:space-between; gap:10px; font-size:12px; margin:13px 0 7px }
+    .progress-row span:first-child { color:var(--muted) }
+    .bar { width:100%; height:9px; border-radius:20px; background:var(--track); overflow:hidden }
+    .fill { height:100%; border-radius:inherit; background:linear-gradient(90deg,#6492f0,#a7baff); width:0; transition:width .4s ease }
+    .side h3,.section-head h3 { margin:8px 0 5px; font-size:18px; letter-spacing:-.3px }
+    .side p { color:var(--muted); font-size:13px; margin:5px 0 }
+    .side .divider { margin:18px 0; border-top:1px solid var(--line) }
+    .side strong { display:block; overflow-wrap:anywhere; font-size:14px; font-weight:640 }
+    .stats { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:14px; margin-bottom:18px }
+    .stat { padding:19px 20px; background:var(--panel); border:1px solid var(--line); border-radius:16px }
+    .stat .number { font-size:30px; line-height:1.2; font-weight:730; letter-spacing:-.5px; font-variant-numeric:tabular-nums }
+    .stat .label { color:var(--muted); font-size:12px; margin:6px 0 0 }
+    .stat:first-child .number { color:var(--green) }
+    .cols { display:grid; grid-template-columns:minmax(0,1.25fr) minmax(310px,1fr); gap:18px }
+    .section-head { display:flex; gap:12px; flex-wrap:wrap; align-items:center; justify-content:space-between; margin-bottom:14px }
+    .section-head h3 { margin:0 }
+    .tag { font-size:11px; padding:4px 9px; border:1px solid #48566b; border-radius:99px; color:var(--muted) }
+    .activity { list-style:none; padding:0; margin:0 }
+    .activity li { color:#cbd6e8; font-size:13px; overflow-wrap:anywhere; padding:11px 0 11px 18px; border-bottom:1px solid #263143; position:relative }
+    .activity li::before { content:""; position:absolute; top:18px; left:1px; width:6px; height:6px; border-radius:50%; background:#6485b9 }
+    .activity li:last-child { border-bottom:0 }
+    .empty { color:var(--muted)!important }
+    .row-between { display:flex; justify-content:space-between; gap:12px; margin:12px 0; font-size:13px }
+    .row-between span:first-child { color:var(--muted) }
+    .row-between span:last-child { text-align:right }
+    .warning { color:var(--amber) }
+    .good { color:var(--green) }
+    .muted { color:var(--muted) }
+    .callout { border-radius:12px; background:#1e2938; padding:13px 15px; margin-top:18px; border:1px solid #334155; font-size:13px; color:#c2d0e1 }
+    .holds { margin-top:18px }
+    .holds div { border-bottom:1px solid var(--line); padding:8px 0; font-size:12px; color:var(--muted); overflow-wrap:anywhere }
+    .holds b { color:var(--text); margin-right:6px }
+    footer { display:flex; flex-wrap:wrap; justify-content:space-between; gap:10px; color:var(--muted); font-size:12px; margin-top:20px }
+    @media(max-width:850px){ .top,.cols { grid-template-columns:1fr }.stats { grid-template-columns:repeat(3,1fr) } }
+    @media(max-width:530px){.shell{padding:18px 14px 36px}.panel{padding:18px}.stats{grid-template-columns:repeat(2,1fr)}.brand h1{font-size:21px}.hero h2{font-size:22px} }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <div class="brand">
+        <div class="mark" aria-hidden="true">S</div>
+        <div><h1>SubHub</h1><p>Subtitle automation · Standalone</p></div>
+      </div>
+      <div class="status">
+        <span class="pill"><span class="dot" id="state-dot"></span><span id="state">Connecting</span></span>
+        <button type="button" id="refresh">Refresh</button>
+      </div>
+    </header>
+    <div class="top">
+      <section class="panel hero">
+        <div>
+          <div class="eyebrow">Current activity</div>
+          <h2 id="phase-label">Connecting to the subtitle engine...</h2>
+          <p id="current-item" class="subtext">Retrieving the current batch state</p>
+        </div>
+        <div class="progress-group">
+          <div class="progress-row"><span>Source batch cycles</span><strong id="cycle-label">—</strong></div>
+          <div class="bar" role="progressbar" aria-label="Completed cycles" aria-valuemin="0" aria-valuemax="100" id="cycle-progress"><div class="fill" id="cycle-bar"></div></div>
+          <div class="progress-row"><span>Search attempts (planned maximum)</span><strong id="search-label">—</strong></div>
+          <div class="bar" role="progressbar" aria-label="Search attempts" aria-valuemin="0" aria-valuemax="100" id="search-progress"><div class="fill" id="search-bar"></div></div>
+          <div class="progress-row"><span>Current stage</span><strong id="stage-label">—</strong></div>
+          <div class="bar" role="progressbar" aria-label="Current stage progress" aria-valuemin="0" aria-valuemax="100" id="stage-progress"><div class="fill" id="stage-bar"></div></div>
+          <div class="caption" id="updated">Waiting for first update</div>
+        </div>
+      </section>
+      <section class="panel side">
+        <div class="eyebrow">Automation</div>
+        <h3>Engine status</h3>
+        <div class="row-between"><span>Source worker</span><span id="source-worker">—</span></div>
+        <div class="row-between"><span>AI translation</span><span id="ai-worker" class="muted">Not connected yet</span></div>
+        <div class="row-between"><span>Provider quota</span><span id="quota">—</span></div>
+        <div class="divider"></div>
+        <div class="eyebrow">Current job</div>
+        <strong id="job">—</strong>
+        <p id="job-note">Status from the existing Bruiser batch; no additional worker.</p>
+        <div class="callout"><strong>Read-only preview</strong> Pause / Resume, Start and Prioritize Title will be enabled only when the safe controller API is implemented. This dashboard does not stop or restart any batch.</div>
+      </section>
+    </div>
+    <section class="stats" aria-label="Actual batch results">
+      <div class="stat"><div class="number" id="published">—</div><div class="label">Newly published</div></div>
+      <div class="stat"><div class="number" id="staged">—</div><div class="label">Subtitles staged</div></div>
+      <div class="stat"><div class="number" id="held">—</div><div class="label">Titles held</div></div>
+      <div class="stat"><div class="number" id="searches">—</div><div class="label">Searches completed</div></div>
+      <div class="stat"><div class="number" id="plausible">—</div><div class="label">Plausible matches</div></div>
+    </section>
+    <div class="cols">
+      <section class="panel">
+        <div class="section-head"><h3>Recent activity</h3><span class="tag">Real worker events</span></div>
+        <ol class="activity" id="activity"><li class="empty">Connecting...</li></ol>
+      </section>
+      <section class="panel">
+        <div class="section-head"><h3>Diagnostics</h3><span class="tag">Live state</span></div>
+        <div class="row-between"><span>Searches in flight</span><span id="inflight">—</span></div>
+        <div class="row-between"><span>Review needed</span><span id="review">—</span></div>
+        <div class="row-between"><span>No matches</span><span id="none">—</span></div>
+        <div class="row-between"><span>Download attempts</span><span id="downloads">—</span></div>
+        <div class="row-between"><span>Search errors</span><span id="errors">—</span></div>
+        <div class="holds"><div class="eyebrow">Top hold reasons</div><div id="hold-list">No holds reported for this batch</div></div>
+      </section>
+    </div>
+    <footer><span>SubHub Dashboard v0.1 · Local-only, independent of OptiPlex NOW</span><span>Updates every 3 seconds · Viewer disconnects do not affect processing</span></footer>
+  </main>
+  <script>
+    "use strict";
+    const el = (id) => document.getElementById(id);
+    let pending = false;
+    let wasConnected = false;
+    const number = (v) => Number.isFinite(Number(v)) ? Number(v).toLocaleString() : "0";
+    const text = (id, value) => { el(id).textContent = value == null ? "—" : String(value); };
+    const progress = (id, label, current, total) => {
+      const c = Math.max(0, Number(current) || 0);
+      const t = Math.max(0, Number(total) || 0);
+      const percent = t ? Math.max(0, Math.min(100, 100*c/t)) : 0;
+      text(label, t ? number(c) + " / " + number(t) : "Not yet measured");
+      el(id + "-bar").style.width = percent + "%";
+      el(id + "-progress").setAttribute("aria-valuenow", String(Math.round(percent)));
+    };
+    function draw(d) {
+      wasConnected = true;
+      const s = d.state || "unknown";
+      const names = {running:"Running",scheduled_source_running:"Daily sourcing",completed:"Completed",failed:"Failed",stopped:"Stopped",interrupted:"Interrupted — not running",idle:"Idle"};
+      text("state", names[s] || s);
+      el("state-dot").className = "dot " + (s === "running" || s === "scheduled_source_running" ? "running" : s);
+      text("phase-label", d.phase_label);
+      text("current-item", d.current_item || "Waiting for a current title");
+      text("source-worker", d.source_active ? "Active" : "Not active");
+      text("ai-worker", d.translation && d.translation.state === "not_connected" ? "Not connected yet" : "Status unavailable");
+      text("quota", d.quota_exhausted ? "Provider limit reached" : "No limit reported");
+      el("quota").className = d.quota_exhausted ? "warning" : "";
+      text("job", d.batch_id || "No saved batch");
+      progress("cycle", "cycle-label", d.cycle_done, d.cycles);
+      progress("search", "search-label", d.search_progress?.current, d.search_progress?.total);
+      progress("stage", "stage-label", d.phase_progress?.current, d.phase_progress?.total);
+      const c = d.counts || {};
+      for (const [id,key] of [["published","published_new"],["staged","staged"],["held","held_titles"],["searches","search_completed"],["plausible","search_plausible"],["inflight","search_in_flight"],["review","search_review"],["none","search_none"],["downloads","download_attempted"],["errors","search_errors"]]) {
+        text(id, number(c[key] || 0));
+      }
+      const updated = d.updated_utc ? "Last worker update: " + new Date(d.updated_utc).toLocaleString() : "No worker update yet";
+      text("updated", updated + (d.stale_seconds !== null && d.stale_seconds > 120 && d.source_active ? " · Activity delayed" : ""));
+      const activity = el("activity");
+      activity.replaceChildren();
+      const events = Array.isArray(d.events) ? d.events.slice(-9).reverse() : [];
+      if (events.length === 0) {
+        const item = document.createElement("li"); item.className="empty"; item.textContent="No worker events recorded yet"; activity.append(item);
+      } else {
+        for (const event of events) { const item = document.createElement("li"); item.textContent=event; activity.append(item); }
+      }
+      const holds = el("hold-list"); holds.replaceChildren();
+      if (!d.holds || !d.holds.length) { holds.textContent="No hold reasons recorded for this batch"; }
+      else for (const hold of d.holds) {
+        const line = document.createElement("div");
+        const count = document.createElement("b");
+        count.textContent = number(hold.count) + " × ";
+        line.append(count, document.createTextNode(hold.reason));
+        holds.append(line);
+      }
+    }
+    async function refresh() {
+      if (pending) return;
+      pending = true;
+      try {
+        const response = await fetch("/api/status", {cache:"no-store"});
+        if (!response.ok) throw new Error("status unavailable");
+        draw(await response.json());
+      } catch (_) {
+        const word = wasConnected ? "Disconnected" : "Unavailable";
+        text("state", word);
+        el("state-dot").className = "dot interrupted";
+        text("updated", "The SubHub dashboard cannot read the backend right now.");
+        text("source-worker", "Unknown");
+      } finally { pending = false; }
+    }
+    el("refresh").addEventListener("click", refresh);
+    refresh();
+    setInterval(refresh, 3000);
+  </script>
+</body>
+</html>
