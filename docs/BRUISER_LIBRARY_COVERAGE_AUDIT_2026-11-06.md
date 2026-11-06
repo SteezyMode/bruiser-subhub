@@ -31,6 +31,28 @@ The user-owned host files have names like:
 
 **No library filenames, video paths, subtitle text, private credentials or raw catalogue exports belong in this public repository.** The owner can share the private report back for further analysis when ready.
 
+## Verified baseline census — November 6, 2026 (actual OptiPlex)
+
+Owner executed the pinned audit and shared its exact `COVERAGE_AUDIT_SUMMARY`:
+
+- Jellyfin movies/episodes: **12,386** inspected.
+- **2,552 English text / no detected Japanese**: 2 parsed external SRT, **2,550 Jellyfin text-stream metadata candidates only** (NOT yet confirmed extractable).
+- 573 titles with Japanese detected (not human quality-graded).
+- 8,640 with no English text detected from the audited sources.
+- 620 unlabeled same-stem SRTs needing language check, 1 invalid labeled English SRT.
+- 72 previous `jellyfin_only` outcomes remain unresolved and **were not added to the 2,552 candidate count**.
+- 120 of the 2,552 candidate titles have Japanese audio; treat them as a separate policy case rather than automatically prioritizing translation.
+- 693 unresolved rows overall (620 unlabeled + 72 prior Jellyfin-only + 1 invalid source).
+- Private reports were saved on the host: `en-no-ja-20261106T011929Z.json`, `.csv`, `.unresolved.csv` under `~/bruiser-pilot/coverage-audits/`. **Do not commit those reports or private paths/contents to GitHub.**
+
+**Key uncertainty:** Jellyfin's `MediaStreams` metadata labels 2,550 potential English text tracks. It does not prove the real video contains extractable dialogue text. Counting those all as translation-ready would significantly overstate usable input.
+
+### Second pass implemented (repo only; NOT run on host yet)
+
+[`tools/verify_english_coverage.py`](../tools/verify_english_coverage.py) checks all 2,550 metadata-only candidates by reading actual media stream headers with `ffprobe`, explicitly ignoring forced Japanese subtitles. It then extracts and structurally validates an approximately film/TV-balanced *40-track sample* using `ffmpeg` in memory. It creates private JSON and CSV reports identifying real embedded English text, Jellyfin external-subtitle mismatch, missing/invalid media, extraction failures, and sampled successful SRTs. This does **not** auto-extract/publish all 2,550 and is not a new translation queue.
+
+Run on the OptiPlex using pinned [`tools/run_verify_english_coverage.sh`](../tools/run_verify_english_coverage.sh); it consumes the previously saved private audit, checks controller/file safety, downloads only this script from pinned GitHub, then writes private reports. **No provider API, no subtitle publication, no new services, no model/GPU work.** Record `ENGLISH_MEDIA_STREAM_VERIFICATION` after execution before making claims about translation-ready totals.
+
 ## Interpretation and next action
 
 | Result | Meaning | Next step |
