@@ -88,6 +88,20 @@ Next owner-visible checks are `~/.local/bin/bruiser-subs status` and `~/.local/b
 
 **Operational backlog:** Improve startup phase observability in a later safe deployment: surface `preflight`, `refresh_catalog`, `reconcile_queue` and failure events immediately so users aren't left staring at the misleading `queued` label. Keep per-title published/held events and provider allowance in the same status interface. GPU PLaMo last-resort integration remains a separate still-unimplemented production stage.
 
+## Real live full-screen terminal progress bars (Nov 6)
+
+The owner requested the proper progress bars that previous manual pilots displayed, not merely polling status text with `watch`. Implemented **[tools/bruiser_live_view.py](../tools/bruiser_live_view.py)**, a standalone read-only Python terminal viewer over the **already-running** `bruiser-subhub-batch.service`, its private `current.json`, and private event log. It is independent of the worker and can be installed/opened **while a five-cycle batch is active**; never hot-patch or restart a running worker for UI reasons.
+
+Use the **[guarded viewer installer](../tools/install_bruiser_live_view.sh)** to fetch a pinned viewer and its regression tests, validate source syntax and run offline tests, then install `~/.local/bin/bruiser-live`. The viewer refreshes every 2 seconds, and **Ctrl+C exits the VIEW only, not the batch**. Open it from MacBook:
+
+```bash
+ssh -t optiplex@100.121.156.34 '~/.local/bin/bruiser-live'
+```
+
+It shows **filled/empty progress bars** for completed source cycles, actual searches out of configured *maximum* attempts, and the active stage. During publisher/sync stages, it derives a count of genuinely examined `MEDIA:` titles from the current phase of the private log; it never fabricates progress percentages if a stage is still awaiting its first event. It also distinguishes published subtitles, staged candidates, plausible searches, held titles/reasons, provider-quota events, current media and the recent real activity feed. If systemd is active but no JSON update appears for 120 seconds, it warns that the stage may be blocked instead of claiming it is progressing. `--once` provides a static diagnostic; `--interval 1..30` adjusts refresh.
+
+**Important: first live batch** was confirmed started by the owner at `2026-11-06T03:15:34Z` (`12:15:34 JST`): `Linger=yes`, `BATCH_STARTED batch-20261106T031534Z`, `State: running`, `source lock acquired`. The two immediate status samples showed `queued / Cycle 0 of 5`, still in opaque startup; they do not prove provider activity. The viewer will show either actual subsequent progress or a startup-staleness warning. **Live viewer is committed to GitHub, not host-deployed until confirmed by owner output.**
+
 ## Permanent developer instructions
 
 - Start and inspect batches using the CLI, not dozens of bespoke scripts. Operator progress must be observable without interpreting raw logs.
