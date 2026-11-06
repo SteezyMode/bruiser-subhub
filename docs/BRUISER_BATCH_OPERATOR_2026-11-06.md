@@ -48,6 +48,26 @@ The owner executed the previous interactive staged publication recovery script a
 
 **Deployment state / verified installer failure (Nov 6):** The owner ran the first pinned installer, which stopped at its offline test stage **before any script installation**. Test result: **20 passed, 1 errored**. The error was `test_atomic_private_state_survives_restart`: `private_dir(folder=STATE)` bound the initial `STATE` value when the function was defined; an isolated test overriding `STATE` could not direct the state file to its private temporary directory. Fixed in `tools/bruiser_batch.py` by resolving `STATE` **at call time** (`private_dir(folder=None)`). No `~/.local/bin/bruiser-subs` wrapper had been created and **no background source batch started** when the owner tried status/logs/stop. The existing deployed source selectors and 09:28 next-day source timer remain unaffected. **Re-run the guarded installer pinned to the newer GitHub commit and check all 21 offline tests pass.** Do not assert actual batch start until the resulting `BATCH_STARTED` and `status` outputs are provided.
 
+## Nov 6 deployment: controller installed, manual start blocked by systemd linger
+
+Owner re-ran pinned installer at `d154fbb5677db8119b81798e03b2d2b5be99814d`: **21/21 offline tests PASS**, then `BRUISER_BATCH_CONTROLLER_INSTALLED` reported the command `~/.local/bin/bruiser-subs` installed on host.
+
+**No live batch started.** The first `bruiser-subs start --cycles 5` correctly stopped at:
+
+```text
+BRUISER_BATCH_ERROR RuntimeError detached_batch_requires_user_linger: sudo loginctl enable-linger optiplex
+```
+
+User's `status` displayed `State: unknown | Current phase: search_opensubtitles | Cycle: 3 / None` and `{"staged":9}`. These are **stale synthetic state data left by the earlier failing state-directory unit test**, not actual downloads or work; no `BATCH_STARTED` or real batch log exists. The successful 21 tests used a temporary state directory and did not repeat that bug. A real successful `start` overwrites the dummy `current.json` atomically; no manual file deletion or batch reinstall required.
+
+**One-time OptiPlex action**, from MacBook with an SSH TTY so sudo can request authorization:
+
+```bash
+ssh -t optiplex@100.121.156.34 'sudo loginctl enable-linger optiplex && loginctl show-user optiplex -p Linger && ~/.local/bin/bruiser-subs start --cycles 5 && sleep 3 && ~/.local/bin/bruiser-subs status'
+```
+
+Expected `Linger=yes`, `BATCH_STARTED` and real `State: running` / phase / cycle / logs. If the command fails, review its exact output rather than claiming work is running. **Do not rerun installation**; it already succeeded, and don't run a second batch until `status` indicates whether one is active.
+
 ## Permanent developer instructions
 
 - Start and inspect batches using the CLI, not dozens of bespoke scripts. Operator progress must be observable without interpreting raw logs.
