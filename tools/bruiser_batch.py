@@ -38,7 +38,11 @@ def utc():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def private_dir(folder=STATE):
+def private_dir(folder=None):
+    # Resolve STATE at call time. A default argument bound to the original
+    # Path makes isolated test/state overrides accidentally access the real
+    # home folder instead of their temporary private directory.
+    folder = Path(STATE if folder is None else folder)
     if folder.is_symlink():
         raise RuntimeError("unsafe_batch_state_symlink")
     folder.mkdir(mode=0o700, parents=True, exist_ok=True)
