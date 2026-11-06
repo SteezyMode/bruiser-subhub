@@ -6,8 +6,8 @@ Jellyfin scheduled-task mutation, no Sublarr, no media moves/overwrites.
 
 Initial: scan all Jellyfin Movies/Episodes in approved host roots, reusing
 unchanged ffprobe results. Fill: search existing Jellyfin subtitle providers
-for a bounded budget of missing-EN items, automatically POST only genuine
-IsHashMatch=true English SRTs. Prefer other television shows; defer American Dad.
+for a small budget of missing-EN items, automatically POST only genuine
+IsHashMatch=true English SRTs. Prioritize American Dad S08 but index all.
 
 Persistent private SQLite records failed searches + next retry time, so
 repeated calls proceed through the library rather than hammering providers.
@@ -49,6 +49,7 @@ SUB_TEXT={'.srt','.ass','.ssa','.vtt'}
 RECHECK_S=7*86400
 ERROR_RETRY_S=86400
 PRIORITY=re.compile(r'american[\W_]*dad',re.I)
+S08=re.compile(r'(?<![a-z0-9])s08[\s._-]*e\d{1,3}(?!\d)',re.I)
 ID=re.compile(r'[A-Za-z0-9_-]{4,80}\Z')
 SAFE_STATUSES={'missing','no_hash_match','provider_error','jellyfin_only'}
 
@@ -205,17 +206,11 @@ def inspect(video,item,probe_fn=intake.probe):
             stream['audio_lang'])
 
 
-def is_american_dad(series,video=None):
-    name=re.sub(r'[^a-z0-9]+','',str(series or '').casefold())
-    if name:
-        return name=='americandad'
-    return bool(video is not None and
-                PRIORITY.search(str(video.parent)))
-
-
 def ordering(video,item):
+    if PRIORITY.search(str(video)) and S08.search(video.name):
+        return 0
     if item.get('Type')=='Episode':
-        return 90 if is_american_dad(item.get('SeriesName'),video) else 0
+        return 10
     return 20
 
 
@@ -405,11 +400,6 @@ def fill(client,roots,state=STATE,search_budget=10,now=None,
                 counts['out_of_scope']+=1
                 continue
             try:
-                if row['media_type']=='Episode' and is_american_dad(row['series'],video):
-                    _update(db,row,now,'deferred_american_dad',
-                            'other_shows_priority',7*86400)
-                    counts['deferred_american_dad']+=1
-                    continue
                 if intake.already_ja(video):
                     _update(db,row,now,'japanese_present',
                             'japanese_already_available',0)
@@ -487,10 +477,10 @@ def report(state=STATE,log=print):
     with database(state) as db:
         groups=db.execute('SELECT state,COUNT(*) FROM media GROUP BY state').fetchall()
         counts={str(x[0]):x[1] for x in groups}
-        priority=db.execute('''SELECT state,COUNT(*) FROM media WHERE priority=90
+        priority=db.execute('''SELECT state,COUNT(*) FROM media WHERE priority=0
                                 GROUP BY state''').fetchall()
         p={str(x[0]):x[1] for x in priority}
-    data={'total':sum(counts.values()),'states':counts,'american_dad_deferred':p}
+    data={'total':sum(counts.values()),'states':counts,'american_dad_s08':p}
     log('EN_STATUS',json.dumps(data,sort_keys=True))
     return data
 
