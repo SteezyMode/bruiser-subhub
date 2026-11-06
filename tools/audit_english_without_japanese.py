@@ -168,6 +168,17 @@ def classify(video, item, *, source_reader=intake.source,
             english_source="external_srt", english_source_file=str(srts[0]),
             english_stream_codec="srt", english_stream_index="",
             english_cues="", queue_readiness="needs_source_repair")
+    # Keep an unlabeled same-stem SRT visible for separate language review.
+    # It may be English but is NOT safe to claim as English automatically.
+    unlabeled = [p for p in candidates
+                 if p.suffix.casefold() == ".srt"
+                 and not intake.tags(p,video) & (EN | JA)
+                 and p not in english and p not in japanese]
+    if unlabeled:
+        return dict(base, category="unlabeled_srt_needs_language_review",
+            english_status="unlabeled_srt", english_source="unlabeled_srt",
+            english_source_file=str(unlabeled[0]),
+            english_cues="", queue_readiness="identify_language_and_validate")
     if any(p.suffix.casefold() not in TEXT_FILES for p in english):
         return dict(base, category="english_bitmap_only",
             english_status="bitmap_not_text", queue_readiness="needs_ocr_or_english")
@@ -238,7 +249,8 @@ def collect(*, client, roots, probe=intake.probe, source_reader=intake.source):
             counts["japanese_audio_in_candidates"] += item_row["audio_language"] in JA
         if result["category"] in (
                 "unknown_stream_metadata", "inspection_error",
-                "invalid_english_srt") or (
+                "invalid_english_srt",
+                "unlabeled_srt_needs_language_review") or (
                     item_row["jellyfin_only_prior"] and
                     result["category"] != "candidate"):
             unresolved.append(item_row)
