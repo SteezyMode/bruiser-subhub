@@ -207,6 +207,23 @@ def event(doc, line):
         why = Counter(doc.get("held_reasons") or {})
         why[reason] += 1
         doc["held_reasons"] = dict(why)
+    if line.startswith("BRUISER_PUBLISH_ITEM:"):
+        try:
+            item = json.loads(line.partition(":")[2])
+            result = str(item.get("result") or "")
+            if result == "published":
+                counts["verified_publication_events"] += 1
+                doc["last_event"] = "Published: " + str(item["jellyfin_id"])
+            elif result == "held":
+                counts["publication_held_events"] += 1
+                if persist_publisher_hold(
+                    str(item.get("jellyfin_id") or ""),
+                    str(item.get("reason") or "")):
+                    counts["holds_recorded_in_queue"] += 1
+                doc["last_event"] = ("Held: " + str(item.get("jellyfin_id") or "") +
+                                     " " + str(item.get("reason") or ""))[:220]
+        except (ValueError, TypeError, OSError, subprocess.TimeoutExpired):
+            counts["publisher_event_parse_errors"] += 1
     if line.startswith("QUEUE SUMMARY:"):
         try:
             detail = json.loads(line.partition(":")[2])
@@ -219,10 +236,26 @@ def event(doc, line):
     if any(key in line for key in ("SEARCHING:", "STAGING:", "MEDIA:", "HELD:",
                                    "PROVIDER_LIMIT_REACHED", "QUEUE SUMMARY:",
                                    "BATCH RESULT:", "CYCLE COMPLETE",
-                                   "CATALOG_", "STAGED:", "PUBLISHED:")):
+                                   "CATALOG_", "STAGED:", "PUBLISHED:")) and not line.startswith("BRUISER_PUBLISH_ITEM"):
         doc["last_event"] = line[:220]
     doc["updated_utc"] = utc()
     return doc
+
+
+def persist_publisher_hold(jid, reason):
+    """Make actual failed publication a durable hold, not a retry loop.
+
+    This only changes queue state for an EXISTING pending Japanese work item.
+    It does not overwrite media, a staged source, or any subtitle.
+    """
+    if not ID.fullmatch(jid):
+        return False
+    result = subprocess.run(
+        [sys.executable,str(QUEUE_CODE),"set-state","--jellyfin-id",jid,
+         "--language","ja","--queue-state","held","--note",
+         str(reason or "publication validation hold")[:300]],
+        capture_output=True,text=True,timeout=20,check=False)
+    return result.returncode == 0
 
 
 def lock_cycle():
@@ -369,6 +402,8 @@ def status():
     reasons = Counter(doc.get("held_reasons") or {})
     print("  Top held reasons:",json.dumps(reasons.most_common(6)))
     print("  Full log:",doc.get("log"))
+    print("  Scheduled daily source job:", "active" if active_unit(SCHEDULED)
+          else "not active")
     print("  Manual stop: bruiser-subs stop | Resume: bruiser-subs start --cycles 5")
     return 0
 
