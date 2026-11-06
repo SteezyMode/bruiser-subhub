@@ -67,6 +67,42 @@ class StatusTests(unittest.TestCase):
         data = dashboard.snapshot(doc, True, False, logs)
         self.assertEqual(data["phase_progress"], {"current": 2, "total": 7})
 
+    def test_publish_item_title_never_leaks_stale_staging_title(self):
+        logs = [
+            "=== PHASE stage_matched_japanese 2026-11-06T04:01:00Z ===",
+            "[12/30] STAGING: Bowfinger (1999)",
+            "=== PHASE sync_and_publish 2026-11-06T04:02:00Z ===",
+            "=== UNIFIED JAPANESE SUBTITLE PUBLISH QUEUE ===",
+            "Staged candidates: 29 | unique titles: 29 | max new sidecars: 30",
+            "MEDIA: exampleid | candidate IDs: x",
+        ]
+        doc = sample()
+        doc.update(phase="sync_and_publish",last_item="Bowfinger (1999)",phase_total=0)
+        result = dashboard.snapshot(doc, True, False, logs)
+        self.assertEqual(result["current_item"],
+                         "Validating subtitle 1 / 29 (title not yet reported)")
+        self.assertNotIn("Bowfinger", result["current_item"])
+        logs.append("RESULT: The Shining (1980) | ready_ffsubsync")
+        result = dashboard.snapshot(doc, True, False, logs)
+        self.assertEqual(result["current_item"],
+                         "Last evaluated: The Shining (1980) (item 1 / 29)")
+        self.assertTrue(any("RESULT: The Shining" in line for line in result["events"]))
+        logs.append("MEDIA: nextid | candidate IDs: y")
+        result = dashboard.snapshot(doc, True, False, logs)
+        self.assertIn("Validating subtitle 2 / 29", result["current_item"])
+        self.assertNotIn("The Shining", result["current_item"])
+
+    def test_phase_change_cannot_carry_last_publication_title(self):
+        logs = [
+            "=== PHASE sync_and_publish 2026-11-06T04:00:00Z ===",
+            "MEDIA: first | candidate IDs: 1",
+            "RESULT: Bowfinger (1999) | ready_ffsubsync",
+            "=== PHASE search_opensubtitles 2026-11-06T04:04:00Z ===",
+        ]
+        doc = sample()
+        doc.update(phase="sync_and_publish",last_item="Bowfinger (1999)",phase_total=0)
+        self.assertNotIn("Bowfinger", dashboard.snapshot(doc, True, False, logs)["current_item"])
+
     def test_log_path_outside_private_directory_is_never_read(self):
         with tempfile.TemporaryDirectory() as temp:
             p = Path(temp) / "unsafe.log"
