@@ -226,7 +226,48 @@ def normalize_external_english(raw, sync):
     before_count=len(re.findall(
         r"(?m)^[ \t]*\d{1,3}:\d{2}:\d{2}[,.]\d{3}[ \t]*-->",
         line_text))
-    after=sync.parse_cues(encoded)
+    try:
+        after=sync.parse_cues(encoded)
+    except RuntimeError as exc:
+        if str(exc)!="bad_srt_timestamp":
+            raise
+        # Quarantine one malformed cue pointing to ~0 seconds AFTER the
+        # movie's actual final credits, never rewrite its timestamps.
+        # Previous valid cues must include at least 45 minutes of video.
+        blocks=re.split(r"\n[ \t]*\n",clean.strip("\n"))
+        if len(blocks)<151:
+            raise
+        tail=blocks[-1].splitlines()
+        offset=int(bool(tail and tail[0].strip().isdigit()))
+        if len(tail)<offset+1:
+            raise
+        timing=tail[offset].strip()
+        clock=r"\d{1,3}:\d{2}:\d{1,2}[,.]\d{1,3}"
+        match=re.fullmatch(
+            rf"({clock})\s*-->\s*({clock})(?:\s+.*)?",timing)
+        if not match:
+            raise
+        def seconds(value):
+            h,m,sec=value.replace(",",".").split(":")
+            return int(h)*3600+int(m)*60+float(sec)
+        start,end=map(seconds,match.groups())
+        if not (0<=start<5 and start<end<=5):
+            raise
+        shortened="\n\n".join(blocks[:-1]).strip("\n")+"\n"
+        preceding=sync.parse_cues(shortened.encode("utf-8"))
+        if (len(preceding)<150 or len(preceding)!=before_count
+                or preceding[-1]["end"]<45*60*1000):
+            raise
+        # The downloaded .en.srt remains untouched; record evidence in log.
+        print("SUBHUB_AI_EN_TRAILING_CUE_QUARANTINED"
+              " reason=malformed_near_zero_timestamp_at_end"
+              " original_block_sha256="+
+              hashlib.sha256(blocks[-1].encode()).hexdigest()[:16],
+              " prior_valid_cues="+str(len(preceding)),
+              " original_file_unchanged",flush=True)
+        clean=shortened
+        encoded=clean.encode("utf-8")
+        after=preceding
     if len(after)!=before_count:
         raise RuntimeError("english_normalization_cue_count_changed")
     if encoded!=raw:
