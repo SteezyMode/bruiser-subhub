@@ -134,6 +134,12 @@ Owner clarified OptiPlex NOW is frozen for private alpha; SubHub is **independen
 
 **Do NOT claim installed/running yet.** GitHub code is not the host. First verify owner installation output, HTTP health and live counts equal the curses tracker; fix any deployment/test failures before moving on. GUI controls are intentionally **not present in v0.1**; spec and reboot-safe worker state tracked in [issue #66](https://github.com/SteezyMode/bruiser-subhub/issues/66). New-media detection [issue #65](https://github.com/SteezyMode/bruiser-subhub/issues/65); timing salvage [issue #64](https://github.com/SteezyMode/bruiser-subhub/issues/64). The transient 12-cycle batch **does not auto-resume on power loss**; dashboard service itself is persistent independently. AI translation integration is next priority after dashboard verification.
 
+## Nov 6, 13:59 JST — dashboard self-refresh and stale Bowfinger title fix
+
+Owner confirmed browser dashboard is installed and viewed, but the *Current activity* display remained on `Bowfinger (1999)` while the **same live source worker** progressed in publication **8/29 at 13:53 → 14/29 at 13:59**. The web UI already auto-polls `GET /api/status` every 3s; source worker `last_item` remains from last `STAGING` because publisher emits `MEDIA:` and `RESULT:` events without updating `last_item`. Thus *Title* was stale even though publication progressed.
+
+Fix committed in `tools/subhub_dashboard_server.py` and `tools/bruiser_live_view.py`: in a publish/recovery phase, derive real progress from latest phase log, display `Validating subtitle N/total (title not yet reported)` until the publisher's real `RESULT` title appears, then label `Last evaluated: ...`. Never claim the last staged title is the active publication. Web recent activity also includes `RESULT:` names. Regression tests added to both offline suites. Installer `tools/install_subhub_dashboard.sh` explicitly restarts **the independent dashboard service only** on reinstall; old `enable --now` would not update an already-active web process. Terminal viewer gets its own existing guarded viewer installer. Neither tool modifies the running 12-cycle publisher. **Both display fixes are committed in GitHub but NOT host verified until owner re-installs pinned revision and sends test output**. No need to reinstall MacBook SSH shortcut when updating web service.
+
 ## Permanent developer instructions
 
 - Start and inspect batches using the CLI, not dozens of bespoke scripts. Operator progress must be observable without interpreting raw logs.
