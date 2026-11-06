@@ -133,9 +133,12 @@ class HandoffTests(unittest.TestCase):
             @staticmethod
             def english_srt(video): return None
         info={"audio_en":True,"ja":False,"embedded_en":None}
-        with self.assertRaisesRegex(RuntimeError,"english_text_source_not_available"):
-            ai.saved_media(Path("/media/none.mkv"),"fid",info,Daily,
-                           None,None,None,lambda p:Path(p))
+        with tempfile.TemporaryDirectory() as folder:
+            video=Path(folder)/"movie.mkv"
+            video.write_bytes(b"not-a-video (preflight fixture only)")
+            with self.assertRaisesRegex(RuntimeError,"english_text_source_not_available"):
+                ai.saved_media(video,"fid",info,Daily,
+                               None,None,None,lambda p:Path(p))
 
     def test_source_routing_is_not_based_on_filename_only(self):
         self.assertNotIn("American Dad",ai.__doc__ or "")
