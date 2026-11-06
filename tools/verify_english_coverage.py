@@ -17,6 +17,7 @@ import csv
 import hashlib
 import json
 import os
+import subprocess
 from pathlib import Path
 import sys
 
@@ -47,7 +48,7 @@ def manifest_path(folder, chosen=None):
             raise RuntimeError("Unrecognized manifest path")
         return path
     paths = sorted(
-        (x for x in folder.glob("en-no-ja-*.json")
+        (x for x in folder.glob("en-no-ja-20*.json")
          if x.is_file() and not x.is_symlink()),
         key=lambda x: x.name)
     if not paths:
@@ -75,7 +76,40 @@ def approved_video(row, roots):
     return video
 
 
-def inspect(row, roots, prober=intake.probe):
+def probe_media(video):
+    """Inspect only real video headers; don't mistake forced JA for dialogue."""
+    cmd = ['ffprobe', '-v', 'error',
+           '-show_entries',
+           'stream=index,codec_type,codec_name:stream_tags=language:stream_disposition=default,forced',
+           '-of', 'json', str(video)]
+    result = subprocess.run(cmd, capture_output=True, timeout=25)
+    if result.returncode:
+        raise RuntimeError('ffprobe_failed')
+    parsed = json.loads(result.stdout)
+    tracks = parsed.get('streams')
+    if not isinstance(tracks, list):
+        raise RuntimeError('ffprobe_invalid_streams')
+    en = []
+    ja = False
+    for track in tracks:
+        if not isinstance(track, dict) or track.get('codec_type') != 'subtitle':
+            continue
+        forced = track.get('disposition', {}).get('forced') == 1
+        if forced:
+            continue
+        language = str(track.get('tags', {}).get('language') or '').casefold()
+        codec = str(track.get('codec_name') or '').casefold()
+        if language in intake.JA:
+            ja = True
+        if (language in intake.EN and codec in intake.TEXT_CODECS
+                and type(track.get('index')) is int):
+            en.append((track.get('disposition', {}).get('default') != 1,
+                       codec != 'subrip', track['index']))
+    en.sort()
+    return {'ja': ja, 'embedded_en': en[0][2] if en else None}
+
+
+def inspect(row, roots, prober=probe_media):
     """Verify declared English stream using *real media bytes/header*.
 
     A non-Japanese, unforced English text stream is exposed as ffprobe's
@@ -177,7 +211,7 @@ def summarize(rows):
     }
 
 
-def run(manifest, roots, sample_count, *, prober=intake.probe,
+def run(manifest, roots, sample_count, *, prober=probe_media,
         reader=intake.source):
     roots = intake.ensure_roots(roots)
     if not 0 <= sample_count <= MAX_EXTRACT:
