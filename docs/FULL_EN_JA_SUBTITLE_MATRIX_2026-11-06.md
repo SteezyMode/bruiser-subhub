@@ -15,7 +15,45 @@
 
 The earlier narrower audit covered 12,386 files, found 2,552 **English text candidates without detected JA**, and identified 573 titles with JA (which the first audit excluded from its English inventory). Of the 2,550 Jellyfin metadata candidates, subsequent ffprobe verified **2,270 embedded English text tracks** (2,080 episodes and 190 movies). A 40-file extraction sample succeeded on 39 and failed on one. These counts **cannot** answer the user's requested total bilingual inventory because the 573 JA titles were never simultaneously classified for English.
 
-The new full matrix now does the appropriate independent classification. **Actual full-matrix counts are unknown until run on the host.** Do not simply add 2,270 and 573; their overlap was not measured.
+The full matrix **was executed on the real OptiPlex** on November 6, 2026. This is the current baseline, superseding the earlier incomplete English-without-Japanese subset.
+
+## Verified live bilingual census — November 6, 2026
+
+**Actual host result:** `SUBTITLE_MATRIX_SUMMARY` processed **12,386 / 12,386** Jellyfin media files, with no reported inspection errors.
+
+| Exclusive category | Count | What it means |
+| --- | ---: | --- |
+| Both English and Japanese | **522** | Both languages detected, including external and embedded tracks |
+| English only | **2,563** | Primary candidates for new Japanese coverage; English subtitle presence is not always usable text |
+| Japanese only | **41** | Japanese present; English absent by current classifier |
+| Neither | **8,336** | No unforced, explicitly EN/JA subtitle tracks found; source discovery needed |
+| Unknown | **924** | Includes unlabeled sidecars, earlier media/Jellyfin conflicts and cases where absence cannot safely be established |
+| **Total** | **12,386** | Each file appears in exactly one category |
+
+Independent presence totals **include some unknown-category rows**, so they do not equal the simple sums above:
+
+- **English subtitles detected: 3,112** (including 27 uncertain-category records).
+- **Japanese subtitles detected: 572** (including 9 uncertain-category records).
+- **English text indicated: 2,791**; this is a presence/codec indicator, **not** 2,791 validated translation sources.
+- **Japanese text indicated: 563** (no independent native-language viewing grade).
+- **Prior media verification reused:** 2,270 actual embedded English text tracks confirmed, **265 Jellyfin metadata English-track mismatches flagged**. Do not count the latter as verified input.
+- **675 files have unlabeled subtitle sidecars**, requiring language inspection before any absence/presence claim.
+- **278 have Japanese audio** across the entire library; subtitle priorities should account for them. This is not the same as 278 unserved Japanese viewers.
+- This was a **read-only baseline**, not new Japanese subtitle publication.
+
+**Authoritative private outputs on the host** (never upload to this public repository):
+
+```text
+~/bruiser-pilot/coverage-audits/subtitle-matrix-20261106T015513Z.json
+~/bruiser-pilot/coverage-audits/subtitle-matrix-20261106T015513Z.all.csv
+~/bruiser-pilot/coverage-audits/subtitle-matrix-20261106T015513Z.both.csv
+~/bruiser-pilot/coverage-audits/subtitle-matrix-20261106T015513Z.english_only.csv
+~/bruiser-pilot/coverage-audits/subtitle-matrix-20261106T015513Z.japanese_only.csv
+~/bruiser-pilot/coverage-audits/subtitle-matrix-20261106T015513Z.neither.csv
+~/bruiser-pilot/coverage-audits/subtitle-matrix-20261106T015513Z.unknown.csv
+```
+
+**Stop repeating full-library ffprobe passes or extraction samples.** This is enough to organize development. The right next action is to use the **existing `english_only.csv` (2,563 items)** to assemble an opt-in, per-title validation and translation backlog, while preserving source-first acquisition for the 8,336 neither and addressing unknown/unlabeled separately. Do not mass-translate on the basis of a codec flag or override existing Japanese tracks.
 
 ## Code and deployment
 
@@ -23,6 +61,6 @@ The new full matrix now does the appropriate independent classification. **Actua
 - [`test_audit_full_subtitle_matrix.py`](../test_audit_full_subtitle_matrix.py) — offline bilingual, forced, bitmap, missing/stale metadata and language-unknown tests.
 - [`tools/run_full_subtitle_matrix.sh`](../tools/run_full_subtitle_matrix.sh) — guarded one-command installer and execution on the existing OptiPlex host; no changes to timer or PLaMo.
 
-**Note:** Repository code is not live-host deployment. After executing the pinned wrapper, use `SUBTITLE_MATRIX_SUMMARY` and the private `subtitle-matrix-*.both.csv` / `.english_only.csv` / `.japanese_only.csv` / `.neither.csv` / `.unknown.csv` as Bruiser's source-of-truth inventory. No public GitHub upload of the resulting private media file paths.
+**Deployment verified:** The owner ran the pinned wrapper successfully on November 6 and generated the private reports shown above. Future code changes are still not automatically deployed. No public GitHub upload of the resulting private media file paths.
 
 Next development task after the matrix: review these counts by language/source and prioritize genuine **new playable Japanese coverage**—not another redundant broad subtitle extraction experiment.
