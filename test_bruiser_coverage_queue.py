@@ -58,6 +58,27 @@ class CoverageQueueTests(unittest.TestCase):
         items=queue.tasks_for(media(category="unknown"))
         self.assertEqual(items[0][1],"review_uncertain")
 
+    def test_unknown_audio_with_neither_subtitle_does_not_start_ja_search(self):
+        for audio in ("unknown", "und", "", "mul", "zxx", "none"):
+            row=media(audio_language=audio,category="neither",
+                      english_subtitles=False,japanese_subtitles=False)
+            planned=queue.tasks_for(row)
+            self.assertEqual([(r[0],r[1]) for r in planned],
+                             [("review","review_uncertain")])
+            self.assertIn("primary_audio_language_unverified",planned[0][2])
+
+    def test_unknown_audio_never_translates_even_with_english_available(self):
+        row=media(audio_language="unknown",category="english_only",
+                  english_subtitles=True,japanese_subtitles=False)
+        planned=queue.tasks_for(row,searches={
+            "jid-one":("none",0,2000000000)},now=2000000100)
+        self.assertEqual([(r[0],r[1]) for r in planned],
+                         [("review","review_uncertain")])
+
+    def test_unknown_audio_with_both_subtitles_needs_no_work(self):
+        self.assertEqual(queue.tasks_for(media(audio_language="unknown",
+            category="both",english_subtitles=True,japanese_subtitles=True)),[])
+
     def test_already_subtitled_is_skipped(self):
         self.assertEqual(queue.tasks_for(media(category="both",
             japanese_subtitles=True)),[])
