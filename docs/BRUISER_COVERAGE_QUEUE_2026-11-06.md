@@ -77,6 +77,27 @@ python3 "$Q" set-state --jellyfin-id ACTUAL_JELLYFIN_ID \
 
 Allowed progress states: `pending`, `held`, `candidate_found`, `ready_for_translation`. **No manually asserted `completed` state**: only real verified new playable subtitles in a later matrix may count as new coverage. The queue preserves historical snapshots and prior notes. This avoids the repeated discovery and rework that previously consumed time across chats.
 
+## Queue successfully installed on OptiPlex — November 6, 2026
+
+**Owner-verified host results** from the guarded queue installer:
+
+- `COVERAGE_QUEUE_INIT`: **12,386 media**, **15,852 active language-specific tasks**, 1 durable snapshot; no provider/model/video operations.
+- Existing staging/previous source work recovered automatically: **21 `align_existing_staged_ja`**; **86 `download_saved_ja`**; **102 `review_saved_ja`**.
+- Missing-Japanese workload: **10,104 `search_ja`**, 96 `validate_english_for_ja_fallback`, 314 `recover_english_for_ja_fallback`.
+- Remaining action counts: 3,880 `check_audio_then_source_en`, 325 `search_en`, 924 `review_uncertain`. A media file can have more than one target-language task, hence 15,852 > 12,386; do not treat task count as missing files.
+- All states started `pending`; **0 timing-repair flags** merely means *no specific timing problems were submitted yet*, not that existing sources cannot be repaired.
+- Top already staged films included *28 Days Later*, *A Nightmare on Elm Street*, *A Quiet Place*, *Alien*, *Crawl*. These are *candidates*, not automatically repaired or published.
+
+Private queue DB exists: `~/bruiser-pilot/coverage-queue/coverage.sqlite3`. **Queue initialization was confirmed on the actual host.**
+
+### Next guarded source-selector integration prepared, NOT YET DEPLOYED
+
+Code has been committed for `ja_first_priority.py` (read-only, secure queue access), `ja_first_search_pilot.py` and `ja_first_stage_saved_batch.py` (both remove old 75%-movie quotas and rank eligible work from the persistent queue). The search selector **skips** held, already-staged, source-fallback or otherwise deferred tasks; staging favors saved high-confidence matches and allows discoveries from the current cycle. All identity, cooldown, ffsubsync QA, provider quota stop and create-only publish code is untouched.
+
+[`tools/install_queue_driven_sourcing.sh`](../tools/install_queue_driven_sourcing.sh) is a **guarded** live-host deployment: refuses an active Japanese source service; confirms safe existing controller and queue files; downloads pinned code and a [separate offline regression suite](../test_ja_first_queue_selection.py); parses files and runs those tests **before changing controller files**, then backs up and installs the three selectors. No provider request, timer restart or GPU work. Host acceptance and next scheduled daily run still need verification.
+
+**Remaining issue #62 work:** apply/test this guarded host update, verify real candidate selections in tomorrow's scheduled logs, and measure *published new JA* per download allowance. The existing cycle still runs search → stage → publication, and the current queue remains a *priority selector*, not a complete job dispatcher. Full future integration must retain timing-repair support for both EN and JA.
+
 ## Next engineering change — do not substitute another audit
 
 **Integrate the queue into the existing source-only Japanese cycle** ([tracked as GitHub issue #62](https://github.com/SteezyMode/bruiser-subhub/issues/62)). In order: pick `align_existing_staged_ja` → `download_saved_ja` → identity review → `search_ja` according to available allowance. Remove the historic 75% movie / 25% episode quotas from *both* discovery and staging after tests, replacing them with ordered eligible work and measured publish yield. Keep search-history cooldowns, strict media/episode identity, provider download quota, ffsubsync bounds, on-disk source QA and create-only publication. The 9:15 JST source timer is already deployed and should not be changed merely to integrate selection.
