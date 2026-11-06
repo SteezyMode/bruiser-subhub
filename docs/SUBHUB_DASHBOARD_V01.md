@@ -25,6 +25,12 @@ Then open `http://127.0.0.1:17876/` in the client's browser. The tunnel is inten
 
 A one-click Linux remote shortcut can be installed from the separate `tools/install_subhub_dashboard_client.sh`, with the approved SSH endpoint passed as an argument. It runs `ssh -f -N -o BatchMode=yes -L 127.0.0.1:17876:127.0.0.1:17876 ...`, verifies the backend `/healthz`, then opens the browser. **Requires existing SSH key authorization**; it doesn't create an account or store passwords.
 
+## Display correctness update (Nov 6: publication-title regression)
+
+Owner reported the new browser dashboard and terminal viewer were both stuck displaying **Bowfinger (1999)** while the publisher really advanced **8/29 → 14/29** within a few minutes. This is not stalled processing: `bruiser_batch.py` does not update `last_item` for `MEDIA:` publishing events; that field still reflects the last `STAGING:` entry. The dashboard now uses the current phase's bounded log **`MEDIA:` and `RESULT:`** events to display *Verifying subtitle N/total* until a genuine human-readable `RESULT` title is available, then labels it **Last evaluated**, never pretending an old staging title is actively processing. `RESULT` entries also appear in Recent Activity. Added regression coverage for this behavior and phase reset. The older curses terminal monitor remains unmodified for now, and may still show stale `Title:` in publish stages.
+
+The installer now explicitly **restarts only `bruiser-subhub-dashboard.service`** after copying updated UI files. Prior installer used `enable --now`, which would not reload an already-running dashboard process. Re-running the pinned installer now picks up the change without changing the independent `bruiser-subhub-batch.service` or daily sourcing worker. The installer runs 11 offline tests; do not claim host verification until owner supplies successful output.
+
 ## v0.1 verified design boundaries
 
 - GET `/`: responsive local HTML/CSS/JS, auto-refreshes every three seconds.
