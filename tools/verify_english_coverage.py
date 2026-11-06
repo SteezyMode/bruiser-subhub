@@ -20,6 +20,7 @@ import os
 import subprocess
 from pathlib import Path
 import sys
+import time
 
 try:
     import daily_japanese as intake
@@ -163,12 +164,20 @@ def sample_order(rows, sample_count):
 def extract_sample(rows, roots, sample_count, reader=intake.source):
     selected = sample_order(rows, sample_count)
     summary = Counter()
+    print("EXTRACTION_PHASE_START", "sample", len(selected), flush=True)
     for num, row in enumerate(selected, 1):
+        started = time.monotonic()
+        print("EXTRACTION_START", num, "of", len(selected),
+              "kind", row.get("kind", "unknown"), flush=True)
         video = approved_video(row, roots)
         if video is None:
             row.update(extraction_status="video_unavailable",
                        extracted_cues="", next_action="review_media_path")
             summary["video_unavailable"] += 1
+            print("EXTRACTION_DONE", num, "of", len(selected),
+                  "result", "video_unavailable",
+                  "elapsed_seconds", round(time.monotonic() - started, 1),
+                  flush=True)
             continue
         try:
             # Extract from actual media only. Existing named SRTs are already
@@ -189,6 +198,10 @@ def extract_sample(rows, roots, sample_count, reader=intake.source):
             row.update(extraction_status=type(exc).__name__,
                        extracted_cues="", next_action="investigate_extraction_failure")
             summary["extraction_failed"] += 1
+        print("EXTRACTION_DONE", num, "of", len(selected),
+              "result", row.get("extraction_status"),
+              "elapsed_seconds", round(time.monotonic() - started, 1),
+              flush=True)
         if num % 10 == 0:
             print("EXTRACTION_SAMPLE_PROGRESS", num, len(selected), dict(summary),
                   flush=True)
@@ -225,8 +238,10 @@ def run(manifest, roots, sample_count, *, prober=probe_media,
         row.setdefault("extracted_cues", "")
         row.setdefault("extraction_status", "")
         output.append(row)
-        if i % 250 == 0:
+        if i % 250 == 0 or i == len(candidates):
             print("FFPROBE_PROGRESS", i, len(candidates), flush=True)
+    print("FFPROBE_PHASE_COMPLETE", len(candidates), "candidates",
+          "moving_to_extraction_sample", sample_count, flush=True)
     sample = extract_sample(output, roots, sample_count, reader=reader)
     summary = summarize(output)
     summary["sample_total"] = sum(sample.values())
