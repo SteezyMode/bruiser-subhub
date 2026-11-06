@@ -268,8 +268,7 @@ def pick(rows, db, budget):
         kind = row.get("kind")
         key = str(row.get("jellyfin_id") or "")
         if (kind not in by_type or not key or key in done
-                or row.get("status") != "ready_ja_search"
-                or priorities.exclude_from_new_sourcing(row)):
+                or row.get("status") != "ready_ja_search"):
             continue
         # Cheap checks only. Do not stat media or enumerate directories here.
         if not isinstance(row.get("host_path"), str):
@@ -289,9 +288,9 @@ def pick(rows, db, budget):
     for kind in by_type:
         by_type[kind].sort(key=lambda pair: (priorities.priority(pair[1]), pair[0]))
 
-    # Focus on other TV shows for localization testing: 75% episodes, 25%
-    # movies. Fill unused capacity from the other category.
-    movie_quota = max(1, budget // 4)
+    # More movies than television, prioritizing horror/drama and the owner's
+    # two explicitly requested series. Fill with other content when exhausted.
+    movie_quota = max(1, budget * 3 // 4)
     quotas = {"Movie": movie_quota, "Episode": budget - movie_quota}
     chosen = []
     for kind in ("Movie", "Episode"):
