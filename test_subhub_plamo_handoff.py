@@ -68,12 +68,11 @@ class HandoffTests(unittest.TestCase):
                         raise RuntimeError("malformed_srt_cue")
                     result.append(lines)
                 return result
+        # An isolated empty pseudo-cue between two valid subtitle cues.
         raw=(b"1\n00:00:01,000 --> 00:00:02,000\nHello\n"
-             b"\n"
+             b"\n\n\n"
              b"2\n00:00:03,000 --> 00:00:04,000\nGoodbye\n"
-             b"\n\n\n\n")
-        # The exact failure mode: an isolated empty cue between delimiters.
-        raw=raw.replace(b"Goodbye\n",b"Goodbye\n\n\n")
+             b"\n")
         with self.assertRaisesRegex(RuntimeError,"malformed_srt_cue"):
             Sync.parse_cues(raw)
         cleaned=ai.normalize_external_english(raw,Sync)
