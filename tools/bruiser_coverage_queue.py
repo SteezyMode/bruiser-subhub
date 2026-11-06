@@ -170,11 +170,21 @@ def tasks_for(row, searches=None, staged=None, now=None):
     result = []
     if audio in JA:
         if not has_en:
-            result.append(("en", "search_en", "japanese_audio_english_subtitles_needed", 40 + rank))
+            result.append(("en", "search_en", "japanese_audio_english_subtitles_needed", 70 + rank))
         return result
     if not has_ja:
         action, reason = japanese_source_plan(row, searches, staged, now)
-        result.append(("ja", action, reason, 10 + rank))
+        # Reuse downloaded files and cached OpenSubtitles searches before
+        # making new quota-consuming requests. Rank covers all media types.
+        phases = {
+            "align_existing_staged_ja": 10,
+            "download_saved_ja": 20,
+            "review_saved_ja": 30,
+            "search_ja": 40,
+            "validate_english_for_ja_fallback": 50,
+            "recover_english_for_ja_fallback": 60,
+        }
+        result.append(("ja", action, reason, phases[action] + rank))
     if audio not in EN and not has_en:
         if audio in UNKNOWN_AUDIO:
             result.append(("en", "check_audio_then_source_en",
