@@ -262,3 +262,9 @@ The first command prints summary counts only; the second explicitly creates a lo
 ## Resuming development
 
 Start with [AGENTS.md](AGENTS.md), [docs/CURRENT_STATE.md](docs/CURRENT_STATE.md), and open pull requests. Keep that handoff document updated as code is merged and deployed. **A GitHub commit is not an OptiPlex deployment.**
+
+## Standalone SubHub Dashboard (v0.1, read-only)
+
+A small browser dashboard now lives **separately from OptiPlex NOW**. It displays the same real batch counters as the terminal viewer, including new published Japanese subtitles, downloads, held items, activity, and future translation status. Its own loopback-only user service and desktop launcher do **not** control the source worker or require it to be restarted.
+
+See [dashboard installation, SSH access, deployment boundary and AI worker contract](docs/SUBHUB_DASHBOARD_V01.md). The pinned installer is [tools/install_subhub_dashboard.sh](tools/install_subhub_dashboard.sh); an optional Linux remote SSH desktop shortcut is [tools/install_subhub_dashboard_client.sh](tools/install_subhub_dashboard_client.sh). Offline tests: [test_subhub_dashboard.py](test_subhub_dashboard.py). **Not installed on the host merely by committing to GitHub.** Read-only means Pause/Resume/Start/Prioritize are not yet available; [issue #66](https://github.com/SteezyMode/bruiser-subhub/issues/66) tracks controls and reboot recovery, and [issue #65](https://github.com/SteezyMode/bruiser-subhub/issues/65) tracks automatic new-media detection. OptiPlex NOW private-alpha features remain frozen.
