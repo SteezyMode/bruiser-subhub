@@ -41,6 +41,7 @@ FIELDS = (
     "kind", "series", "season", "episode", "title", "video_path",
     "jellyfin_id", "english_source", "english_source_file",
     "english_stream_codec", "english_stream_index", "english_cues",
+    "english_stream_is_external", "english_stream_path", "audio_language",
     "english_status", "japanese_status", "jellyfin_only_prior",
     "queue_readiness",
 )
@@ -135,6 +136,7 @@ def classify(video, item, *, source_reader=intake.source,
                     english_status="parsed_external_srt",
                     english_source="external_srt", english_source_file=str(p),
                     english_stream_codec="srt", english_stream_index="",
+                    english_stream_is_external=True, english_stream_path="",
                     english_cues=count, queue_readiness="source_text_ready")
         except (OSError, RuntimeError, ValueError, UnicodeError):
             # Other valid sources should not be hidden by a corrupt .en.srt.
@@ -148,6 +150,7 @@ def classify(video, item, *, source_reader=intake.source,
             english_status="text_sidecar_needs_conversion",
             english_source="external_text", english_source_file=str(p),
             english_stream_codec=p.suffix.lstrip("."), english_stream_index="",
+            english_stream_is_external=True, english_stream_path="",
             english_cues="", queue_readiness="validate_and_convert")
     if info["english_text"]:
         x = info["english_text"][0]
@@ -156,6 +159,8 @@ def classify(video, item, *, source_reader=intake.source,
             english_source="jellyfin_text_stream", english_source_file="",
             english_stream_codec=x.get("Codec") or "unknown",
             english_stream_index=(x.get("Index") if type(x.get("Index")) is int else ""),
+            english_stream_is_external=x.get("IsExternal") is True,
+            english_stream_path=str(x.get("Path") or ""),
             english_cues="", queue_readiness="verify_extract_before_translate")
     if srts:
         return dict(base, category="invalid_english_srt",
@@ -207,6 +212,11 @@ def collect(*, client, roots, probe=intake.probe, source_reader=intake.source):
                       "japanese_status": "unknown",
                       "queue_readiness": "manual_review"}
         counts[result["category"]] += 1
+        media_streams = streams(item) or []
+        audio = [x for x in media_streams
+                 if isinstance(x, dict) and x.get("Type") == "Audio"]
+        default_audio = next((x for x in audio if x.get("IsDefault") is True),
+                             audio[0] if audio else {})
         item_row = {
             "kind": item.get("Type", ""), "series": item.get("SeriesName") or "",
             "season": item.get("ParentIndexNumber") if type(item.get("ParentIndexNumber")) is int else "",
@@ -216,6 +226,8 @@ def collect(*, client, roots, probe=intake.probe, source_reader=intake.source):
             "english_source": "", "english_source_file": "",
             "english_stream_codec": "", "english_stream_index": "",
             "english_cues": "", "english_status": "",
+            "english_stream_is_external": "", "english_stream_path": "",
+            "audio_language": lang(default_audio.get("Language")),
             "japanese_status": "", "jellyfin_only_prior":
                 path in old_jellyfin_only, "queue_readiness": "",
         }
@@ -223,10 +235,15 @@ def collect(*, client, roots, probe=intake.probe, source_reader=intake.source):
         if result["category"] == "candidate":
             rows.append(item_row)
             counts["jellyfin_only_candidates"] += bool(item_row["jellyfin_only_prior"])
+            counts["japanese_audio_in_candidates"] += item_row["audio_language"] in JA
         if result["category"] in (
                 "unknown_stream_metadata", "inspection_error",
-                "invalid_english_srt"):
+                "invalid_english_srt") or (
+                    item_row["jellyfin_only_prior"] and
+                    result["category"] != "candidate"):
             unresolved.append(item_row)
+            if item_row["jellyfin_only_prior"]:
+                counts["prior_jellyfin_only_unresolved"] += 1
     rows.sort(key=lambda r: (
         r["kind"] != "Movie", r["series"].casefold(), r["season"] or 0,
         r["episode"] or 0, r["title"].casefold(), r["video_path"]))
