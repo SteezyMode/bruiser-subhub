@@ -199,12 +199,12 @@ def modules():
 
 
 def normalize_external_english(raw, sync):
-    """Repair only excess blank separators, never text, cue timing or numbers.
+    """Normalize separators and quarantine one provably bogus final rewind.
 
-    Downloaded SRT files sometimes contain four or more successive newlines.
-    Those produce empty blocks in the strict ffsubsync input parser. Normalize
-    a PRIVATE IN-MEMORY COPY only; the downloaded media sidecar is untouched.
-    More serious malformed cues are held, not silently dropped.
+    Downloaded SRTs can contain excess blank separators or a malformed trailer
+    pointing to time zero after the movie's last legitimate cue. Only one
+    strictly qualified trailer is excluded; all other corrupt cues hold.
+    Work exclusively on a private in-memory copy; preserve the source SRT.
     """
     if not raw or len(raw) > 2_000_000:
         raise RuntimeError("english_srt_size_invalid")
