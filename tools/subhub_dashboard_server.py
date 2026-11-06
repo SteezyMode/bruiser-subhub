@@ -14,6 +14,7 @@ import json
 import os
 from pathlib import Path
 import re
+import sqlite3
 import subprocess
 from urllib.parse import urlsplit
 
@@ -22,6 +23,10 @@ STATE_FILE = ROOT / "current.json"
 HTML = Path(__file__).with_name("subhub_dashboard.html")
 BATCH_UNIT = "bruiser-subhub-batch.service"
 SCHEDULED_UNIT = "bruiser-ja-source-autofill.service"
+PLAMO_MOVIES = Path.home() / "bruiser-pilot/subhub-translation"
+PLAMO_EPISODES = Path.home() / "bruiser-pilot/plamo3-ab/american-dad-existing-english-batch"
+PLAMO_SINGLE = Path.home() / "bruiser-pilot/plamo3-ab/american-dad-one-episode"
+PLAMO_MOVIE_UNIT = "bruiser-asabove-plamo.service"
 PHASES = {
     "queued": "Preparing the source engine",
     "reconcile_queue": "Reconcile saved subtitle work",
@@ -247,12 +252,152 @@ def snapshot(doc, batch_active=False, scheduled_active=False, lines=()):
     }
 
 
+
+def _plamo_running_ids():
+    """Observe actual worker process commands, never assume queued == running."""
+    try:
+        result=subprocess.run(
+            ["ps","-eo","args="],capture_output=True,text=True,check=False,
+            stdin=subprocess.DEVNULL,timeout=4)
+        if result.returncode:
+            return set()
+        return {match.group(1) for line in result.stdout.splitlines()
+                if "subhub_plamo_handoff.py" in line
+                for match in [re.search(
+                    r"--jellyfin-id(?:=|\s+)([a-f0-9]{32})(?:\s|$)",line)]
+                if match}
+    except (OSError,subprocess.TimeoutExpired):
+        return set()
+
+
+def _plamo_checkpoint(folder, meta, kind, running_ids, batch_running):
+    """Immutable source identity + actual SQLite committed cues, no media edits."""
+    jid=str(meta.get("jellyfin_id") or "")
+    video=Path(str(meta.get("video") or ""))
+    total=meta.get("cue_count")
+    if (not isinstance(total,int) or not 1<=total<=12000
+            or not video.is_absolute() or not video.suffix.lower()
+            in (".mp4",".mkv",".avi",".m4v",".webm",".mov",".ts",".m2ts")):
+        return None
+    if kind=="movie" and not re.fullmatch(r"[a-f0-9]{32}",jid):
+        return None
+    db_path=folder/"progress.sqlite3"
+    processed, translated, held, non_dialogue, compute_seconds=(0,0,0,0,0.)
+    if db_path.exists():
+        if (db_path.is_symlink() or not db_path.is_file()
+                or db_path.stat().st_uid!=os.getuid()
+                or db_path.stat().st_mode & 0o002):
+            return None
+        with sqlite3.connect("file:"+str(db_path.resolve())+"?mode=ro",
+                             uri=True,timeout=2) as db:
+            db.execute("PRAGMA query_only=ON")
+            processed,translated,held,non_dialogue,compute_seconds=db.execute("""
+                SELECT COUNT(*),
+                    COALESCE(SUM(CASE WHEN status='translated' THEN 1 ELSE 0 END),0),
+                    COALESCE(SUM(CASE WHEN status='held_translation' THEN 1 ELSE 0 END),0),
+                    COALESCE(SUM(CASE WHEN status='non_dialogue_passthrough'
+                                      THEN 1 ELSE 0 END),0),
+                    COALESCE(SUM(seconds),0)
+                FROM translation""").fetchone()
+    if processed>total or translated+held+non_dialogue!=processed:
+        return None
+    sidecar=video.with_name(video.stem+".ja.PLaMo8B.srt")
+    published=(not sidecar.is_symlink() and sidecar.is_file()
+               and 0<sidecar.stat().st_size<=2_000_000)
+    # Movie jobs have individual process identities. The older American Dad
+    # batch does not expose which episode is active; do not guess.
+    active=(jid in running_ids) if kind=="movie" else False
+    if published:
+        state="published_with_review" if held else "published"
+    elif active:
+        state="translating"
+    elif processed==total and total:
+        state="awaiting_publication"
+    elif held:
+        state="needs_resume_with_holds"
+    else:
+        state="needs_resume" if processed else "ready_or_queued"
+    title=(video.parent.name if kind=="movie" else
+           "American Dad! "+safe_text(meta.get("episode"),20))
+    title=safe_text(title,110)
+    return {
+        "id":safe_text(folder.name,72),"kind":kind,
+        "jellyfin_id":jid if kind=="movie" else "",
+        "title":title,"state":state,"active":active,
+        "processed":int(processed),"translated":int(translated),
+        "held":int(held),"non_dialogue":int(non_dialogue),
+        "total":total,"percent":round(100*processed/total,1),
+        "compute_seconds":round(float(compute_seconds),1),
+        "published":published,
+        "last_checkpoint_utc":(
+            datetime.fromtimestamp(db_path.stat().st_mtime,timezone.utc).isoformat()
+            if db_path.exists() else ""),
+    }
+
+
+def translation_jobs(movie_root=PLAMO_MOVIES,
+                     episode_root=PLAMO_EPISODES,
+                     single_root=PLAMO_SINGLE):
+    """One read-only view of existing PLaMo jobs; no Gemma or provider calls."""
+    running_ids=_plamo_running_ids()
+    batch_running=False  # Legacy batch lacks per-episode identity.
+    jobs=[]
+    locations=(
+        (movie_root,"movie","ja-*","manifest.json"),
+        (episode_root,"episode","S*","episode.json"),
+        (single_root.parent,"episode",single_root.name,"episode.json"),
+    )
+    for root,kind,pattern,manifest_name in locations:
+        if not root.is_dir() or root.is_symlink():
+            continue
+        if root.stat().st_uid!=os.getuid():
+            continue
+        for folder in list(root.glob(pattern))[:300]:
+            if not folder.is_dir() or folder.is_symlink():
+                continue
+            manifest=folder/manifest_name
+            if (not manifest.is_file() or manifest.is_symlink()
+                    or manifest.stat().st_uid!=os.getuid()
+                    or manifest.stat().st_mode & 0o077
+                    or manifest.stat().st_size>50_000):
+                continue
+            try:
+                meta=json.loads(manifest.read_text("utf-8"))
+                if not isinstance(meta,dict):
+                    continue
+                item=_plamo_checkpoint(folder,meta,kind,running_ids,batch_running)
+                if item:
+                    jobs.append(item)
+            except (OSError,ValueError,TypeError,sqlite3.Error,RuntimeError):
+                continue
+    jobs.sort(key=lambda x:(
+        0 if x["active"] else 1,
+        0 if not x["published"] else 1,
+        x["title"].casefold()))
+    # Do not silently omit running jobs if previous batches have many artifacts.
+    return jobs[:150]
+
+
+def translation_snapshot():
+    jobs=translation_jobs()
+    counts=Counter(job["state"] for job in jobs)
+    running=sum(1 for job in jobs if job["active"])
+    return {"state":"active" if running else "idle",
+            "engine":"PLaMo 8B","jobs":jobs,
+            "total_jobs":len(jobs),"active_jobs":running,
+            "held_cues":sum(job["held"] for job in jobs),
+            "published_jobs":sum(int(job["published"]) for job in jobs),
+            "by_state":dict(counts)}
+
+
 def status_payload():
     doc = checked_state()
     log = trusted_log(doc) if doc else None
     lines = tail_lines(log)
-    return snapshot(doc, unit_active(BATCH_UNIT),
+    result=snapshot(doc, unit_active(BATCH_UNIT),
                     unit_active(SCHEDULED_UNIT), lines)
+    result["translation"]=translation_snapshot()
+    return result
 
 
 class Handler(BaseHTTPRequestHandler):
