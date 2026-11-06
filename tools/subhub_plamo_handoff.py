@@ -86,15 +86,20 @@ def validate_row(row):
 
 
 def recent_running_source():
-    """Do not start model inference while the current source batch is active."""
+    """Do not start model inference while either source worker is active."""
     try:
-        return subprocess.run(
-            ["systemctl","--user","is-active","--quiet",
-             "bruiser-subhub-batch.service"],
-            check=False, timeout=8, stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL).returncode == 0
+        for unit in ("bruiser-subhub-batch.service",
+                     "bruiser-ja-source-autofill.service"):
+            check = subprocess.run(
+                ["systemctl","--user","is-active","--quiet",unit],
+                check=False, timeout=8, stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL)
+            if check.returncode == 0:
+                return True
+            if check.returncode not in (3,4):
+                raise RuntimeError("source_service_state_unverifiable")
+        return False
     except (OSError, subprocess.TimeoutExpired):
-        # A missing systemd user manager is not proof of safety.
         raise RuntimeError("cannot_verify_source_batch_inactive")
 
 
