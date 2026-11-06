@@ -84,6 +84,38 @@ class LiveViewTests(unittest.TestCase):
             with patch.object(live,"ROOT",base):
                 self.assertEqual(live.recent_log(path,5),[])
 
+    def test_incremental_draw_only_changes_modified_rows(self):
+        class Window:
+            def __init__(self):
+                self.calls = []
+                self.erases = 0
+            def getmaxyx(self):
+                return (25, 88)
+            def erase(self):
+                self.erases += 1
+            def addnstr(self, row, col, text, limit):
+                self.calls.append((row, text))
+            def noutrefresh(self):
+                pass
+        window=Window()
+        with patch.object(live.curses, "doupdate"):
+            snapshot,size=live.draw_changed_lines(window, "TITLE\\nSEARCH 9\\n", (), None)
+            self.assertEqual(window.erases,1)
+            self.assertEqual(len(window.calls),2)
+            snapshot,size=live.draw_changed_lines(window, "TITLE\\nSEARCH 9\\n",snapshot,size)
+            self.assertEqual(window.erases,1)
+            self.assertEqual(len(window.calls),2)
+            snapshot,size=live.draw_changed_lines(window, "TITLE\\nSEARCH 10\\n",snapshot,size)
+            self.assertEqual(window.erases,1)
+            self.assertEqual(len(window.calls),3)
+            self.assertEqual(window.calls[-1][0],1)
+
+    def test_curses_viewer_never_clears_every_refresh(self):
+        from inspect import getsource
+        self.assertNotIn("\\033[2J",getsource(live.interactive_view))
+        self.assertIn("curses.wrapper(",getsource(live.main))
+        self.assertIn("curses.doupdate()",getsource(live.draw_changed_lines))
+
     def test_monitor_is_read_only_and_ctrl_c_is_view_only(self):
         from inspect import getsource
         body=getsource(live.main)
