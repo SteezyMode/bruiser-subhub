@@ -53,6 +53,16 @@ Queue-driven source selector code has now been prepared for `ja_first_priority.p
 
 The installed source timer remains **09:15–09:35 JST**, and scheduled GPU work remains disabled in the source-only service. User expects heavy future use of **last-resort GPU translation**, after sourcing or rescuing good Japanese/English tracks. Follow [coverage queue handoff](BRUISER_COVERAGE_QUEUE_2026-11-06.md) and [issue #62](https://github.com/SteezyMode/bruiser-subhub/issues/62) for deployed status rather than repeating arguments about strategy.
 
+## Owner correction: automation, control and transparency (Nov 6, 11:44 JST)
+
+The owner explicitly rejected tiny manually driven batches and answers based on a few log excerpts. **An actual usable Bruiser system needs** the ability to launch large, background batches at will and check transparent progress/status remotely, independently of the assistant and the nightly timer. This is a mandatory product/workflow goal and must not get deferred behind more audits, model experiments or dashboards.
+
+A [source-only batch CLI](BRUISER_BATCH_OPERATOR_2026-11-06.md) has now been committed: one-time install plus `bruiser-subs start --cycles 5`, `status`, `status --json`, `logs`, `stop`. It runs up to 5×600 provider searches as a detached systemd user service, tracks actual staged/published/held work, preserves source and retry history, and protects OpenSubtitles account quota and ffsubsync publication gates. **GitHub code is not proof of host deployment; don't claim live automation until owner shares installer and batch output.**
+
+The OpenSubtitles reset earlier logged for **Nov 6 ~09:00 JST** had already passed when the owner raised this at 11:44 JST; do not treat waiting until Nov 7 as necessary to begin another provider sourcing batch. Searches are generally not capped by the account's download allowance; downloading still must respect actual remaining quota.
+
+**Remaining engineering gap:** this detached CLI currently runs sources-only. The owner anticipates **heavy, last-resort GPU/PLaMo translation** for the long tail and does not authorize endlessly postponing integration. Issue #63 must integrate a dedicated, resumable, observable model queue after trusted Japanese source attempts; distinguish source/repair/GPU steps in status.
+
 ## Permanent development rule
 
 Do not repeat a full library audit or expensive 40-title extraction sample just to restart a conversation. Read this policy, the verified inventory documentation and existing private queue status. Only collect a narrow diagnostic for an actual known blocker, without asking the owner to repeat decisions already codified here. If an implementation is merely committed to GitHub, say **NOT DEPLOYED** until the host output confirms it.
