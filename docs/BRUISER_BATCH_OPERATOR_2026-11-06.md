@@ -68,6 +68,26 @@ ssh -t optiplex@100.121.156.34 'sudo loginctl enable-linger optiplex && loginctl
 
 Expected `Linger=yes`, `BATCH_STARTED` and real `State: running` / phase / cycle / logs. If the command fails, review its exact output rather than claiming work is running. **Do not rerun installation**; it already succeeded, and don't run a second batch until `status` indicates whether one is active.
 
+## November 6 actual detached batch launched (owner-confirmed)
+
+The user enabled lingering and started the host service successfully:
+
+```text
+Linger=yes
+BATCH_STARTED batch-20261106T031534Z
+BATCH_LOG /home/optiplex/bruiser-pilot/batch-control/batch-20261106T031534Z.log
+BRUISER_BATCH_STATUS
+  State: running | Current phase: queued | Cycle: 0 / 5
+  Recent issue: source lock acquired; beginning now
+  Scheduled daily source job: not active
+```
+
+The user independently reconnected and received the **same running service status**. This proves systemd accepted the detached batch and acquired the source lock, **not** that any new OpenSubtitles search, staged download, or Japanese publication succeeded yet. `queued / Cycle 0` refers to startup checks (`ensure_installed`, Sublarr config safety, scheduler idleness, potential Jellyfin manifest refresh) which currently do not emit granular status updates. **Do not call this a hang or assume work is complete from two near-identical early status samples.**
+
+Next owner-visible checks are `~/.local/bin/bruiser-subs status` and `~/.local/bin/bruiser-subs logs --lines 50`; if `queued` persists after startup, inspect `systemctl --user status bruiser-subhub-batch.service --no-pager` and `journalctl --user -u bruiser-subhub-batch.service -n 40 --no-pager` for the real exception or slow stage, not generic unsupported guesses. The batch was launched at 2026-11-06T03:15:34Z (12:15:34 JST). Do not hot-patch/reinstall running source code or start a competing batch.
+
+**Operational backlog:** Improve startup phase observability in a later safe deployment: surface `preflight`, `refresh_catalog`, `reconcile_queue` and failure events immediately so users aren't left staring at the misleading `queued` label. Keep per-title published/held events and provider allowance in the same status interface. GPU PLaMo last-resort integration remains a separate still-unimplemented production stage.
+
 ## Permanent developer instructions
 
 - Start and inspect batches using the CLI, not dozens of bespoke scripts. Operator progress must be observable without interpreting raw logs.
