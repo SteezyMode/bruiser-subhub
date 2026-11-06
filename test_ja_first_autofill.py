@@ -174,6 +174,23 @@ class SourceAutofillTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError,"different_existing"):
                     auto.unit_file(auto.SVC,"unrecognized contents")
 
+    def test_quota_reset_schedule_and_guarded_legacy_timer_migration(self):
+        self.assertIn('OnCalendar=*-*-* 09:15:00', auto.TIMER)
+        self.assertIn('OnCalendar=*-*-* 05:15:00', auto.LEGACY_TIMER)
+        with tempfile.TemporaryDirectory() as tmp:
+            base=Path(tmp)
+            old=base/auto.NAME
+            old.write_text(auto.LEGACY_TIMER)
+            old.chmod(0o600)
+            foreign=base/"unrelated.timer"
+            foreign.write_text("unchanged")
+            with patch.object(auto,"USER_UNITS",base):
+                auto.unit_file(auto.NAME,auto.TIMER)
+                self.assertEqual(old.read_text(),auto.TIMER)
+                self.assertEqual(foreign.read_text(),"unchanged")
+                with self.assertRaisesRegex(RuntimeError,"different_existing"):
+                    auto.unit_file(auto.NAME,"foreign timer contents")
+
     def test_one_time_budget_is_private_and_consumed_after_success(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp)
