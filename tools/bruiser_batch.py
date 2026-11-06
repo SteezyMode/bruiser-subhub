@@ -381,7 +381,7 @@ def worker(args):
         os.close(fd)
 
 
-def status():
+def status(as_json=False):
     doc = load_state()
     if not doc:
         print("NO_BATCH: use bruiser-subs start --cycles 5")
@@ -390,6 +390,10 @@ def status():
     value = "running" if active else doc.get("state", "unknown")
     if not active and value in ("starting", "running"):
         value = "interrupted_or_stopped"
+    if as_json:
+        print(json.dumps({"reported_state":value, "service_active":active,
+                          **doc},ensure_ascii=False,sort_keys=True))
+        return 0
     print("BRUISER_BATCH_STATUS")
     print("  State:", value, "| Current phase:", doc.get("phase"),
           "| Cycle:", doc.get("cycle"), "/", doc.get("cycles"))
@@ -416,6 +420,11 @@ def logs(args):
     path = Path(doc["log"])
     if path.parent != private_dir() or path.is_symlink() or not path.is_file():
         raise RuntimeError("unsafe_batch_log")
+    if args.follow:
+        try:
+            return subprocess.call(["tail","-n",str(args.lines),"-f","--",str(path)])
+        except KeyboardInterrupt:
+            return 0
     with path.open("r", encoding="utf-8",errors="replace") as handle:
         from collections import deque
         for line in deque(handle, maxlen=args.lines):
@@ -451,9 +460,11 @@ def main(argv=None):
         control.add_argument("--stage-budget",type=int,default=200)
         control.add_argument("--publish-limit",type=int,default=200)
     runp.add_argument("--batch-id",required=True)
-    sub.add_parser("status")
+    statusp=sub.add_parser("status")
+    statusp.add_argument("--json",action="store_true",help="machine-readable live snapshot")
     logp=sub.add_parser("logs")
     logp.add_argument("--lines",type=int,default=40)
+    logp.add_argument("--follow",action="store_true",help="stream the log until Ctrl-C")
     sub.add_parser("stop")
     args=parser.parse_args(argv)
     if args.action=="start":
@@ -461,7 +472,7 @@ def main(argv=None):
     if args.action=="run":
         return worker(args)
     if args.action=="status":
-        return status()
+        return status(as_json=args.json)
     if args.action=="logs":
         if not 1 <= args.lines <= 400:
             parser.error("--lines must be 1..400")
