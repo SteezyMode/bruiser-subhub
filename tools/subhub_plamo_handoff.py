@@ -407,6 +407,8 @@ def main(argv=None):
         raise RuntimeError("unsafe_translation_lock")
     with lock_path.open("a+b") as lock:
         fcntl.flock(lock.fileno(),fcntl.LOCK_EX|fcntl.LOCK_NB)
+        if recent_running_source():
+            raise RuntimeError("source_batch_still_running_retry_after_it_finishes")
         mod=modules()
         if args.prepare:
             video,cues,m=prepared_source(row,folder,mod)
