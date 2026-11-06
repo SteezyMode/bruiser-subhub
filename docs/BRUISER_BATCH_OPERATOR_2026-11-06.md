@@ -126,6 +126,14 @@ Implementation tracked in [GitHub issue #65](https://github.com/SteezyMode/bruis
 
 Current gaps proven from repo: `ja_first_autofill.refresh_manifest()` may reuse a catalog for 20h, `bruiser_coverage_queue.py init` reads an old snapshot, and unseen media are placed behind the existing queue at fallback rank 300. Thus automatic immediate event-driven ingestion **does not currently exist**; do not imply the daily timer already performs it.
 
+## Nov 6 — Standalone dashboard v0.1 IMPLEMENTED IN GITHUB (not host verified)
+
+Owner clarified OptiPlex NOW is frozen for private alpha; SubHub is **independent**, with optional Bruiser plugin only much later. The first real standalone dashboard code is committed to the SubHub repo: `tools/subhub_dashboard_server.py`, `tools/subhub_dashboard.html`, offline `test_subhub_dashboard.py`, pinned `tools/install_subhub_dashboard.sh`, optional remote desktop launcher installer `tools/install_subhub_dashboard_client.sh`, and [dashboard operator documentation](SUBHUB_DASHBOARD_V01.md).
+
+**v0.1 release boundary:** read-only HTTP server bound strictly to `127.0.0.1:17876`, user `bruiser-subhub-dashboard.service`, refreshes live from the same private batch `current.json` and bounded event log, real search/staged/published/held counts, no provider calls, no worker restarts, no OptiPlex NOW changes. It exposes `translation.state=not_connected` until actual GPU integration. Desktop launcher on OptiPlex opens browser; optional MacBook Linux shortcut reaches it using SSH local port forwarding. User must run the **pinned installer**, which downloads code, validates, runs 9 offline tests and only then deploys the independent dashboard service. Neither source worker nor active 12-cycle job is touched by the installer.
+
+**Do NOT claim installed/running yet.** GitHub code is not the host. First verify owner installation output, HTTP health and live counts equal the curses tracker; fix any deployment/test failures before moving on. GUI controls are intentionally **not present in v0.1**; spec and reboot-safe worker state tracked in [issue #66](https://github.com/SteezyMode/bruiser-subhub/issues/66). New-media detection [issue #65](https://github.com/SteezyMode/bruiser-subhub/issues/65); timing salvage [issue #64](https://github.com/SteezyMode/bruiser-subhub/issues/64). The transient 12-cycle batch **does not auto-resume on power loss**; dashboard service itself is persistent independently. AI translation integration is next priority after dashboard verification.
+
 ## Permanent developer instructions
 
 - Start and inspect batches using the CLI, not dozens of bespoke scripts. Operator progress must be observable without interpreting raw logs.
