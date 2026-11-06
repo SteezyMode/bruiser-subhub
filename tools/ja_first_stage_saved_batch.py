@@ -398,8 +398,7 @@ def choices(inventory, searches, already, budget, kind):
     by_kind = {"Movie": [], "Episode": []}
     for jid, text in searches:
         row = inventory.get(str(jid))
-        if (not row or row.get("status") != "ready_ja_search"
-                or priorities.exclude_from_new_sourcing(row)):
+        if not row or row.get("status") != "ready_ja_search":
             continue
         if row.get("kind") not in by_kind:
             continue
@@ -431,9 +430,9 @@ def choices(inventory, searches, already, budget, kind):
         return [x[2] for x in by_kind["Movie"][:budget]]
     if kind == "episode":
         return [x[2] for x in by_kind["Episode"][:budget]]
-    # Stage other TV series first while reserving 25% of slots for films.
-    # Any unused allocation falls back to the other content category.
-    movie_quota = max(1, budget // 4) if budget > 1 else 0
+    # Prefer movies (horror/drama first) while still reserving 25% for
+    # requested TV series; never starve either pool if one is exhausted.
+    movie_quota = max(1, budget * 3 // 4) if budget > 1 else 0
     episode_quota = budget - movie_quota
     chosen = ([x[2] for x in by_kind["Episode"][:episode_quota]] +
               [x[2] for x in by_kind["Movie"][:movie_quota]])
