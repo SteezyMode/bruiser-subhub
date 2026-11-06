@@ -142,6 +142,11 @@ def scan_one(video, item, cache, verified=None):
     else:
         category = "unknown"
 
+    # If Jellyfin omitted stream metadata, a sidecar cannot prove that the
+    # opposite language is absent inside the video.
+    if streams is None and category in ("english_only", "japanese_only"):
+        category = "unknown"
+
     verification = (verified or {}).get("ffprobe_status", "not_checked")
     if verification == "jellyfin_track_not_in_video":
         verification = "prior_mismatch_video_lacked_reported_english"
@@ -149,6 +154,16 @@ def scan_one(video, item, cache, verified=None):
         verification = "actual_embedded_english_confirmed"
     elif verification == "jellyfin_external_text_unresolved":
         verification = "external_english_unresolved"
+
+    # A previous real ffprobe checked this exact video and found no embedded
+    # English. Don't count the stale Jellyfin-only claim as a confirmed source.
+    if verification in ("prior_mismatch_video_lacked_reported_english",
+                        "external_english_unresolved"):
+        if not any(source.startswith("file:") for source in english):
+            has_en = False
+            en_text = False
+            en_bitmap = False
+            category = "unknown" if not has_ja else "japanese_only"
 
     return {
         "category": category, "audio_language": default_audio,
