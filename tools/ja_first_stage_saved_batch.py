@@ -395,12 +395,16 @@ def read_staged():
 
 
 def choices(inventory, searches, already, budget, kind):
-    by_kind = {"Movie": [], "Episode": []}
+    queue = priorities.active_coverage_queue()
+    possible = []
     for jid, text in searches:
         row = inventory.get(str(jid))
         if not row or row.get("status") != "ready_ja_search":
             continue
-        if row.get("kind") not in by_kind:
+        if row.get("kind") not in ("Movie", "Episode"):
+            continue
+        order = priorities.queue_position(row, "stage", queue)
+        if order is None:
             continue
         try:
             result = json.loads(text)
@@ -421,29 +425,16 @@ def choices(inventory, searches, already, budget, kind):
                  f' S{row["season"]:02d}E{row["episode"]:02d}'
                  if row["kind"] == "Episode"
                  else f'{row.get("title")} ({row.get("year")})')
-        by_kind[row["kind"]].append((label.casefold(), str(jid),
-                                    {"row": row, "candidate": c, "label": label}))
-    for k in by_kind:
-        by_kind[k].sort(key=lambda a: (
-            priorities.priority(a[2]["row"]), a[0], a[1]))
-    if kind == "movie":
-        return [x[2] for x in by_kind["Movie"][:budget]]
-    if kind == "episode":
-        return [x[2] for x in by_kind["Episode"][:budget]]
-    # Prefer movies (horror/drama first) while still reserving 25% for
-    # requested TV series; never starve either pool if one is exhausted.
-    movie_quota = max(1, budget * 3 // 4) if budget > 1 else 0
-    episode_quota = budget - movie_quota
-    chosen = ([x[2] for x in by_kind["Episode"][:episode_quota]] +
-              [x[2] for x in by_kind["Movie"][:movie_quota]])
-    if len(chosen) < budget:
-        picked = {x["row"]["jellyfin_id"] for x in chosen}
-        extras = sorted((x for group in by_kind.values() for x in group
-                         if x[1] not in picked),
-                        key=lambda x: (priorities.priority(x[2]["row"]), x[0], x[1]))
-        chosen.extend(x[2] for x in extras[:budget - len(chosen)])
-    return chosen
-
+        if kind == "movie" and row["kind"] != "Movie":
+            continue
+        if kind == "episode" and row["kind"] != "Episode":
+            continue
+        possible.append((order, -int(c.get("score") or 0), label.casefold(),
+                         str(jid), {"row": row, "candidate": c, "label": label}))
+    possible.sort(key=lambda x: x[:4])
+    # Download saved high-confidence JA sources across BOTH media types in
+    # queue order. Never use an arbitrary percentage split.
+    return [x[4] for x in possible[:budget]]
 
 def has_embedded_english_reference(streams):
     """Cheap pre-download *potential reference* filter, not a sync verdict.
