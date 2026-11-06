@@ -82,6 +82,21 @@ class AuditTests(unittest.TestCase):
         self.assertEqual(r["category"],"has_japanese")
         self.assertEqual(r["japanese_status"],"japanese_media_stream")
 
+    def test_previous_jellyfin_only_without_external_srt_is_unresolved(self):
+        class FakeClient:
+            pass
+        a=item(self.video)
+        with patch.object(audit.library,"catalog",return_value={
+                str(self.video):a}), \
+             patch.object(audit,"prior_jellyfin_only",
+                          return_value={str(self.video.resolve())}):
+            summary,rows,unresolved=audit.collect(
+                client=FakeClient(), roots=(self.root,), source_reader=okay)
+        self.assertEqual(summary["english_no_japanese_candidates"],0)
+        self.assertEqual(summary["prior_jellyfin_only_unresolved"],1)
+        self.assertEqual(len(unresolved),1)
+        self.assertTrue(unresolved[0]["jellyfin_only_prior"])
+
     def test_full_catalog_and_private_create_only_reports(self):
         self.english.write_bytes(b"valid")
         other=self.root/"Film.2025.mkv"
