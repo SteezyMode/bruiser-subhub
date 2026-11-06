@@ -38,7 +38,7 @@ TEXT_CODECS = {"subrip", "srt", "ass", "ssa", "webvtt", "mov_text", "text"}
 TEXT_FILES = {".srt", ".ass", ".ssa", ".vtt"}
 ALL_SUB_FILES = TEXT_FILES | {".sup", ".sub"}
 FIELDS = (
-    "kind", "series", "season", "episode", "title", "video_path",
+    "kind", "series", "season", "episode", "title", "year", "video_path",
     "jellyfin_id", "english_source", "english_source_file",
     "english_stream_codec", "english_stream_index", "english_cues",
     "english_stream_is_external", "english_stream_path", "audio_language",
@@ -233,6 +233,7 @@ def collect(*, client, roots, probe=intake.probe, source_reader=intake.source):
             "season": item.get("ParentIndexNumber") if type(item.get("ParentIndexNumber")) is int else "",
             "episode": item.get("IndexNumber") if type(item.get("IndexNumber")) is int else "",
             "title": str(item.get("Name") or video.stem),
+            "year": item.get("ProductionYear") if type(item.get("ProductionYear")) is int else "",
             "video_path": path, "jellyfin_id": str(item.get("Id") or ""),
             "english_source": "", "english_source_file": "",
             "english_stream_codec": "", "english_stream_index": "",
