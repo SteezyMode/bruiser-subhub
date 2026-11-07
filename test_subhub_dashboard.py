@@ -199,6 +199,37 @@ class StatusTests(unittest.TestCase):
 
 
 class HTTPTests(unittest.TestCase):
+    def test_activating_oneshot_source_is_busy(self):
+        result = dashboard.subprocess.CompletedProcess([], 0, stdout="activating\\n")
+        with patch.object(dashboard.subprocess, "run", return_value=result):
+            self.assertTrue(dashboard.unit_active(dashboard.SCHEDULED_UNIT))
+
+    def test_unknown_service_state_blocks_controls(self):
+        result = dashboard.subprocess.CompletedProcess([], 1, stdout="")
+        with patch.object(dashboard.subprocess, "run", return_value=result):
+            with self.assertRaisesRegex(RuntimeError, "cannot_verify"):
+                dashboard.control_availability()
+
+    def test_scheduled_work_does_not_fake_manual_batch_as_running(self):
+        saved = dashboard.snapshot(sample(), False, False, [])
+        source = {"active": True, "phase": "running", "phase_label": "Sourcing",
+                  "current_item": "Searching", "events": []}
+        result = dashboard.live_source_snapshot(saved, source)
+        self.assertEqual(result["state"], "scheduled_source_running")
+        self.assertEqual(result["manual_batch_history"]["state"], "interrupted")
+        self.assertTrue(result["source_active"])
+
+    def test_auto_start_is_nonblocking_and_only_requests_existing_unit(self):
+        with patch.object(dashboard, "unit_active", side_effect=[False, False]):
+            cp = dashboard.subprocess.CompletedProcess([], 0, stdout="ok")
+            with patch.object(dashboard.subprocess, "run", return_value=cp) as run:
+                result = dashboard.source_controls("start-auto")
+        self.assertTrue(result["ok"])
+        self.assertEqual(run.call_args.args[0], [
+            "systemctl", "--user", "start", "--no-block",
+            dashboard.SCHEDULED_UNIT])
+
+
     def test_control_availability_prevents_duplicate_workers(self):
         with patch.object(dashboard, "unit_active", side_effect=[False, True]):
             c = dashboard.control_availability()
