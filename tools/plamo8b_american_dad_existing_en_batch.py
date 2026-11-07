@@ -357,12 +357,10 @@ def with_batch_inference(tag, video, source_rows, origin, raw_sha, timing):
                                         raw_sha,timing)
         original_start=small.start_server
         original_request=real.request
-        request_count=0
         def guarded_request(port,english,history):
-            nonlocal request_count
-            if request_count%10==0:
-                thermal_gate()
-            request_count+=1
+            # Recheck heat before EVERY spoken cue. Ten model calls can take
+            # long enough to overshoot the existing CPU pause threshold.
+            thermal_gate()
             ja,usage,status=translate_with_one_retry(
                 original_request,port,english,history)
             if status==engine.SPOKEN:

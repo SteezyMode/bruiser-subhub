@@ -534,12 +534,13 @@ def translate(row, folder, mod, port=18888):
                 try:
                     for idx in range(len(output),len(cues)):
                         cue=cues[idx]
-                        if idx%10==0:
-                            batch.thermal_gate()
                         started=time.monotonic()
                         if engine.real.is_non_dialogue_caption(cue["english"]):
                             ja,status=cue["english"],engine.SOLO_SDH
                         else:
+                            # Same gate as the episode worker, before each
+                            # actual model cue, not every tenth saved row.
+                            batch.thermal_gate()
                             ja,_,status=recover_held_cue(
                                 engine.real.request,batch.translate_with_one_retry,
                                 port,cue["english"],engine.previous_pairs(output),
