@@ -91,7 +91,7 @@ class ScopeTests(unittest.TestCase):
         with mock.patch.object(selected,"scope",return_value=src), \
              mock.patch.object(selected,"native",return_value=(
                  auto,search,stage,publish)), \
-             mock.patch.object(selected,"find_japanese",return_value=Counter()), \
+             mock.patch.object(selected,"find_japanese",return_value=Counter({"none":1})), \
              mock.patch.object(selected,"stage_japanese",return_value=Counter()), \
              mock.patch.object(selected,"publish_japanese",return_value=Counter()), \
              mock.patch.object(selected,"reconcile",return_value=0) as reconcile, \
@@ -100,6 +100,26 @@ class ScopeTests(unittest.TestCase):
         auto.lock.assert_called_once()
         reconcile.assert_called_once()
         close.assert_called_once_with(9)
+
+
+    def test_zero_work_cannot_claim_success(self):
+        src={"series":"It's Always Sunny in Philadelphia","season":12,
+             "ids":{"a"*32:"/verified/S12E01.mkv"},"eligible":1,"skipped":{}}
+        auto=mock.Mock()
+        auto.lock.return_value=8
+        auto.config.return_value={}
+        auto.native_search_disabled.return_value=True
+        with mock.patch.object(selected,"scope",return_value=src), \
+             mock.patch.object(selected,"native",return_value=(
+                 auto,mock.Mock(),mock.Mock(),mock.Mock())), \
+             mock.patch.object(selected,"find_japanese",return_value=Counter()), \
+             mock.patch.object(selected,"stage_japanese",return_value=Counter()), \
+             mock.patch.object(selected,"publish_japanese",return_value=Counter()), \
+             mock.patch.object(selected,"reconcile",return_value=0), \
+             mock.patch.object(selected.os,"close") as close:
+            with self.assertRaisesRegex(RuntimeError,"no_operations_performed"):
+                selected.run(src["series"],12)
+        close.assert_called_once_with(8)
 
     def test_no_eligible_tasks_is_noop(self):
         src={"series":"IASIP","season":1,

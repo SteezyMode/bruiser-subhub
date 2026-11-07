@@ -297,7 +297,10 @@ def read_saved_searches():
 
 
 def tokens(value):
-    return re.findall(r"[a-z]+|[0-9]+", str(value or "").casefold())
+    # Release filenames normally omit apostrophes: "It's" and "Its" match.
+    normalized = re.sub(r"(?<=[a-z])['\u2019](?=[a-z])", "",
+                        str(value or "").casefold())
+    return re.findall(r"[a-z]+|[0-9]+", normalized)
 
 
 def named_episode(text):
@@ -352,8 +355,11 @@ def identity_ok(row, result):
         if (type(season) is not int or season < 1
                 or type(number) is not int or number < 1
                 or not row.get("series_title")
-                or not any(row.get(k) for k in
-                           ("series_imdb_id", "series_tmdb_id", "series_tvdb_id"))):
+                or not (any(row.get(k) for k in
+                           ("series_imdb_id", "series_tmdb_id", "series_tvdb_id"))
+                        or (row.get("series_identity_source") == "jellyfin"
+                            and re.fullmatch(r"[0-9a-fA-F]{32}",
+                                str(row.get("series_jellyfin_id") or ""))))):
             return False
         # Explicit episode and named series, plus native Sublarr's match set.
         tags = named_episode(name + " " + release)
