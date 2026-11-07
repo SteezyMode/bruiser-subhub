@@ -39,6 +39,40 @@ class StatusTests(unittest.TestCase):
         self.assertEqual(data["translation"]["state"], "not_connected")
         self.assertFalse(data["controls"]["available"])
 
+    def test_live_source_reads_real_cycle_progress_not_saved_manual_counts(self):
+        events=[
+            "RUNNING_SOURCES_ONLY_CYCLE search_budget=600 stage_budget=200 publish_limit=200",
+            "=== DISCOVERY ===",
+            "Search requests planned: 3 | budget: 600",
+            "[1/3] SEARCHING: Family Guy S15E02",
+            "[1/3] PLAUSIBLE: Family Guy S15E02",
+            "[2/3] SEARCHING: American Dad! S20E03",
+        ]
+        payload="\\n".join(json.dumps({
+            "MESSAGE":message,"__REALTIME_TIMESTAMP":str(1794000000000000+i*1000000)
+        }) for i,message in enumerate(events))
+        result=dashboard.subprocess.CompletedProcess([],0,stdout=payload)
+        with patch.object(dashboard.subprocess,"run",return_value=result), \\
+             patch.object(dashboard.time,"monotonic",return_value=2000.):
+            old=dict(dashboard._SOURCE_CACHE)
+            try:
+                dashboard._SOURCE_CACHE.update(when=0.0,state=None)
+                current=dashboard.scheduled_source_activity(True)
+                self.assertEqual(current["search_planned"],3)
+                self.assertEqual(current["search_completed"],1)
+                self.assertIn("American Dad",current["current_item"])
+                self.assertEqual(current["stage_attempts"],0)
+                self.assertEqual(current["phase_label"],"Searching Japanese subtitle providers")
+                self.assertEqual(current["last_event"],1794000005.)
+            finally:
+                dashboard._SOURCE_CACHE.update(old)
+
+    def test_inactive_source_returns_no_stale_live_progress(self):
+        result=dashboard.scheduled_source_activity(False)
+        self.assertFalse(result["active"])
+        self.assertEqual(result["search_completed"],0)
+        self.assertEqual(result["current_item"],"")
+
     def test_web_dashboard_shows_real_movie_cues_and_held_count(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp)
