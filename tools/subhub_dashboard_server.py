@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Standalone, read-only SubHub web dashboard over durable batch state.
+"""Standalone SubHub status and bounded owner controls over existing services.
 
-No source-worker imports, writes to media, provider calls or control operations.
-HTTP binds ONLY to loopback. Reach remotely through an authenticated SSH tunnel.
+No direct subtitle or provider calls. HTTP binds only to loopback and owner
+actions require the token plus an exact same-origin request.
 """
 from __future__ import annotations
 
@@ -66,14 +66,23 @@ def checked_state(path=STATE_FILE):
 
 
 def unit_active(unit):
+    """Treat long-running oneshot 'activating' as BUSY, never safe to start again."""
     try:
         result = subprocess.run(
-            ["systemctl", "--user", "is-active", "--quiet", unit],
-            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL, check=False, timeout=4)
-        return result.returncode == 0
-    except (OSError, subprocess.TimeoutExpired):
+            ["systemctl", "--user", "show", "--property=ActiveState",
+             "--value", unit],
+            stdin=subprocess.DEVNULL, capture_output=True, text=True,
+            check=False, timeout=4)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise RuntimeError("cannot_verify_service_state") from exc
+    if result.returncode:
+        raise RuntimeError("cannot_verify_service_state")
+    state = result.stdout.strip()
+    if state in ("active", "activating", "reloading", "deactivating"):
+        return True
+    if state in ("inactive", "failed"):
         return False
+    raise RuntimeError("unknown_service_state")
 
 
 def trusted_log(doc):
@@ -465,6 +474,7 @@ def scheduled_source_activity(active, max_lines=240):
 def live_source_snapshot(result, scheduled):
     """Show scheduled work as LIVE; old manual batch remains a distinct record."""
     result["source_job"]=scheduled
+    result["source_active"]=bool(result.get("batch_active") or scheduled["active"])
     result["manual_batch_history"]={
         "batch_id":result.get("batch_id",""),
         "state":result.get("state","idle"),
@@ -488,7 +498,7 @@ def status_payload():
     lines = tail_lines(log)
     manual=unit_active(BATCH_UNIT)
     scheduled=unit_active(SCHEDULED_UNIT)
-    result=snapshot(doc, manual, scheduled, lines)
+    result=snapshot(doc, manual, False, lines)
     result=live_source_snapshot(result,scheduled_source_activity(scheduled))
     result["translation"]=translation_snapshot()
     result["controls"]=control_availability()
@@ -504,11 +514,11 @@ def source_controls(action):
     if action=="start-auto":
         if manual or scheduled:
             raise RuntimeError("Source job already running")
-        command=["systemctl","--user","start",SCHEDULED_UNIT]
+        command=["systemctl","--user","start","--no-block",SCHEDULED_UNIT]
     elif action=="stop-auto":
         if not scheduled:
             raise RuntimeError("No automatic job running")
-        command=["systemctl","--user","stop",SCHEDULED_UNIT]
+        command=["systemctl","--user","stop","--no-block",SCHEDULED_UNIT]
     elif action=="start-manual":
         if manual or scheduled:
             raise RuntimeError("Another source job is active")
