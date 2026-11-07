@@ -730,35 +730,182 @@ def stop_season_translation():
 
 
 
-def season_sources_status():
-    """Read only transient season-source activity from its own systemd unit."""
-    active = unit_active(SEASON_SOURCE_UNIT)
-    recent = []
+def parse_season_source_events(records, active, *, now=None):
+    """Run-scoped, evidence-only progress from journal events.
+
+    Never interpret a match as a downloaded/published subtitle. Restrict the
+    snapshot to the MOST RECENT SEASON_JA_BEGIN, not the previous daily cycle.
+    Journal entries can be (message,timestamp-seconds) pairs or plain strings
+    for offline tests. Unknown publication progress is reported as unknown.
+    """
+    current_time = time.time() if now is None else now
+    events = [(str(x[0]),float(x[1])) if isinstance(x,tuple)
+              else (str(x),0.) for x in records]
+    starts = [i for i,(line,_) in enumerate(events)
+              if line.startswith("SEASON_JA_BEGIN ")]
+    empty = {"active":active, "metrics_available":False, "recent":[],
+             "phase":"starting" if active else "idle",
+             "phase_label":"Preparing selected season" if active else "",
+             "current_item":"Waiting for season source activity" if active else "",
+             "series":"","season":None,"search_planned":0,"search_started":0,
+             "search_completed":0,"search_found":0,"search_none":0,
+             "search_review":0,"search_errors":0,"stage_planned":None,
+             "stage_attempts":0,"staged":0,"publish_title_planned":None,
+             "publish_title_checked":0,"published":None,"held":0,
+             "provider_limited":False,"last_event":0,"finished":False,
+             "failed":False}
+    if not starts:
+        return empty
+    run = events[starts[-1]:]
+    last_ts = max(t for _,t in run)
+    if not active and (last_ts <= 0 or current_time-last_ts > 12*3600):
+        return empty
+    result = dict(empty,metrics_available=True,last_event=int(last_ts))
     try:
-        log = subprocess.run(
-            ["journalctl", "--user", "-u", SEASON_SOURCE_UNIT,
-             "-n", "35", "--no-pager", "-o", "cat"],
-            capture_output=True,text=True,timeout=4,check=False,
+        begin = json.loads(run[0][0].partition(" ")[2])
+        if isinstance(begin,dict):
+            result["series"]=safe_text(begin.get("series"),160)
+            if type(begin.get("season")) is int:
+                result["season"]=begin["season"]
+    except (TypeError,ValueError,json.JSONDecodeError):
+        pass
+    results = {}
+    stage_success = 0
+    for line,_ in run:
+        if line.startswith("SEASON_JA_SEARCH_PLANNED "):
+            try:
+                result["search_planned"]=int(line.split()[-1])
+            except (ValueError,IndexError):
+                pass
+            result["phase"]="search"
+        elif line.startswith("SEASON_JA_SEARCH "):
+            match=re.fullmatch(r"SEASON_JA_SEARCH (\\d+) (\\d+) (.+)",line)
+            if match:
+                result["search_started"]=max(result["search_started"],int(match.group(1)))
+                result["search_planned"]=max(result["search_planned"],int(match.group(2)))
+                result["current_item"]="Searching: "+safe_text(match.group(3),110)
+                result["phase"]="search"
+        elif line.startswith("SEASON_JA_RESULT "):
+            match=re.fullmatch(
+                r"SEASON_JA_RESULT (.+) (plausible|review|none) "
+                r"plausible (\\d+) review (\\d+)",line)
+            if match:
+                results[match.group(1)]=(match.group(2),int(match.group(3)),
+                                         int(match.group(4)))
+                result["current_item"]="Last search: "+safe_text(match.group(1),110)
+        elif line.startswith("SEASON_JA_STAGE_PLANNED "):
+            result["phase"]="stage"
+            try:
+                result["stage_planned"]=int(line.split()[-1])
+            except (ValueError,IndexError):
+                pass
+            result["current_item"]="Downloading verified Japanese subtitle candidates"
+        elif line.startswith("SEASON_JA_STAGE "):
+            match=re.fullmatch(r"SEASON_JA_STAGE (\\d+) (\\d+) (.+)",line)
+            if match:
+                result["stage_attempts"]=max(result["stage_attempts"],int(match.group(1)))
+                result["current_item"]="Downloading: "+safe_text(match.group(3),110)
+        elif line.startswith("STAGED: "):
+            stage_success+=1
+        elif line.startswith("SEASON_JA_PUBLISH_PLANNED "):
+            result["phase"]="publish"
+            try:
+                result["publish_title_planned"]=int(line.split()[-1])
+            except (ValueError,IndexError):
+                pass
+            result["current_item"]="Validating subtitle timing and publication"
+        elif line.startswith("SEASON_JA_PUBLISH "):
+            result["publish_title_checked"]+=1
+        elif line.startswith("SEASON_JA_HELD "):
+            result["held"]+=1
+            if result["phase"]=="search":
+                result["search_errors"]+=1
+        elif line.startswith("PROVIDER_LIMIT_REACHED"):
+            result["provider_limited"]=True
+        elif line.startswith("SEASON_JA_DONE "):
+            result["finished"]=True
+            result["phase"]="completed"
+            result["current_item"]="Season source pass completed"
+            try:
+                details=json.loads(line.partition(" ")[2])
+                if isinstance(details,dict):
+                    pub=details.get("published",{})
+                    stage=details.get("staged",{})
+                    if isinstance(pub,dict):
+                        result["published"]=max(0,int(pub.get("published_new",0)))
+                    if isinstance(stage,dict):
+                        result["staged"]=max(0,int(
+                            stage.get("staged_not_published",0)+
+                            stage.get("already_staged",0)))
+            except (TypeError,ValueError,json.JSONDecodeError):
+                pass
+        elif line.startswith(("SEASON_JA_BLOCKED","SEASON_JA_NO_WORK")):
+            result["failed"]=True
+            result["phase"]="failed"
+            result["current_item"]="Source pass stopped or performed no work"
+    result["search_completed"]=len(results)+result["search_errors"]
+    result["search_found"]=sum(v[1] for v in results.values())
+    result["search_none"]=sum(v[0]=="none" for v in results.values())
+    result["search_review"]=sum(v[0]=="review" for v in results.values())
+    if result["staged"]==0 and stage_success:
+        result["staged"]=stage_success
+    elif result["staged"]==0 and not result["finished"]:
+        result["staged"]=stage_success
+    if not result["finished"] and not result["failed"] and not active:
+        result["phase"]="interrupted"
+        result["current_item"]="Season sourcing stopped before completion"
+    result["phase_label"]={
+        "search":"Searching existing Japanese subtitles",
+        "stage":"Downloading Japanese subtitle candidates",
+        "publish":"Validating and publishing Japanese subtitles",
+        "completed":"Season sourcing completed",
+        "failed":"Season sourcing failed",
+        "interrupted":"Season sourcing interrupted",
+        "starting":"Preparing selected season",
+    }.get(result["phase"],"Selected season sourcing")
+    result["recent"]=[safe_text(line,210) for line,_ in run
+                      if line.startswith((
+                          "SEASON_JA_BEGIN", "SEASON_JA_SOURCE_INVENTORY",
+                          "SEASON_JA_SEARCH_PLANNED","SEASON_JA_SEARCH ",
+                          "SEASON_JA_RESULT ","SEASON_JA_STAGE_PLANNED",
+                          "SEASON_JA_STAGE ","SEASON_JA_PUBLISH_PLANNED",
+                          "SEASON_JA_PUBLISH ","SEASON_JA_DONE",
+                          "SEASON_JA_HELD","SEASON_JA_BLOCKED",
+                          "SEASON_JA_NO_WORK","PROVIDER_LIMIT_REACHED"))][-12:]
+    return result
+
+
+def season_sources_status():
+    """Read bounded last-run journal, but only show a recently active season."""
+    active=unit_active(SEASON_SOURCE_UNIT)
+    entries=[]
+    try:
+        log=subprocess.run(
+            ["journalctl","--user","-u",SEASON_SOURCE_UNIT,
+             "-n","1200","--since=-12 hours","--no-pager","-o","json"],
+            capture_output=True,text=True,timeout=5,check=False,
             stdin=subprocess.DEVNULL)
-        if log.returncode == 0:
-            recent=[safe_text(line,210) for line in log.stdout.splitlines()
-                    if line.startswith(("SEASON_JA_BEGIN", "SEASON_JA_SOURCE_INVENTORY", "SEASON_JA_NO_WORK", "SEASON_JA_SEARCH ",
-                        "SEASON_JA_SEARCH_PLANNED", "SEASON_JA_RESULT ",
-                        "SEASON_JA_STAGE ", "SEASON_JA_STAGE_PLANNED",
-                        "SEASON_JA_PUBLISH ", "SEASON_JA_PUBLISH_PLANNED",
-                        "SEASON_JA_DONE", "SEASON_JA_HELD",
-                        "SEASON_JA_BLOCKED", "PROVIDER_LIMIT_REACHED"))][-12:]
+        if log.returncode==0:
+            for raw in log.stdout.splitlines():
+                try:
+                    event=json.loads(raw)
+                    message=event.get("MESSAGE")
+                    stamp=float(event.get("__REALTIME_TIMESTAMP",0))/1e6
+                    if isinstance(message,str):
+                        entries.append((message,stamp))
+                except (ValueError,TypeError,json.JSONDecodeError):
+                    continue
     except (OSError,subprocess.TimeoutExpired):
         pass
+    result=parse_season_source_events(entries,active)
     components=("ja_first_search_pilot.py","ja_first_stage_saved_batch.py",
                 "ja_first_publish_queue.py","ja_first_autofill.py")
-    return {"active":active,
-            "available":SEASON_SOURCE_EXEC.is_file()
+    result["available"]=(SEASON_SOURCE_EXEC.is_file()
                 and not SEASON_SOURCE_EXEC.is_symlink()
                 and all((season_sources.SOURCE_CODE/x).is_file()
                         and not (season_sources.SOURCE_CODE/x).is_symlink()
-                        for x in components),
-            "recent":recent}
+                        for x in components))
+    return result
 
 
 def start_season_sources(doc):
