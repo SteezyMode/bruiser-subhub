@@ -37,6 +37,7 @@ ALLOWED_MOUNTS = (
 SUB_EXT = {".srt", ".ass", ".ssa", ".vtt"}
 VIDEO_EXT = {".mp4", ".mkv", ".avi", ".m4v", ".wmv", ".webm", ".ts", ".mov", ".mpg", ".mpeg", ".m2ts"}
 IMDB = re.compile(r"tt\d{5,12}\Z", re.I)
+JELLYFIN_ID = re.compile(r"[0-9a-fA-F]{32}\Z")
 CLEAN_TAG = re.compile(r"[^a-z0-9]+")
 UNKNOWN_AUDIO = {"", "und", "unknown", "mul", "zxx", "none"}
 COUNTS = ("existing_japanese_subtitle", "japanese_audio", "ready_ja_search",
@@ -186,6 +187,7 @@ def classify(item, series, mounts, sidecache):
         "sublarr_path": None, "status": None, "audio_language": "unknown",
         "imdb_id": "", "tmdb_id": "", "series_title": "",
         "series_imdb_id": "", "series_tmdb_id": "", "series_tvdb_id": "",
+        "series_jellyfin_id": "", "series_identity_source": "",
         "season": None, "episode": None, "year": item.get("ProductionYear"),
         "genres": [str(v) for v in (item.get("Genres") or [])[:20]
                    if isinstance(v, str)][:20],
@@ -233,16 +235,39 @@ def classify(item, series, mounts, sidecache):
                 and type(data["episode"]) is int and data["episode"] >= 1):
             data["status"] = "review_missing_episode_number"
             return data
-        parent = series.get(item.get("SeriesId"))
+        raw_series_id = item.get("SeriesId")
+        parent = series.get(raw_series_id)
         ids = provider_ids(parent) if parent else {}
-        data["series_title"] = (parent or {}).get("Name") or item.get("SeriesName") or ""
+        parent_title = str((parent or {}).get("Name") or "").strip()
+        episode_series_title = str(item.get("SeriesName") or "").strip()
+        data["series_title"] = parent_title or episode_series_title
         data["series_imdb_id"] = ids.get("imdb", "")
         data["series_tmdb_id"] = ids.get("tmdb", "")
         data["series_tvdb_id"] = ids.get("tvdb", "")
-        if not any((data["series_imdb_id"], data["series_tmdb_id"],
-                    data["series_tvdb_id"])) or not data["series_title"]:
+        provider_identity = any((
+            data["series_imdb_id"], data["series_tmdb_id"],
+            data["series_tvdb_id"]))
+        # Jellyfin itself knows the episode's parent series ID and name, even
+        # when third-party IMDb/TMDb/TVDb IDs have never been scraped. Use that
+        # native identity for *search eligibility* only; downstream staging
+        # still demands independent exact-series/season/episode evidence.
+        native_identity = (
+            isinstance(raw_series_id, str)
+            and bool(JELLYFIN_ID.fullmatch(raw_series_id))
+            and bool(data["series_title"])
+            and (parent is None or str(parent.get("Id") or "") == raw_series_id)
+            and (not parent_title or not episode_series_title
+                 or CLEAN_TAG.sub("",parent_title.casefold()) ==
+                    CLEAN_TAG.sub("",episode_series_title.casefold()))
+            and (parent is not None or bool(episode_series_title))
+        )
+        if native_identity:
+            data["series_jellyfin_id"] = raw_series_id
+        if not data["series_title"] or not (provider_identity or native_identity):
             data["status"] = "review_missing_series_identity"
             return data
+        data["series_identity_source"] = (
+            "provider" if provider_identity else "jellyfin")
     else:
         data["status"] = "review_missing_series_identity"
         return data
