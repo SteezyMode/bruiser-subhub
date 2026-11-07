@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# SubHub Dashboard v0.1: isolated loopback read-only GUI + desktop shortcut.
-# Does NOT restart, modify, pause, or install a subtitle worker.
+# SubHub Dashboard v0.2: loopback-only owner GUI + desktop shortcut.
+# Installs only the dashboard. Owner controls require explicit in-browser action.
 set -euo pipefail
 umask 077
 
@@ -28,8 +28,9 @@ server = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
 html = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
 ast.parse(server)
 assert '("127.0.0.1", args.port)' in server, "loopback-only policy missing"
-assert "controls_not_available_in_v0_1" in server, "read-only control guard missing"
+assert '/api/control/start-auto' in server and 'owner_control_access_denied' in server, "owner control safeguards missing"
 assert "/api/status" in server and "textContent" in html
+assert 'id="action-start-auto"' in html and 'id="action-stop-manual"' in html, "owner controls missing from UI"
 print("SUBHUB_DASHBOARD_PREFLIGHT_OK", flush=True)
 PY
 (
@@ -65,7 +66,7 @@ mv -f "$DEST/subhub_dashboard.html.new" "$DEST/subhub_dashboard.html"
 
 cat > "$UNIT.new" <<'UNITFILE'
 [Unit]
-Description=Standalone SubHub subtitle dashboard (read-only, loopback)
+Description=Standalone SubHub subtitle dashboard (owner controls, loopback)
 After=network.target
 
 [Service]
@@ -91,7 +92,7 @@ cat > "$SHORTCUT.new" <<'DESKTOP'
 Type=Application
 Name=SubHub Dashboard
 GenericName=Subtitle Automation
-Comment=Open standalone read-only SubHub dashboard
+Comment=Open standalone SubHub owner dashboard
 Exec=xdg-open http://127.0.0.1:17876/
 Icon=applications-multimedia
 Terminal=false
@@ -103,7 +104,7 @@ mv -f "$SHORTCUT.new" "$SHORTCUT"
 
 systemctl --user daemon-reload
 systemctl --user enable bruiser-subhub-dashboard.service
-# Updated read-only code requires a restart of the DASHBOARD service only.
+# Updated dashboard code requires a restart of the DASHBOARD service only.
 # The independent subtitle sourcing worker remains untouched.
 systemctl --user restart bruiser-subhub-dashboard.service
 # Server may need a moment to bind, but the installer must not claim it is
@@ -111,7 +112,7 @@ systemctl --user restart bruiser-subhub-dashboard.service
 healthy=0
 for attempt in {1..16}; do
   if curl -fsS --max-time 2 http://127.0.0.1:17876/healthz |
-     grep -q '"mode": "read_only"\|"mode":"read_only"'; then
+     grep -Eq '"mode"[[:space:]]*:[[:space:]]*"owner_controls"'; then
     healthy=1
     break
   fi
@@ -123,7 +124,7 @@ if [[ "$healthy" != 1 ]]; then
   exit 1
 fi
 echo "SUBHUB_DASHBOARD_INSTALLED"
-echo "Mode: read-only | Listener: 127.0.0.1:17876 | Service: active"
+echo "Mode: owner controls | Listener: 127.0.0.1:17876 | Service: active"
 echo "Desktop launcher: $SHORTCUT"
 echo "Open on OptiPlex: http://127.0.0.1:17876/"
 echo "Running source batch and OptiPlex NOW were NOT modified."
