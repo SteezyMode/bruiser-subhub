@@ -260,8 +260,14 @@
         ((tr.active_jobs || 0) + " running · " + (tr.total_jobs || 0) + " saved jobs") :
         "Translation status unavailable");
       drawTranslations(tr);
-      text("quota", d.quota_exhausted ? "Manual batch reported exhaustion" : "Not measured · software budget ≠ allowance");
-      el("quota").className = d.quota_exhausted ? "warning" : "";
+      const quota = d.provider_quota || {};
+      text("quota", quota.known ?
+        (number(quota.remaining) + " left / " + number(quota.allowed) +
+         " allowance · " + number(quota.used) + " used · " +
+         number(quota.automatic_budget) + " safe to download (5 reserved)") :
+        "Unavailable — exact allowance not verified");
+      el("quota").className = (!quota.known || quota.automatic_budget === 0) ? "warning" : "";
+      
       text("job", d.manual_batch_history?.batch_id || "No saved manual batch");
       const cset = d.controls || {};
       for (const action of ["start-auto","stop-auto","start-manual","stop-manual"]) {
