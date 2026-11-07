@@ -60,12 +60,41 @@ class StatusTests(unittest.TestCase):
                 current=dashboard.scheduled_source_activity(True)
                 self.assertEqual(current["search_planned"],3)
                 self.assertEqual(current["search_completed"],1)
+                self.assertTrue(current["metrics_available"])
+                self.assertEqual(current["search_found"],1)
+                self.assertEqual(current["search_none"],0)
+                self.assertEqual(current["staged"],0)
+                self.assertEqual(current["published"],0)
                 self.assertIn("American Dad",current["current_item"])
                 self.assertEqual(current["stage_attempts"],0)
                 self.assertEqual(current["phase_label"],"Searching Japanese subtitle providers")
                 self.assertEqual(current["last_event"],1794000005.)
             finally:
                 dashboard._SOURCE_CACHE.update(old)
+
+    def test_unavailable_journal_is_unknown_not_false_zero_success(self):
+        failed=dashboard.subprocess.CompletedProcess([],1,stdout="")
+        with patch.object(dashboard.subprocess,"run",return_value=failed), \
+             patch.object(dashboard.time,"monotonic",return_value=3000.):
+            old=dict(dashboard._SOURCE_CACHE)
+            try:
+                dashboard._SOURCE_CACHE.update(when=0.,state=None)
+                data=dashboard.scheduled_source_activity(True)
+                self.assertTrue(data["active"])
+                self.assertFalse(data["metrics_available"])
+                self.assertEqual(data["search_found"],0)
+            finally:
+                dashboard._SOURCE_CACHE.update(old)
+
+    def test_page_prioritizes_current_run_and_removes_manual_batch_dropdown(self):
+        html=dashboard.HTML.read_text(encoding="utf-8")
+        for name in ("live-matches","live-downloaded","live-published",
+                     "live-none","live-review","live-errors"):
+            self.assertIn('id="'+name+'"',html)
+        self.assertNotIn('id="manual-history"',html)
+        self.assertNotIn('aria-label="Saved manual batch results"',html)
+        self.assertNotIn('id="job"',html)
+        self.assertIn('live.metrics_available',html)
 
     def test_inactive_source_returns_no_stale_live_progress(self):
         result=dashboard.scheduled_source_activity(False)
