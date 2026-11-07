@@ -1,5 +1,8 @@
 # Bruiser SubHub — developer/assistant handoff
 
+> **HIGHEST-PRIORITY OWNER DECISION — 2026-11-07:** Read [the current SubHub architecture + pipeline handoff](docs/SUBHUB_ARCHITECTURE_AND_PIPELINE_HANDOFF_2026-11-07.md) **first**. Freeze the current working diagnostic dashboard; **do not** add a show-/batch-specific control or resume the abandoned `feat/subhub-basic-plamo-controls-20261107` experiment. General library/queue controls are for *later*, after pipeline reliability and throughput improvements. Reuse existing source queue/checkpoints/workers, measure watchable output, distinguish PRs from deployed host, and preserve published subtitles/media. Older instructions below are dated historical records if they disagree.
+
+
 ## 2026-11-02 — ContextSafe 010 generalized quality pipeline BUILT; host trial not yet run (PR #40)
 
 User explicitly asked to **continue** but NOT hyper-fixate on polishing the same five American Dad episodes. Correct direction: fix the repeatable pipeline and test on **NEW** episodes. 009's five completed episode JA SRTs remain unchanged, as do original media, live SubHub DB/services, human-approved subtitles and model weights.
