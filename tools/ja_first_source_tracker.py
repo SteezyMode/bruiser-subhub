@@ -90,6 +90,7 @@ def parse(events):
         "staged": 0, "stage_holds": 0,
         "publish_title_planned": 0, "publish_title_checked": 0,
         "published": 0, "publish_holds": 0,
+        "provider_limited": False,
         "existing_recognized": 0,
         "current": "",
         "recent": [],
@@ -139,6 +140,7 @@ def parse(events):
                 state["staged"] += 1
                 notable.append("Downloaded Japanese subtitle (staged)")
             elif line.startswith("PROVIDER_LIMIT_REACHED:"):
+                state["provider_limited"] = True
                 notable.append("Provider allowance reached; downloads stopped")
             elif (m := RE_MEDIA_PLAN.search(line)):
                 state["publish_title_planned"] = int(m.group(2))
