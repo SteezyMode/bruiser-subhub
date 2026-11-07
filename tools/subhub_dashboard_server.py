@@ -282,6 +282,46 @@ def _plamo_running_ids():
         return set()
 
 
+def american_dad_batch_activity():
+    """Verify the saved batch PID belongs to the current PLaMo batch process.
+
+    The queue's completed checkpoints alone never establish live processing.
+    This reads only the owner's PID/log and Linux procfs; no worker changes.
+    """
+    base=PLAMO_EPISODES
+    pidfile=base/"batch.pid"
+    log=base/"batch.log"
+    result={"active":False,"episode":"","pid":None}
+    try:
+        if (pidfile.is_symlink() or not pidfile.is_file()
+                or pidfile.stat().st_uid!=os.getuid()
+                or pidfile.stat().st_size>32):
+            return result
+        raw=pidfile.read_text("ascii").strip()
+        if not re.fullmatch(r"[1-9][0-9]{0,9}",raw):
+            return result
+        pid=int(raw)
+        process=Path("/proc")/str(pid)
+        if process.stat().st_uid!=os.getuid():
+            return result
+        command=(process/"cmdline").read_bytes().replace(b"\\0",b" ").decode("utf-8","replace")
+        if not re.search(r"(?:^|[\\s/])plamo8b_american_dad_existing_en_batch\\.py(?:\\s|$)",command):
+            return result
+        result.update(active=True,pid=pid)
+        if log.is_file() and not log.is_symlink() and log.stat().st_uid==os.getuid():
+            lines=tail_lines(log,max_bytes=120_000)
+            for line in reversed(lines):
+                match=re.search(r"=== EPISODE \\d+/\\d+: (S\\d{2}E\\d{2,3}) ===",line)
+                if match:
+                    result["episode"]=match.group(1)
+                    break
+                if "=== COMPLETE: published" in line or line.startswith("BATCH_PAUSED"):
+                    break
+    except (OSError,UnicodeError,ValueError):
+        return {"active":False,"episode":"","pid":None}
+    return result
+
+
 def _plamo_checkpoint(folder, meta, kind, running_ids, batch_running):
     """Immutable source identity + actual SQLite committed cues, no media edits."""
     jid=str(meta.get("jellyfin_id") or "")
@@ -318,7 +358,8 @@ def _plamo_checkpoint(folder, meta, kind, running_ids, batch_running):
                and 0<sidecar.stat().st_size<=2_000_000)
     # Movie jobs have individual process identities. The older American Dad
     # batch does not expose which episode is active; do not guess.
-    active=(jid in running_ids) if kind=="movie" else False
+    active=((jid in running_ids) if kind=="movie" else
+            bool(batch_running and meta.get("episode")==batch_running))
     if published:
         state="published_with_review" if held else "published"
     elif active:
@@ -352,7 +393,8 @@ def translation_jobs(movie_root=PLAMO_MOVIES,
                      single_root=PLAMO_SINGLE):
     """One read-only view of existing PLaMo jobs; no Gemma or provider calls."""
     running_ids=_plamo_running_ids()
-    batch_running=False  # Legacy batch lacks per-episode identity.
+    batch=american_dad_batch_activity()
+    batch_running=batch["episode"] if batch["active"] else ""
     jobs=[]
     locations=(
         (movie_root,"movie","ja-*","manifest.json"),
@@ -394,8 +436,10 @@ def translation_snapshot():
     jobs=translation_jobs()
     counts=Counter(job["state"] for job in jobs)
     running=sum(1 for job in jobs if job["active"])
-    return {"state":"active" if running else "idle",
+    batch=american_dad_batch_activity()
+    return {"state":"active" if running or batch["active"] else "idle",
             "engine":"PLaMo 8B","jobs":jobs,
+            "american_dad_batch":batch,
             "total_jobs":len(jobs),"active_jobs":running,
             "held_cues":sum(job["held"] for job in jobs),
             "published_jobs":sum(int(job["published"]) for job in jobs),
