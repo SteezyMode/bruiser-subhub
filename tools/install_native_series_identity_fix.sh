@@ -104,7 +104,7 @@ old_manifest, installed_manifest, new_manifest, old_stage, installed_stage, new_
 def omit_unknown_audio_gate(content):
     substitutions = (
         (
-            'UNKNOWN_AUDIO = {"", "und", "unknown", "mul", "zxx", "none"}\\n',
+            'UNKNOWN_AUDIO = {"", "und", "unknown", "mul", "zxx", "none"}\n',
             ''
         ),
         (
@@ -112,14 +112,14 @@ def omit_unknown_audio_gate(content):
             '          "review_no_movie_imdb", "review_missing_series_identity",'
         ),
         (
-            '    elif audio_lang in UNKNOWN_AUDIO:\\n'
-            '        # A present audio stream with no language tag is NOT evidence of EN\\n'
-            '        # audio. Never spend JA search quota on a potentially Japanese show.\\n'
-            '        data["status"] = "review_audio_language_unverified"\\n',
+            '    elif audio_lang in UNKNOWN_AUDIO:\n'
+            '        # A present audio stream with no language tag is NOT evidence of EN\n'
+            '        # audio. Never spend JA search quota on a potentially Japanese show.\n'
+            '        data["status"] = "review_audio_language_unverified"\n',
             ''
         ),
         (
-            '    assert lang("und") in UNKNOWN_AUDIO and lang("jpn") not in UNKNOWN_AUDIO\\n',
+            '    assert lang("und") in UNKNOWN_AUDIO and lang("jpn") not in UNKNOWN_AUDIO\n',
             ''
         ),
     )
