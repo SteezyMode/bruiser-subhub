@@ -1,4 +1,4 @@
-"""Offline tests for standalone, read-only SubHub dashboard."""
+"""Offline tests for loopback-only SubHub dashboard and guarded owner controls."""
 import json
 import os
 import sqlite3
@@ -199,7 +199,60 @@ class StatusTests(unittest.TestCase):
 
 
 class HTTPTests(unittest.TestCase):
-    def test_readonly_http_and_no_remote_listener(self):
+    def test_activating_oneshot_source_is_busy(self):
+        result = dashboard.subprocess.CompletedProcess([], 0, stdout="activating\n")
+        with patch.object(dashboard.subprocess, "run", return_value=result):
+            self.assertTrue(dashboard.unit_active(dashboard.SCHEDULED_UNIT))
+
+    def test_unknown_service_state_blocks_controls(self):
+        result = dashboard.subprocess.CompletedProcess([], 1, stdout="")
+        with patch.object(dashboard.subprocess, "run", return_value=result):
+            with self.assertRaisesRegex(RuntimeError, "cannot_verify"):
+                dashboard.control_availability()
+
+    def test_scheduled_work_does_not_fake_manual_batch_as_running(self):
+        saved = dashboard.snapshot(sample(), False, False, [])
+        source = {"active": True, "phase": "running", "phase_label": "Sourcing",
+                  "current_item": "Searching", "events": []}
+        result = dashboard.live_source_snapshot(saved, source)
+        self.assertEqual(result["state"], "scheduled_source_running")
+        self.assertEqual(result["manual_batch_history"]["state"], "interrupted")
+        self.assertTrue(result["source_active"])
+
+    def test_auto_start_is_nonblocking_and_only_requests_existing_unit(self):
+        with patch.object(dashboard, "unit_active", side_effect=[False, False]):
+            cp = dashboard.subprocess.CompletedProcess([], 0, stdout="ok")
+            with patch.object(dashboard.subprocess, "run", return_value=cp) as run:
+                result = dashboard.source_controls("start-auto")
+        self.assertTrue(result["ok"])
+        self.assertEqual(run.call_args.args[0], [
+            "systemctl", "--user", "start", "--no-block",
+            dashboard.SCHEDULED_UNIT])
+
+
+    def test_control_availability_prevents_duplicate_workers(self):
+        with patch.object(dashboard, "unit_active", side_effect=[False, True]):
+            c = dashboard.control_availability()
+        self.assertTrue(c["available"])
+        self.assertFalse(c["start_auto"])
+        self.assertTrue(c["stop_auto"])
+        self.assertFalse(c["start_manual"])
+        self.assertFalse(c["stop_manual"])
+
+    def test_source_start_is_guarded_when_another_service_is_active(self):
+        with patch.object(dashboard, "unit_active", side_effect=[False, True]):
+            with patch.object(dashboard.subprocess, "run") as runner:
+                with self.assertRaises(RuntimeError):
+                    dashboard.source_controls("start-auto")
+                runner.assert_not_called()
+
+    def test_dashboard_controls_are_present_in_html(self):
+        source = dashboard.HTML.read_text(encoding="utf-8")
+        for action in ("start-auto","stop-auto","start-manual","stop-manual"):
+            self.assertIn('id="action-' + action + '"', source)
+        self.assertIn("X-Subhub-Token", source)
+
+    def test_owner_http_and_no_remote_listener(self):
         with patch.object(dashboard, "status_payload",
                           return_value=dashboard.snapshot(sample(), True)):
             server = dashboard.ThreadingHTTPServer(("127.0.0.1", 0), dashboard.Handler)
@@ -214,7 +267,30 @@ class HTTPTests(unittest.TestCase):
                     self.assertEqual(body["counts"]["published_new"], 23)
                     self.assertEqual(response.headers.get("Cache-Control"), "no-store")
                 with urlopen(base + "/healthz", timeout=3) as response:
-                    self.assertEqual(json.load(response)["mode"], "read_only")
+                    self.assertEqual(json.load(response)["mode"], "owner_controls")
+                with urlopen(base + "/api/owner-token", timeout=3) as response:
+                    token = json.load(response)["token"]
+                self.assertEqual(token, dashboard.OWNER_TOKEN)
+                control = Request(
+                    base + "/api/control/start-auto", data=b"{}",
+                    headers={"Content-Type":"application/json",
+                             "X-Subhub-Token":token,
+                             "Origin":base},
+                    method="POST")
+                with patch.object(dashboard, "source_controls",
+                                  return_value={"ok":True,"action":"start-auto"}) as action:
+                    with urlopen(control, timeout=3) as response:
+                        self.assertTrue(json.load(response)["ok"])
+                    action.assert_called_once_with("start-auto")
+                forbidden = Request(
+                    base + "/api/control/start-auto", data=b"{}",
+                    headers={"Content-Type":"application/json",
+                             "X-Subhub-Token":token,
+                             "Origin":"http://evil.example"},
+                    method="POST")
+                with self.assertRaises(HTTPError) as denied:
+                    urlopen(forbidden, timeout=3)
+                self.assertEqual(denied.exception.code,403)
                 req = Request(base + "/api/status", data=b"{}", method="POST")
                 with self.assertRaises(HTTPError) as result:
                     urlopen(req, timeout=3)
