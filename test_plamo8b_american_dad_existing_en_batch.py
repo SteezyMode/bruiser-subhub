@@ -146,7 +146,7 @@ class AmericanDadExistingEnglishBatchTests(TestCase):
                  mock.patch.object(batch,"thermal_gate") as gate, \
                  mock.patch.object(batch.engine,"run",side_effect=simulate_engine_run):
                 batch.with_batch_inference("S21E22",Path("/tmp/example.mkv"),
-                                           [],"","","",{})
+                                           [],"","",{})
             self.assertEqual(gate.call_count,3)
             self.assertEqual(count,[batch.engine.SPOKEN]*3)
 
