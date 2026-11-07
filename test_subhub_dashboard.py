@@ -48,7 +48,7 @@ class StatusTests(unittest.TestCase):
             "[1/3] PLAUSIBLE: Family Guy S15E02",
             "[2/3] SEARCHING: American Dad! S20E03",
         ]
-        payload="\\n".join(json.dumps({
+        payload="\n".join(json.dumps({
             "MESSAGE":message,"__REALTIME_TIMESTAMP":str(1794000000000000+i*1000000)
         }) for i,message in enumerate(events))
         result=dashboard.subprocess.CompletedProcess([],0,stdout=payload)
