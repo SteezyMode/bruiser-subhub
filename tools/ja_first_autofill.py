@@ -264,15 +264,31 @@ def once(*, request=api, action=run):
         check_scheduler_idle(request=request)
         refresh_manifest(action=action)
         search_budget, custom_budget = next_run_budget()
+        # Exact account allowance, not the software's 200-download ceiling.
+        # The probe is read-only and reuses Sublarr's saved account login.
+        import importlib.util
+        helper=Path.home()/".local/share/bruiser-subhub-dashboard/subhub_opensubtitles_quota.py"
+        if not helper.is_file() or helper.is_symlink():
+            raise RuntimeError("verified_provider_quota_helper_missing")
+        spec=importlib.util.spec_from_file_location("bruiser_provider_quota",helper)
+        module=importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        quota=module.get_quota()
+        if not quota.get("known"):
+            raise RuntimeError("provider_allowance_unverified")
+        stage_budget=min(200,int(quota["automatic_budget"]))
+        if stage_budget < 1:
+            print("PROVIDER_RESERVE_REACHED 5 downloads held for owner",flush=True)
+            return
         print(f"RUNNING_SOURCES_ONLY_CYCLE search_budget={search_budget} "
-              "stage_budget=200 publish_limit=200 "
-              "(provider allowance still enforced)", flush=True)
+              f"stage_budget={stage_budget} publish_limit=200 "
+              "reserve=5 verified_provider_allowance", flush=True)
         # Let output appear in systemd journal or manual terminal; don't
         # require a persistent shell or start any local translation model.
         result=subprocess.run(
             [sys.executable,"-u",str(CODE/"ja_first_cycle.py"),"cycle",
              "--sources-only","--apply","--search-budget",str(search_budget),
-             "--stage-budget","200","--publish-limit","200"],
+             "--stage-budget",str(stage_budget),"--publish-limit","200"],
             stdin=subprocess.DEVNULL, timeout=8*3600, check=False)
         if result.returncode:
             raise RuntimeError("sources_only_cycle_failed:"+str(result.returncode))
