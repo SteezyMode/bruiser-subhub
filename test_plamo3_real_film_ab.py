@@ -47,6 +47,12 @@ class RealFilmPFNTests(unittest.TestCase):
         self.assertTrue(real.is_non_dialogue_caption(
             '<i>[MUSIC PLAYING]</i>'))
         self.assertTrue(real.is_non_dialogue_caption('[SCREAMS]'))
+        for caption in ("♪♪", "♪ ♪", "<i>♪♪</i>", "♫♬",
+                        "<font>🎵 🎶</font>"):
+            self.assertTrue(real.is_non_dialogue_caption(caption),caption)
+        for lyric in ("♪ Just a song ♪", "♪singing♪", "H&M?",
+                      "Wrong-Its?", "7,000, 70,000.", "♪ hello"):
+            self.assertFalse(real.is_non_dialogue_caption(lyric),lyric)
         self.assertFalse(real.is_non_dialogue_caption(
             '<font size="36">You should have treated her right.</font>'))
         self.assertFalse(real.is_non_dialogue_caption(

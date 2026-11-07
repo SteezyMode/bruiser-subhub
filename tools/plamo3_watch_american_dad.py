@@ -280,6 +280,7 @@ def verify_checkpoints(db, cues):
     if len(rows) > len(cues):
         raise RuntimeError("checkpoint_longer_than_source")
     output = []
+    recovered_music = []
     for position, (idx, number, begin, end, en, ja, status, seconds) in enumerate(rows):
         src = cues[position]
         if ((idx, number, begin, end, en) !=
@@ -289,11 +290,30 @@ def verify_checkpoints(db, cues):
             raise RuntimeError("checkpoint_invalid_status")
         if status == SPOKEN and (not small.JP.search(ja) or "<|plamo:" in ja):
             raise RuntimeError("checkpoint_invalid_japanese")
-        if status == HELD and (ja != en or real.is_non_dialogue_caption(en)):
-            raise RuntimeError("checkpoint_invalid_held_source")
+        if status == HELD:
+            if ja != en:
+                raise RuntimeError("checkpoint_invalid_held_source")
+            if real.is_non_dialogue_caption(en):
+                # A prior version treated pure music as failed dialogue.
+                # Repair its *status only* after all source rows validate.
+                recovered_music.append(idx)
+                status = SOLO_SDH
         if status == SOLO_SDH and (ja != en or not real.is_non_dialogue_caption(en)):
             raise RuntimeError("checkpoint_invalid_SDH")
         output.append(dict(src, japanese=ja, status=status, seconds=seconds))
+    if recovered_music:
+        # No changes until the COMPLETE saved checkpoint has passed source
+        # identity and status validation. Never rewrite source/Japanese text.
+        with db:
+            for idx in recovered_music:
+                changed = db.execute(
+                    "UPDATE translation SET status=? WHERE idx=? AND "
+                    "status=? AND japanese=english",
+                    (SOLO_SDH, idx, HELD))
+                if changed.rowcount != 1:
+                    raise RuntimeError("music_only_checkpoint_repair_conflict")
+        print("RECOVERED_MUSIC_ONLY_CAPTIONS:",
+              len(recovered_music), flush=True)
     return output
 
 
