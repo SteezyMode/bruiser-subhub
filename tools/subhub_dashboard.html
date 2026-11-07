@@ -378,6 +378,60 @@
         else if (el("control-feedback").textContent.startsWith("Checking"))
           text("control-feedback", "Controls ready");
       }
+      // The hero reports the active/recent selected season, not yesterday's
+      // automatic source pass. Never count a plausible hit as downloaded.
+      const seasonView = seasonSourceActive ||
+        (!live.active && !d.batch_active && !!sourceBatch.metrics_available);
+      if (seasonView) {
+        const active = seasonSourceActive && !sourceBatch.finished && !sourceBatch.failed;
+        const statusName = active ? "Season sourcing" :
+          sourceBatch.finished ? "Completed" :
+          sourceBatch.failed ? "Failed" : "Interrupted";
+        text("state",statusName);
+        el("state-dot").className="dot " + (active ? "running" :
+          sourceBatch.finished ? "completed" : "interrupted");
+        const seasonName=sourceBatch.season == null ? "Selected season" :
+          "Season " + sourceBatch.season;
+        text("phase-label",sourceBatch.phase_label ||
+          "Preparing Japanese subtitle sourcing");
+        text("current-item",seasonName +
+          (sourceBatch.series ? " · " + sourceBatch.series : "") + " · " +
+          (sourceBatch.current_item || "Waiting for events"));
+        const ready=!!sourceBatch.metrics_available;
+        el("live-bars").hidden=!ready;
+        if (ready) {
+          progress("live-search","live-search-label",
+            sourceBatch.search_completed,sourceBatch.search_planned);
+          progress("live-stage","live-stage-label",
+            sourceBatch.stage_attempts,sourceBatch.stage_planned || 0);
+          progress("live-publish","live-publish-label",
+            sourceBatch.publish_title_checked,sourceBatch.publish_title_planned || 0);
+          const last=Number(sourceBatch.last_event)||0;
+          text("live-updated",last ?
+            "Last season event: "+new Date(last*1000).toLocaleTimeString() :
+            "No timestamped season events yet");
+        }
+        for (const [id,key] of [
+          ["live-matches","search_found"],["live-downloaded","staged"],
+          ["live-published","published"],["live-none","search_none"],
+          ["live-review","search_review"],["live-errors","search_errors"]
+        ]) {
+          const value=sourceBatch[key];
+          text(id,ready && value !== null && value !== undefined ?
+            number(value) : "—");
+        }
+        text("source-phase-note",!ready ?
+          "Season source worker active; waiting for its first event." :
+          (sourceBatch.finished ?
+            "Season sourcing finished. Preview the season again to see what needs translation." :
+          sourceBatch.failed ?
+            "Sourcing did not complete. Review the season events before starting translation." :
+          sourceBatch.published === null ?
+            "Searching and staging results are live. Publication count is unverified until validation finishes." :
+            "Counts refer only to this season.") +
+          (sourceBatch.provider_limited ? " Provider allowance may be exhausted." : ""));
+        text("activity-type","Selected season sourcing");
+      } else {
       el("live-bars").hidden = !live.active || !live.metrics_available;
       if (live.active && live.metrics_available) {
         progress("live-search","live-search-label",live.search_completed,live.search_planned);
@@ -405,9 +459,10 @@
           "No automatic source run active."));
       text("activity-type",live.active ? "Current automatic cycle" :
         d.batch_active ? "Current manual cycle" : "No active source cycle");
+      }
       const activity = el("activity");
       activity.replaceChildren();
-      const events = d.source_active && Array.isArray(d.events) ? d.events.slice(-9).reverse() : [];
+      const events = seasonView ? (Array.isArray(sourceBatch.recent) ? sourceBatch.recent.slice(-9).reverse() : []) : (d.source_active && Array.isArray(d.events) ? d.events.slice(-9).reverse() : []);
       if (events.length === 0) {
         const item = document.createElement("li"); item.className="empty"; item.textContent="No worker events recorded yet"; activity.append(item);
       } else {
