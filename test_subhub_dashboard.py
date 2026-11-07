@@ -198,6 +198,38 @@ class StatusTests(unittest.TestCase):
                       (Path(__file__).parent / "tools/subhub_dashboard.html").read_text(encoding="utf-8"))
 
 
+class QuotaTests(unittest.TestCase):
+    def test_verified_account_budget_reserves_five(self):
+        from tools import subhub_opensubtitles_quota as quota
+        output='BRUISER_QUOTA_JSON:{"known":true,"allowed":100,"used":30,"remaining":70,"reserve":5,"automatic_budget":65}'
+        cp=dashboard.subprocess.CompletedProcess([],0,stdout=output)
+        with patch.object(quota.subprocess,"run",return_value=cp):
+            data=quota.get_quota()
+        self.assertTrue(data["known"])
+        self.assertEqual(data["automatic_budget"],65)
+
+    def test_unknown_quota_fails_closed(self):
+        from tools import subhub_opensubtitles_quota as quota
+        cp=dashboard.subprocess.CompletedProcess([],1,stdout="")
+        with patch.object(quota.subprocess,"run",return_value=cp):
+            data=quota.get_quota()
+        self.assertFalse(data["known"])
+        self.assertNotIn("automatic_budget",data)
+
+    def test_dashboard_quota_is_cached(self):
+        with patch.object(dashboard,"get_quota",return_value={
+            "known":True,"allowed":100,"used":3,"remaining":97,
+            "reserve":5,"automatic_budget":92}) as probe:
+            old_cache=dict(dashboard._QUOTA_CACHE)
+            try:
+                dashboard._QUOTA_CACHE.update(at=0.0)
+                self.assertEqual(dashboard.quota_snapshot()["automatic_budget"],92)
+                self.assertEqual(dashboard.quota_snapshot()["automatic_budget"],92)
+                probe.assert_called_once()
+            finally:
+                dashboard._QUOTA_CACHE.update(old_cache)
+
+
 class HTTPTests(unittest.TestCase):
     def test_activating_oneshot_source_is_busy(self):
         result = dashboard.subprocess.CompletedProcess([], 0, stdout="activating\n")
