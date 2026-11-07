@@ -105,15 +105,25 @@
           <h2 id="phase-label">Connecting to the subtitle engine...</h2>
           <p id="current-item" class="subtext">Retrieving the current batch state</p>
         </div>
-        <div class="progress-group">
+        <div class="progress-group" id="live-bars" hidden>
+          <div class="progress-row"><span>Current run · searches</span><strong id="live-search-label">—</strong></div>
+          <div class="bar" role="progressbar" aria-label="Current automatic searches" aria-valuemin="0" aria-valuemax="100" id="live-search-progress"><div class="fill" id="live-search-bar"></div></div>
+          <div class="progress-row"><span>Current run · download attempts</span><strong id="live-stage-label">—</strong></div>
+          <div class="bar" role="progressbar" aria-label="Current download attempts" aria-valuemin="0" aria-valuemax="100" id="live-stage-progress"><div class="fill" id="live-stage-bar"></div></div>
+          <div class="progress-row"><span>Current run · titles checked for publication</span><strong id="live-publish-label">—</strong></div>
+          <div class="bar" role="progressbar" aria-label="Current publication checks" aria-valuemin="0" aria-valuemax="100" id="live-publish-progress"><div class="fill" id="live-publish-bar"></div></div>
+          <div class="caption" id="live-updated">Waiting for source events…</div>
+        </div>
+        <details class="progress-group" id="manual-history" style="margin-top:24px">
+          <summary class="eyebrow" style="cursor:pointer">Previous manual batch · historical only</summary>
           <div class="progress-row"><span>Saved manual batch cycles</span><strong id="cycle-label">—</strong></div>
           <div class="bar" role="progressbar" aria-label="Completed cycles" aria-valuemin="0" aria-valuemax="100" id="cycle-progress"><div class="fill" id="cycle-bar"></div></div>
           <div class="progress-row"><span>Saved manual search attempts (maximum)</span><strong id="search-label">—</strong></div>
           <div class="bar" role="progressbar" aria-label="Search attempts" aria-valuemin="0" aria-valuemax="100" id="search-progress"><div class="fill" id="search-bar"></div></div>
           <div class="progress-row"><span>Saved manual batch stage</span><strong id="stage-label">—</strong></div>
           <div class="bar" role="progressbar" aria-label="Current stage progress" aria-valuemin="0" aria-valuemax="100" id="stage-progress"><div class="fill" id="stage-bar"></div></div>
-          <div class="caption" id="updated">Waiting for first update</div>
-        </div>
+          <div class="caption" id="updated">Previous manual batch</div>
+        </details>
       </section>
       <section class="panel side">
         <div class="eyebrow">Automation</div>
@@ -153,11 +163,11 @@
     </section>
     <div class="cols">
       <section class="panel">
-        <div class="section-head"><h3>Recent activity</h3><span class="tag">Real worker events</span></div>
+        <div class="section-head"><h3>Recent activity</h3><span class="tag" id="activity-type">Current source cycle</span></div>
         <ol class="activity" id="activity"><li class="empty">Connecting...</li></ol>
       </section>
       <section class="panel">
-        <div class="section-head"><h3>Diagnostics</h3><span class="tag">Live state</span></div>
+        <div class="section-head"><h3>Diagnostics</h3><span class="tag" id="diagnostics-type">Previous manual batch</span></div>
         <div class="row-between"><span>Searches in flight</span><span id="inflight">—</span></div>
         <div class="row-between"><span>Review needed</span><span id="review">—</span></div>
         <div class="row-between"><span>No matches</span><span id="none">—</span></div>
@@ -251,7 +261,7 @@
     function draw(d) {
       wasConnected = true;
       const s = d.state || "unknown";
-      const names = {running:"Running",scheduled_source_running:"Daily sourcing",completed:"Completed",failed:"Failed",stopped:"Stopped",interrupted:"Interrupted — not running",idle:"Idle"};
+      const names = {running:"Manual batch",scheduled_source_running:"Daily sourcing",completed:"Completed",failed:"Failed",stopped:"Stopped",interrupted:"Interrupted — not running",idle:"Idle"};
       text("state", names[s] || s);
       el("state-dot").className = "dot " + (s === "running" || s === "scheduled_source_running" ? "running" : s);
       text("phase-label", d.phase_label);
@@ -275,7 +285,25 @@
         const key = action.replace(/-/g, "_");
         el("action-" + action).disabled = controlBusy || !cset.available || !cset[key];
       }
-      if (!controlBusy && !cset.available) text("control-feedback", cset.reason || "Controls unavailable");
+      if (!controlBusy) {
+        if (!cset.available) text("control-feedback", cset.reason || "Controls unavailable");
+        else if (el("control-feedback").textContent.startsWith("Checking"))
+          text("control-feedback", "Controls ready");
+      }
+      const live = d.source_job || {};
+      el("live-bars").hidden = !live.active;
+      if (live.active) {
+        progress("live-search","live-search-label",live.search_completed,live.search_planned);
+        progress("live-stage","live-stage-label",live.stage_attempts,live.stage_planned);
+        progress("live-publish","live-publish-label",live.publish_title_checked,live.publish_title_planned);
+        const last = Number(live.last_event)||0;
+        const elapsed = last ? Math.round(Date.now()/1000-last) : null;
+        text("live-updated", last ?
+          ("Last actual event: "+new Date(last*1000).toLocaleTimeString()+
+          (elapsed>120 ? " · No new events for "+Math.floor(elapsed/60)+" min" : "")) :
+          "Source worker active; no timestamped progress available");
+      }
+      text("activity-type",live.active ? "Current automatic cycle" : "Last saved manual cycle");
       progress("cycle", "cycle-label", d.cycle_done, d.cycles);
       progress("search", "search-label", d.search_progress?.current, d.search_progress?.total);
       progress("stage", "stage-label", d.phase_progress?.current, d.phase_progress?.total);
@@ -283,8 +311,8 @@
       for (const [id,key] of [["published","published_new"],["staged","staged"],["held","held_titles"],["searches","search_completed"],["plausible","search_plausible"],["inflight","search_in_flight"],["review","search_review"],["none","search_none"],["downloads","download_attempted"],["errors","search_errors"]]) {
         text(id, number(c[key] || 0));
       }
-      const updated = d.updated_utc ? "Last worker update: " + new Date(d.updated_utc).toLocaleString() : "No worker update yet";
-      text("updated", updated + (d.stale_seconds !== null && d.stale_seconds > 120 && d.source_active ? " · Activity delayed" : ""));
+      const updated = d.updated_utc ? "Previous manual worker update: " + new Date(d.updated_utc).toLocaleString() : "No timestamp for saved manual batch";
+      text("updated", updated);
       const activity = el("activity");
       activity.replaceChildren();
       const events = Array.isArray(d.events) ? d.events.slice(-9).reverse() : [];
