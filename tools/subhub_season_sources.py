@@ -111,9 +111,24 @@ def find_japanese(ids, search, budget):
     if not paths:
         raise RuntimeError("source_manifest_unavailable")
     manifest = search.private_manifest(paths[-1])
-    rows = [row for row in manifest["items"]
-            if isinstance(row, dict) and str(row.get("jellyfin_id")) in ids
-            and row.get("host_path") == ids[str(row.get("jellyfin_id"))]]
+    indexed = {str(row["jellyfin_id"]): row for row in manifest["items"]
+               if isinstance(row, dict) and row.get("jellyfin_id")}
+    holds = Counter()
+    rows = []
+    for jid, path in ids.items():
+        row = indexed.get(jid)
+        if row is None:
+            holds["not_in_source_manifest"] += 1
+        elif row.get("host_path") != path:
+            holds["manifest_path_mismatch"] += 1
+        else:
+            rows.append(row)
+            if row.get("status") != "ready_ja_search":
+                holds[str(row.get("status") or "unknown_source_status")] += 1
+    print("SEASON_JA_SOURCE_INVENTORY",json.dumps({
+        "matched":len(rows), "eligible_from_manifest":sum(
+            row.get("status") == "ready_ja_search" for row in rows),
+        "held":dict(holds)},sort_keys=True),flush=True)
     counts = Counter()
     with closing(search.open_db()) as db:
         jobs = search.pick(rows, db, budget)
@@ -266,6 +281,11 @@ def run(series,season):
         # Re-plan from the existing inventory after new provider evidence.
         # This transitions 'search_ja' -> fallback ONLY after a real no-match.
         reconcile()
+        if not (searched or staged or published):
+            print("SEASON_JA_NO_WORK",json.dumps({
+                "reason": "no_provider_search_or_saved_candidates_eligible",
+                "selected":len(ids)},sort_keys=True),flush=True)
+            raise RuntimeError("season_source_no_operations_performed_check_manifest_or_search_history")
         print("SEASON_JA_DONE",json.dumps({
             "searched":dict(searched),"staged":dict(staged),
             "published":dict(published)
