@@ -116,11 +116,11 @@ class StatusTests(unittest.TestCase):
                 "jellyfin_id":jid,"video":str(video),"cue_count":1455}))
             manifest.chmod(0o600)
             with sqlite3.connect(movie/"progress.sqlite3") as db:
-                db.execute("CREATE TABLE translation (id INTEGER, english TEXT, japanese TEXT, status TEXT, seconds REAL)")
-                db.executemany("INSERT INTO translation VALUES (?,?,?,?,?)",
-                    [(i,"Hello","こんにちは","translated",0.5)
+                db.execute("CREATE TABLE translation (idx INTEGER, id INTEGER, english TEXT, japanese TEXT, status TEXT, seconds REAL)")
+                db.executemany("INSERT INTO translation VALUES (?,?,?,?,?,?)",
+                    [(i-1,i,"Hello","こんにちは","translated",0.5)
                      for i in range(1,1300)] +
-                    [(929,"1, 2, 3, 4, 5, 6...","","held_translation",0.5)])
+                    [(1299,929,"1, 2, 3, 4, 5, 6...","","held_translation",0.5)])
             with patch.object(dashboard,"_plamo_running_ids",return_value={jid}):
                 jobs=dashboard.translation_jobs(
                     movie_root=movie.parent,
