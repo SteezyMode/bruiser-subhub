@@ -34,7 +34,7 @@ if [[ $# -ne 1 ]]; then
 fi
 TARGET="$1"
 if ! curl -fsS --max-time 2 http://127.0.0.1:17876/healthz 2>/dev/null |
-      grep -q '"mode": "read_only"\|"mode":"read_only"'; then
+      grep -Eq '"mode"[[:space:]]*:[[:space:]]*"owner_controls"'; then
   # SSH binds a local-only forward. BatchMode keeps a desktop icon from hanging
   # forever on an invisible password prompt.
   ssh -f -N -o BatchMode=yes -o ExitOnForwardFailure=yes \
@@ -44,7 +44,7 @@ if ! curl -fsS --max-time 2 http://127.0.0.1:17876/healthz 2>/dev/null |
 fi
 for attempt in {1..15}; do
   if curl -fsS --max-time 2 http://127.0.0.1:17876/healthz 2>/dev/null |
-      grep -q '"mode": "read_only"\|"mode":"read_only"'; then
+      grep -Eq '"mode"[[:space:]]*:[[:space:]]*"owner_controls"'; then
     exec xdg-open http://127.0.0.1:17876/
   fi
   sleep 0.5
@@ -57,7 +57,7 @@ mv -f "$LAUNCH.new" "$LAUNCH"
 {
   printf '[Desktop Entry]\n'
   printf 'Type=Application\nName=SubHub Dashboard (OptiPlex)\n'
-  printf 'Comment=View the standalone subtitle service securely over Tailscale SSH\n'
+  printf 'Comment=Control the standalone subtitle service securely over Tailscale SSH\n'
   printf 'Exec="%s" %s\n' "$LAUNCH" "$HOST"
   printf 'Icon=applications-multimedia\nTerminal=false\n'
   printf 'Categories=AudioVideo;Utility;\nStartupNotify=false\n'
