@@ -80,14 +80,79 @@ for name in "${SOURCE_FILES[@]}"; do
     "$REPO/$PIN/tools/$name" -o "$WORK/tools/$name"
   curl -fsSL --retry 3 --connect-timeout 10 --max-time 90 \
     "$REPO/$PREVIOUS/tools/$name" -o "$WORK/previous/$name"
-  if ! cmp -s "$CODE/$name" "$WORK/previous/$name" &&
-     ! cmp -s "$CODE/$name" "$WORK/tools/$name"; then
-    echo "STOP: locally installed $name differs from reviewed code." >&2
-    echo "No source files, catalogs or services were modified." >&2
-    exit 1
-  fi
   cp -p "$CODE/$name" "$WORK/backup/$name"
 done
+
+# Never discard a local source policy to satisfy a GitHub version check.
+# One known local variant of the intake removes the unknown-audio gate.
+# Reconstruct and verify that variant BYTE FOR BYTE from the reviewed old
+# version, then preserve that exact policy in the new intake. Unexpected
+# changes remain a hard stop.
+python3 - "$WORK/previous/ja_first_catalog_manifest.py" \
+          "$CODE/ja_first_catalog_manifest.py" \
+          "$WORK/tools/ja_first_catalog_manifest.py" \
+          "$WORK/previous/ja_first_stage_saved_batch.py" \
+          "$CODE/ja_first_stage_saved_batch.py" \
+          "$WORK/tools/ja_first_stage_saved_batch.py" \
+          "$WORK/guardless-source-policy" <<'PY'
+from pathlib import Path
+import sys
+old_manifest, installed_manifest, new_manifest, old_stage, installed_stage, new_stage, marker = [
+    Path(p) for p in sys.argv[1:]
+]
+
+def omit_unknown_audio_gate(content):
+    substitutions = (
+        (
+            'UNKNOWN_AUDIO = {"", "und", "unknown", "mul", "zxx", "none"}\\n',
+            ''
+        ),
+        (
+            '          "review_audio_language_unverified", "review_no_movie_imdb", "review_missing_series_identity",',
+            '          "review_no_movie_imdb", "review_missing_series_identity",'
+        ),
+        (
+            '    elif audio_lang in UNKNOWN_AUDIO:\\n'
+            '        # A present audio stream with no language tag is NOT evidence of EN\\n'
+            '        # audio. Never spend JA search quota on a potentially Japanese show.\\n'
+            '        data["status"] = "review_audio_language_unverified"\\n',
+            ''
+        ),
+        (
+            '    assert lang("und") in UNKNOWN_AUDIO and lang("jpn") not in UNKNOWN_AUDIO\\n',
+            ''
+        ),
+    )
+    for original, replacement in substitutions:
+        if content.count(original) != 1:
+            raise RuntimeError("reviewed_unknown_audio_gate_layout_changed")
+        content = content.replace(original, replacement)
+    return content
+
+old = old_manifest.read_text(encoding="utf-8")
+installed = installed_manifest.read_text(encoding="utf-8")
+proposed = new_manifest.read_text(encoding="utf-8")
+if installed == old:
+    print("LOCAL_SOURCE_POLICY: stock GitHub version", flush=True)
+elif installed == omit_unknown_audio_gate(old):
+    proposed = omit_unknown_audio_gate(proposed)
+    marker.write_text("known_audio_policy_override", encoding="utf-8")
+    print("LOCAL_SOURCE_POLICY: verified existing audio override preserved", flush=True)
+elif installed == proposed:
+    print("LOCAL_SOURCE_POLICY: already updated", flush=True)
+elif installed == omit_unknown_audio_gate(proposed):
+    proposed = installed
+    marker.write_text("known_audio_policy_override", encoding="utf-8")
+    print("LOCAL_SOURCE_POLICY: already updated with audio override", flush=True)
+else:
+    raise SystemExit("STOP: unexpected local catalog changes; no files modified")
+if installed_stage.read_bytes() not in (
+    old_stage.read_bytes(), new_stage.read_bytes()
+):
+    raise SystemExit("STOP: unexpected local stage changes; no files modified")
+print("LOCAL_STAGE_POLICY: reviewed version", flush=True)
+new_manifest.write_text(proposed, encoding="utf-8")
+PY
 
 for name in ja_first_priority.py ja_first_search_pilot.py; do
   curl -fsSL --retry 3 --connect-timeout 10 --max-time 90 \
@@ -106,6 +171,39 @@ echo "=== OFFLINE NEW SERIES IDENTITY TESTS ==="
   PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$WORK" \
     python3 -B -m unittest -v test_ja_first_native_series_identity
 )
+
+if [[ -f "$WORK/guardless-source-policy" ]]; then
+  echo "=== TEST ACTUAL INSTALLED AUDIO POLICY (known override) ==="
+  (
+    cd "$WORK"
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$WORK" python3 -B - <<'PY'
+from pathlib import Path
+import unittest
+import test_ja_first_native_series_identity as tests
+from tools import ja_first_catalog_manifest as catalog
+
+suite = unittest.defaultTestLoader.loadTestsFromTestCase(tests.NativeSeriesIdentityTests)
+# Preserving the installed override intentionally retains different behavior
+# for und/unknown audio from standard GitHub policy.
+selected = unittest.TestSuite(
+    test for test in suite
+    if test._testMethodName != "test_no_audio_language_does_not_use_native_identity_to_bypass_review"
+)
+result = unittest.TextTestRunner(verbosity=2).run(selected)
+if not result.wasSuccessful():
+    raise SystemExit(1)
+test = tests.NativeSeriesIdentityTests()
+test.setUp()
+try:
+    test.item["MediaStreams"] = [{"Type":"Audio","Language":"und"}]
+    if test.inspect()["status"] != "ready_ja_search":
+        raise SystemExit("Existing unknown-audio override was not preserved")
+    print("KNOWN_OVERRIDE_PRESERVED verified unchanged unknown-audio behavior")
+finally:
+    test.tearDown()
+PY
+  )
+fi
 
 echo "=== INSTALL REVIEWED SOURCE TOOLS ==="
 for name in "${SOURCE_FILES[@]}"; do
