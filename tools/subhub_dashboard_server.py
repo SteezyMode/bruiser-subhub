@@ -390,12 +390,103 @@ def translation_snapshot():
             "by_state":dict(counts)}
 
 
+
+def scheduled_source_activity(active, max_lines=240):
+    """Observe the CURRENT scheduled publisher, not yesterday's manual batch.
+
+    Journal is bounded. Numbers derived here are explicitly counts within
+    the returned journal window, never lifetime source totals.
+    """
+    result={"active":bool(active),"phase":"idle","phase_label":"No scheduled source job running",
+            "current_item":"","last_completed":"","recent_publications":0,
+            "events":[],"sample_window":"latest 240 journal lines"}
+    if not active:
+        return result
+    try:
+        completed=subprocess.run([
+            "journalctl","--user","-u",SCHEDULED_UNIT,"-o","cat",
+            "-n",str(max_lines),"--no-pager"],
+            capture_output=True,text=True,timeout=5,
+            stdin=subprocess.DEVNULL,check=False)
+    except (OSError,subprocess.TimeoutExpired):
+        result.update(phase="running",phase_label="Automatic subtitle processing",
+                      current_item="Worker active; journal unavailable")
+        return result
+    if completed.returncode:
+        result.update(phase="running",phase_label="Automatic subtitle processing",
+                      current_item="Worker active; journal unavailable")
+        return result
+    lines=completed.stdout.splitlines()
+    recent=[]
+    last_media=""
+    last_result=""
+    last_published=""
+    for line in lines:
+        line=line.strip()
+        if line.startswith("MEDIA:"):
+            last_media=safe_text(line.split("|",1)[0].removeprefix("MEDIA:").strip(),45)
+        elif line.startswith("RESULT:"):
+            last_result=safe_text(line.removeprefix("RESULT:").split("|",1)[0].strip(),100)
+            recent.append("Validated "+last_result)
+        elif line.startswith("PUBLISHED:"):
+            result["recent_publications"]+=1
+            last_published=last_result or "Untitled media"
+            recent.append("Published "+last_published)
+            last_result=""
+        elif any(term in line for term in ("SEARCHING:","STAGING:",
+                                           "THERMAL_PAUSE","HELD:",
+                                           "PROVIDER_LIMIT_REACHED")):
+            recent.append(safe_text(line,160))
+    # The publisher often emits MEDIA:<id> first, then RESULT:<title>.
+    # Do not repeat the previous title as if it were the current title.
+    publish_active=False
+    try:
+        ps=subprocess.run(["ps","-eo","args="],capture_output=True,text=True,
+                          timeout=4,stdin=subprocess.DEVNULL,check=False)
+        publish_active=(ps.returncode==0 and
+            any("ja_first_publish_queue.py" in line and
+                "/usr/bin/python3" in line for line in ps.stdout.splitlines()))
+    except (OSError,subprocess.TimeoutExpired):
+        pass
+    result.update(phase="publishing" if publish_active else "running",
+                  phase_label=("Publishing Japanese subtitles"
+                               if publish_active else "Automatic Japanese sourcing"),
+                  current_item=("Processing media "+last_media+" (title pending)"
+                                if publish_active and last_media else
+                                "Working through the automatic subtitle queue"),
+                  last_completed=last_published,
+                  events=recent[-9:])
+    return result
+
+
+def live_source_snapshot(result, scheduled):
+    """Show scheduled work as LIVE; old manual batch remains a distinct record."""
+    result["source_job"]=scheduled
+    result["manual_batch_history"]={
+        "batch_id":result.get("batch_id",""),
+        "state":result.get("state","idle"),
+        "phase":result.get("phase","idle"),
+        "last_item":result.get("current_item","")}
+    if scheduled["active"]:
+        result["state"]="scheduled_source_running"
+        result["phase"]="scheduled_"+scheduled["phase"]
+        result["phase_label"]=scheduled["phase_label"]
+        result["current_item"]=scheduled["current_item"]
+        result["updated_utc"]=""  # old manual timestamp must NOT be shown as live
+        result["stale_seconds"]=None
+        result["events"]=scheduled["events"]
+        result["batch_id"]=""      # not yesterday's manual job
+    return result
+
+
 def status_payload():
     doc = checked_state()
     log = trusted_log(doc) if doc else None
     lines = tail_lines(log)
-    result=snapshot(doc, unit_active(BATCH_UNIT),
-                    unit_active(SCHEDULED_UNIT), lines)
+    manual=unit_active(BATCH_UNIT)
+    scheduled=unit_active(SCHEDULED_UNIT)
+    result=snapshot(doc, manual, scheduled, lines)
+    result=live_source_snapshot(result,scheduled_source_activity(scheduled))
     result["translation"]=translation_snapshot()
     return result
 
