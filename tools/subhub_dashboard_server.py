@@ -30,6 +30,8 @@ PLAMO_MOVIES = Path.home() / "bruiser-pilot/subhub-translation"
 PLAMO_EPISODES = Path.home() / "bruiser-pilot/plamo3-ab/american-dad-existing-english-batch"
 PLAMO_SINGLE = Path.home() / "bruiser-pilot/plamo3-ab/american-dad-one-episode"
 PLAMO_MOVIE_UNIT = "bruiser-asabove-plamo.service"
+PLAMO_BATCH_UNIT = "bruiser-plamo-american-dad.service"
+PLAMO_BATCH_SCRIPT = Path.home() / "bruiser-pilot/plamo3-ab/plamo8b_american_dad_existing_en_batch.py"
 OWNER_TOKEN = secrets.token_urlsafe(32)
 try:
     from . import ja_first_source_tracker as source_tracker
@@ -543,6 +545,7 @@ def status_payload():
     result=live_source_snapshot(result,scheduled_source_activity(scheduled))
     result["translation"]=translation_snapshot()
     result["controls"]=control_availability()
+    result["plamo_controls"]=plamo_control_availability()
     return result
 
 
@@ -591,6 +594,62 @@ def control_availability():
             "stop_manual":manual}
 
 
+def plamo_conflict():
+    """Refuse a new GPU batch when another owner PLaMo inference is running."""
+    try:
+        ps=subprocess.run(["ps","-eo","args="],capture_output=True,
+                          text=True,timeout=4,stdin=subprocess.DEVNULL,
+                          check=False)
+        if ps.returncode:
+            return True
+        return any(
+            "subhub_plamo_handoff.py" in cmd or
+            "plamo3_movie" in cmd or
+            "plamo8b_american_dad_existing_en_batch.py" in cmd or
+            "llama-server" in cmd
+            for cmd in ps.stdout.splitlines()
+        )
+    except (OSError,subprocess.TimeoutExpired):
+        return True
+
+
+def plamo_control_availability():
+    """This controls only the existing American Dad batch, not other jobs."""
+    managed=unit_active(PLAMO_BATCH_UNIT)
+    running=american_dad_batch_activity()["active"]
+    installed=(PLAMO_BATCH_SCRIPT.is_file()
+               and not PLAMO_BATCH_SCRIPT.is_symlink())
+    busy=plamo_conflict() if not managed and not running else True
+    return {"available":installed, "start_plamo":installed and not busy,
+            "stop_plamo":managed,
+            "reason":("Batch not installed" if not installed else
+                      "Another AI worker is active" if busy and not managed else
+                      "Batch running" if managed else "Ready")}
+
+
+def plamo_controls(action):
+    """Start/stop only one dedicated user service. No queue/media mutations."""
+    state=plamo_control_availability()
+    if action=="start-plamo":
+        if not state["start_plamo"]:
+            raise RuntimeError(state["reason"])
+        command=["systemctl","--user","start","--no-block",PLAMO_BATCH_UNIT]
+    elif action=="stop-plamo":
+        if not state["stop_plamo"]:
+            raise RuntimeError("No dashboard-managed American Dad batch running")
+        command=["systemctl","--user","stop","--no-block",PLAMO_BATCH_UNIT]
+    else:
+        raise ValueError("unsupported_plamo_control")
+    result=subprocess.run(command,stdin=subprocess.DEVNULL,
+                          capture_output=True,text=True,timeout=20,check=False)
+    if result.returncode:
+        raise RuntimeError("PLaMo service rejected request: "+
+                           safe_text(result.stderr or result.stdout,140))
+    return {"ok":True,"action":action,"result":"Request sent to existing PLaMo batch"}
+
+
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "SubHubDashboard/0.1"
 
@@ -635,7 +694,8 @@ class Handler(BaseHTTPRequestHandler):
         target=urlsplit(self.path).path
         if target not in (
             "/api/control/start-auto","/api/control/stop-auto",
-            "/api/control/start-manual","/api/control/stop-manual"):
+            "/api/control/start-manual","/api/control/stop-manual",
+            "/api/control/start-plamo","/api/control/stop-plamo"):
             self.write(405,b'{"error":"controls_not_available_in_v0_1"}')
             return
         origin=self.headers.get("Origin","")
@@ -659,7 +719,8 @@ class Handler(BaseHTTPRequestHandler):
             self.write(400,b'{"error":"empty_json_object_required"}')
             return
         try:
-            value=source_controls(target.rsplit("/",1)[-1])
+            action=target.rsplit("/",1)[-1]
+            value=plamo_controls(action) if action.endswith("-plamo") else source_controls(action)
             self.write(200,json.dumps(value).encode("utf-8"))
         except (OSError,RuntimeError,subprocess.TimeoutExpired) as exc:
             self.write(409,json.dumps(
