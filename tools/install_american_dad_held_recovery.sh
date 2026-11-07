@@ -12,12 +12,15 @@ PIN="$1"
 ROOT="$HOME/bruiser-pilot/plamo3-ab"
 STATE="$ROOT/american-dad-existing-english-batch"
 BASE="https://raw.githubusercontent.com/SteezyMode/bruiser-subhub/$PIN/tools"
+# One manifest for safety checks, download, and backup/install; never
+# validate a file that this installer forgot to fetch.
+FILES=(plamo3_real_film_ab.py plamo3_watch_american_dad.py plamo8b_american_dad_existing_en_batch.py)
 
 test -d "$ROOT" && test ! -L "$ROOT"
 test -f "$ROOT/plamo3_real_film_ab.py"
 test -x "$ROOT/runtime/llama-server"
 test -f "$ROOT/models/plamo-3-translate-8b-Q4_K_M.gguf"
-for name in plamo3_real_film_ab.py plamo3_watch_american_dad.py plamo8b_american_dad_existing_en_batch.py; do
+for name in "${FILES[@]}"; do
   target="$ROOT/$name"
   if [[ ! -f "$target" || -L "$target" || "$(stat -c %u "$target")" != "$(id -u)" ]]; then
     echo "Existing worker missing, foreign-owned or symlink: $name" >&2
@@ -33,7 +36,7 @@ fi
 
 WORK="$(mktemp -d "$ROOT/.ad-recovery-XXXXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
-for name in plamo3_watch_american_dad.py plamo8b_american_dad_existing_en_batch.py; do
+for name in "${FILES[@]}"; do
   curl -fsSL --retry 3 --connect-timeout 10 --max-time 60 "$BASE/$name" -o "$WORK/$name"
   chmod 600 "$WORK/$name"
 done
@@ -62,7 +65,7 @@ fi
 
 # Three tested files only; preserve previous versions for explicit rollback.
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-for name in plamo3_watch_american_dad.py plamo8b_american_dad_existing_en_batch.py; do
+for name in "${FILES[@]}"; do
   cp -p -- "$ROOT/$name" "$STATE/$name.before-$STAMP"
   mv -f -- "$WORK/$name" "$ROOT/$name"
 done
