@@ -57,7 +57,10 @@
     .job-fill { height:100%;width:0;background:linear-gradient(90deg,#6791ed,#91bcf9);transition:width .5s }
     .job-detail { color:var(--muted);font-size:12px;margin-top:8px }
     .job-warning { color:var(--amber) }
-    .stats { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:14px; margin-bottom:18px }
+    .live-kpis { display:grid; grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:20px }
+    .live-kpis .stat { padding:12px; border-radius:12px; background:#101724 }
+    .live-kpis .stat .number { font-size:24px }
+    .live-kpis .stat .label { font-size:11px }
     .stat { padding:19px 20px; background:var(--panel); border:1px solid var(--line); border-radius:16px }
     .stat .number { font-size:30px; line-height:1.2; font-weight:730; letter-spacing:-.5px; font-variant-numeric:tabular-nums }
     .stat .label { color:var(--muted); font-size:12px; margin:6px 0 0 }
@@ -82,8 +85,8 @@
     .holds div { border-bottom:1px solid var(--line); padding:8px 0; font-size:12px; color:var(--muted); overflow-wrap:anywhere }
     .holds b { color:var(--text); margin-right:6px }
     footer { display:flex; flex-wrap:wrap; justify-content:space-between; gap:10px; color:var(--muted); font-size:12px; margin-top:20px }
-    @media(max-width:850px){ .top,.cols { grid-template-columns:1fr }.stats { grid-template-columns:repeat(3,1fr) } }
-    @media(max-width:530px){.shell{padding:18px 14px 36px}.panel{padding:18px}.stats{grid-template-columns:repeat(2,1fr)}.brand h1{font-size:21px}.hero h2{font-size:22px} }
+    @media(max-width:850px){ .top,.cols { grid-template-columns:1fr } }
+    @media(max-width:530px){.shell{padding:18px 14px 36px}.panel{padding:18px}.live-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.brand h1{font-size:21px}.hero h2{font-size:22px} }
   </style>
 </head>
 <body>
@@ -104,6 +107,15 @@
           <div class="eyebrow">Current activity</div>
           <h2 id="phase-label">Connecting to the subtitle engine...</h2>
           <p id="current-item" class="subtext">Retrieving the current batch state</p>
+          <div class="live-kpis" id="live-kpis" aria-label="Current sourcing run results">
+            <div class="stat"><div class="number" id="live-matches">—</div><div class="label">Plausible title matches</div></div>
+            <div class="stat"><div class="number" id="live-downloaded">—</div><div class="label">Subtitles downloaded</div></div>
+            <div class="stat"><div class="number" id="live-published">—</div><div class="label">Japanese tracks published</div></div>
+            <div class="stat"><div class="number" id="live-none">—</div><div class="label">No matching source</div></div>
+            <div class="stat"><div class="number" id="live-review">—</div><div class="label">Matches needing review</div></div>
+            <div class="stat"><div class="number" id="live-errors">—</div><div class="label">Search errors</div></div>
+          </div>
+          <p class="subtext" id="source-phase-note" style="margin-top:12px">Results from the active run only.</p>
         </div>
         <div class="progress-group" id="live-bars" hidden>
           <div class="progress-row"><span>Current run · searches</span><strong id="live-search-label">—</strong></div>
@@ -114,16 +126,6 @@
           <div class="bar" role="progressbar" aria-label="Current publication checks" aria-valuemin="0" aria-valuemax="100" id="live-publish-progress"><div class="fill" id="live-publish-bar"></div></div>
           <div class="caption" id="live-updated">Waiting for source events…</div>
         </div>
-        <details class="progress-group" id="manual-history" style="margin-top:24px">
-          <summary class="eyebrow" style="cursor:pointer">Previous manual batch · historical only</summary>
-          <div class="progress-row"><span>Saved manual batch cycles</span><strong id="cycle-label">—</strong></div>
-          <div class="bar" role="progressbar" aria-label="Completed cycles" aria-valuemin="0" aria-valuemax="100" id="cycle-progress"><div class="fill" id="cycle-bar"></div></div>
-          <div class="progress-row"><span>Saved manual search attempts (maximum)</span><strong id="search-label">—</strong></div>
-          <div class="bar" role="progressbar" aria-label="Search attempts" aria-valuemin="0" aria-valuemax="100" id="search-progress"><div class="fill" id="search-bar"></div></div>
-          <div class="progress-row"><span>Saved manual batch stage</span><strong id="stage-label">—</strong></div>
-          <div class="bar" role="progressbar" aria-label="Current stage progress" aria-valuemin="0" aria-valuemax="100" id="stage-progress"><div class="fill" id="stage-bar"></div></div>
-          <div class="caption" id="updated">Previous manual batch</div>
-        </details>
       </section>
       <section class="panel side">
         <div class="eyebrow">Automation</div>
@@ -140,10 +142,7 @@
           <button type="button" id="action-stop-manual">Stop manual cycle</button>
         </div>
         <p class="control-feedback" id="control-feedback" role="status" aria-live="polite">Checking available actions…</p>
-        <div class="divider"></div>
-        <div class="eyebrow">Last saved manual batch</div>
-        <strong id="job">—</strong>
-        <p id="job-note">Manual-batch history is separate from the live scheduled worker.</p>
+
       </section>
     </div>
     <section class="panel jobs-section" aria-label="PLaMo translation jobs">
@@ -154,27 +153,12 @@
       <p class="subtext" style="margin-bottom:16px">Live progress from committed cue checkpoints. Unresolved cues are tracked separately from translated Japanese.</p>
       <div class="job-list" id="translation-jobs" aria-live="polite"><p class="empty">Connecting to PLaMo checkpoint state…</p></div>
     </section>
-    <section class="stats" aria-label="Saved manual batch results">
-      <div class="stat"><div class="number" id="published">—</div><div class="label">Newly published</div></div>
-      <div class="stat"><div class="number" id="staged">—</div><div class="label">Subtitles staged</div></div>
-      <div class="stat"><div class="number" id="held">—</div><div class="label">Titles held</div></div>
-      <div class="stat"><div class="number" id="searches">—</div><div class="label">Searches completed</div></div>
-      <div class="stat"><div class="number" id="plausible">—</div><div class="label">Plausible matches</div></div>
-    </section>
-    <div class="cols">
+    <div class="cols" style="grid-template-columns:1fr">
       <section class="panel">
         <div class="section-head"><h3>Recent activity</h3><span class="tag" id="activity-type">Current source cycle</span></div>
         <ol class="activity" id="activity"><li class="empty">Connecting...</li></ol>
       </section>
-      <section class="panel">
-        <div class="section-head"><h3>Diagnostics</h3><span class="tag" id="diagnostics-type">Previous manual batch</span></div>
-        <div class="row-between"><span>Searches in flight</span><span id="inflight">—</span></div>
-        <div class="row-between"><span>Review needed</span><span id="review">—</span></div>
-        <div class="row-between"><span>No matches</span><span id="none">—</span></div>
-        <div class="row-between"><span>Download attempts</span><span id="downloads">—</span></div>
-        <div class="row-between"><span>Search errors</span><span id="errors">—</span></div>
-        <div class="holds"><div class="eyebrow">Top hold reasons</div><div id="hold-list">No holds reported for this batch</div></div>
-      </section>
+
     </div>
     <footer><span>SubHub Dashboard v0.2 · Local-only, independent of OptiPlex NOW</span><span>Updates every 3 seconds · Viewer disconnects do not affect processing</span></footer>
   </main>
@@ -279,7 +263,7 @@
       drawTranslations(tr);
       text("quota", d.quota_exhausted ? "Previous manual batch hit provider limit" : "Quota not verified (API-key-only account)");
       el("quota").className = d.quota_exhausted ? "warning" : "";
-      text("job", d.manual_batch_history?.batch_id || "No saved manual batch");
+
       const cset = d.controls || {};
       for (const action of ["start-auto","stop-auto","start-manual","stop-manual"]) {
         const key = action.replace(/-/g, "_");
@@ -303,32 +287,27 @@
           (elapsed>120 ? " · No new events for "+Math.floor(elapsed/60)+" min" : "")) :
           "Source worker active; no timestamped progress available");
       }
-      text("activity-type",live.active ? "Current automatic cycle" : "Last saved manual cycle");
-      progress("cycle", "cycle-label", d.cycle_done, d.cycles);
-      progress("search", "search-label", d.search_progress?.current, d.search_progress?.total);
-      progress("stage", "stage-label", d.phase_progress?.current, d.phase_progress?.total);
-      const c = d.counts || {};
-      for (const [id,key] of [["published","published_new"],["staged","staged"],["held","held_titles"],["searches","search_completed"],["plausible","search_plausible"],["inflight","search_in_flight"],["review","search_review"],["none","search_none"],["downloads","download_attempted"],["errors","search_errors"]]) {
-        text(id, number(c[key] || 0));
-      }
-      const updated = d.updated_utc ? "Previous manual worker update: " + new Date(d.updated_utc).toLocaleString() : "No timestamp for saved manual batch";
-      text("updated", updated);
+      const current = live.active;
+      for (const [id,key] of [
+        ["live-matches","search_found"],["live-downloaded","staged"],
+        ["live-published","published"],["live-none","search_none"],
+        ["live-review","search_review"],["live-errors","search_errors"]
+      ]) text(id, current ? number(live[key] ?? 0) : "—");
+      text("source-phase-note", current ?
+        (live.phase_label.includes("Searching") ?
+          "Searching sources now. Downloads begin after the search phase finishes; publication follows staging." :
+          "Results for the active automatic run only.") :
+        (d.batch_active ? "Manual source batch active; automatic-run metrics unavailable." :
+          "No automatic source run active."));
+      text("activity-type",live.active ? "Current automatic cycle" :
+        d.batch_active ? "Current manual cycle" : "No active source cycle");
       const activity = el("activity");
       activity.replaceChildren();
-      const events = Array.isArray(d.events) ? d.events.slice(-9).reverse() : [];
+      const events = d.source_active && Array.isArray(d.events) ? d.events.slice(-9).reverse() : [];
       if (events.length === 0) {
         const item = document.createElement("li"); item.className="empty"; item.textContent="No worker events recorded yet"; activity.append(item);
       } else {
         for (const event of events) { const item = document.createElement("li"); item.textContent=event; activity.append(item); }
-      }
-      const holds = el("hold-list"); holds.replaceChildren();
-      if (!d.holds || !d.holds.length) { holds.textContent="No hold reasons recorded for this batch"; }
-      else for (const hold of d.holds) {
-        const line = document.createElement("div");
-        const count = document.createElement("b");
-        count.textContent = number(hold.count) + " × ";
-        line.append(count, document.createTextNode(hold.reason));
-        holds.append(line);
       }
     }
     async function refresh() {
@@ -342,7 +321,7 @@
         const word = wasConnected ? "Disconnected" : "Unavailable";
         text("state", word);
         el("state-dot").className = "dot interrupted";
-        text("updated", "The SubHub dashboard cannot read the backend right now.");
+        text("source-phase-note", "The SubHub dashboard cannot read the backend right now.");
         text("source-worker", "Unknown");
       } finally { pending = false; }
     }
