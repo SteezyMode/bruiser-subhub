@@ -25,6 +25,14 @@ CONTAINER = "sublarr-pilot"
 MAX_SHIFT_SECONDS = 30.0
 MAX_SHIFT_SPREAD_SECONDS = 8.0
 NO_CHANGE_THRESHOLD_SECONDS = 0.4
+# Conservative local repair of short overlapping Japanese subtitle cues.
+# No subtitle text or cue START timestamps are ever altered by this pass.
+MAX_OVERLAP_REPAIR_FRACTION = 0.16
+MAX_SINGLE_TRIM_MS = 1500
+MAX_TRIM_DURATION_FRACTION = 0.55
+MAX_TOTAL_TRIM_FRACTION = 0.09
+MIN_REPAIRED_CUE_MS = 800
+CLIP_GAP_MS = 50
 
 WORKER = r'''
 import base64, json, subprocess, sys, tempfile
@@ -106,6 +114,74 @@ def path_in_container(host_path,mounts):
     return str(possibilities[0][1])
 
 
+def format_ms(milliseconds):
+    milliseconds = int(milliseconds)
+    if milliseconds < 0:
+        raise RuntimeError("overlap_repair_negative_timestamp")
+    hours, milliseconds = divmod(milliseconds, 3600000)
+    minutes, milliseconds = divmod(milliseconds, 60000)
+    seconds, milliseconds = divmod(milliseconds, 1000)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d},{milliseconds:03d}"
+
+
+def repair_minor_overlaps(aligned, runtime):
+    """Fix conservatively bounded END-only collisions on a derived candidate.
+
+    Source downloads remain untouched. Never shift starts or edit dialogue.
+    Reject severe simultaneous/stacked subtitles, large trims and any new
+    readability or coverage failure; the caller then HOLDS publication.
+    """
+    cues = parse_cues(aligned)
+    before = health(cues, runtime)
+    details = {"overlap_repaired_cues": 0, "overlap_trimmed_ms": 0}
+    if "excessive_overlap" not in before.get("holds", []):
+        return aligned, details
+    if set(before["holds"]) != {"excessive_overlap"}:
+        raise RuntimeError("overlap_repair_other_quality_holds")
+    if any(cues[i+1]["start"] < cues[i]["start"] for i in range(len(cues)-1)):
+        raise RuntimeError("overlap_repair_out_of_order_source")
+
+    repaired = [dict(cue) for cue in cues]
+    trimmed = 0
+    count = 0
+    original_duration = sum(cue["end"]-cue["start"] for cue in cues)
+    for i in range(len(repaired)-1):
+        current, following = repaired[i], repaired[i+1]
+        if current["end"] <= following["start"] + 300:
+            continue
+        end = following["start"] - CLIP_GAP_MS
+        duration = current["end"] - current["start"]
+        removed = current["end"] - end
+        if (end-current["start"] < MIN_REPAIRED_CUE_MS
+                or removed > MAX_SINGLE_TRIM_MS
+                or removed > duration*MAX_TRIM_DURATION_FRACTION):
+            raise RuntimeError("overlap_repair_requires_unsafe_trim")
+        current["end"] = end
+        count += 1
+        trimmed += removed
+    if (not count or count/len(cues) > MAX_OVERLAP_REPAIR_FRACTION
+            or trimmed > original_duration*MAX_TOTAL_TRIM_FRACTION):
+        raise RuntimeError("overlap_repair_exceeds_safety_budget")
+    # Rebuild only the private ffsubsync candidate, not the downloaded file.
+    rendered = "\n\n".join(
+        f'{i+1}\n{format_ms(cue["start"])} --> '
+        f'{format_ms(cue["end"])}\n{cue["text"]}'
+        for i, cue in enumerate(repaired)
+    ) + "\n"
+    body = rendered.encode("utf-8")
+    again = parse_cues(body)
+    if (len(again) != len(cues)
+            or [x["text"] for x in again] != [x["text"] for x in cues]
+            or [x["start"] for x in again] != [x["start"] for x in cues]):
+        raise RuntimeError("overlap_repair_modified_dialogue_or_start")
+    verified = health(again, runtime)
+    if not verified["ok"]:
+        raise RuntimeError("overlap_repair_did_not_pass_validation:"+
+                           ",".join(verified["holds"]))
+    details.update(overlap_repaired_cues=count, overlap_trimmed_ms=trimmed)
+    return body, details
+
+
 def check_alignment(original,aligned,runtime):
     before=parse_cues(original)
     after=parse_cues(aligned)
@@ -123,10 +199,15 @@ def check_alignment(original,aligned,runtime):
         raise RuntimeError("ffsubsync_invalid_video_coverage")
     old=health(before,runtime,allow_offset_sec=30)
     new=health(after,runtime)
-    if not old["ok"] or not new["ok"]:
+    # The original may have a repairable overlap. Publication is gated on
+    # the final candidate passing the FULL quality check; we never pass an
+    # uncorrected original with this defect through as "unchanged".
+    old_other=set(old.get("holds",[]))-{"excessive_overlap"}
+    if old_other or not new["ok"]:
         raise RuntimeError("subtitle_health_hold:"+",".join(
-            sorted(set(old.get("holds",[])+new.get("holds",[])))))
-    unchanged=max(abs(value) for value in shifts)<NO_CHANGE_THRESHOLD_SECONDS
+            sorted(old_other.union(new.get("holds",[])))))
+    unchanged=(old["ok"] and max(abs(value) for value in shifts)
+               < NO_CHANGE_THRESHOLD_SECONDS)
     return {"mode":"original" if unchanged else "corrected",
             "shift_range_seconds":[round(min(shifts),3),round(max(shifts),3)],
             "cues":len(after),"japanese_fraction":new["japanese_fraction"]}
@@ -163,9 +244,12 @@ def prepare(jid,sid,*,aligner=align_in_container):
     # It does not grade idiom choice, fluent machine translation, or meaning.
     quality=source_quality.require_not_garbage(raw)
     synced=aligner(video,raw)
+    # Preserve source bytes; only touch the private aligned candidate.
+    synced,overlap_report=repair_minor_overlaps(synced,runtime)
     if gate.validate_srt(synced,runtime)!=qa:
         raise RuntimeError("synced_srt_cue_or_language_changed")
     decision=check_alignment(raw,synced,runtime)
+    decision.update(overlap_report)
     chosen=raw if decision["mode"]=="original" else synced
     return {"jid":jid,"sid":sid,"row":row,"video":video,
             "target":gate.video_target(video),"original":raw,"chosen":chosen,
