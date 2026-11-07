@@ -326,7 +326,7 @@ def jellyfin_srt(outputs, *, allow_held=False):
     result = small.format_srt(translations, "japanese")
     if len(small.parse_srt(result, limit=12000)) != len(translations):
         raise RuntimeError("assembled_jellyfin_srt_invalid")
-    return result, len(translations)
+    return result, sum(row["status"]==SPOKEN for row in outputs)
 
 
 def write_new_sidecar(video, saved, daily, srt):
