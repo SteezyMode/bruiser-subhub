@@ -261,8 +261,9 @@
         ((tr.active_jobs || 0) + " running · " + (tr.total_jobs || 0) + " saved jobs") :
         "Translation status unavailable");
       drawTranslations(tr);
-      text("quota", d.quota_exhausted ? "Previous manual batch hit provider limit" : "Quota not verified (API-key-only account)");
-      el("quota").className = d.quota_exhausted ? "warning" : "";
+      const live = d.source_job || {};
+      text("quota", live.provider_limited ? "Limit reached in this run" : "Allowance unverified");
+      el("quota").className = live.provider_limited ? "warning" : "";
 
       const cset = d.controls || {};
       for (const action of ["start-auto","stop-auto","start-manual","stop-manual"]) {
@@ -274,9 +275,8 @@
         else if (el("control-feedback").textContent.startsWith("Checking"))
           text("control-feedback", "Controls ready");
       }
-      const live = d.source_job || {};
-      el("live-bars").hidden = !live.active;
-      if (live.active) {
+      el("live-bars").hidden = !live.active || !live.metrics_available;
+      if (live.active && live.metrics_available) {
         progress("live-search","live-search-label",live.search_completed,live.search_planned);
         progress("live-stage","live-stage-label",live.stage_attempts,live.stage_planned);
         progress("live-publish","live-publish-label",live.publish_title_checked,live.publish_title_planned);
@@ -287,7 +287,7 @@
           (elapsed>120 ? " · No new events for "+Math.floor(elapsed/60)+" min" : "")) :
           "Source worker active; no timestamped progress available");
       }
-      const current = live.active;
+      const current = live.active && live.metrics_available;
       for (const [id,key] of [
         ["live-matches","search_found"],["live-downloaded","staged"],
         ["live-published","published"],["live-none","search_none"],
@@ -295,9 +295,10 @@
       ]) text(id, current ? number(live[key] ?? 0) : "—");
       text("source-phase-note", current ?
         (live.phase_label.includes("Searching") ?
-          "Searching sources now. Downloads begin after the search phase finishes; publication follows staging." :
-          "Results for the active automatic run only.") :
-        (d.batch_active ? "Manual source batch active; automatic-run metrics unavailable." :
+          "Searching sources now. Downloads start after searching; publishing follows downloads." :
+          "Results from the active automatic cycle only.") :
+        (live.active ? "Source worker active; journal progress unavailable." :
+          d.batch_active ? "Manual source batch active; automatic-run metrics unavailable." :
           "No automatic source run active."));
       text("activity-type",live.active ? "Current automatic cycle" :
         d.batch_active ? "Current manual cycle" : "No active source cycle");
