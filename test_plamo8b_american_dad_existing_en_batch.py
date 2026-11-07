@@ -124,6 +124,33 @@ class AmericanDadExistingEnglishBatchTests(TestCase):
             with self.assertRaisesRegex(RuntimeError,"NO_SENSOR"):
                 batch.thermal_gate()
 
+
+    def test_every_model_cue_runs_thermal_gate_not_every_tenth(self):
+        # Exercises the shared PLaMo request wrapper without model, GPU or
+        # source writes. Cached music-only captions never call this wrapper.
+        from contextlib import nullcontext
+        with tempfile.TemporaryDirectory() as d:
+            folder=Path(d)
+            manifest=folder/"episode.json"
+            manifest.write_text("{}",encoding="utf-8")
+            count=[]
+            def simulate_engine_run(_):
+                for n in range(3):
+                    result=batch.real.request(18886,"Hello "+str(n),[])
+                    count.append(result[2])
+            with mock.patch.object(batch,"separate_episode",
+                                   return_value=nullcontext(folder)), \
+                 mock.patch.object(batch.engine,"MANIFEST",manifest), \
+                 mock.patch.object(batch.real,"request",
+                                   return_value=("こんにちは",{},batch.engine.SPOKEN)), \
+                 mock.patch.object(batch,"thermal_gate") as gate, \
+                 mock.patch.object(batch.engine,"run",side_effect=simulate_engine_run):
+                batch.with_batch_inference("S21E22",Path("/tmp/example.mkv"),
+                                           [],"","",{})
+            self.assertEqual(gate.call_count,3)
+            self.assertEqual(count,[batch.engine.SPOKEN]*3)
+
+
     def test_batch_server_two_cpu_threads_and_no_gpu_cap_change(self):
         class Proc:
             def poll(self):
