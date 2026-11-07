@@ -343,9 +343,9 @@ class HTTPTests(unittest.TestCase):
         with patch.object(dashboard, "unit_active", side_effect=[False,False,False]), \
              patch.object(dashboard, "american_dad_batch_activity",
                           return_value={"active":False}), \
-             patch.object(dashboard.BATCH_EXEC, "is_file", return_value=True), \
-             patch.object(dashboard.season_batch.ENGINE, "is_file",
-                          return_value=True), \
+             patch.object(dashboard, "BATCH_EXEC", Path(dashboard.__file__)), \
+             patch.object(dashboard.season_batch, "ENGINE",
+                          Path(dashboard.season_batch.__file__)), \
              patch.object(dashboard.season_batch,"plan", return_value={
                  "ready":4,"blocked":2}), \
              patch.object(dashboard.subprocess,"run", return_value=
@@ -364,9 +364,9 @@ class HTTPTests(unittest.TestCase):
         with patch.object(dashboard, "unit_active", side_effect=[False,False,False]), \
              patch.object(dashboard, "american_dad_batch_activity",
                           return_value={"active":False}), \
-             patch.object(dashboard.BATCH_EXEC, "is_file", return_value=True), \
-             patch.object(dashboard.season_batch.ENGINE, "is_file",
-                          return_value=True), \
+             patch.object(dashboard, "BATCH_EXEC", Path(dashboard.__file__)), \
+             patch.object(dashboard.season_batch, "ENGINE",
+                          Path(dashboard.season_batch.__file__)), \
              patch.object(dashboard.season_batch,"plan",
                           return_value={"ready":0,"blocked":20}), \
              patch.object(dashboard.subprocess,"run") as runner:
