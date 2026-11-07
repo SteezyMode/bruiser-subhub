@@ -352,6 +352,7 @@ class HTTPTests(unittest.TestCase):
         with patch.object(dashboard, "unit_active", side_effect=[False,False,False]), \
              patch.object(dashboard, "american_dad_batch_activity",
                           return_value={"active":False}), \
+             patch.object(dashboard, "_plamo_running_ids", return_value=set()), \
              patch.object(dashboard, "BATCH_EXEC", Path(dashboard.__file__)), \
              patch.object(dashboard.season_batch, "ENGINE",
                           Path(dashboard.season_batch.__file__)), \
@@ -373,6 +374,7 @@ class HTTPTests(unittest.TestCase):
         with patch.object(dashboard, "unit_active", side_effect=[False,False,False]), \
              patch.object(dashboard, "american_dad_batch_activity",
                           return_value={"active":False}), \
+             patch.object(dashboard, "_plamo_running_ids", return_value=set()), \
              patch.object(dashboard, "BATCH_EXEC", Path(dashboard.__file__)), \
              patch.object(dashboard.season_batch, "ENGINE",
                           Path(dashboard.season_batch.__file__)), \
