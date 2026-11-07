@@ -253,7 +253,19 @@ def set_next_run_budget(budget):
     print("NEXT_SOURCE_CYCLE_BUDGET", budget, "one_time_only", flush=True)
 
 
-def once(*, request=api, action=run):
+def read_provider_budget():
+    """Read real remaining account allowance; never guess based on key type."""
+    import importlib.util
+    helper=Path.home()/".local/share/bruiser-subhub-dashboard/subhub_opensubtitles_quota.py"
+    if not helper.is_file() or helper.is_symlink():
+        raise RuntimeError("verified_provider_quota_helper_missing")
+    spec=importlib.util.spec_from_file_location("bruiser_provider_quota",helper)
+    module=importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.get_quota()
+
+
+def once(*, request=api, action=run, quota_reader=read_provider_budget):
     ensure_installed()
     fd=lock()
     try:
@@ -266,14 +278,7 @@ def once(*, request=api, action=run):
         search_budget, custom_budget = next_run_budget()
         # Exact account allowance, not the software's 200-download ceiling.
         # The probe is read-only and reuses Sublarr's saved account login.
-        import importlib.util
-        helper=Path.home()/".local/share/bruiser-subhub-dashboard/subhub_opensubtitles_quota.py"
-        if not helper.is_file() or helper.is_symlink():
-            raise RuntimeError("verified_provider_quota_helper_missing")
-        spec=importlib.util.spec_from_file_location("bruiser_provider_quota",helper)
-        module=importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        quota=module.get_quota()
+        quota=quota_reader()
         if not quota.get("known"):
             raise RuntimeError("provider_allowance_unverified")
         stage_budget=min(200,int(quota["automatic_budget"]))
