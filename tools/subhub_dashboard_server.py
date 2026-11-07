@@ -40,8 +40,14 @@ try:
     from . import subhub_translation_batch as season_batch
 except ImportError:
     import subhub_translation_batch as season_batch
+try:
+    from . import subhub_season_sources as season_sources
+except ImportError:
+    import subhub_season_sources as season_sources
 
 TRANSLATION_UNIT = "bruiser-subhub-translation-batch.service"
+SEASON_SOURCE_UNIT = "bruiser-subhub-season-sources.service"
+SEASON_SOURCE_EXEC = Path(__file__).with_name("subhub_season_sources.py")
 BATCH_EXEC = Path(__file__).with_name("subhub_translation_batch.py")
 PHASES = {
     "queued": "Preparing the source engine",
@@ -584,6 +590,7 @@ def status_payload():
     result=live_source_snapshot(result,scheduled_source_activity(scheduled))
     result["translation"]=translation_snapshot()
     result["season_translation"]=season_batch_status()
+    result["season_sources"]=season_sources_status()
     result["controls"]=control_availability()
     return result
 
@@ -594,9 +601,9 @@ def source_controls(action):
     manual=unit_active(BATCH_UNIT)
     scheduled=unit_active(SCHEDULED_UNIT)
     script=Path.home()/".local/bin/bruiser-subs"
-    if (action in ("start-auto", "start-manual") and
-            not (manual or scheduled) and translation_busy()):
-        raise RuntimeError("translation_active_cannot_start_source_worker")
+    if action in ("start-auto", "start-manual") and (
+            translation_busy() or unit_active(SEASON_SOURCE_UNIT)):
+        raise RuntimeError("source_or_translation_worker_already_active")
     if action=="start-auto":
         if manual or scheduled:
             raise RuntimeError("Source job already running")
@@ -636,7 +643,7 @@ def translation_busy():
 def control_availability():
     manual=unit_active(BATCH_UNIT)
     scheduled=unit_active(SCHEDULED_UNIT)
-    can_start=not manual and not scheduled
+    can_start=not manual and not scheduled and not unit_active(SEASON_SOURCE_UNIT)
     if can_start:
         can_start=not translation_busy()
     return {"available":True,
@@ -682,7 +689,7 @@ def start_season_translation(doc):
     count, start = doc["count"], doc["start"]
     season_batch.validate(series, season, count, start)
     if (unit_active(BATCH_UNIT) or unit_active(SCHEDULED_UNIT)
-            or translation_busy()):
+            or unit_active(SEASON_SOURCE_UNIT) or translation_busy()):
         raise RuntimeError("another_source_or_translation_worker_is_active")
     if (not BATCH_EXEC.is_file() or BATCH_EXEC.is_symlink()
             or not season_batch.ENGINE.is_file()
@@ -718,6 +725,77 @@ def stop_season_translation():
         raise RuntimeError("translation_stop_failed: " +
                            safe_text(done.stderr or done.stdout, 160))
     return {"ok": True, "action": "stop-translation"}
+
+
+
+def season_sources_status():
+    """Read only transient season-source activity from its own systemd unit."""
+    active = unit_active(SEASON_SOURCE_UNIT)
+    recent = []
+    try:
+        log = subprocess.run(
+            ["journalctl", "--user", "-u", SEASON_SOURCE_UNIT,
+             "-n", "35", "--no-pager", "-o", "cat"],
+            capture_output=True,text=True,timeout=4,check=False,
+            stdin=subprocess.DEVNULL)
+        if log.returncode == 0:
+            recent=[safe_text(line,210) for line in log.stdout.splitlines()
+                    if line.startswith(("SEASON_JA_BEGIN", "SEASON_JA_SEARCH ",
+                        "SEASON_JA_SEARCH_PLANNED", "SEASON_JA_RESULT ",
+                        "SEASON_JA_STAGE ", "SEASON_JA_STAGE_PLANNED",
+                        "SEASON_JA_PUBLISH ", "SEASON_JA_PUBLISH_PLANNED",
+                        "SEASON_JA_DONE", "SEASON_JA_HELD",
+                        "SEASON_JA_BLOCKED", "PROVIDER_LIMIT_REACHED"))][-12:]
+    except (OSError,subprocess.TimeoutExpired):
+        pass
+    components=("ja_first_search_pilot.py","ja_first_stage_saved_batch.py",
+                "ja_first_publish_queue.py","ja_first_autofill.py")
+    return {"active":active,
+            "available":SEASON_SOURCE_EXEC.is_file()
+                and not SEASON_SOURCE_EXEC.is_symlink()
+                and all((season_sources.SOURCE_CODE/x).is_file()
+                        and not (season_sources.SOURCE_CODE/x).is_symlink()
+                        for x in components),
+            "recent":recent}
+
+
+def start_season_sources(doc):
+    if not isinstance(doc,dict) or set(doc)!={"series","season"}:
+        raise ValueError("invalid_season_source_request")
+    series,season=doc["series"],doc["season"]
+    season_batch.validate(series,season,40,1)
+    if (unit_active(BATCH_UNIT) or unit_active(SCHEDULED_UNIT)
+            or unit_active(SEASON_SOURCE_UNIT) or translation_busy()):
+        raise RuntimeError("another_source_or_translation_worker_is_active")
+    if not season_sources_status()["available"]:
+        raise RuntimeError("native_source_components_unavailable")
+    chosen=season_sources.scope(series,season)
+    if not chosen["eligible"]:
+        raise RuntimeError("no_pending_japanese_source_work_in_season")
+    command=["systemd-run","--user","--unit=bruiser-subhub-season-sources",
+             "--collect","--property=KillMode=control-group","--",
+             sys.executable,"-B","-u",str(SEASON_SOURCE_EXEC),"--run",
+             "--series",series,"--season",str(season)]
+    result=subprocess.run(command,capture_output=True,text=True,
+                          stdin=subprocess.DEVNULL,timeout=20,check=False)
+    if result.returncode:
+        raise RuntimeError("season_source_start_failed: "+
+                           safe_text(result.stderr or result.stdout,140))
+    return {"ok":True,"accepted":chosen["eligible"],
+            "series":series,"season":season}
+
+
+def stop_season_sources():
+    if not unit_active(SEASON_SOURCE_UNIT):
+        raise RuntimeError("no_season_source_worker_running")
+    result=subprocess.run(
+        ["systemctl","--user","stop","--no-block",SEASON_SOURCE_UNIT],
+        capture_output=True,text=True,stdin=subprocess.DEVNULL,
+        timeout=15,check=False)
+    if result.returncode:
+        raise RuntimeError("season_source_stop_failed: "+
+                           safe_text(result.stderr or result.stdout,140))
+    return {"ok":True,"action":"stop-season-sources"}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -786,7 +864,8 @@ class Handler(BaseHTTPRequestHandler):
         if target not in (
             "/api/control/start-auto","/api/control/stop-auto",
             "/api/control/start-manual","/api/control/stop-manual",
-            "/api/translation/start","/api/translation/stop"):
+            "/api/translation/start","/api/translation/stop",
+            "/api/source-season/start","/api/source-season/stop"):
             self.write(405,b'{"error":"controls_not_available_in_v0_1"}')
             return
         origin=self.headers.get("Origin","")
@@ -804,20 +883,25 @@ class Handler(BaseHTTPRequestHandler):
                 not hmac.compare_digest(token,OWNER_TOKEN) or
                 self.headers.get("Content-Type","").split(";")[0].strip()
                 != "application/json" or not size.isdecimal() or
-                 int(size) > (300 if target == "/api/translation/start" else 2)):
+                 int(size) > (300 if target in (
+                     "/api/translation/start","/api/source-season/start") else 2)):
             self.write(403,b'{"error":"owner_control_access_denied"}')
             return
         try:
-            if target == "/api/translation/start":
+            if target in ("/api/translation/start","/api/source-season/start"):
                 if not (2 <= int(size) <= 300):
                     raise ValueError("invalid_batch_request_size")
                 request = json.loads(self.rfile.read(int(size)).decode("utf-8"))
-                value = start_season_translation(request)
+                value = (start_season_translation(request)
+                         if target == "/api/translation/start"
+                         else start_season_sources(request))
             else:
                 if size=="2" and self.rfile.read(2)!=b"{}":
                     raise ValueError("empty_json_object_required")
                 if target == "/api/translation/stop":
                     value = stop_season_translation()
+                elif target == "/api/source-season/stop":
+                    value = stop_season_sources()
                 else:
                     value=source_controls(target.rsplit("/",1)[-1])
             self.write(200,json.dumps(value).encode("utf-8"))
