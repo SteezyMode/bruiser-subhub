@@ -200,7 +200,7 @@ class StatusTests(unittest.TestCase):
 
 class HTTPTests(unittest.TestCase):
     def test_activating_oneshot_source_is_busy(self):
-        result = dashboard.subprocess.CompletedProcess([], 0, stdout="activating\\n")
+        result = dashboard.subprocess.CompletedProcess([], 0, stdout="activating\n")
         with patch.object(dashboard.subprocess, "run", return_value=result):
             self.assertTrue(dashboard.unit_active(dashboard.SCHEDULED_UNIT))
 
