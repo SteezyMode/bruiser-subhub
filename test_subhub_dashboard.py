@@ -52,7 +52,7 @@ class StatusTests(unittest.TestCase):
             "MESSAGE":message,"__REALTIME_TIMESTAMP":str(1794000000000000+i*1000000)
         }) for i,message in enumerate(events))
         result=dashboard.subprocess.CompletedProcess([],0,stdout=payload)
-        with patch.object(dashboard.subprocess,"run",return_value=result), \\
+        with patch.object(dashboard.subprocess,"run",return_value=result), \
              patch.object(dashboard.time,"monotonic",return_value=2000.):
             old=dict(dashboard._SOURCE_CACHE)
             try:
