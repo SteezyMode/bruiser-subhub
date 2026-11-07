@@ -80,6 +80,32 @@ class SourceTrackerTests(unittest.TestCase):
         self.assertEqual(d["current"],"")
         self.assertIn("Newly published: 1",monitor.render(d,now=140))
 
+    def test_unified_publisher_receipts_are_counted_without_double_counting(self):
+        events=[
+            e(100,"RUNNING_SOURCES_ONLY_CYCLE search_budget=5 stage_budget=5 publish_limit=5"),
+            e(101,"=== PUBLISH VERIFIED JA ==="),
+            e(102,"PUBLISHED: /private/new1.ja.srt"),
+            e(103,'BRUISER_PUBLISH_ITEM: {"jellyfin_id":"a","result":"published"}'),
+            e(104,'BRUISER_PUBLISH_ITEM: {"jellyfin_id":"b","result":"published"}'),
+            e(105,'BRUISER_PUBLISH_ITEM: {"jellyfin_id":"c","result":"held"}'),
+            e(106,'QUEUE SUMMARY: {"published_new":2,"held":1}'),
+        ]
+        current=monitor.parse(events)
+        self.assertEqual(current["published"],2)
+        self.assertEqual(current["search_found"],0)
+        # A new run is a separate scope; old results cannot leak.
+        current=monitor.parse(events+[e(200,
+            "RUNNING_SOURCES_ONLY_CYCLE search_budget=3 stage_budget=3 publish_limit=3")])
+        self.assertEqual(current["published"],0)
+
+    def test_unified_publisher_without_legacy_line_still_reports_publication(self):
+        events=[
+            e(100,"RUNNING_SOURCES_ONLY_CYCLE search_budget=3 stage_budget=3 publish_limit=3"),
+            e(101,'BRUISER_PUBLISH_ITEM: {"jellyfin_id":"a","result":"published"}'),
+            e(102,'QUEUE SUMMARY: {"published_new":1}')
+        ]
+        self.assertEqual(monitor.parse(events)["published"],1)
+
     def test_endpoints_read_only_and_missing_journal(self):
         self.assertFalse(monitor.parse([])["has_run"])
         self.assertEqual(monitor.bar(1,0),"["+"·"*30+"] pending")

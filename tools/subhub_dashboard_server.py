@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Standalone, read-only SubHub web dashboard over durable batch state.
+"""Standalone SubHub status and bounded owner controls over existing services.
 
-No source-worker imports, writes to media, provider calls or control operations.
-HTTP binds ONLY to loopback. Reach remotely through an authenticated SSH tunnel.
+No direct subtitle or provider calls. HTTP binds only to loopback and owner
+actions require the token plus an exact same-origin request.
 """
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ from pathlib import Path
 import re
 import sqlite3
 import subprocess
+import time
 from urllib.parse import urlsplit
 
 ROOT = Path.home() / "bruiser-pilot" / "batch-control"
@@ -30,6 +31,10 @@ PLAMO_EPISODES = Path.home() / "bruiser-pilot/plamo3-ab/american-dad-existing-en
 PLAMO_SINGLE = Path.home() / "bruiser-pilot/plamo3-ab/american-dad-one-episode"
 PLAMO_MOVIE_UNIT = "bruiser-asabove-plamo.service"
 OWNER_TOKEN = secrets.token_urlsafe(32)
+try:
+    from . import ja_first_source_tracker as source_tracker
+except ImportError:
+    import ja_first_source_tracker as source_tracker
 PHASES = {
     "queued": "Preparing the source engine",
     "reconcile_queue": "Reconcile saved subtitle work",
@@ -66,14 +71,23 @@ def checked_state(path=STATE_FILE):
 
 
 def unit_active(unit):
+    """Treat long-running oneshot 'activating' as BUSY, never safe to start again."""
     try:
         result = subprocess.run(
-            ["systemctl", "--user", "is-active", "--quiet", unit],
-            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL, check=False, timeout=4)
-        return result.returncode == 0
-    except (OSError, subprocess.TimeoutExpired):
+            ["systemctl", "--user", "show", "--property=ActiveState",
+             "--value", unit],
+            stdin=subprocess.DEVNULL, capture_output=True, text=True,
+            check=False, timeout=4)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise RuntimeError("cannot_verify_service_state") from exc
+    if result.returncode:
+        raise RuntimeError("cannot_verify_service_state")
+    state = result.stdout.strip()
+    if state in ("active", "activating", "reloading", "deactivating"):
+        return True
+    if state in ("inactive", "failed"):
         return False
+    raise RuntimeError("unknown_service_state")
 
 
 def trusted_log(doc):
@@ -273,6 +287,46 @@ def _plamo_running_ids():
         return set()
 
 
+def american_dad_batch_activity():
+    """Verify the saved batch PID belongs to the current PLaMo batch process.
+
+    The queue's completed checkpoints alone never establish live processing.
+    This reads only the owner's PID/log and Linux procfs; no worker changes.
+    """
+    base=PLAMO_EPISODES
+    pidfile=base/"batch.pid"
+    log=base/"batch.log"
+    result={"active":False,"episode":"","pid":None}
+    try:
+        if (pidfile.is_symlink() or not pidfile.is_file()
+                or pidfile.stat().st_uid!=os.getuid()
+                or pidfile.stat().st_size>32):
+            return result
+        raw=pidfile.read_text("ascii").strip()
+        if not re.fullmatch(r"[1-9][0-9]{0,9}",raw):
+            return result
+        pid=int(raw)
+        process=Path("/proc")/str(pid)
+        if process.stat().st_uid!=os.getuid():
+            return result
+        command=(process/"cmdline").read_bytes().replace(b"\0",b" ").decode("utf-8","replace")
+        if not re.search(r"(?:^|[\s/])plamo8b_american_dad_existing_en_batch\.py(?:\s|$)",command):
+            return result
+        result.update(active=True,pid=pid)
+        if log.is_file() and not log.is_symlink() and log.stat().st_uid==os.getuid():
+            lines=tail_lines(log,max_bytes=120_000)
+            for line in reversed(lines):
+                match=re.search(r"=== EPISODE \d+/\d+: (S\d{2}E\d{2,3}) ===",line)
+                if match:
+                    result["episode"]=match.group(1)
+                    break
+                if "=== COMPLETE: published" in line or line.startswith("BATCH_PAUSED"):
+                    break
+    except (OSError,UnicodeError,ValueError):
+        return {"active":False,"episode":"","pid":None}
+    return result
+
+
 def _plamo_checkpoint(folder, meta, kind, running_ids, batch_running):
     """Immutable source identity + actual SQLite committed cues, no media edits."""
     jid=str(meta.get("jellyfin_id") or "")
@@ -309,7 +363,8 @@ def _plamo_checkpoint(folder, meta, kind, running_ids, batch_running):
                and 0<sidecar.stat().st_size<=2_000_000)
     # Movie jobs have individual process identities. The older American Dad
     # batch does not expose which episode is active; do not guess.
-    active=(jid in running_ids) if kind=="movie" else False
+    active=((jid in running_ids) if kind=="movie" else
+            bool(batch_running and meta.get("episode")==batch_running))
     if published:
         state="published_with_review" if held else "published"
     elif active:
@@ -343,7 +398,8 @@ def translation_jobs(movie_root=PLAMO_MOVIES,
                      single_root=PLAMO_SINGLE):
     """One read-only view of existing PLaMo jobs; no Gemma or provider calls."""
     running_ids=_plamo_running_ids()
-    batch_running=False  # Legacy batch lacks per-episode identity.
+    batch=american_dad_batch_activity()
+    batch_running=batch["episode"] if batch["active"] else ""
     jobs=[]
     locations=(
         (movie_root,"movie","ja-*","manifest.json"),
@@ -385,8 +441,10 @@ def translation_snapshot():
     jobs=translation_jobs()
     counts=Counter(job["state"] for job in jobs)
     running=sum(1 for job in jobs if job["active"])
-    return {"state":"active" if running else "idle",
+    batch=american_dad_batch_activity()
+    return {"state":"active" if running or batch["active"] else "idle",
             "engine":"PLaMo 8B","jobs":jobs,
+            "american_dad_batch":batch,
             "total_jobs":len(jobs),"active_jobs":running,
             "held_cues":sum(job["held"] for job in jobs),
             "published_jobs":sum(int(job["published"]) for job in jobs),
@@ -394,82 +452,97 @@ def translation_snapshot():
 
 
 
-def scheduled_source_activity(active, max_lines=240):
-    """Observe the CURRENT scheduled publisher, not yesterday's manual batch.
+_SOURCE_CACHE={"when":0.0,"state":None}
 
-    Journal is bounded. Numbers derived here are explicitly counts within
-    the returned journal window, never lifetime source totals.
+def scheduled_source_activity(active, max_lines=5000):
+    """Current source cycle metrics from the existing, tested journal parser.
+
+    Never mix yesterday's manual-batch counters with the active source worker.
     """
-    result={"active":bool(active),"phase":"idle","phase_label":"No scheduled source job running",
-            "current_item":"","last_completed":"","recent_publications":0,
-            "events":[],"sample_window":"latest 240 journal lines"}
-    if not active:
-        return result
+    idle={"active":False,"metrics_available":False,"provider_limited":False,
+          "phase":"idle","phase_label":"No automatic source cycle running",
+          "current_item":"","events":[],"sample_window":"","started":0,
+          "last_event":0,"search_completed":0,"search_planned":0,
+          "search_found":0,"search_none":0,"search_review":0,"search_errors":0,
+          "stage_attempts":0,"stage_planned":0,"staged":0,"stage_holds":0,
+          "publish_title_checked":0,"publish_title_planned":0,"published":0,
+          "publish_holds":0}
+    now=time.monotonic()
+    if (_SOURCE_CACHE["state"] is not None and
+            now-_SOURCE_CACHE["when"]<8):
+        return dict(_SOURCE_CACHE["state"])
     try:
-        completed=subprocess.run([
-            "journalctl","--user","-u",SCHEDULED_UNIT,"-o","cat",
-            "-n",str(max_lines),"--no-pager"],
-            capture_output=True,text=True,timeout=5,
+        completed=subprocess.run(
+            ["journalctl","--user","-u",SCHEDULED_UNIT,
+             "-o","json","-n",str(max_lines),"--no-pager"],
+            capture_output=True,text=True,timeout=8,
             stdin=subprocess.DEVNULL,check=False)
-    except (OSError,subprocess.TimeoutExpired):
-        result.update(phase="running",phase_label="Automatic subtitle processing",
-                      current_item="Worker active; journal unavailable")
-        return result
-    if completed.returncode:
-        result.update(phase="running",phase_label="Automatic subtitle processing",
-                      current_item="Worker active; journal unavailable")
-        return result
-    lines=completed.stdout.splitlines()
-    recent=[]
-    last_media=""
-    last_result=""
-    last_published=""
-    for line in lines:
-        line=line.strip()
-        if line.startswith("MEDIA:"):
-            last_media=safe_text(line.split("|",1)[0].removeprefix("MEDIA:").strip(),45)
-        elif line.startswith("RESULT:"):
-            last_result=safe_text(line.removeprefix("RESULT:").split("|",1)[0].strip(),100)
-            recent.append("Validated "+last_result)
-        elif line.startswith("PUBLISHED:"):
-            result["recent_publications"]+=1
-            last_published=last_result or "Untitled media"
-            recent.append("Published "+last_published)
-            last_result=""
-        elif any(term in line for term in ("SEARCHING:","STAGING:",
-                                           "THERMAL_PAUSE","HELD:",
-                                           "PROVIDER_LIMIT_REACHED")):
-            recent.append(safe_text(line,160))
-    # The publisher often emits MEDIA:<id> first, then RESULT:<title>.
-    # Do not repeat the previous title as if it were the current title.
-    publish_active=False
-    try:
-        ps=subprocess.run(["ps","-eo","args="],capture_output=True,text=True,
-                          timeout=4,stdin=subprocess.DEVNULL,check=False)
-        publish_active=(ps.returncode==0 and
-            any("ja_first_publish_queue.py" in line and
-                "/usr/bin/python3" in line for line in ps.stdout.splitlines()))
-    except (OSError,subprocess.TimeoutExpired):
-        pass
-    result.update(phase="publishing" if publish_active else "running",
-                  phase_label=("Publishing Japanese subtitles"
-                               if publish_active else "Automatic Japanese sourcing"),
-                  current_item=("Processing media "+last_media+" (title pending)"
-                                if publish_active and last_media else
-                                "Working through the automatic subtitle queue"),
-                  last_completed=last_published,
-                  events=recent[-9:])
-    return result
+        if completed.returncode:
+            raise RuntimeError("journal_unavailable")
+        details=source_tracker.parse(
+            source_tracker.events_from_jsonl(completed.stdout))
+        if not details["has_run"]:
+            if not active:
+                return idle
+            raise RuntimeError("current_cycle_not_in_journal_window")
+        status="source_running" if active else "source_interrupted"
+        if details["failed"]:
+            status="source_held"
+        elif details["complete"]:
+            status="source_completed"
+        phase=details["phase"] if active else {
+            "source_held":"Most recent automatic source cycle failed",
+            "source_completed":"Most recent automatic source cycle completed",
+            "source_interrupted":"Most recent automatic source cycle interrupted",
+        }[status]
+        current=safe_text(details["current"],150)
+        data={**idle,"active":active,"metrics_available":True,
+              "provider_limited":details.get("provider_limited",False),
+              "phase":status,
+              "phase_label":safe_text(phase,105),
+              "current_item":current or "Preparing the next item",
+              "events":[safe_text(x,160) for x in details["recent"]][-9:],
+              "sample_window":"latest "+str(max_lines)+" journal events",
+              "started":details["started"],
+              "last_event":details["last_event"],
+              "search_completed":details["search_completed"],
+              "search_planned":details["search_planned"],
+              "search_found":details["search_found"],
+              "search_none":details["search_none"],
+              "search_review":details["search_review"],
+              "search_errors":details["search_errors"],
+              "stage_attempts":details["stage_attempts"],
+              "stage_planned":details["stage_planned"],
+              "staged":details["staged"],
+              "stage_holds":details["stage_holds"],
+              "publish_title_checked":details["publish_title_checked"],
+              "publish_title_planned":details["publish_title_planned"],
+              "published":details["published"],
+              "publish_holds":details["publish_holds"]}
+    except (OSError,ValueError,RuntimeError,subprocess.TimeoutExpired) as exc:
+        data={**idle,"active":active,"phase":"source_running",
+              "phase_label":"Source worker active — progress unavailable",
+              "current_item":safe_text(str(exc),110)}
+    _SOURCE_CACHE.update(when=now,state=data)
+    return dict(data)
 
 
 def live_source_snapshot(result, scheduled):
     """Show scheduled work as LIVE; old manual batch remains a distinct record."""
     result["source_job"]=scheduled
+    result["source_active"]=bool(result.get("batch_active") or scheduled["active"])
     result["manual_batch_history"]={
         "batch_id":result.get("batch_id",""),
         "state":result.get("state","idle"),
         "phase":result.get("phase","idle"),
         "last_item":result.get("current_item","")}
+    if not scheduled["active"] and scheduled["metrics_available"] and not result.get("batch_active"):
+        result["state"]=("completed" if scheduled["phase"]=="source_completed"
+                         else "failed" if scheduled["phase"]=="source_held"
+                         else "interrupted")
+        result["phase_label"]=scheduled["phase_label"]
+        result["current_item"]="Last run: "+str(scheduled["search_found"])+" matched, "+str(scheduled["staged"])+" downloaded, "+str(scheduled["published"])+" published"
+        result["events"]=scheduled["events"]
     if scheduled["active"]:
         result["state"]="scheduled_source_running"
         result["phase"]="scheduled_"+scheduled["phase"]
@@ -488,7 +561,7 @@ def status_payload():
     lines = tail_lines(log)
     manual=unit_active(BATCH_UNIT)
     scheduled=unit_active(SCHEDULED_UNIT)
-    result=snapshot(doc, manual, scheduled, lines)
+    result=snapshot(doc, manual, False, lines)
     result=live_source_snapshot(result,scheduled_source_activity(scheduled))
     result["translation"]=translation_snapshot()
     result["controls"]=control_availability()
@@ -504,11 +577,11 @@ def source_controls(action):
     if action=="start-auto":
         if manual or scheduled:
             raise RuntimeError("Source job already running")
-        command=["systemctl","--user","start",SCHEDULED_UNIT]
+        command=["systemctl","--user","start","--no-block",SCHEDULED_UNIT]
     elif action=="stop-auto":
         if not scheduled:
             raise RuntimeError("No automatic job running")
-        command=["systemctl","--user","stop",SCHEDULED_UNIT]
+        command=["systemctl","--user","stop","--no-block",SCHEDULED_UNIT]
     elif action=="start-manual":
         if manual or scheduled:
             raise RuntimeError("Another source job is active")
