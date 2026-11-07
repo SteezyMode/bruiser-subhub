@@ -742,7 +742,7 @@ def season_sources_status():
             stdin=subprocess.DEVNULL)
         if log.returncode == 0:
             recent=[safe_text(line,210) for line in log.stdout.splitlines()
-                    if line.startswith(("SEASON_JA_BEGIN", "SEASON_JA_SEARCH ",
+                    if line.startswith(("SEASON_JA_BEGIN", "SEASON_JA_SOURCE_INVENTORY", "SEASON_JA_NO_WORK", "SEASON_JA_SEARCH ",
                         "SEASON_JA_SEARCH_PLANNED", "SEASON_JA_RESULT ",
                         "SEASON_JA_STAGE ", "SEASON_JA_STAGE_PLANNED",
                         "SEASON_JA_PUBLISH ", "SEASON_JA_PUBLISH_PLANNED",
