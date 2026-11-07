@@ -18,6 +18,7 @@ from pathlib import Path
 import re
 import sqlite3
 import subprocess
+import time
 from urllib.parse import urlsplit
 
 ROOT = Path.home() / "bruiser-pilot" / "batch-control"
@@ -30,6 +31,23 @@ PLAMO_EPISODES = Path.home() / "bruiser-pilot/plamo3-ab/american-dad-existing-en
 PLAMO_SINGLE = Path.home() / "bruiser-pilot/plamo3-ab/american-dad-one-episode"
 PLAMO_MOVIE_UNIT = "bruiser-asabove-plamo.service"
 OWNER_TOKEN = secrets.token_urlsafe(32)
+try:
+    from .subhub_opensubtitles_quota import get_quota
+except ImportError:
+    from subhub_opensubtitles_quota import get_quota
+_QUOTA_CACHE = {"at":0.0,"value":{"known":False,"reason":"not_checked"}}
+
+
+def quota_snapshot():
+    now = time.monotonic()
+    if now - _QUOTA_CACHE["at"] >= 300 or not _QUOTA_CACHE["at"]:
+        try:
+            value=get_quota(timeout=28)
+        except (OSError,RuntimeError,subprocess.TimeoutExpired):
+            value={"known":False,"reason":"quota_probe_unavailable"}
+        _QUOTA_CACHE.update(at=now,value=value)
+    return dict(_QUOTA_CACHE["value"])
+
 PHASES = {
     "queued": "Preparing the source engine",
     "reconcile_queue": "Reconcile saved subtitle work",
@@ -501,6 +519,7 @@ def status_payload():
     result=snapshot(doc, manual, False, lines)
     result=live_source_snapshot(result,scheduled_source_activity(scheduled))
     result["translation"]=translation_snapshot()
+    result["provider_quota"]=quota_snapshot()
     result["controls"]=control_availability()
     return result
 
