@@ -48,6 +48,11 @@ EPISODE = re.compile(r"(?<![a-z0-9])s(\d{1,2})[\s._-]*e(\d{1,3})(?!\d)", re.I)
 ALT_EP = re.compile(r"(?<!\d)(\d{1,2})x(\d{1,3})(?!\d)", re.I)
 SOLO_SDH = "non_dialogue_passthrough"
 SPOKEN = "translated"
+HELD = "held_translation"
+
+def max_held_cues(count):
+    """At most 2% or 8 English fallback cues in a household episode."""
+    return max(1,min(8,int(count*0.02)))
 
 
 def episode_id(path):
@@ -275,18 +280,40 @@ def verify_checkpoints(db, cues):
     if len(rows) > len(cues):
         raise RuntimeError("checkpoint_longer_than_source")
     output = []
+    recovered_music = []
     for position, (idx, number, begin, end, en, ja, status, seconds) in enumerate(rows):
         src = cues[position]
         if ((idx, number, begin, end, en) !=
             (position, src["number"], src["start"], src["end"], src["english"])):
             raise RuntimeError("checkpoint_source_mismatch")
-        if status not in (SPOKEN, SOLO_SDH):
+        if status not in (SPOKEN, SOLO_SDH, HELD):
             raise RuntimeError("checkpoint_invalid_status")
         if status == SPOKEN and (not small.JP.search(ja) or "<|plamo:" in ja):
             raise RuntimeError("checkpoint_invalid_japanese")
+        if status == HELD:
+            if ja != en:
+                raise RuntimeError("checkpoint_invalid_held_source")
+            if real.is_non_dialogue_caption(en):
+                # A prior version treated pure music as failed dialogue.
+                # Repair its *status only* after all source rows validate.
+                recovered_music.append(idx)
+                status = SOLO_SDH
         if status == SOLO_SDH and (ja != en or not real.is_non_dialogue_caption(en)):
             raise RuntimeError("checkpoint_invalid_SDH")
         output.append(dict(src, japanese=ja, status=status, seconds=seconds))
+    if recovered_music:
+        # No changes until the COMPLETE saved checkpoint has passed source
+        # identity and status validation. Never rewrite source/Japanese text.
+        with db:
+            for idx in recovered_music:
+                changed = db.execute(
+                    "UPDATE translation SET status=? WHERE idx=? AND "
+                    "status=? AND japanese=english",
+                    (SOLO_SDH, idx, HELD))
+                if changed.rowcount != 1:
+                    raise RuntimeError("music_only_checkpoint_repair_conflict")
+        print("RECOVERED_MUSIC_ONLY_CAPTIONS:",
+              len(recovered_music), flush=True)
     return output
 
 
@@ -295,22 +322,31 @@ def previous_pairs(outputs):
             for o in outputs if o["status"] == SPOKEN][-real.HISTORY:]
 
 
-def jellyfin_srt(outputs):
+def jellyfin_srt(outputs, *, allow_held=False):
     # Clean known formatting wrappers, remove English-only sound descriptions.
     translations = []
     for row in outputs:
         if row["status"] == SOLO_SDH:
             continue
-        japanese = real.INLINE_SRT_TAG.sub("", row["japanese"]).strip()
-        if not japanese or not small.JP.search(japanese) or "<|plamo:" in japanese:
-            raise RuntimeError("invalid_japanese_for_jellyfin")
+        if row["status"] == HELD:
+            if not allow_held or row["japanese"] != row["english"]:
+                raise RuntimeError("unapproved_held_cue_for_jellyfin")
+            # Preserve the *actual source English* in a few failed cues. Never
+            # invent Japanese or silently delete spoken dialogue.
+            japanese = real.INLINE_SRT_TAG.sub("", row["english"]).strip()
+        else:
+            japanese = real.INLINE_SRT_TAG.sub("", row["japanese"]).strip()
+            if not japanese or not small.JP.search(japanese) or "<|plamo:" in japanese:
+                raise RuntimeError("invalid_japanese_for_jellyfin")
+        if not japanese or "<|plamo:" in japanese:
+            raise RuntimeError("invalid_fallback_for_jellyfin")
         translations.append(dict(number=len(translations)+1,
                                  start=row["start"], end=row["end"],
                                  japanese=japanese))
     result = small.format_srt(translations, "japanese")
     if len(small.parse_srt(result, limit=12000)) != len(translations):
         raise RuntimeError("assembled_jellyfin_srt_invalid")
-    return result, len(translations)
+    return result, sum(row["status"]==SPOKEN for row in outputs)
 
 
 def write_new_sidecar(video, saved, daily, srt):
@@ -404,9 +440,17 @@ def run(args):
                             ja, _, kind = real.request(
                                 args.port, row["english"], previous_pairs(output))
                             if kind != SPOKEN:
-                                raise RuntimeError(
-                                    "model_did_not_translate_spoken_cue_" +
-                                    str(row["number"]))
+                                if (getattr(args,"allow_held",False)
+                                        and kind == "held_non_japanese"):
+                                    # The short English source is more honest
+                                    # than model gibberish or a missing caption.
+                                    ja,kind=row["english"],HELD
+                                    print("CUE_HELD_ENGLISH_FALLBACK:",
+                                          row["number"],flush=True)
+                                else:
+                                    raise RuntimeError(
+                                        "model_did_not_translate_spoken_cue_" +
+                                        str(row["number"]))
                         elapsed = round(time.monotonic() - started, 3)
                         db.execute(
                             "INSERT INTO translation "
@@ -417,6 +461,11 @@ def run(args):
                         db.commit()
                         output.append(dict(row, japanese=ja,
                                            status=kind, seconds=elapsed))
+                        held=sum(x["status"]==HELD for x in output)
+                        if held>max_held_cues(len(cues)):
+                            raise RuntimeError(
+                                "episode_held_limit_exceeded_"+str(held)+
+                                "_of_"+str(len(cues)))
                         if i == 0 or (i+1) % 25 == 0 or i+1 == len(cues):
                             print(f"{i+1}/{len(cues)} cues, "
                                   f"Japanese dialogue {sum(x['status']==SPOKEN for x in output)}",
@@ -425,7 +474,15 @@ def run(args):
                     small.stop_server(proc)
             if len(output) != len(cues):
                 raise RuntimeError("not_all_episode_cues_processed")
-            content, count = jellyfin_srt(output)
+            held=sum(row["status"]==HELD for row in output)
+            if held and not getattr(args,"allow_held",False):
+                raise RuntimeError("held_cues_require_explicit_batch_mode")
+            if held>max_held_cues(len(cues)):
+                raise RuntimeError("episode_held_limit_exceeded_"+str(held)+"_of_"+str(len(cues)))
+            content, count = jellyfin_srt(output,allow_held=bool(getattr(args,"allow_held",False)))
+            if held:
+                print("PUBLISH_WITH_REVIEW: English fallback cues",held,
+                      "of",len(cues),"max",max_held_cues(len(cues)),flush=True)
             draft = WORK / "AmericanDad.PLaMo8B.ja.srt"
             if draft.exists() or draft.is_symlink():
                 if draft.is_symlink() or draft.read_text(encoding="utf-8") != content:

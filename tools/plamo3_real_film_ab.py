@@ -42,11 +42,14 @@ PFN_URL = "https://huggingface.co/pfnet/plamo-3-translate-0.8b-GGUF"
 # and never put it in translation history. Localizing SDH is future work.
 INLINE_SRT_TAG = re.compile(r"</?(?:font|i|b|u)\b[^>]*>", re.I)
 STANDALONE_SDH = re.compile(r"\[[A-Z][A-Z0-9 \t,'’!?.:/-]{0,100}\]")
+# Bare notes are music, not dialogue. Do not classify musical lyrics
+# (e.g. "♪ I love you ♪") or spoken words as sound-only captions.
+MUSIC_ONLY = re.compile(r"(?:[♪♫♬♩🎵🎶]\ufe0f?\s*)+\Z")
 
 
 def is_non_dialogue_caption(source):
     plain = INLINE_SRT_TAG.sub("", source).strip()
-    return bool(STANDALONE_SDH.fullmatch(plain))
+    return bool(STANDALONE_SDH.fullmatch(plain) or MUSIC_ONLY.fullmatch(plain))
 
 
 def load_frozen_run(folder):

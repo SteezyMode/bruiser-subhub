@@ -47,6 +47,83 @@ class AmericanDadRealUseTests(unittest.TestCase):
                          [cues[0]["start"], cues[2]["start"]])
         self.assertIn("こんにちは。", srt)
 
+    def test_held_cue_uses_actual_english_only_in_explicit_batch_mode(self):
+        sample=small.samples()[:3]
+        cues=[
+            dict(sample[0],japanese="日本語",status=app.SPOKEN),
+            dict(sample[1],english="What did you say?",
+                 japanese="What did you say?",status=app.HELD),
+            dict(sample[2],japanese="そうです。",status=app.SPOKEN)
+        ]
+        with self.assertRaisesRegex(RuntimeError,"unapproved_held"):
+            app.jellyfin_srt(cues)
+        srt,count=app.jellyfin_srt(cues,allow_held=True)
+        self.assertEqual(count,2)
+        self.assertIn("What did you say?",srt)
+        self.assertIn("日本語",srt)
+        self.assertEqual(len(small.parse_srt(srt)),3)
+
+    def test_held_checkpoint_preserves_original_english_and_resume_position(self):
+        with tempfile.TemporaryDirectory() as d:
+            rows=small.samples()[:3]
+            with mock.patch.object(app,"CHECKPOINT",Path(d)/"progress.sqlite3"):
+                with app.checkpoints() as db:
+                    src=rows[0]
+                    db.execute("INSERT INTO translation VALUES (?,?,?,?,?,?,?,?)",
+                               (0,src["number"],src["start"],src["end"],
+                                src["english"],src["english"],app.HELD,.7))
+                    db.commit()
+                    cached=app.verify_checkpoints(db,rows)
+                    self.assertEqual(len(cached),1)
+                    self.assertEqual(cached[0]["status"],app.HELD)
+                    self.assertEqual(app.previous_pairs(cached),[])
+                    db.execute("UPDATE translation SET japanese='fabricated' WHERE idx=0")
+                    db.commit()
+                    with self.assertRaisesRegex(RuntimeError,"invalid_held"):
+                        app.verify_checkpoints(db,rows)
+
+    def test_music_only_checkpoint_holds_are_reclassified_without_source_rewrite(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rows=[dict(sample,english="♪♪") for sample in small.samples()[:3]]
+            with mock.patch.object(app,"CHECKPOINT",Path(tmp)/"progress.sqlite3"):
+                with app.checkpoints() as db:
+                    for i,row in enumerate(rows):
+                        db.execute(
+                            "INSERT INTO translation VALUES (?,?,?,?,?,?,?,?)",
+                            (i,row["number"],row["start"],row["end"],
+                             row["english"],row["english"],app.HELD,.1))
+                    db.commit()
+                    output=app.verify_checkpoints(db,rows)
+                    self.assertTrue(all(x["status"]==app.SOLO_SDH for x in output))
+                    self.assertEqual(db.execute(
+                        "SELECT COUNT(*) FROM translation WHERE status=?",
+                        (app.SOLO_SDH,)).fetchone()[0],3)
+                    self.assertEqual(sum(x["status"]==app.HELD for x in output),0)
+                    self.assertEqual(app.verify_checkpoints(db,rows),output)
+
+    def test_music_repair_does_not_touch_any_checkpoint_on_source_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rows=small.samples()[:2]
+            with mock.patch.object(app,"CHECKPOINT",Path(tmp)/"progress.sqlite3"):
+                with app.checkpoints() as db:
+                    for i,row in enumerate(rows):
+                        db.execute("INSERT INTO translation VALUES (?,?,?,?,?,?,?,?)",
+                            (i,row["number"],row["start"],row["end"],
+                             "♪♪" if i==0 else row["english"],
+                             "♪♪" if i==0 else "日本語",
+                             app.HELD if i==0 else app.SPOKEN,.1))
+                    db.commit()
+                    with self.assertRaisesRegex(RuntimeError,"checkpoint_source_mismatch"):
+                        app.verify_checkpoints(db,rows)
+                    self.assertEqual(db.execute(
+                        "SELECT status FROM translation WHERE idx=0"
+                    ).fetchone()[0],app.HELD)
+
+    def test_held_limit_is_small(self):
+        self.assertEqual(app.max_held_cues(400),8)
+        self.assertEqual(app.max_held_cues(150),3)
+        self.assertEqual(app.max_held_cues(1200),8)
+
     def test_sqlite_resume_rejects_source_mismatch(self):
         with tempfile.TemporaryDirectory() as d:
             with mock.patch.object(app, "CHECKPOINT", Path(d)/"progress.sqlite3"):
