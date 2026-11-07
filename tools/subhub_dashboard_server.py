@@ -12,6 +12,8 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
+import secrets
+import hmac
 from pathlib import Path
 import re
 import sqlite3
@@ -27,6 +29,7 @@ PLAMO_MOVIES = Path.home() / "bruiser-pilot/subhub-translation"
 PLAMO_EPISODES = Path.home() / "bruiser-pilot/plamo3-ab/american-dad-existing-english-batch"
 PLAMO_SINGLE = Path.home() / "bruiser-pilot/plamo3-ab/american-dad-one-episode"
 PLAMO_MOVIE_UNIT = "bruiser-asabove-plamo.service"
+OWNER_TOKEN = secrets.token_urlsafe(32)
 PHASES = {
     "queued": "Preparing the source engine",
     "reconcile_queue": "Reconcile saved subtitle work",
@@ -488,7 +491,53 @@ def status_payload():
     result=snapshot(doc, manual, scheduled, lines)
     result=live_source_snapshot(result,scheduled_source_activity(scheduled))
     result["translation"]=translation_snapshot()
+    result["controls"]=control_availability()
     return result
+
+
+
+def source_controls(action):
+    """Bounded owner commands only; re-use existing source services/locks."""
+    manual=unit_active(BATCH_UNIT)
+    scheduled=unit_active(SCHEDULED_UNIT)
+    script=Path.home()/".local/bin/bruiser-subs"
+    if action=="start-auto":
+        if manual or scheduled:
+            raise RuntimeError("Source job already running")
+        command=["systemctl","--user","start",SCHEDULED_UNIT]
+    elif action=="stop-auto":
+        if not scheduled:
+            raise RuntimeError("No automatic job running")
+        command=["systemctl","--user","stop",SCHEDULED_UNIT]
+    elif action=="start-manual":
+        if manual or scheduled:
+            raise RuntimeError("Another source job is active")
+        if not script.is_file() or script.is_symlink():
+            raise RuntimeError("Installed bruiser-subs controller unavailable")
+        command=[str(script),"start","--cycles","1"]
+    elif action=="stop-manual":
+        if not manual:
+            raise RuntimeError("No manual batch running")
+        if not script.is_file() or script.is_symlink():
+            raise RuntimeError("Installed bruiser-subs controller unavailable")
+        command=[str(script),"stop"]
+    else:
+        raise ValueError("unsupported_control")
+    done=subprocess.run(command,capture_output=True,text=True,
+                        stdin=subprocess.DEVNULL,timeout=45,check=False)
+    if done.returncode!=0:
+        raise RuntimeError("Command failed: "+safe_text(done.stderr or done.stdout,180))
+    return {"ok":True,"action":action,"result":safe_text(done.stdout,150)}
+
+
+def control_availability():
+    manual=unit_active(BATCH_UNIT)
+    scheduled=unit_active(SCHEDULED_UNIT)
+    return {"available":True,
+            "start_auto":not manual and not scheduled,
+            "stop_auto":scheduled,
+            "start_manual":not manual and not scheduled,
+            "stop_manual":manual}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -524,13 +573,46 @@ class Handler(BaseHTTPRequestHandler):
                 self.write(200, body)
             except (OSError, ValueError, RuntimeError, TypeError, json.JSONDecodeError):
                 self.write(503, b'{"error":"status_unavailable"}')
+        elif target == "/api/owner-token":
+            self.write(200,json.dumps({"token":OWNER_TOKEN}).encode("utf-8"))
         elif target == "/healthz":
-            self.write(200, b'{"status":"ok","mode":"read_only"}')
+            self.write(200, b'{"status":"ok","mode":"owner_controls"}')
         else:
             self.write(404, b'{"error":"not_found"}')
 
     def do_POST(self):
-        self.write(405, b'{"error":"controls_not_available_in_v0_1"}')
+        target=urlsplit(self.path).path
+        if target not in (
+            "/api/control/start-auto","/api/control/stop-auto",
+            "/api/control/start-manual","/api/control/stop-manual"):
+            self.write(405,b'{"error":"controls_not_available_in_v0_1"}')
+            return
+        origin=self.headers.get("Origin","")
+        allowed={
+            "http://127.0.0.1:"+str(self.server.server_port),
+            "http://localhost:"+str(self.server.server_port)
+        }
+        host=self.headers.get("Host","")
+        token=self.headers.get("X-Subhub-Token","")
+        size=self.headers.get("Content-Length","")
+        if (origin not in allowed or
+                host not in {str(self.server.server_address[0])+":"+
+                             str(self.server.server_port),
+                             "localhost:"+str(self.server.server_port)} or
+                not hmac.compare_digest(token,OWNER_TOKEN) or
+                self.headers.get("Content-Type","").split(";")[0].strip()
+                != "application/json" or size not in ("0","2")):
+            self.write(403,b'{"error":"owner_control_access_denied"}')
+            return
+        if size=="2" and self.rfile.read(2)!=b"{}":
+            self.write(400,b'{"error":"empty_json_object_required"}')
+            return
+        try:
+            value=source_controls(target.rsplit("/",1)[-1])
+            self.write(200,json.dumps(value).encode("utf-8"))
+        except (OSError,RuntimeError,subprocess.TimeoutExpired) as exc:
+            self.write(409,json.dumps(
+                {"error":safe_text(str(exc),180)}).encode("utf-8"))
 
     def log_message(self, format, *args):
         # No query strings or auth metadata in process logs.
