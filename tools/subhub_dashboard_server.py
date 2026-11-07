@@ -470,7 +470,7 @@ def translation_snapshot():
 
 
 
-_SOURCE_CACHE={"when":0.0,"state":None}
+_SOURCE_CACHE={"when":0.0,"state":None,"active":None}
 
 def scheduled_source_activity(active, max_lines=5000):
     """Current source cycle metrics from the existing, tested journal parser.
@@ -487,6 +487,7 @@ def scheduled_source_activity(active, max_lines=5000):
           "publish_holds":0}
     now=time.monotonic()
     if (_SOURCE_CACHE["state"] is not None and
+            _SOURCE_CACHE.get("active") is active and
             now-_SOURCE_CACHE["when"]<8):
         return dict(_SOURCE_CACHE["state"])
     try:
@@ -541,7 +542,7 @@ def scheduled_source_activity(active, max_lines=5000):
         data={**idle,"active":active,"phase":"source_running",
               "phase_label":"Source worker active — progress unavailable",
               "current_item":safe_text(str(exc),110)}
-    _SOURCE_CACHE.update(when=now,state=data)
+    _SOURCE_CACHE.update(when=now,state=data,active=active)
     return dict(data)
 
 

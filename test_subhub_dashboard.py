@@ -96,11 +96,56 @@ class StatusTests(unittest.TestCase):
         self.assertNotIn('id="job"',html)
         self.assertIn('live.metrics_available',html)
 
-    def test_inactive_source_returns_no_stale_live_progress(self):
-        result=dashboard.scheduled_source_activity(False)
-        self.assertFalse(result["active"])
-        self.assertEqual(result["search_completed"],0)
-        self.assertEqual(result["current_item"],"")
+    def test_inactive_source_without_history_returns_no_live_progress(self):
+        # This MUST be independent of the install target's actual systemd
+        # journal. Completed real sourcing runs are allowed to have counts.
+        empty=dashboard.subprocess.CompletedProcess([],0,stdout="")
+        with patch.object(dashboard.subprocess,"run",return_value=empty), \
+             patch.object(dashboard.time,"monotonic",return_value=4100.):
+            previous=dict(dashboard._SOURCE_CACHE)
+            try:
+                dashboard._SOURCE_CACHE.update(when=0.0,state=None)
+                result=dashboard.scheduled_source_activity(False)
+                self.assertFalse(result["active"])
+                self.assertFalse(result["metrics_available"])
+                self.assertEqual(result["search_completed"],0)
+                self.assertEqual(result["current_item"],"")
+            finally:
+                dashboard._SOURCE_CACHE.update(previous)
+
+    def test_inactive_source_retains_completed_counts_as_history_not_live(self):
+        # Last completed cycle is useful history, not evidence that the
+        # sourcing service is currently active.
+        messages=[
+            "RUNNING_SOURCES_ONLY_CYCLE search_budget=3 stage_budget=2 publish_limit=2",
+            "=== DISCOVERY ===",
+            "Search requests planned: 2 | budget: 3",
+            "[1/2] NONE: plausible=0 review=0",
+            "[2/2] PLAUSIBLE: plausible=1 review=0",
+            "AUTOFILL_CYCLE_COMPLETE",
+        ]
+        payload="\n".join(json.dumps({
+            "MESSAGE":msg, "__REALTIME_TIMESTAMP":str(1794000000000000+i*1000000)
+        }) for i,msg in enumerate(messages))
+        journal=dashboard.subprocess.CompletedProcess([],0,stdout=payload)
+        with patch.object(dashboard.subprocess,"run",return_value=journal), \
+             patch.object(dashboard.time,"monotonic",return_value=4100.):
+            previous=dict(dashboard._SOURCE_CACHE)
+            try:
+                dashboard._SOURCE_CACHE.update(when=0.0,state=None)
+                result=dashboard.scheduled_source_activity(False)
+                self.assertFalse(result["active"])
+                self.assertTrue(result["metrics_available"])
+                self.assertEqual(result["phase"],"source_completed")
+                self.assertEqual(result["search_completed"],2)
+                self.assertEqual(result["search_found"],1)
+                self.assertEqual(result["search_none"],1)
+                combined=dashboard.live_source_snapshot(
+                    dashboard.snapshot(None,False),result)
+                self.assertFalse(combined["source_active"])
+                self.assertEqual(combined["state"],"completed")
+            finally:
+                dashboard._SOURCE_CACHE.update(previous)
 
     def test_web_dashboard_shows_real_movie_cues_and_held_count(self):
         with tempfile.TemporaryDirectory() as tmp:
