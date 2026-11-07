@@ -779,7 +779,7 @@ def parse_season_source_events(records, active, *, now=None):
                 pass
             result["phase"]="search"
         elif line.startswith("SEASON_JA_SEARCH "):
-            match=re.fullmatch(r"SEASON_JA_SEARCH (\\d+) (\\d+) (.+)",line)
+            match=re.fullmatch(r"SEASON_JA_SEARCH (\d+) (\d+) (.+)",line)
             if match:
                 result["search_started"]=max(result["search_started"],int(match.group(1)))
                 result["search_planned"]=max(result["search_planned"],int(match.group(2)))
@@ -788,7 +788,7 @@ def parse_season_source_events(records, active, *, now=None):
         elif line.startswith("SEASON_JA_RESULT "):
             match=re.fullmatch(
                 r"SEASON_JA_RESULT (.+) (plausible|review|none) "
-                r"plausible (\\d+) review (\\d+)",line)
+                r"plausible (\d+) review (\d+)",line)
             if match:
                 results[match.group(1)]=(match.group(2),int(match.group(3)),
                                          int(match.group(4)))
@@ -801,7 +801,7 @@ def parse_season_source_events(records, active, *, now=None):
                 pass
             result["current_item"]="Downloading verified Japanese subtitle candidates"
         elif line.startswith("SEASON_JA_STAGE "):
-            match=re.fullmatch(r"SEASON_JA_STAGE (\\d+) (\\d+) (.+)",line)
+            match=re.fullmatch(r"SEASON_JA_STAGE (\d+) (\d+) (.+)",line)
             if match:
                 result["stage_attempts"]=max(result["stage_attempts"],int(match.group(1)))
                 result["current_item"]="Downloading: "+safe_text(match.group(3),110)
