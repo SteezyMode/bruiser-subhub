@@ -28,7 +28,7 @@ server = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
 html = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
 ast.parse(server)
 assert '("127.0.0.1", args.port)' in server, "loopback-only policy missing"
-quota = pathlib.Path("$WORK/tools/subhub_opensubtitles_quota.py").read_text(encoding="utf-8") if False else None
+assert "BRUISER_QUOTA_JSON:" in pathlib.Path(sys.argv[1]).with_name("subhub_opensubtitles_quota.py").read_text(encoding="utf-8"), "provider quota probe missing"
 assert '/api/control/start-auto' in server and 'owner_control_access_denied' in server, "owner control safeguards missing"
 assert "/api/status" in server and "textContent" in html
 assert 'id="action-start-auto"' in html and 'id="action-stop-manual"' in html, "owner controls missing from UI"
