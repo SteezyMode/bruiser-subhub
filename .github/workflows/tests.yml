@@ -1,7 +1,13 @@
 name: Offline tests
 on:
+  # A feature branch is validated by its PR, not by a duplicate push run.
   push:
+    branches: [main]
   pull_request:
+    branches: [main]
+concurrency:
+  group: offline-tests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   unit:
     runs-on: ubuntu-latest

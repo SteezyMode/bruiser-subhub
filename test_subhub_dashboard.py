@@ -199,7 +199,7 @@ class StatusTests(unittest.TestCase):
 
 
 class HTTPTests(unittest.TestCase):
-    def test_readonly_http_and_no_remote_listener(self):
+    def test_owner_http_and_no_remote_listener(self):
         with patch.object(dashboard, "status_payload",
                           return_value=dashboard.snapshot(sample(), True)):
             server = dashboard.ThreadingHTTPServer(("127.0.0.1", 0), dashboard.Handler)
@@ -214,7 +214,14 @@ class HTTPTests(unittest.TestCase):
                     self.assertEqual(body["counts"]["published_new"], 23)
                     self.assertEqual(response.headers.get("Cache-Control"), "no-store")
                 with urlopen(base + "/healthz", timeout=3) as response:
-                    self.assertEqual(json.load(response)["mode"], "read_only")
+                    self.assertEqual(json.load(response)["mode"], "owner_controls")
+                # The owner control is not available without the session token.
+                denied_req = Request(base + "/api/control/start-auto",
+                    data=b"{}", headers={"Content-Type":"application/json",
+                                         "Origin":base}, method="POST")
+                with self.assertRaises(HTTPError) as blocked:
+                    urlopen(denied_req,timeout=3)
+                self.assertEqual(blocked.exception.code,403)
                 req = Request(base + "/api/status", data=b"{}", method="POST")
                 with self.assertRaises(HTTPError) as result:
                     urlopen(req, timeout=3)
