@@ -467,8 +467,6 @@ def scheduled_source_activity(active, max_lines=5000):
           "stage_attempts":0,"stage_planned":0,"staged":0,"stage_holds":0,
           "publish_title_checked":0,"publish_title_planned":0,"published":0,
           "publish_holds":0}
-    if not active:
-        return idle
     now=time.monotonic()
     if (_SOURCE_CACHE["state"] is not None and
             now-_SOURCE_CACHE["when"]<8):
@@ -484,15 +482,21 @@ def scheduled_source_activity(active, max_lines=5000):
         details=source_tracker.parse(
             source_tracker.events_from_jsonl(completed.stdout))
         if not details["has_run"]:
+            if not active:
+                return idle
             raise RuntimeError("current_cycle_not_in_journal_window")
-        phase=details["phase"]
-        status="source_running"
+        status="source_running" if active else "source_interrupted"
         if details["failed"]:
             status="source_held"
         elif details["complete"]:
             status="source_completed"
+        phase=details["phase"] if active else {
+            "source_held":"Most recent automatic source cycle failed",
+            "source_completed":"Most recent automatic source cycle completed",
+            "source_interrupted":"Most recent automatic source cycle interrupted",
+        }[status]
         current=safe_text(details["current"],150)
-        data={**idle,"active":True,"metrics_available":True,
+        data={**idle,"active":active,"metrics_available":True,
               "provider_limited":details.get("provider_limited",False),
               "phase":status,
               "phase_label":safe_text(phase,105),
@@ -516,7 +520,7 @@ def scheduled_source_activity(active, max_lines=5000):
               "published":details["published"],
               "publish_holds":details["publish_holds"]}
     except (OSError,ValueError,RuntimeError,subprocess.TimeoutExpired) as exc:
-        data={**idle,"active":True,"phase":"source_running",
+        data={**idle,"active":active,"phase":"source_running",
               "phase_label":"Source worker active — progress unavailable",
               "current_item":safe_text(str(exc),110)}
     _SOURCE_CACHE.update(when=now,state=data)
@@ -532,6 +536,13 @@ def live_source_snapshot(result, scheduled):
         "state":result.get("state","idle"),
         "phase":result.get("phase","idle"),
         "last_item":result.get("current_item","")}
+    if not scheduled["active"] and scheduled["metrics_available"] and not result.get("batch_active"):
+        result["state"]=("completed" if scheduled["phase"]=="source_completed"
+                         else "failed" if scheduled["phase"]=="source_held"
+                         else "interrupted")
+        result["phase_label"]=scheduled["phase_label"]
+        result["current_item"]="Last run: "+str(scheduled["search_found"])+" matched, "+str(scheduled["staged"])+" downloaded, "+str(scheduled["published"])+" published"
+        result["events"]=scheduled["events"]
     if scheduled["active"]:
         result["state"]="scheduled_source_running"
         result["phase"]="scheduled_"+scheduled["phase"]
