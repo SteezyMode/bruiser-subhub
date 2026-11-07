@@ -26,4 +26,14 @@ jobs:
       - run: bash -n tools/run_plamo8b_american_dad_existing_en_batch.sh
       - run: bash -n tools/resume_plamo8b_american_dad_overnight.sh
       - run: bash -n tools/install_american_dad_held_recovery.sh
+      - run: bash -n tools/install_subhub_dashboard.sh
+      - name: Check dashboard JavaScript syntax
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          html = Path('tools/subhub_dashboard.html').read_text('utf-8')
+          script = html.split('<script>', 1)[1].split('</script>', 1)[0]
+          Path('/tmp/subhub-dashboard-check.js').write_text(script)
+          PY
+          node --check /tmp/subhub-dashboard-check.js
       - run: python -m unittest discover -p 'test_*.py' -v

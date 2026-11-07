@@ -116,10 +116,11 @@ class StatusTests(unittest.TestCase):
                 "jellyfin_id":jid,"video":str(video),"cue_count":1455}))
             manifest.chmod(0o600)
             with sqlite3.connect(movie/"progress.sqlite3") as db:
-                db.execute("CREATE TABLE translation (status TEXT, seconds REAL)")
-                db.executemany(
-                    "INSERT INTO translation VALUES (?,?)",
-                    [("translated",0.5)]*1299+[("held_translation",0.5)])
+                db.execute("CREATE TABLE translation (idx INTEGER, id INTEGER, english TEXT, japanese TEXT, status TEXT, seconds REAL)")
+                db.executemany("INSERT INTO translation VALUES (?,?,?,?,?,?)",
+                    [(i-1,i,"Hello","こんにちは","translated",0.5)
+                     for i in range(1,1300)] +
+                    [(1299,929,"1, 2, 3, 4, 5, 6...","","held_translation",0.5)])
             with patch.object(dashboard,"_plamo_running_ids",return_value={jid}):
                 jobs=dashboard.translation_jobs(
                     movie_root=movie.parent,
@@ -131,6 +132,8 @@ class StatusTests(unittest.TestCase):
             self.assertEqual(item["processed"],1300)
             self.assertEqual(item["translated"],1299)
             self.assertEqual(item["held"],1)
+            self.assertEqual(item["held_details"][0]["cue"],929)
+            self.assertIn("1, 2, 3",item["held_details"][0]["english"])
             self.assertAlmostEqual(item["percent"],89.3)
             self.assertFalse(item["published"])
 
@@ -336,11 +339,53 @@ class HTTPTests(unittest.TestCase):
                     dashboard.source_controls("start-auto")
                 runner.assert_not_called()
 
+    def test_source_first_translation_batch_uses_existing_worker_and_systemd(self):
+        with patch.object(dashboard, "unit_active", side_effect=[False,False,False]), \
+             patch.object(dashboard, "american_dad_batch_activity",
+                          return_value={"active":False}), \
+             patch.object(dashboard, "BATCH_EXEC", Path(dashboard.__file__)), \
+             patch.object(dashboard.season_batch, "ENGINE",
+                          Path(dashboard.season_batch.__file__)), \
+             patch.object(dashboard.season_batch,"plan", return_value={
+                 "ready":4,"blocked":2}), \
+             patch.object(dashboard.subprocess,"run", return_value=
+                          dashboard.subprocess.CompletedProcess([],0,stdout="ok")) as runner:
+            result=dashboard.start_season_translation({
+                "series":"It's Always Sunny in Philadelphia",
+                "season":1,"count":20,"start":1})
+        self.assertEqual(result["accepted"],4)
+        argv=runner.call_args.args[0]
+        self.assertEqual(argv[:2],["systemd-run","--user"])
+        self.assertIn("--series",argv)
+        self.assertIn("It's Always Sunny in Philadelphia",argv)
+        self.assertEqual(argv[argv.index("--season")+1],"1")
+
+    def test_batch_with_zero_source_first_ready_does_not_launch(self):
+        with patch.object(dashboard, "unit_active", side_effect=[False,False,False]), \
+             patch.object(dashboard, "american_dad_batch_activity",
+                          return_value={"active":False}), \
+             patch.object(dashboard, "BATCH_EXEC", Path(dashboard.__file__)), \
+             patch.object(dashboard.season_batch, "ENGINE",
+                          Path(dashboard.season_batch.__file__)), \
+             patch.object(dashboard.season_batch,"plan",
+                          return_value={"ready":0,"blocked":20}), \
+             patch.object(dashboard.subprocess,"run") as runner:
+            with self.assertRaisesRegex(RuntimeError,"no_source_first_eligible"):
+                dashboard.start_season_translation({
+                    "series":"It's Always Sunny in Philadelphia",
+                    "season":1,"count":20,"start":1})
+            runner.assert_not_called()
+
     def test_dashboard_controls_are_present_in_html(self):
         source = dashboard.HTML.read_text(encoding="utf-8")
         for action in ("start-auto","stop-auto","start-manual","stop-manual"):
             self.assertIn('id="action-' + action + '"', source)
         self.assertIn("X-Subhub-Token", source)
+        for identifier in ("translation-series","translation-season",
+                           "translation-count","translation-preview-button",
+                           "translation-start-button","translation-stop-button"):
+            self.assertIn('id="' + identifier + '"', source)
+        self.assertIn("Review ", source)
 
     def test_owner_http_and_no_remote_listener(self):
         with patch.object(dashboard, "status_payload",
@@ -372,6 +417,19 @@ class HTTPTests(unittest.TestCase):
                     with urlopen(control, timeout=3) as response:
                         self.assertTrue(json.load(response)["ok"])
                     action.assert_called_once_with("start-auto")
+                selection = {"series":"It's Always Sunny in Philadelphia",
+                             "season":1,"count":20,"start":1}
+                batch_req = Request(
+                    base+"/api/translation/start",
+                    data=json.dumps(selection).encode("utf-8"),
+                    headers={"Content-Type":"application/json",
+                             "X-Subhub-Token":token,"Origin":base},
+                    method="POST")
+                with patch.object(dashboard,"start_season_translation",
+                    return_value={"ok":True,"accepted":3}) as batch_start:
+                    with urlopen(batch_req,timeout=3) as response:
+                        self.assertEqual(json.load(response)["accepted"],3)
+                    batch_start.assert_called_once_with(selection)
                 forbidden = Request(
                     base + "/api/control/start-auto", data=b"{}",
                     headers={"Content-Type":"application/json",

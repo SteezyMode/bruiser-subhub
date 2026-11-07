@@ -46,6 +46,15 @@
     .side .divider { margin:18px 0; border-top:1px solid var(--line) }
     .side strong { display:block; overflow-wrap:anywhere; font-size:14px; font-weight:640 }
     .jobs-section { margin-bottom:18px }
+    .batch-form { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));gap:12px;margin:12px 0 }
+    .batch-form label { display:flex;flex-direction:column;gap:6px;color:var(--muted);font-size:12px }
+    .batch-form input,.batch-form select { background:#0e1724;color:var(--text);border:1px solid #465673;border-radius:9px;padding:10px;min-width:0;font:inherit }
+    .batch-actions { display:flex; flex-wrap:wrap;gap:10px;margin:13px 0 }
+    .batch-list {max-height:260px;overflow:auto;padding-left:25px;color:var(--muted);font-size:13px}
+    .batch-list li {padding:5px 2px}
+    .held-review { margin-top:12px; border-top:1px solid var(--line); padding-top:9px }
+    .held-review summary {cursor:pointer;color:var(--amber);font-size:13px}
+    .held-line {font-size:12px;color:var(--muted);padding:7px 0;overflow-wrap:anywhere;border-bottom:1px solid #273041}
     .jobs-head { display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px }
     .jobs-head h3 { margin:0;font-size:20px }
     .job-list { display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:14px }
@@ -145,6 +154,42 @@
 
       </section>
     </div>
+    <section class="panel jobs-section" aria-label="New translation batch">
+      <div class="jobs-head">
+        <div><div class="eyebrow">TV subtitle translation</div><h3>Start a season batch</h3></div>
+        <span class="tag" id="season-run-status">Checking translation worker</span>
+      </div>
+      <p class="subtext">Choose a show and season. Process missing Japanese subtitles in episode order. Existing subtitles are skipped; items awaiting English or Japanese sourcing are shown as blocked.</p>
+      <div class="batch-form">
+        <label>Series
+          <input type="text" list="translation-series-options" id="translation-series" placeholder="Select or type a series" autocomplete="off">
+          <datalist id="translation-series-options"></datalist>
+        </label>
+        <label>Season
+          <select id="translation-season" disabled><option value="">Choose a series first</option></select>
+        </label>
+        <label>Translation batch size
+          <select id="translation-count">
+            <option value="5">Next 5 missing episodes</option>
+            <option value="10">Next 10 missing episodes</option>
+            <option value="20" selected>Next 20 missing episodes</option>
+            <option value="40">Complete season (up to 40)</option>
+          </select>
+        </label>
+        <label>Start at episode
+          <input type="number" id="translation-start-episode" min="1" max="999" value="1">
+        </label>
+      </div>
+      <div class="batch-actions">
+        <button type="button" id="translation-preview-button">Preview selection</button>
+        <button type="button" id="translation-start-button" disabled>Start translation batch</button>
+        <button type="button" id="translation-stop-button" disabled>Stop active batch</button>
+      </div>
+      <p id="translation-batch-feedback" class="subtext" role="status" aria-live="polite">Select a series to see which episodes are ready.</p>
+      <ol id="translation-episodes" class="batch-list"></ol>
+      <div class="divider"></div>
+      <p id="translation-batch-events" class="subtext">No recent translation batch events.</p>
+    </section>
     <section class="panel jobs-section" aria-label="PLaMo translation jobs">
       <div class="jobs-head">
         <div><div class="eyebrow">Japanese subtitle translation</div><h3>PLaMo jobs</h3></div>
@@ -168,6 +213,12 @@
     let pending = false;
     let wasConnected = false;
     let controlBusy = false;
+    let batchBusy = false;
+    let selectedBatch = null;
+    let knownSeries = [];
+    let sourceActive = false;
+    let translationActive = false;
+    let batchInstalled = false;
     const number = (v) => Number.isFinite(Number(v)) ? Number(v).toLocaleString() : "0";
     const text = (id, value) => { el(id).textContent = value == null ? "—" : String(value); };
     const progress = (id, label, current, total) => {
@@ -239,6 +290,25 @@
           number(job.held) + " held for review";
         if (job.held) detail.classList.add("job-warning");
         card.append(top,title,counts,meter,detail);
+        if (job.held) {
+          const review = document.createElement("details");
+          review.className = "held-review";
+          const heading = document.createElement("summary");
+          heading.textContent = "Review " + number(job.held) + " held cue(s)";
+          review.append(heading);
+          for (const cue of (Array.isArray(job.held_details) ? job.held_details : [])) {
+            const line = document.createElement("div");
+            line.className = "held-line";
+            line.textContent = "Cue " + cue.cue + " · English: " + cue.english +
+              " · Saved Japanese: " + (cue.japanese || "(not translated)");
+            review.append(line);
+          }
+          const note = document.createElement("p");
+          note.className = "job-detail";
+          note.textContent = "Review only. Existing subtitle tracks will not be overwritten.";
+          review.append(note);
+          card.append(review);
+        }
         host.append(card);
       }
     }
@@ -261,6 +331,19 @@
         ((tr.active_jobs || 0) + " running · " + (tr.total_jobs || 0) + " saved jobs") :
         "Translation status unavailable");
       drawTranslations(tr);
+      const bt = d.season_translation || {};
+      sourceActive = !!d.source_active;
+      translationActive = !!bt.active || !!(tr.american_dad_batch || {}).active ||
+        Number(tr.active_jobs || 0) > 0;
+      batchInstalled = !!bt.available;
+      text("season-run-status",bt.active ? "Running" :
+        bt.available ? "Ready for selection" : "Batch worker not installed");
+      el("translation-start-button").disabled = batchBusy || !batchInstalled ||
+        sourceActive || translationActive || !selectedBatch || selectedBatch.ready < 1;
+      el("translation-stop-button").disabled = batchBusy || !bt.active;
+      const ev = Array.isArray(bt.recent) ? bt.recent : [];
+      text("translation-batch-events",ev.length ? ev.slice(-4).join(" | ") :
+        "No recent translation batch events.");
       const live = d.source_job || {};
       text("quota", live.provider_limited ? "Limit reached in this run" : "Allowance unverified");
       el("quota").className = live.provider_limited ? "warning" : "";
@@ -359,6 +442,132 @@
       el("action-" + action).disabled = true;
       el("action-" + action).addEventListener("click", () => runControl(action));
     }
+
+    function updateSeasonOptions() {
+      selectedBatch = null;
+      el("translation-start-button").disabled = true;
+      const list = el("translation-season");
+      list.replaceChildren();
+      const found = knownSeries.find(x => x.series === el("translation-series").value);
+      list.disabled = !found;
+      const seasons = found ? found.seasons : [];
+      for (const value of seasons) {
+        const option = document.createElement("option");
+        option.value = String(value);
+        option.textContent = "Season " + value;
+        list.append(option);
+      }
+      if (!found) text("translation-batch-feedback","Choose an exact series from the list.");
+    }
+    async function loadSeries() {
+      try {
+        const response = await fetch("/api/translation/catalog", {cache:"no-store"});
+        if (!response.ok) throw new Error("Library queue unavailable");
+        const data = await response.json();
+        knownSeries = Array.isArray(data.series) ? data.series : [];
+        const options = el("translation-series-options");
+        options.replaceChildren();
+        for (const series of knownSeries) {
+          const option = document.createElement("option");
+          option.value = series.series;
+          options.append(option);
+        }
+        text("translation-batch-feedback",
+          knownSeries.length ? "Select a series and preview the next episodes." :
+          "No episodic library records found in the coverage queue.");
+      } catch (err) {
+        text("translation-batch-feedback",
+          "Cannot read the library queue: " + err.message);
+      }
+    }
+    async function previewSeason() {
+      selectedBatch = null;
+      el("translation-start-button").disabled = true;
+      const out = el("translation-episodes");
+      out.replaceChildren();
+      const series = el("translation-series").value;
+      const season = Number(el("translation-season").value);
+      const count = Number(el("translation-count").value);
+      const start = Number(el("translation-start-episode").value);
+      if (!knownSeries.some(x => x.series === series && x.seasons.includes(season)) ||
+          !Number.isInteger(start) || start < 1 || start > 999) {
+        text("translation-batch-feedback","Select a known series, season and valid start episode.");
+        return;
+      }
+      text("translation-batch-feedback","Checking the source-first queue…");
+      try {
+        const qs = new URLSearchParams({series,season:String(season),
+                    count:String(count),start:String(start)});
+        const response = await fetch("/api/translation/plan?"+qs, {cache:"no-store"});
+        const plan = await response.json();
+        if (!response.ok) throw new Error(plan.error || "Plan unavailable");
+        selectedBatch = plan;
+        text("translation-batch-feedback",
+          plan.ready + " ready · " + plan.blocked + " blocked · " +
+          plan.covered + " already covered in this season. " +
+          (plan.ready ? "Only ready episodes will be translated." :
+          "No episodes currently pass source-first eligibility."));
+        for (const item of plan.items) {
+          const li = document.createElement("li");
+          li.textContent = "E" + String(item.episode).padStart(2,"0") +
+            " · " + item.title + " — " + (item.status === "ready" ?
+            "Ready to translate" : "Blocked: " + item.reason.replaceAll("_"," "));
+          out.append(li);
+        }
+        el("translation-start-button").disabled = batchBusy || !batchInstalled ||
+          sourceActive || translationActive || plan.ready < 1;
+      } catch (err) {
+        text("translation-batch-feedback","Preview failed: " + err.message);
+      }
+    }
+    async function sendTranslationAction(startAction) {
+      if (batchBusy || (startAction && (!selectedBatch || selectedBatch.ready < 1)))
+        return;
+      batchBusy = true;
+      const request = startAction ? {
+        series:selectedBatch.series,season:selectedBatch.season,
+        count:selectedBatch.requested,start:selectedBatch.start_episode
+      } : {};
+      el("translation-start-button").disabled = true;
+      el("translation-stop-button").disabled = true;
+      text("translation-batch-feedback",startAction ?
+        "Requesting the season batch…" : "Stopping current translation batch…");
+      try {
+        const keyResponse = await fetch("/api/owner-token", {cache:"no-store"});
+        if (!keyResponse.ok) throw new Error("Owner access unavailable");
+        const token = (await keyResponse.json()).token;
+        if (typeof token !== "string" || !token) throw new Error("Owner token missing");
+        const response = await fetch("/api/translation/" +
+          (startAction ? "start" : "stop"),{
+          method:"POST",
+          headers:{"Content-Type":"application/json","X-Subhub-Token":token},
+          body:JSON.stringify(request),cache:"no-store"
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "Batch action refused");
+        if (startAction) selectedBatch = null;
+        text("translation-batch-feedback",startAction ?
+          ("Batch accepted: " + result.accepted + " eligible episode(s), " +
+           result.blocked + " blocked.") : "Stop requested; checkpoints kept.");
+      } catch (err) {
+        text("translation-batch-feedback","Action not completed: " + err.message);
+      } finally {
+        batchBusy = false;
+        await refresh();
+      }
+    }
+    el("translation-series").addEventListener("input",updateSeasonOptions);
+    el("translation-series").addEventListener("change",updateSeasonOptions);
+    for (const id of ["translation-season","translation-count","translation-start-episode"])
+      el(id).addEventListener("change", () => {
+        selectedBatch = null;
+        el("translation-start-button").disabled = true;
+      });
+    el("translation-preview-button").addEventListener("click",previewSeason);
+    el("translation-start-button").addEventListener("click",()=>sendTranslationAction(true));
+    el("translation-stop-button").addEventListener("click",()=>sendTranslationAction(false));
+    loadSeries();
+
     el("refresh").addEventListener("click", refresh);
     refresh();
     setInterval(refresh, 3000);

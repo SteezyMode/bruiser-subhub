@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SubHub Dashboard v0.2: loopback-only owner GUI + desktop shortcut.
+# SubHub Dashboard v0.3: loopback-only owner GUI + season-ordered translation batches.
 # Installs only the dashboard. Owner controls require explicit in-browser action.
 set -euo pipefail
 umask 077
@@ -15,12 +15,14 @@ trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/tools"
 touch "$WORK/tools/__init__.py"
 
-for name in subhub_dashboard_server.py subhub_dashboard.html ja_first_source_tracker.py; do
+for name in subhub_dashboard_server.py subhub_dashboard.html ja_first_source_tracker.py subhub_translation_batch.py; do
   curl -fsSL --retry 3 --connect-timeout 10 --max-time 90 \
     "$BASE/tools/$name" -o "$WORK/tools/$name"
 done
 curl -fsSL --retry 3 --connect-timeout 10 --max-time 90 \
   "$BASE/test_subhub_dashboard.py" -o "$WORK/test_subhub_dashboard.py"
+curl -fsSL --retry 3 --connect-timeout 10 --max-time 90 \
+  "$BASE/test_subhub_translation_batch.py" -o "$WORK/test_subhub_translation_batch.py"
 
 python3 - "$WORK/tools/subhub_dashboard_server.py" "$WORK/tools/subhub_dashboard.html" <<'PY'
 import ast, pathlib, sys
@@ -28,16 +30,19 @@ server = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
 html = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
 ast.parse(server)
 ast.parse(pathlib.Path(sys.argv[1]).with_name('ja_first_source_tracker.py').read_text(encoding='utf-8'))
+ast.parse(pathlib.Path(sys.argv[1]).with_name('subhub_translation_batch.py').read_text(encoding='utf-8'))
 assert '("127.0.0.1", args.port)' in server, "loopback-only policy missing"
 assert '/api/control/start-auto' in server and 'owner_control_access_denied' in server, "owner control safeguards missing"
 assert "/api/status" in server and "textContent" in html
 assert 'id="action-start-auto"' in html and 'id="action-stop-manual"' in html, "owner controls missing from UI"
+assert '/api/translation/start' in server and 'start_season_translation' in server
+assert 'id="translation-start-button"' in html and 'id="translation-season"' in html
 print("SUBHUB_DASHBOARD_PREFLIGHT_OK", flush=True)
 PY
 (
   cd "$WORK"
   PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$WORK" \
-    python3 -m unittest -v test_subhub_dashboard
+    python3 -m unittest -v test_subhub_dashboard test_subhub_translation_batch
 )
 
 DEST="$HOME/.local/share/bruiser-subhub-dashboard"
@@ -45,7 +50,7 @@ BIN="$HOME/.local/share/applications"
 UNITDIR="$HOME/.config/systemd/user"
 UNIT="$UNITDIR/bruiser-subhub-dashboard.service"
 SHORTCUT="$BIN/bruiser-subhub-dashboard.desktop"
-for item in "$DEST" "$DEST/subhub_dashboard_server.py" "$DEST/subhub_dashboard.html" "$DEST/ja_first_source_tracker.py" \
+for item in "$DEST" "$DEST/subhub_dashboard_server.py" "$DEST/subhub_dashboard.html" "$DEST/ja_first_source_tracker.py" "$DEST/subhub_translation_batch.py" \
             "$UNITDIR" "$UNIT" "$BIN" "$SHORTCUT"; do
   if [[ -L "$item" ]]; then
     echo "Unsafe symlink at $item" >&2
@@ -63,9 +68,11 @@ chmod 700 "$DEST"
 install -m 600 "$WORK/tools/subhub_dashboard_server.py" "$DEST/subhub_dashboard_server.py.new"
 install -m 600 "$WORK/tools/subhub_dashboard.html" "$DEST/subhub_dashboard.html.new"
 install -m 600 "$WORK/tools/ja_first_source_tracker.py" "$DEST/ja_first_source_tracker.py.new"
+install -m 600 "$WORK/tools/subhub_translation_batch.py" "$DEST/subhub_translation_batch.py.new"
 mv -f "$DEST/subhub_dashboard_server.py.new" "$DEST/subhub_dashboard_server.py"
 mv -f "$DEST/subhub_dashboard.html.new" "$DEST/subhub_dashboard.html"
 mv -f "$DEST/ja_first_source_tracker.py.new" "$DEST/ja_first_source_tracker.py"
+mv -f "$DEST/subhub_translation_batch.py.new" "$DEST/subhub_translation_batch.py"
 
 cat > "$UNIT.new" <<'UNITFILE'
 [Unit]

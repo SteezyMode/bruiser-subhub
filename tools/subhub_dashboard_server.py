@@ -19,7 +19,8 @@ import re
 import sqlite3
 import subprocess
 import time
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, parse_qs
+import sys
 
 ROOT = Path.home() / "bruiser-pilot" / "batch-control"
 STATE_FILE = ROOT / "current.json"
@@ -35,6 +36,13 @@ try:
     from . import ja_first_source_tracker as source_tracker
 except ImportError:
     import ja_first_source_tracker as source_tracker
+try:
+    from . import subhub_translation_batch as season_batch
+except ImportError:
+    import subhub_translation_batch as season_batch
+
+TRANSLATION_UNIT = "bruiser-subhub-translation-batch.service"
+BATCH_EXEC = Path(__file__).with_name("subhub_translation_batch.py")
 PHASES = {
     "queued": "Preparing the source engine",
     "reconcile_queue": "Reconcile saved subtitle work",
@@ -340,6 +348,7 @@ def _plamo_checkpoint(folder, meta, kind, running_ids, batch_running):
         return None
     db_path=folder/"progress.sqlite3"
     processed, translated, held, non_dialogue, compute_seconds=(0,0,0,0,0.)
+    held_details = []
     if db_path.exists():
         if (db_path.is_symlink() or not db_path.is_file()
                 or db_path.stat().st_uid!=os.getuid()
@@ -356,6 +365,14 @@ def _plamo_checkpoint(folder, meta, kind, running_ids, batch_running):
                                       THEN 1 ELSE 0 END),0),
                     COALESCE(SUM(seconds),0)
                 FROM translation""").fetchone()
+            if held:
+                held_details = [
+                    {"cue": int(number), "english": safe_text(en, 300),
+                     "japanese": safe_text(ja, 300)}
+                    for number, en, ja in db.execute(
+                        "SELECT id, english, japanese FROM translation "
+                        "WHERE status='held_translation' ORDER BY idx LIMIT 12")
+                ]
     if processed>total or translated+held+non_dialogue!=processed:
         return None
     sidecar=video.with_name(video.stem+".ja.PLaMo8B.srt")
@@ -383,7 +400,8 @@ def _plamo_checkpoint(folder, meta, kind, running_ids, batch_running):
         "jellyfin_id":jid if kind=="movie" else "",
         "title":title,"state":state,"active":active,
         "processed":int(processed),"translated":int(translated),
-        "held":int(held),"non_dialogue":int(non_dialogue),
+        "held":int(held),"held_details":held_details,
+        "non_dialogue":int(non_dialogue),
         "total":total,"percent":round(100*processed/total,1),
         "compute_seconds":round(float(compute_seconds),1),
         "published":published,
@@ -564,6 +582,7 @@ def status_payload():
     result=snapshot(doc, manual, False, lines)
     result=live_source_snapshot(result,scheduled_source_activity(scheduled))
     result["translation"]=translation_snapshot()
+    result["season_translation"]=season_batch_status()
     result["controls"]=control_availability()
     return result
 
@@ -613,6 +632,81 @@ def control_availability():
             "stop_manual":manual}
 
 
+
+def season_batch_status():
+    """A transient systemd job; use the existing coverage and cue databases."""
+    active = unit_active(TRANSLATION_UNIT)
+    recent = []
+    try:
+        res = subprocess.run(
+            ["journalctl", "--user", "-u", TRANSLATION_UNIT,
+             "-n", "18", "--no-pager", "-o", "cat"],
+            capture_output=True, text=True, check=False,
+            stdin=subprocess.DEVNULL, timeout=4)
+        if res.returncode == 0:
+            recent = [safe_text(x, 200) for x in res.stdout.splitlines()
+                      if x.startswith(("BATCH_BEGIN ", "BATCH_ITEM ",
+                                       "BATCH_BLOCKED ", "BATCH_ITEM_OK ",
+                                       "BATCH_ITEM_HELD ", "BATCH_STOPPED ",
+                                       "BATCH_DONE ", "BATCH_HELD "))][-12:]
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return {
+        "active": active,
+        "available": BATCH_EXEC.is_file() and not BATCH_EXEC.is_symlink()
+                     and season_batch.ENGINE.is_file()
+                     and not season_batch.ENGINE.is_symlink(),
+        "recent": recent,
+    }
+
+
+def start_season_translation(doc):
+    """Reject unsafe/conflicting work before passing exact selection to systemd."""
+    if not isinstance(doc, dict) or set(doc) != {"series", "season", "count", "start"}:
+        raise ValueError("invalid_batch_request")
+    series, season = doc["series"], doc["season"]
+    count, start = doc["count"], doc["start"]
+    season_batch.validate(series, season, count, start)
+    if (unit_active(BATCH_UNIT) or unit_active(SCHEDULED_UNIT)
+            or unit_active(TRANSLATION_UNIT)
+            or american_dad_batch_activity()["active"]):
+        raise RuntimeError("another_source_or_translation_worker_is_active")
+    if (not BATCH_EXEC.is_file() or BATCH_EXEC.is_symlink()
+            or not season_batch.ENGINE.is_file()
+            or season_batch.ENGINE.is_symlink()):
+        raise RuntimeError("translation_batch_controller_not_installed")
+    chosen = season_batch.plan(series, season, count, start)
+    if not chosen["ready"]:
+        raise RuntimeError("no_source_first_eligible_episodes_in_selection")
+    command = [
+        "systemd-run", "--user", "--unit=bruiser-subhub-translation-batch",
+        "--collect", "--property=KillMode=control-group", "--",
+        sys.executable, "-B", "-u", str(BATCH_EXEC), "--run",
+        "--series", series, "--season", str(season),
+        "--count", str(count), "--start", str(start),
+    ]
+    done = subprocess.run(command, capture_output=True, text=True,
+                          stdin=subprocess.DEVNULL, timeout=20, check=False)
+    if done.returncode:
+        raise RuntimeError("translation_batch_start_failed: " +
+                           safe_text(done.stderr or done.stdout, 160))
+    return {"ok": True, "accepted": chosen["ready"],
+            "blocked": chosen["blocked"], "season": season, "series": series}
+
+
+def stop_season_translation():
+    if not unit_active(TRANSLATION_UNIT):
+        raise RuntimeError("no_translation_batch_running")
+    done = subprocess.run(
+        ["systemctl", "--user", "stop", "--no-block", TRANSLATION_UNIT],
+        capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=15,
+        check=False)
+    if done.returncode:
+        raise RuntimeError("translation_stop_failed: " +
+                           safe_text(done.stderr or done.stdout, 160))
+    return {"ok": True, "action": "stop-translation"}
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "SubHubDashboard/0.1"
 
@@ -646,6 +740,27 @@ class Handler(BaseHTTPRequestHandler):
                 self.write(200, body)
             except (OSError, ValueError, RuntimeError, TypeError, json.JSONDecodeError):
                 self.write(503, b'{"error":"status_unavailable"}')
+        elif target == "/api/translation/catalog":
+            try:
+                self.write(200, json.dumps(
+                    {"series": season_batch.catalog()},
+                    ensure_ascii=False).encode("utf-8"))
+            except (OSError, RuntimeError, sqlite3.Error):
+                self.write(503, b'{"error":"queue_unavailable"}')
+        elif target == "/api/translation/plan":
+            try:
+                params = parse_qs(urlsplit(self.path).query)
+                if len(urlsplit(self.path).query) > 600 or not all(
+                    len(params.get(key, [])) == 1
+                    for key in ("series", "season", "count", "start")):
+                    raise ValueError("invalid_plan_query")
+                obj = season_batch.plan(
+                    params["series"][0], int(params["season"][0]),
+                    int(params["count"][0]), int(params["start"][0]))
+                self.write(200, json.dumps(obj, ensure_ascii=False).encode("utf-8"))
+            except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
+                self.write(400, json.dumps(
+                    {"error": safe_text(str(exc), 120)}).encode("utf-8"))
         elif target == "/api/owner-token":
             self.write(200,json.dumps({"token":OWNER_TOKEN}).encode("utf-8"))
         elif target == "/healthz":
@@ -657,7 +772,8 @@ class Handler(BaseHTTPRequestHandler):
         target=urlsplit(self.path).path
         if target not in (
             "/api/control/start-auto","/api/control/stop-auto",
-            "/api/control/start-manual","/api/control/stop-manual"):
+            "/api/control/start-manual","/api/control/stop-manual",
+            "/api/translation/start","/api/translation/stop"):
             self.write(405,b'{"error":"controls_not_available_in_v0_1"}')
             return
         origin=self.headers.get("Origin","")
@@ -674,15 +790,26 @@ class Handler(BaseHTTPRequestHandler):
                              "localhost:"+str(self.server.server_port)} or
                 not hmac.compare_digest(token,OWNER_TOKEN) or
                 self.headers.get("Content-Type","").split(";")[0].strip()
-                != "application/json" or size not in ("0","2")):
+                != "application/json" or not size.isdecimal() or
+                 int(size) > (300 if target == "/api/translation/start" else 2)):
             self.write(403,b'{"error":"owner_control_access_denied"}')
             return
-        if size=="2" and self.rfile.read(2)!=b"{}":
-            self.write(400,b'{"error":"empty_json_object_required"}')
-            return
         try:
-            value=source_controls(target.rsplit("/",1)[-1])
+            if target == "/api/translation/start":
+                if not (2 <= int(size) <= 300):
+                    raise ValueError("invalid_batch_request_size")
+                request = json.loads(self.rfile.read(int(size)).decode("utf-8"))
+                value = start_season_translation(request)
+            else:
+                if size=="2" and self.rfile.read(2)!=b"{}":
+                    raise ValueError("empty_json_object_required")
+                if target == "/api/translation/stop":
+                    value = stop_season_translation()
+                else:
+                    value=source_controls(target.rsplit("/",1)[-1])
             self.write(200,json.dumps(value).encode("utf-8"))
+        except (ValueError, TypeError) as exc:
+            self.write(400,json.dumps({"error":safe_text(str(exc),180)}).encode("utf-8"))
         except (OSError,RuntimeError,subprocess.TimeoutExpired) as exc:
             self.write(409,json.dumps(
                 {"error":safe_text(str(exc),180)}).encode("utf-8"))
