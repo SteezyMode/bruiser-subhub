@@ -601,9 +601,11 @@ def source_controls(action):
     manual=unit_active(BATCH_UNIT)
     scheduled=unit_active(SCHEDULED_UNIT)
     script=Path.home()/".local/bin/bruiser-subs"
-    if action in ("start-auto", "start-manual") and (
-            translation_busy() or unit_active(SEASON_SOURCE_UNIT)):
-        raise RuntimeError("source_or_translation_worker_already_active")
+    if action in ("start-auto", "start-manual") and not (manual or scheduled):
+        if translation_busy():
+            raise RuntimeError("translation_active_cannot_start_source_worker")
+        if unit_active(SEASON_SOURCE_UNIT):
+            raise RuntimeError("season_source_active_cannot_start_source_worker")
     if action=="start-auto":
         if manual or scheduled:
             raise RuntimeError("Source job already running")
