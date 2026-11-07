@@ -313,7 +313,7 @@ class HTTPTests(unittest.TestCase):
         self.assertTrue(result["source_active"])
 
     def test_auto_start_is_nonblocking_and_only_requests_existing_unit(self):
-        with patch.object(dashboard, "unit_active", side_effect=[False, False]):
+        with patch.object(dashboard, "unit_active", side_effect=[False, False, False]):
             cp = dashboard.subprocess.CompletedProcess([], 0, stdout="ok")
             with patch.object(dashboard.subprocess, "run", return_value=cp) as run:
                 result = dashboard.source_controls("start-auto")
@@ -338,6 +338,15 @@ class HTTPTests(unittest.TestCase):
                 with self.assertRaises(RuntimeError):
                     dashboard.source_controls("start-auto")
                 runner.assert_not_called()
+
+    def test_source_controls_refuse_competing_translation_batch(self):
+        with patch.object(dashboard, "unit_active",
+                          side_effect=[False, False, True]), \
+             patch.object(dashboard.subprocess, "run") as runner:
+            with self.assertRaisesRegex(RuntimeError,
+                                        "translation_active_cannot_start_source"):
+                dashboard.source_controls("start-auto")
+            runner.assert_not_called()
 
     def test_source_first_translation_batch_uses_existing_worker_and_systemd(self):
         with patch.object(dashboard, "unit_active", side_effect=[False,False,False]), \

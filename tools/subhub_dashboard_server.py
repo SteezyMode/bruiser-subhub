@@ -593,6 +593,9 @@ def source_controls(action):
     manual=unit_active(BATCH_UNIT)
     scheduled=unit_active(SCHEDULED_UNIT)
     script=Path.home()/".local/bin/bruiser-subs"
+    if (action in ("start-auto", "start-manual") and
+            not (manual or scheduled) and translation_busy()):
+        raise RuntimeError("translation_active_cannot_start_source_worker")
     if action=="start-auto":
         if manual or scheduled:
             raise RuntimeError("Source job already running")
@@ -622,13 +625,23 @@ def source_controls(action):
     return {"ok":True,"action":action,"result":safe_text(done.stdout,150)}
 
 
+def translation_busy():
+    """Prevent concurrent source starts with any known local PLaMo worker."""
+    return (unit_active(TRANSLATION_UNIT) or
+            american_dad_batch_activity()["active"] or
+            bool(_plamo_running_ids()))
+
+
 def control_availability():
     manual=unit_active(BATCH_UNIT)
     scheduled=unit_active(SCHEDULED_UNIT)
+    can_start=not manual and not scheduled
+    if can_start:
+        can_start=not translation_busy()
     return {"available":True,
-            "start_auto":not manual and not scheduled,
+            "start_auto":can_start,
             "stop_auto":scheduled,
-            "start_manual":not manual and not scheduled,
+            "start_manual":can_start,
             "stop_manual":manual}
 
 
@@ -668,8 +681,7 @@ def start_season_translation(doc):
     count, start = doc["count"], doc["start"]
     season_batch.validate(series, season, count, start)
     if (unit_active(BATCH_UNIT) or unit_active(SCHEDULED_UNIT)
-            or unit_active(TRANSLATION_UNIT)
-            or american_dad_batch_activity()["active"]):
+            or translation_busy()):
         raise RuntimeError("another_source_or_translation_worker_is_active")
     if (not BATCH_EXEC.is_file() or BATCH_EXEC.is_symlink()
             or not season_batch.ENGINE.is_file()
