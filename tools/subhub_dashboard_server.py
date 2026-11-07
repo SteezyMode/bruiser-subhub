@@ -433,6 +433,8 @@ def scheduled_source_activity(active, max_lines=240):
     last_media=""
     last_result=""
     last_published=""
+    last_work=""
+    last_phase="running"
     for line in lines:
         line=line.strip()
         if line.startswith("MEDIA:"):
@@ -449,6 +451,18 @@ def scheduled_source_activity(active, max_lines=240):
                                            "THERMAL_PAUSE","HELD:",
                                            "PROVIDER_LIMIT_REACHED")):
             recent.append(safe_text(line,160))
+            if "SEARCHING:" in line:
+                last_phase="searching"
+                last_work=safe_text(line.split("SEARCHING:",1)[1].strip(),130)
+            elif "STAGING:" in line:
+                last_phase="staging"
+                last_work=safe_text(line.split("STAGING:",1)[1].strip(),130)
+            elif "THERMAL_PAUSE" in line:
+                last_phase="thermal_pause"
+                last_work=safe_text(line,130)
+            elif "PROVIDER_LIMIT_REACHED" in line:
+                last_phase="provider_limited"
+                last_work="Provider download allowance reached"
     # The publisher often emits MEDIA:<id> first, then RESULT:<title>.
     # Do not repeat the previous title as if it were the current title.
     publish_active=False
@@ -460,13 +474,18 @@ def scheduled_source_activity(active, max_lines=240):
                 "/usr/bin/python3" in line for line in ps.stdout.splitlines()))
     except (OSError,subprocess.TimeoutExpired):
         pass
-    result.update(phase="publishing" if publish_active else "running",
-                  phase_label=("Publishing Japanese subtitles"
-                               if publish_active else "Automatic Japanese sourcing"),
-                  current_item=("Processing media "+last_media+" (title pending)"
-                                if publish_active and last_media else
-                                "Working through the automatic subtitle queue"),
-                  last_completed=last_published,
+    phase="publishing" if publish_active else last_phase
+    labels={"publishing":"Publishing Japanese subtitles",
+            "searching":"Searching Japanese subtitle providers",
+            "staging":"Downloading Japanese subtitles",
+            "thermal_pause":"Paused for temperature",
+            "provider_limited":"Provider limit reached",
+            "running":"Automatic Japanese sourcing"}
+    item=("Processing media "+last_media+" (title pending)"
+          if publish_active and last_media else
+          last_work or "Working through the automatic subtitle queue")
+    result.update(phase=phase,phase_label=labels[phase],
+                  current_item=item,last_completed=last_published,
                   events=recent[-9:])
     return result
 
