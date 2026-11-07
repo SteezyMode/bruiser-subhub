@@ -161,6 +161,11 @@ done
 curl -fsSL --retry 3 --connect-timeout 10 --max-time 90 \
   "$REPO/$PIN/test_ja_first_native_series_identity.py" \
   -o "$WORK/test_ja_first_native_series_identity.py"
+# Offline self-tests inspect this installer's exact pinned shell/Python source.
+# The installer was streamed over SSH, so it is not otherwise a local file.
+curl -fsSL --retry 3 --connect-timeout 10 --max-time 90 \
+  "$REPO/$PIN/tools/install_native_series_identity_fix.sh" \
+  -o "$WORK/tools/install_native_series_identity_fix.sh"
 curl -fsSL --retry 3 --connect-timeout 10 --max-time 90 \
   "$REPO/$PIN/tools/install_subhub_dashboard.sh" \
   -o "$WORK/install_subhub_dashboard.sh"
