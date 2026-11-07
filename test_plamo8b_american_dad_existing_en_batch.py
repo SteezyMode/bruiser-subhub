@@ -24,6 +24,36 @@ class AmericanDadExistingEnglishBatchTests(TestCase):
         self.assertEqual(batch.safe_roger_name("Roger, you know","ロジャーだよ"),
                          "ロジャーだよ")
 
+    def test_failed_native_output_retries_once_without_history(self):
+        calls=[]
+        def request(port,english,history):
+            calls.append(history)
+            return ("English only",{}, "held_non_japanese") if history else ("日本語",{},engine.SPOKEN)
+        text,_,status=batch.translate_with_one_retry(
+            request,18886,"Hello!",[("Previous", "前の文")])
+        self.assertEqual(status,engine.SPOKEN)
+        self.assertEqual(text,"日本語")
+        self.assertEqual(calls,[[("Previous","前の文")],[]])
+
+    def test_failed_no_history_output_becomes_bounded_hold(self):
+        calls=[]
+        def request(port,english,history):
+            calls.append(history)
+            return "English only",{},"held_non_japanese"
+        text,_,status=batch.translate_with_one_retry(
+            request,18886,"Hello!",[("Prior","先ほど")])
+        self.assertEqual(text,"Hello!")
+        self.assertEqual(status,"held_non_japanese")
+        self.assertEqual(len(calls),2)
+
+    def test_gpu_or_network_errors_are_not_hidden_as_cue_holds(self):
+        def crash(*_):
+            raise RuntimeError("GPU_OFFLOAD_NOT_ACTIVE")
+        with self.assertRaisesRegex(RuntimeError,"GPU_OFFLOAD_NOT_ACTIVE"):
+            batch.translate_with_one_retry(crash,18886,"Hello!",[])
+        self.assertTrue(batch.episode_only_cue_failure(
+            RuntimeError("episode_held_limit_exceeded_9_of_400")))
+
     def test_inventory_prefers_20_then_21_then_19_and_skips_japanese(self):
         with tempfile.TemporaryDirectory() as d:
             p=Path(d)
