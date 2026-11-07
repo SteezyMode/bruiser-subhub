@@ -41,6 +41,24 @@ if [[ ! -d "$CODE" || -L "$CODE" ||
   exit 1
 fi
 
+# Hold the SAME flock file as the scheduled Japanese source worker. This
+# prevents a fresh timer firing during module or manifest replacement.
+LOCK_ROOT="$HOME/bruiser-pilot/ja-first-inventory"
+LOCK="$LOCK_ROOT/.autofill.lock"
+if [[ ! -d "$LOCK_ROOT" || -L "$LOCK_ROOT" || -L "$LOCK" ||
+      "$(stat -c %u "$LOCK_ROOT")" != "$(id -u)" ]]; then
+  echo "Unsafe native sourcing inventory/lock path." >&2
+  exit 1
+fi
+if [[ -e "$LOCK" && ( ! -f "$LOCK" ||
+      "$(stat -c %u "$LOCK")" != "$(id -u)" ||
+      "$(stat -c %a "$LOCK")" != 600 ) ]]; then
+  echo "Unsafe existing source lock." >&2
+  exit 1
+fi
+exec 9>>"$LOCK"
+flock -n 9 || { echo "Another Japanese source cycle is running." >&2; exit 1; }
+
 for unit in bruiser-ja-source-autofill.service bruiser-subhub-batch.service \
             bruiser-subhub-season-sources.service bruiser-subhub-translation-batch.service; do
   state="$(systemctl --user show --property=ActiveState --value "$unit")"
