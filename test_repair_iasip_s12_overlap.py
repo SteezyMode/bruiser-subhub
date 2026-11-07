@@ -32,7 +32,7 @@ class ScopeTests(unittest.TestCase):
 
     def test_rejects_nonunique_episode(self):
         data=episodes()
-        data["c"*32]=dict(data["a"*32,jellyfin_id="c"*32)
+        data["c"*32]=dict(data["a"*32],jellyfin_id="c"*32)
         with patch.object(repair.stage,"read_inventory",return_value=data):
             with self.assertRaisesRegex(RuntimeError,"nonunique"):
                 repair.chosen_inventory()
