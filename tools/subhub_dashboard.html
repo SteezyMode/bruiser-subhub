@@ -186,8 +186,10 @@
     };
     function drawTranslations(t) {
       const jobs = Array.isArray(t.jobs) ? t.jobs : [];
+      const batch = t.american_dad_batch || {};
       text("translation-summary", jobs.length + " saved · " +
-        (t.active_jobs || 0) + " running · " + (t.published_jobs || 0) + " published");
+        (batch.active ? "American Dad batch active" + (batch.episode ? " (" + batch.episode + ")" : "") : (t.active_jobs || 0) + " running") +
+        " · " + (t.published_jobs || 0) + " published");
       const host = el("translation-jobs");
       host.replaceChildren();
       if (!jobs.length) {
@@ -256,7 +258,12 @@
       text("current-item", d.current_item || "Waiting for a current title");
       text("source-worker", d.source_active ? "Active" : "Not active");
       const tr = d.translation || {};
-      text("ai-worker", tr.engine === "PLaMo 8B" ?
+      const batch = tr.american_dad_batch || {};
+      text("ai-worker", batch.active ?
+        ("American Dad batch running" +
+         (batch.episode ? " · " + batch.episode : " · preparing next episode") +
+         " · " + (tr.active_jobs || 0) + " active job(s)") :
+        tr.engine === "PLaMo 8B" ?
         ((tr.active_jobs || 0) + " running · " + (tr.total_jobs || 0) + " saved jobs") :
         "Translation status unavailable");
       drawTranslations(tr);
