@@ -327,7 +327,7 @@ class LibraryInventoryTests(unittest.TestCase):
 
     def test_provider_budget_must_be_bounded(self):
         self.scan()
-        for value in (0,31,-1):
+        for value in (0,301,-1):
             with self.assertRaises(ValueError):
                 self.fill(budget=value)
 

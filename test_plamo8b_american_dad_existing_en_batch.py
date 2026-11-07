@@ -101,7 +101,7 @@ class AmericanDadExistingEnglishBatchTests(TestCase):
         with tempfile.TemporaryDirectory() as d:
             log=Path(d)/"llama.log"
             with mock.patch.object(batch.small,"check_port"),\
-                 mock.patch.object(batch,"gpu_state",return_value=(60.,5200)),\
+                 mock.patch.object(batch,"gpu_state",side_effect=[(60.,5200),(60.,4400)]),\
                  mock.patch.object(batch.subprocess,"Popen",return_value=Proc()) as popen,\
                  mock.patch.object(batch.small,"json_request",return_value={"status":"ok"}):
                 batch.start_cool_server(Path("/bin/llama-server"),
@@ -111,6 +111,24 @@ class AmericanDadExistingEnglishBatchTests(TestCase):
             self.assertEqual(argv[argv.index("-ngl")+1],"28")
             self.assertEqual(argv[argv.index("--host")+1],"127.0.0.1")
             self.assertNotIn("nvidia-smi",argv)
+
+    def test_batch_server_fails_closed_without_real_gpu_offload(self):
+        # Health alone does not mean the weights loaded into GPU memory.
+        class Proc:
+            def poll(self):
+                return None
+        proc=Proc()
+        with tempfile.TemporaryDirectory() as d:
+            log=Path(d)/"llama.log"
+            with mock.patch.object(batch.small,"check_port"), \
+                 mock.patch.object(batch,"gpu_state",return_value=(60.,5200)), \
+                 mock.patch.object(batch.subprocess,"Popen",return_value=proc), \
+                 mock.patch.object(batch.small,"json_request",return_value={"status":"ok"}), \
+                 mock.patch.object(batch.small,"stop_server") as stop:
+                with self.assertRaisesRegex(RuntimeError,"GPU_OFFLOAD_NOT_ACTIVE"):
+                    batch.start_cool_server(Path("/bin/llama-server"),
+                        Path("/model.gguf"),18886,28,log)
+                stop.assert_called_once_with(proc)
 
 
 if __name__=="__main__":

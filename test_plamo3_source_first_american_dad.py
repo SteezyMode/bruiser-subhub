@@ -113,6 +113,7 @@ class SourceFirstEpisodeTests(TestCase):
             row={"status":"review_missing_series_identity","kind":"Episode",
                  "host_path":str(video),"jellyfin_id":"a"*32,
                  "series_title":"American Dad!","season":19,"episode":13,
+                  "audio_language":"eng",
                  "series_imdb_id":"","series_tmdb_id":"","series_tvdb_id":""}
             eligible=source.query_eligible_episode(video,row)
             query=ja_search.query_for(eligible)
@@ -121,6 +122,9 @@ class SourceFirstEpisodeTests(TestCase):
             self.assertEqual(query["episode"],13)
             self.assertEqual(query["language"],"ja")
             self.assertNotIn("imdb_id",query)
+            # A provider title lookup must not bypass verified primary audio.
+            self.assertIsNone(ja_search.query_for(dict(eligible,audio_language="")))
+            self.assertIsNone(ja_search.query_for(dict(eligible,audio_language="jpn")))
             self.assertEqual(row["status"],"review_missing_series_identity")
 
     def test_missing_series_id_generates_real_japanese_provider_query(self):
