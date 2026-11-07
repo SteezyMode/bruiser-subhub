@@ -53,14 +53,38 @@ class SourceAutofillTests(unittest.TestCase):
                               side_effect=lambda **kw:calls.append("refresh")), \
                  patch.object(auto.subprocess,"run",
                               side_effect=lambda args,**kw:calls.append(args) or Dummy()):
-                auto.once(request=lambda endpoint,*args:{"is_searching":False})
+                auto.once(request=lambda endpoint,*args:{"is_searching":False},
+                              quota_reader=lambda:{"known":True,"automatic_budget":195})
             self.assertEqual(calls[0],"refresh")
             cmd=calls[1]
             self.assertIn("--sources-only",cmd)
             self.assertNotIn("start-worker",cmd)
             self.assertEqual(cmd[cmd.index("--search-budget")+1],"600")
-            self.assertEqual(cmd[cmd.index("--stage-budget")+1],"200")
+            self.assertEqual(cmd[cmd.index("--stage-budget")+1],"195")
             self.assertEqual(cmd[cmd.index("--publish-limit")+1],"200")
+
+    def test_five_remaining_downloads_does_not_start_worker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(auto,"ROOT",Path(tmp)), \
+                 patch.object(auto,"ensure_installed"), \
+                 patch.object(auto,"config",return_value=settings(0)), \
+                 patch.object(auto,"refresh_manifest"), \
+                 patch.object(auto.subprocess,"run") as run:
+                auto.once(request=lambda *a:{"is_searching":False},
+                          quota_reader=lambda:{"known":True,"automatic_budget":0})
+                run.assert_not_called()
+
+    def test_unknown_allowance_blocks_sourcing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(auto,"ROOT",Path(tmp)), \
+                 patch.object(auto,"ensure_installed"), \
+                 patch.object(auto,"config",return_value=settings(0)), \
+                 patch.object(auto,"refresh_manifest"), \
+                 patch.object(auto.subprocess,"run") as run:
+                with self.assertRaisesRegex(RuntimeError,"provider_allowance_unverified"):
+                    auto.once(request=lambda *a:{"is_searching":False},
+                              quota_reader=lambda:{"known":False})
+                run.assert_not_called()
 
     def test_enable_creates_only_own_units_and_hands_off_search(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -208,7 +232,8 @@ class SourceAutofillTests(unittest.TestCase):
                      patch.object(auto,"refresh_manifest"), \
                      patch.object(auto.subprocess,"run",
                          side_effect=lambda args,**kw:calls.append(args) or Dummy()):
-                    auto.once(request=lambda endpoint,*args:{"is_searching":False})
+                    auto.once(request=lambda endpoint,*args:{"is_searching":False},
+                              quota_reader=lambda:{"known":True,"automatic_budget":195})
                 self.assertEqual(calls[0][calls[0].index("--search-budget")+1],"75")
                 self.assertEqual(auto.next_run_budget(),(600,False))
                 self.assertFalse(budget.exists())
@@ -227,7 +252,8 @@ class SourceAutofillTests(unittest.TestCase):
                      patch.object(auto,"refresh_manifest"), \
                      patch.object(auto.subprocess,"run",return_value=Failed()):
                     with self.assertRaisesRegex(RuntimeError,"sources_only_cycle_failed"):
-                        auto.once(request=lambda endpoint,*args:{"is_searching":False})
+                        auto.once(request=lambda endpoint,*args:{"is_searching":False},
+                              quota_reader=lambda:{"known":True,"automatic_budget":195})
                 self.assertEqual(auto.next_run_budget(),(50,True))
 
     def test_one_time_budget_rejects_symlinks_and_invalid_settings(self):
