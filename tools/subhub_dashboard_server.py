@@ -18,6 +18,7 @@ from pathlib import Path
 import re
 import sqlite3
 import subprocess
+import time
 from urllib.parse import urlsplit
 
 ROOT = Path.home() / "bruiser-pilot" / "batch-control"
@@ -30,6 +31,10 @@ PLAMO_EPISODES = Path.home() / "bruiser-pilot/plamo3-ab/american-dad-existing-en
 PLAMO_SINGLE = Path.home() / "bruiser-pilot/plamo3-ab/american-dad-one-episode"
 PLAMO_MOVIE_UNIT = "bruiser-asabove-plamo.service"
 OWNER_TOKEN = secrets.token_urlsafe(32)
+try:
+    from . import ja_first_source_tracker as source_tracker
+except ImportError:
+    import ja_first_source_tracker as source_tracker
 PHASES = {
     "queued": "Preparing the source engine",
     "reconcile_queue": "Reconcile saved subtitle work",
@@ -447,91 +452,64 @@ def translation_snapshot():
 
 
 
-def scheduled_source_activity(active, max_lines=240):
-    """Observe the CURRENT scheduled publisher, not yesterday's manual batch.
+_SOURCE_CACHE={"when":0.0,"state":None}
 
-    Journal is bounded. Numbers derived here are explicitly counts within
-    the returned journal window, never lifetime source totals.
+def scheduled_source_activity(active, max_lines=5000):
+    """Current source cycle metrics from the existing, tested journal parser.
+
+    Never mix yesterday's manual-batch counters with the active source worker.
     """
-    result={"active":bool(active),"phase":"idle","phase_label":"No scheduled source job running",
-            "current_item":"","last_completed":"","recent_publications":0,
-            "events":[],"sample_window":"latest 240 journal lines"}
+    idle={"active":False,"phase":"idle","phase_label":"No automatic source cycle running",
+          "current_item":"","events":[],"sample_window":"","started":0,
+          "last_event":0,"search_completed":0,"search_planned":0,
+          "stage_attempts":0,"stage_planned":0,"staged":0,
+          "publish_title_checked":0,"publish_title_planned":0,"published":0}
     if not active:
-        return result
+        return idle
+    now=time.monotonic()
+    if (_SOURCE_CACHE["state"] is not None and
+            now-_SOURCE_CACHE["when"]<8):
+        return dict(_SOURCE_CACHE["state"])
     try:
-        completed=subprocess.run([
-            "journalctl","--user","-u",SCHEDULED_UNIT,"-o","cat",
-            "-n",str(max_lines),"--no-pager"],
-            capture_output=True,text=True,timeout=5,
+        completed=subprocess.run(
+            ["journalctl","--user","-u",SCHEDULED_UNIT,
+             "-o","json","-n",str(max_lines),"--no-pager"],
+            capture_output=True,text=True,timeout=8,
             stdin=subprocess.DEVNULL,check=False)
-    except (OSError,subprocess.TimeoutExpired):
-        result.update(phase="running",phase_label="Automatic subtitle processing",
-                      current_item="Worker active; journal unavailable")
-        return result
-    if completed.returncode:
-        result.update(phase="running",phase_label="Automatic subtitle processing",
-                      current_item="Worker active; journal unavailable")
-        return result
-    lines=completed.stdout.splitlines()
-    recent=[]
-    last_media=""
-    last_result=""
-    last_published=""
-    last_work=""
-    last_phase="running"
-    for line in lines:
-        line=line.strip()
-        if line.startswith("MEDIA:"):
-            last_media=safe_text(line.split("|",1)[0].removeprefix("MEDIA:").strip(),45)
-        elif line.startswith("RESULT:"):
-            last_result=safe_text(line.removeprefix("RESULT:").split("|",1)[0].strip(),100)
-            recent.append("Validated "+last_result)
-        elif line.startswith("PUBLISHED:"):
-            result["recent_publications"]+=1
-            last_published=last_result or "Untitled media"
-            recent.append("Published "+last_published)
-            last_result=""
-        elif any(term in line for term in ("SEARCHING:","STAGING:",
-                                           "THERMAL_PAUSE","HELD:",
-                                           "PROVIDER_LIMIT_REACHED")):
-            recent.append(safe_text(line,160))
-            if "SEARCHING:" in line:
-                last_phase="searching"
-                last_work=safe_text(line.split("SEARCHING:",1)[1].strip(),130)
-            elif "STAGING:" in line:
-                last_phase="staging"
-                last_work=safe_text(line.split("STAGING:",1)[1].strip(),130)
-            elif "THERMAL_PAUSE" in line:
-                last_phase="thermal_pause"
-                last_work=safe_text(line,130)
-            elif "PROVIDER_LIMIT_REACHED" in line:
-                last_phase="provider_limited"
-                last_work="Provider download allowance reached"
-    # The publisher often emits MEDIA:<id> first, then RESULT:<title>.
-    # Do not repeat the previous title as if it were the current title.
-    publish_active=False
-    try:
-        ps=subprocess.run(["ps","-eo","args="],capture_output=True,text=True,
-                          timeout=4,stdin=subprocess.DEVNULL,check=False)
-        publish_active=(ps.returncode==0 and
-            any("ja_first_publish_queue.py" in line and
-                "/usr/bin/python3" in line for line in ps.stdout.splitlines()))
-    except (OSError,subprocess.TimeoutExpired):
-        pass
-    phase="publishing" if publish_active else last_phase
-    labels={"publishing":"Publishing Japanese subtitles",
-            "searching":"Searching Japanese subtitle providers",
-            "staging":"Downloading Japanese subtitles",
-            "thermal_pause":"Paused for temperature",
-            "provider_limited":"Provider limit reached",
-            "running":"Automatic Japanese sourcing"}
-    item=("Processing media "+last_media+" (title pending)"
-          if publish_active and last_media else
-          last_work or "Working through the automatic subtitle queue")
-    result.update(phase=phase,phase_label=labels[phase],
-                  current_item=item,last_completed=last_published,
-                  events=recent[-9:])
-    return result
+        if completed.returncode:
+            raise RuntimeError("journal_unavailable")
+        details=source_tracker.parse(
+            source_tracker.events_from_jsonl(completed.stdout))
+        if not details["has_run"]:
+            raise RuntimeError("current_cycle_not_in_journal_window")
+        phase=details["phase"]
+        status="source_running"
+        if details["failed"]:
+            status="source_held"
+        elif details["complete"]:
+            status="source_completed"
+        current=safe_text(details["current"],150)
+        data={**idle,"active":True,"phase":status,
+              "phase_label":safe_text(phase,105),
+              "current_item":current or "Preparing the next item",
+              "events":[safe_text(x,160) for x in details["recent"]][-9:],
+              "sample_window":"latest "+str(max_lines)+" journal events",
+              "started":details["started"],
+              "last_event":details["last_event"],
+              "search_completed":details["search_completed"],
+              "search_planned":details["search_planned"],
+              "stage_attempts":details["stage_attempts"],
+              "stage_planned":details["stage_planned"],
+              "staged":details["staged"],
+              "publish_title_checked":details["publish_title_checked"],
+              "publish_title_planned":details["publish_title_planned"],
+              "published":details["published"]}
+    except (OSError,ValueError,RuntimeError,subprocess.TimeoutExpired) as exc:
+        data={**idle,"active":True,"phase":"source_running",
+              "phase_label":"Source worker active — progress unavailable",
+              "current_item":safe_text(str(exc),110)}
+    _SOURCE_CACHE.update(when=now,state=data)
+    return dict(data)
 
 
 def live_source_snapshot(result, scheduled):
