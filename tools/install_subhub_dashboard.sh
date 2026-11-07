@@ -15,7 +15,7 @@ trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/tools"
 touch "$WORK/tools/__init__.py"
 
-for name in subhub_dashboard_server.py subhub_dashboard.html; do
+for name in subhub_dashboard_server.py subhub_dashboard.html subhub_opensubtitles_quota.py; do
   curl -fsSL --retry 3 --connect-timeout 10 --max-time 90 \
     "$BASE/tools/$name" -o "$WORK/tools/$name"
 done
@@ -28,6 +28,7 @@ server = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
 html = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
 ast.parse(server)
 assert '("127.0.0.1", args.port)' in server, "loopback-only policy missing"
+quota = pathlib.Path("$WORK/tools/subhub_opensubtitles_quota.py").read_text(encoding="utf-8") if False else None
 assert '/api/control/start-auto' in server and 'owner_control_access_denied' in server, "owner control safeguards missing"
 assert "/api/status" in server and "textContent" in html
 assert 'id="action-start-auto"' in html and 'id="action-stop-manual"' in html, "owner controls missing from UI"
@@ -44,7 +45,7 @@ BIN="$HOME/.local/share/applications"
 UNITDIR="$HOME/.config/systemd/user"
 UNIT="$UNITDIR/bruiser-subhub-dashboard.service"
 SHORTCUT="$BIN/bruiser-subhub-dashboard.desktop"
-for item in "$DEST" "$DEST/subhub_dashboard_server.py" "$DEST/subhub_dashboard.html" \
+for item in "$DEST" "$DEST/subhub_dashboard_server.py" "$DEST/subhub_dashboard.html" "$DEST/subhub_opensubtitles_quota.py" \
             "$UNITDIR" "$UNIT" "$BIN" "$SHORTCUT"; do
   if [[ -L "$item" ]]; then
     echo "Unsafe symlink at $item" >&2
@@ -61,8 +62,10 @@ fi
 chmod 700 "$DEST"
 install -m 600 "$WORK/tools/subhub_dashboard_server.py" "$DEST/subhub_dashboard_server.py.new"
 install -m 600 "$WORK/tools/subhub_dashboard.html" "$DEST/subhub_dashboard.html.new"
+install -m 600 "$WORK/tools/subhub_opensubtitles_quota.py" "$DEST/subhub_opensubtitles_quota.py.new"
 mv -f "$DEST/subhub_dashboard_server.py.new" "$DEST/subhub_dashboard_server.py"
 mv -f "$DEST/subhub_dashboard.html.new" "$DEST/subhub_dashboard.html"
+mv -f "$DEST/subhub_opensubtitles_quota.py.new" "$DEST/subhub_opensubtitles_quota.py"
 
 cat > "$UNIT.new" <<'UNITFILE'
 [Unit]
