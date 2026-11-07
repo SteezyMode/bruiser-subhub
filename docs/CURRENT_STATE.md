@@ -1,5 +1,8 @@
 # Current state and next actions
 
+> **CURRENT DECISION / HANDOFF — 2026-11-07:** [SubHub architecture and pipeline handoff](SUBHUB_ARCHITECTURE_AND_PIPELINE_HANDOFF_2026-11-07.md) is authoritative on *what to do next*. The owner has frozen web-dashboard expansion because it became a disposable interface for yesterday's batch. Keep working monitoring; prioritize real pipeline efficiency, reliable PLaMo cue recovery, source coverage and throughput measurement. Don't deploy bespoke American Dad controls or confuse PR-only changes with verified host state. Historical status entries below must not override this decision.
+
+
 **CURRENT PRODUCTION MODEL (2026-11-04): 17slever17 Translate Gemma 4 Sub E4B Q4_K_XL, pinned Ollama ID 9ccfc3b07081.** Use [the authoritative model decision](PRODUCTION_TRANSLATION_MODEL.md) and the guarded host installer. This explicitly supersedes older Hy7/generic Gemma rankings in this long historical log. Do not confuse GitHub source updates with OptiPlex deployment.
 
 ## 2026-11-03 — Human-reviewed remaining 27 S19E04 cues, private-source editorial overlay
