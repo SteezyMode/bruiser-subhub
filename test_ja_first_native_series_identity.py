@@ -6,6 +6,7 @@ from pathlib import Path
 import tempfile
 import subprocess
 import unittest
+import re
 
 from tools import ja_first_catalog_manifest as catalog
 from tools import ja_first_search_pilot as search
@@ -91,6 +92,36 @@ class NativeSeriesIdentityTests(unittest.TestCase):
         result = subprocess.run(["bash", "-n", str(installer)],
                                 capture_output=True, text=True, timeout=5)
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_installer_embedded_python_and_audio_override(self):
+        """The known local drift is reconstructed exactly, not ignored."""
+        installer = (Path(__file__).parent / "tools" /
+                     "install_native_series_identity_fix.sh")
+        content = installer.read_text(encoding="utf-8")
+        scripts = re.findall(r"<<'PY'\n(.*?)\nPY", content, re.S)
+        self.assertGreaterEqual(len(scripts), 2)
+        for script in scripts:
+            compile(script, "<installer-embedded-python>", "exec")
+        section = scripts[0]
+        start = section.index("def omit_unknown_audio_gate(content):")
+        end = section.index("\nold = old_manifest")
+        namespace = {}
+        exec(section[start:end], namespace)
+        original = (
+            'UNKNOWN_AUDIO = {"", "und", "unknown", "mul", "zxx", "none"}\n'
+            'COUNTS = ("existing_japanese_subtitle",\n'
+            '          "review_audio_language_unverified", "review_no_movie_imdb", "review_missing_series_identity",\n'
+            '    elif audio_lang in UNKNOWN_AUDIO:\n'
+            '        # A present audio stream with no language tag is NOT evidence of EN\n'
+            '        # audio. Never spend JA search quota on a potentially Japanese show.\n'
+            '        data["status"] = "review_audio_language_unverified"\n'
+            '    assert lang("und") in UNKNOWN_AUDIO and lang("jpn") not in UNKNOWN_AUDIO\n'
+            'OTHER_CODE_UNCHANGED = True\n'
+        )
+        adapted = namespace["omit_unknown_audio_gate"](original)
+        self.assertNotIn("UNKNOWN_AUDIO", adapted)
+        self.assertNotIn("review_audio_language_unverified", adapted)
+        self.assertIn("OTHER_CODE_UNCHANGED = True", adapted)
 
     def test_external_matching_remains_strict(self):
         row = self.inspect()
