@@ -90,7 +90,9 @@ def native():
     ):
         raise RuntimeError("existing_source_controller_not_installed")
     if str(path) not in sys.path:
-        sys.path.insert(0, str(path))
+        # Preserve this dashboard's pinned coverage-queue helper ahead of the
+        # separately installed source-tool directory.
+        sys.path.append(str(path))
     import ja_first_autofill as autofill
     import ja_first_search_pilot as search
     import ja_first_stage_saved_batch as stage
@@ -135,6 +137,15 @@ def find_japanese(ids, search, budget):
                 result = next((x for x in messages
                                if str(x.get("id")) == job["id"]), None)
                 if not result or not result.get("ok"):
+                    category = str((result or {}).get("error") or "")
+                    # A provider HTTP error may indicate an exhausted allowance.
+                    # Do not spray additional queries against a possible 429.
+                    if category == "HTTPError":
+                        search.save_attempt(db,job,"error")
+                        counts["provider_unavailable"] += 1
+                        print("PROVIDER_LIMIT_REACHED stop_search_on_http_error",
+                              flush=True)
+                        break
                     raise RuntimeError("native_provider_search_failed")
                 options = result.get("results") or []
                 rated = [(grade,r) for r in options if isinstance(r,dict)
