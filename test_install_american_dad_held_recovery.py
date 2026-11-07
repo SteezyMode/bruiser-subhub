@@ -5,7 +5,6 @@ directory but downloaded/installed only two other scripts. That failed before
 installation. Avoid three independently-maintained file lists.
 """
 from pathlib import Path
-import re
 import unittest
 
 
@@ -15,9 +14,10 @@ INSTALLER = Path(__file__).parent / "tools" / "install_american_dad_held_recover
 class RecoveryInstallerFilesTests(unittest.TestCase):
     def test_download_install_and_preflight_use_one_file_list(self):
         text = INSTALLER.read_text("utf-8")
-        declaration = re.search(r"^FILES=\\(([^\\n)]*)\\)$", text, re.M)
+        declaration = next((line for line in text.splitlines()
+                            if line.startswith("FILES=(")), None)
         self.assertIsNotNone(declaration)
-        names = declaration.group(1).split()
+        names = declaration.removeprefix("FILES=(").removesuffix(")").split()
         self.assertEqual(names, [
             "plamo3_real_film_ab.py",
             "plamo3_watch_american_dad.py",
