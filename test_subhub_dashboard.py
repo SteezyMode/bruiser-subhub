@@ -39,6 +39,76 @@ class StatusTests(unittest.TestCase):
         self.assertEqual(data["translation"]["state"], "not_connected")
         self.assertFalse(data["controls"]["available"])
 
+    def test_season_search_activity_is_not_misreported_as_published(self):
+        lines=[
+            ('SEASON_JA_BEGIN {"series": "It\\'s Always Sunny in Philadelphia", "season": 12, "eligible": 10}',1000.),
+            ("SEASON_JA_SOURCE_INVENTORY {\\"matched\\":10}",1001.),
+            ("SEASON_JA_SEARCH_PLANNED 10",1002.),
+            ("SEASON_JA_SEARCH 1 10 It\\'s Always Sunny in Philadelphia S12E02",1003.),
+            ("SEASON_JA_RESULT It\\'s Always Sunny in Philadelphia S12E02 plausible plausible 1 review 0",1004.),
+            ("SEASON_JA_SEARCH 2 10 It\\'s Always Sunny in Philadelphia S12E08",1005.),
+        ]
+        result=dashboard.parse_season_source_events(lines,True,now=1006)
+        self.assertTrue(result["active"])
+        self.assertEqual(result["phase"],"search")
+        self.assertEqual(result["search_planned"],10)
+        self.assertEqual(result["search_started"],2)
+        self.assertEqual(result["search_completed"],1)
+        self.assertEqual(result["search_found"],1)
+        self.assertIsNone(result["published"])
+        self.assertEqual(result["staged"],0)
+        self.assertFalse(result["finished"])
+        self.assertEqual(result["season"],12)
+
+    def test_season_source_done_only_after_real_completion_event(self):
+        lines=[
+            ('SEASON_JA_BEGIN {"series":"IASIP","season":12,"eligible":10}',1000.),
+            ("SEASON_JA_SEARCH_PLANNED 2",1001.),
+            ("SEASON_JA_SEARCH 1 2 IASIP S12E02",1002.),
+            ("SEASON_JA_RESULT IASIP S12E02 none plausible 0 review 0",1003.),
+            ("SEASON_JA_STAGE_PLANNED 1",1004.),
+            ("SEASON_JA_STAGE 1 1 IASIP S12E03",1005.),
+            ("STAGED: /some/private/file.srt",1006.),
+            ("SEASON_JA_PUBLISH_PLANNED 1",1007.),
+            ("SEASON_JA_PUBLISH aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",1008.),
+            ('SEASON_JA_DONE {"searched":{"none":1},"staged":{"staged_not_published":1},"published":{"published_new":1}}',1009.),
+        ]
+        result=dashboard.parse_season_source_events(lines,False,now=1010)
+        self.assertEqual(result["phase"],"completed")
+        self.assertTrue(result["finished"])
+        self.assertEqual(result["staged"],1)
+        self.assertEqual(result["published"],1)
+        self.assertEqual(result["publish_title_checked"],1)
+        self.assertEqual(result["search_none"],1)
+
+    def test_terminated_season_without_completion_is_interrupted(self):
+        lines=[
+            ('SEASON_JA_BEGIN {"series":"IASIP","season":12,"eligible":10}',1000.),
+            ("SEASON_JA_SEARCH_PLANNED 10",1001.),
+            ("SEASON_JA_SEARCH 1 10 IASIP S12E01",1002.),
+        ]
+        result=dashboard.parse_season_source_events(lines,False,now=1003)
+        self.assertEqual(result["phase"],"interrupted")
+        self.assertIsNone(result["published"])
+        self.assertFalse(result["finished"])
+
+    def test_older_source_run_excluded_and_stale_metrics_expire(self):
+        events=[
+            ('SEASON_JA_BEGIN {"series":"OLD","season":1,"eligible":10}',1000.),
+            ("SEASON_JA_SEARCH_PLANNED 10",1001.),
+            ("SEASON_JA_RESULT OLD S01E01 plausible plausible 2 review 0",1002.),
+            ('SEASON_JA_DONE {"published":{"published_new":8}}',1003.),
+            ('SEASON_JA_BEGIN {"series":"NEW","season":12,"eligible":10}',2000.),
+            ("SEASON_JA_SEARCH_PLANNED 10",2001.),
+        ]
+        result=dashboard.parse_season_source_events(events,True,now=2002)
+        self.assertEqual(result["series"],"NEW")
+        self.assertEqual(result["search_found"],0)
+        self.assertIsNone(result["published"])
+        self.assertFalse(result["finished"])
+        stale=dashboard.parse_season_source_events(events,False,now=50000)
+        self.assertFalse(stale["metrics_available"])
+
     def test_live_source_reads_real_cycle_progress_not_saved_manual_counts(self):
         events=[
             "RUNNING_SOURCES_ONLY_CYCLE search_budget=600 stage_budget=200 publish_limit=200",
