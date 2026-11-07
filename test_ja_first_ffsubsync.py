@@ -68,6 +68,93 @@ class FFSubsyncPipelineTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError,"changed_dialogue"):
             sync.check_alignment(raw,altered,5368.5)
 
+    def overlap_case(self, total, overlap_indices, overlap_ms=700):
+        # Roughly 25-minute episode, Japanese dialogue and realistic 3.4s
+        # cue spacing. Only selected cue ends are extended past the next start.
+        duration = 1520.
+        cues = []
+        for i in range(total):
+            start = 21000 + i*3400
+            end = start + 1950
+            if i in overlap_indices:
+                end = 21000 + (i+1)*3400 + overlap_ms
+            cues.append(f"{i+1}\n{clock(start)} --> {clock(end)}\n日本語の字幕です{i}")
+        return ("\n\n".join(cues)+"\n").encode(), duration
+
+    def test_iasip_s12e05_overlap_profile_can_be_healed(self):
+        source,runtime = self.overlap_case(410,set(range(0,105,7)))
+        from bruiser_ja_movie_rescue import health
+        self.assertEqual(health(sync.parse_cues(source),runtime)["overlap_events"],15)
+        corrected,summary=sync.repair_minor_overlaps(source,runtime)
+        self.assertEqual(summary["overlap_repaired_cues"],15)
+        self.assertTrue(health(sync.parse_cues(corrected),runtime)["ok"])
+        self.assertEqual(sync.check_alignment(source,corrected,runtime)["mode"],"corrected")
+        self.assertEqual([x["text"] for x in sync.parse_cues(source)],
+                         [x["text"] for x in sync.parse_cues(corrected)])
+        self.assertEqual([x["start"] for x in sync.parse_cues(source)],
+                         [x["start"] for x in sync.parse_cues(corrected)])
+
+    def test_iasip_s12e04_overlap_profile_can_be_healed(self):
+        source,runtime=self.overlap_case(422,set(range(0,322,7)))
+        from bruiser_ja_movie_rescue import health
+        self.assertEqual(health(sync.parse_cues(source),runtime)["overlap_events"],46)
+        corrected,summary=sync.repair_minor_overlaps(source,runtime)
+        self.assertEqual(summary["overlap_repaired_cues"],46)
+        self.assertTrue(health(sync.parse_cues(corrected),runtime)["ok"])
+        self.assertEqual(sync.check_alignment(source,corrected,runtime)["mode"],"corrected")
+
+    def test_overlaps_too_severe_to_clip_are_held(self):
+        source,runtime=self.overlap_case(410,set(range(0,105,7)),overlap_ms=2400)
+        with self.assertRaisesRegex(RuntimeError,"unsafe_trim"):
+            sync.repair_minor_overlaps(source,runtime)
+
+    def test_zero_length_simultaneous_cue_cannot_be_repaired(self):
+        source,runtime=self.overlap_case(410,set(range(0,105,7)))
+        cues=sync.parse_cues(source)
+        cues[1]["start"]=cues[0]["start"]
+        cues[1]["end"]=cues[0]["end"]
+        # Rendering exactly overlapping cues with equal starts must hold.
+        rendered="\n\n".join(
+            f'{i+1}\n{clock(c["start"])} --> {clock(c["end"])}\n{c["text"]}'
+            for i,c in enumerate(cues)
+        ).encode()
+        with self.assertRaisesRegex(RuntimeError,"unsafe_trim"):
+            sync.repair_minor_overlaps(rendered,runtime)
+
+    def test_healthy_source_is_unchanged(self):
+        original,_=case()
+        repaired,details=sync.repair_minor_overlaps(original,5368.5)
+        self.assertEqual(repaired,original)
+        self.assertEqual(details["overlap_repaired_cues"],0)
+
+    def test_prepare_rechecks_repaired_candidate_and_keeps_source_bytes(self):
+        from unittest.mock import Mock
+        jid="f"*32
+        original,runtime=self.overlap_case(410,set(range(0,105,7)))
+        qa=sync.gate.validate_srt(original,runtime)
+        with patch.object(sync.gate,"read_inventory",
+                          return_value={"host_path":"/mock/video.mkv"}) as inv, \
+             patch.object(sync.gate,"verify_search_identity"), \
+             patch.object(sync.gate,"read_staging",
+                          return_value=(Path("/private/staged.srt"),original,
+                                        {"video_seconds":runtime,
+                                         "cues":qa["cues"]})), \
+             patch.object(sync.gate,"safe_media_path",
+                          return_value=Path("/mock/video.mkv")), \
+             patch.object(sync.gate,"ffprobe_streams",
+                          return_value=([{"codec_type":"audio"}],None)), \
+             patch.object(sync.gate,"check_no_existing_ja"), \
+             patch.object(sync.gate,"subprocess_duration",return_value=runtime), \
+             patch.object(sync.gate,"video_target",
+                          return_value=Path("/mock/video.ja.srt")), \
+             patch.object(sync.source_quality,"require_not_garbage",
+                          return_value={"ok":True}):
+            result=sync.prepare(jid,"12345",aligner=lambda video,raw: raw)
+        self.assertEqual(result["original"],original)
+        self.assertNotEqual(result["chosen"],original)
+        self.assertEqual(result["assessment"]["mode"],"corrected")
+        self.assertEqual(result["assessment"]["overlap_repaired_cues"],15)
+
     def test_bind_translation_is_ro_mount_safe(self):
         with tempfile.TemporaryDirectory() as directory:
             folder=Path(directory)/"library"
