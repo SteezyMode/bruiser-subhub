@@ -304,14 +304,14 @@ def american_dad_batch_activity():
         process=Path("/proc")/str(pid)
         if process.stat().st_uid!=os.getuid():
             return result
-        command=(process/"cmdline").read_bytes().replace(b"\\0",b" ").decode("utf-8","replace")
-        if not re.search(r"(?:^|[\\s/])plamo8b_american_dad_existing_en_batch\\.py(?:\\s|$)",command):
+        command=(process/"cmdline").read_bytes().replace(b"\0",b" ").decode("utf-8","replace")
+        if not re.search(r"(?:^|[\s/])plamo8b_american_dad_existing_en_batch\.py(?:\s|$)",command):
             return result
         result.update(active=True,pid=pid)
         if log.is_file() and not log.is_symlink() and log.stat().st_uid==os.getuid():
             lines=tail_lines(log,max_bytes=120_000)
             for line in reversed(lines):
-                match=re.search(r"=== EPISODE \\d+/\\d+: (S\\d{2}E\\d{2,3}) ===",line)
+                match=re.search(r"=== EPISODE \d+/\d+: (S\d{2}E\d{2,3}) ===",line)
                 if match:
                     result["episode"]=match.group(1)
                     break
