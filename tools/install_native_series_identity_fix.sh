@@ -166,28 +166,21 @@ curl -fsSL --retry 3 --connect-timeout 10 --max-time 90 \
   -o "$WORK/install_subhub_dashboard.sh"
 
 echo "=== OFFLINE NEW SERIES IDENTITY TESTS ==="
-(
-  cd "$WORK"
-  PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$WORK" \
-    python3 -B -m unittest -v test_ja_first_native_series_identity
-)
-
 if [[ -f "$WORK/guardless-source-policy" ]]; then
-  echo "=== TEST ACTUAL INSTALLED AUDIO POLICY (known override) ==="
+  echo "=== PRESERVING VERIFIED LOCAL AUDIO POLICY ==="
   (
     cd "$WORK"
     PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$WORK" python3 -B - <<'PY'
-from pathlib import Path
 import unittest
 import test_ja_first_native_series_identity as tests
-from tools import ja_first_catalog_manifest as catalog
 
 suite = unittest.defaultTestLoader.loadTestsFromTestCase(tests.NativeSeriesIdentityTests)
-# Preserving the installed override intentionally retains different behavior
-# for und/unknown audio from standard GitHub policy.
+# The host's existing unknown-audio policy deliberately differs from
+# stock GitHub. All other native-series/episode safety tests must pass.
 selected = unittest.TestSuite(
     test for test in suite
-    if test._testMethodName != "test_no_audio_language_does_not_use_native_identity_to_bypass_review"
+    if test._testMethodName !=
+       "test_no_audio_language_does_not_use_native_identity_to_bypass_review"
 )
 result = unittest.TextTestRunner(verbosity=2).run(selected)
 if not result.wasSuccessful():
@@ -200,8 +193,14 @@ try:
         raise SystemExit("Existing unknown-audio override was not preserved")
     print("KNOWN_OVERRIDE_PRESERVED verified unchanged unknown-audio behavior")
 finally:
-    test.tearDown()
+    test.doCleanups()
 PY
+  )
+else
+  (
+    cd "$WORK"
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$WORK" \
+      python3 -B -m unittest -v test_ja_first_native_series_identity
   )
 fi
 
