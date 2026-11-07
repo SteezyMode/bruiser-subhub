@@ -24,6 +24,12 @@ class RecoveryInstallerFilesTests(unittest.TestCase):
             "plamo8b_american_dad_existing_en_batch.py",
         ])
         self.assertEqual(text.count('for name in "${FILES[@]}"; do'), 3)
+        self.assertIn('FILES+=(subhub_plamo_handoff.py)', text)
+        self.assertIn('MODE="${2:-restart}"', text)
+        self.assertIn('if [[ "$MODE" == "--install-only" ]]; then', text)
+        self.assertLess(text.index('if [[ "$MODE" == "--install-only" ]]; then'),
+                        text.index('nohup python3'))
+        self.assertIn('assert "batch.thermal_gate()" in g',text)
         for name in names:
             self.assertIn('root/"' + name + '"', text)
         self.assertIn('ast.parse(a); ast.parse(b); ast.parse(c)', text)
