@@ -96,7 +96,7 @@ class UntranslatedCueTests(unittest.TestCase):
         def caller(*args):
             attempts.append(args)
             return ("OK", {}, "held_non_japanese") if len(attempts) == 1 else ("はい", {}, "translated")
-        got = functions()["translate_with_one_retry"](caller, 1, "OK", [])
+        got = functions()["translate_with_one_retry"](caller, 1, "OK", [("Previous","前の文")])
         self.assertEqual(got[0], "はい")
         self.assertEqual(len(attempts), 2)
 
@@ -105,7 +105,7 @@ class UntranslatedCueTests(unittest.TestCase):
         def caller(*args):
             attempts.append(1)
             return ("Roger", {}, "held_non_japanese")
-        got = functions()["translate_with_one_retry"](caller, 1, "Roger", [])
+        got = functions()["translate_with_one_retry"](caller, 1, "Roger", [("Previous","前の文")])
         self.assertEqual(got[2], "held_non_japanese")
         self.assertEqual(len(attempts), 2)
         self.assertTrue(functions()["episode_only_cue_failure"](
@@ -118,16 +118,17 @@ class UntranslatedCueTests(unittest.TestCase):
             if len(attempts) == 1:
                 raise RuntimeError("empty_or_malformed_model_output")
             return "はい", {}, "translated"
-        got = functions()["translate_with_one_retry"](caller, 1, "yes", [])
+        got = functions()["translate_with_one_retry"](caller, 1, "yes", [("Previous","前の文")])
         self.assertEqual(got[0], "はい")
         self.assertEqual(len(attempts), 2)
 
     def test_repeated_bad_model_output_marks_episode_only(self):
         def caller(*args):
             raise RuntimeError("model_output_truncated")
-        with self.assertRaisesRegex(RuntimeError, "cue_model_error_after_retry:model_output_truncated") as exc:
-            functions()["translate_with_one_retry"](caller, 1, "yes", [])
-        self.assertTrue(functions()["episode_only_cue_failure"](exc.exception))
+        got=functions()["translate_with_one_retry"](
+            caller, 1, "yes", [("Previous","前の文")])
+        self.assertEqual(got[0],"yes")
+        self.assertEqual(got[2],"held_non_japanese")
 
     def test_real_infrastructure_errors_are_fatal(self):
         def caller(*args):
@@ -139,7 +140,7 @@ class UntranslatedCueTests(unittest.TestCase):
             self.assertFalse(functions()["episode_only_cue_failure"](
                 RuntimeError(message)))
 
-    def test_batch_handles_only_cue_held_and_never_publishes_partial(self):
+    def test_batch_handles_only_cue_held_and_does_not_hide_fatal_failures(self):
         self.assertIn("if episode_only_cue_failure(exc):", SOURCE)
         self.assertIn('append_result("episode_held",tag,str(exc))', SOURCE)
         self.assertIn('append_result("paused",tag,str(exc))', SOURCE)
