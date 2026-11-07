@@ -25,4 +25,5 @@ jobs:
       - run: bash -n tools/run_plamo3_source_first_american_dad.sh
       - run: bash -n tools/run_plamo8b_american_dad_existing_en_batch.sh
       - run: bash -n tools/resume_plamo8b_american_dad_overnight.sh
+      - run: bash -n tools/install_american_dad_held_recovery.sh
       - run: python -m unittest discover -p 'test_*.py' -v
