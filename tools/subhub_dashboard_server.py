@@ -462,8 +462,10 @@ def scheduled_source_activity(active, max_lines=5000):
     idle={"active":False,"phase":"idle","phase_label":"No automatic source cycle running",
           "current_item":"","events":[],"sample_window":"","started":0,
           "last_event":0,"search_completed":0,"search_planned":0,
-          "stage_attempts":0,"stage_planned":0,"staged":0,
-          "publish_title_checked":0,"publish_title_planned":0,"published":0}
+          "search_found":0,"search_none":0,"search_review":0,"search_errors":0,
+          "stage_attempts":0,"stage_planned":0,"staged":0,"stage_holds":0,
+          "publish_title_checked":0,"publish_title_planned":0,"published":0,
+          "publish_holds":0}
     if not active:
         return idle
     now=time.monotonic()
@@ -498,12 +500,18 @@ def scheduled_source_activity(active, max_lines=5000):
               "last_event":details["last_event"],
               "search_completed":details["search_completed"],
               "search_planned":details["search_planned"],
+              "search_found":details["search_found"],
+              "search_none":details["search_none"],
+              "search_review":details["search_review"],
+              "search_errors":details["search_errors"],
               "stage_attempts":details["stage_attempts"],
               "stage_planned":details["stage_planned"],
               "staged":details["staged"],
+              "stage_holds":details["stage_holds"],
               "publish_title_checked":details["publish_title_checked"],
               "publish_title_planned":details["publish_title_planned"],
-              "published":details["published"]}
+              "published":details["published"],
+              "publish_holds":details["publish_holds"]}
     except (OSError,ValueError,RuntimeError,subprocess.TimeoutExpired) as exc:
         data={**idle,"active":True,"phase":"source_running",
               "phase_label":"Source worker active — progress unavailable",
