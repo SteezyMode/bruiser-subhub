@@ -358,7 +358,7 @@ class HTTPTests(unittest.TestCase):
         self.assertTrue(result["source_active"])
 
     def test_auto_start_is_nonblocking_and_only_requests_existing_unit(self):
-        with patch.object(dashboard, "unit_active", side_effect=[False, False, False]):
+        with patch.object(dashboard, "unit_active", return_value=False):
             cp = dashboard.subprocess.CompletedProcess([], 0, stdout="ok")
             with patch.object(dashboard.subprocess, "run", return_value=cp) as run:
                 result = dashboard.source_controls("start-auto")
@@ -394,7 +394,7 @@ class HTTPTests(unittest.TestCase):
             runner.assert_not_called()
 
     def test_source_first_translation_batch_uses_existing_worker_and_systemd(self):
-        with patch.object(dashboard, "unit_active", side_effect=[False,False,False]), \
+        with patch.object(dashboard, "unit_active", return_value=False), \
              patch.object(dashboard, "american_dad_batch_activity",
                           return_value={"active":False}), \
              patch.object(dashboard, "_plamo_running_ids", return_value=set()), \
@@ -416,7 +416,7 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(argv[argv.index("--season")+1],"1")
 
     def test_batch_with_zero_source_first_ready_does_not_launch(self):
-        with patch.object(dashboard, "unit_active", side_effect=[False,False,False]), \
+        with patch.object(dashboard, "unit_active", return_value=False), \
              patch.object(dashboard, "american_dad_batch_activity",
                           return_value={"active":False}), \
              patch.object(dashboard, "_plamo_running_ids", return_value=set()), \
@@ -432,6 +432,45 @@ class HTTPTests(unittest.TestCase):
                     "season":1,"count":20,"start":1})
             runner.assert_not_called()
 
+
+    def test_season_sources_start_is_explicitly_scoped_and_transient(self):
+        selection={"series":"It's Always Sunny in Philadelphia","season":12}
+        with patch.object(dashboard,"unit_active",return_value=False), \
+             patch.object(dashboard,"translation_busy",return_value=False), \
+             patch.object(dashboard,"season_sources_status",
+                          return_value={"available":True}), \
+             patch.object(dashboard.season_sources,"scope",return_value={
+                 "eligible":10,"ids":{"a"*32:"/media/season12.mkv"}}), \
+             patch.object(dashboard.subprocess,"run",return_value=
+                          dashboard.subprocess.CompletedProcess([],0,stdout="ok")) as subprocess_run:
+            result=dashboard.start_season_sources(selection)
+        self.assertEqual(result["accepted"],10)
+        command=subprocess_run.call_args.args[0]
+        self.assertEqual(command[:2],["systemd-run","--user"])
+        self.assertIn("--season",command)
+        self.assertEqual(command[command.index("--season")+1],"12")
+
+    def test_season_source_refused_during_other_work(self):
+        request={"series":"It's Always Sunny in Philadelphia","season":12}
+        with patch.object(dashboard,"unit_active",side_effect=[False,True]), \
+             patch.object(dashboard.subprocess,"run") as runner:
+            with self.assertRaisesRegex(RuntimeError,"another_source"):
+                dashboard.start_season_sources(request)
+            runner.assert_not_called()
+
+    def test_season_source_start_refuses_no_work(self):
+        selection={"series":"It's Always Sunny in Philadelphia","season":12}
+        with patch.object(dashboard,"unit_active",return_value=False), \
+             patch.object(dashboard,"translation_busy",return_value=False), \
+             patch.object(dashboard,"season_sources_status",
+                          return_value={"available":True}), \
+             patch.object(dashboard.season_sources,"scope",
+                          return_value={"eligible":0,"ids":{}}), \
+             patch.object(dashboard.subprocess,"run") as runner:
+            with self.assertRaisesRegex(RuntimeError,"no_pending_japanese"):
+                dashboard.start_season_sources(selection)
+            runner.assert_not_called()
+
     def test_dashboard_controls_are_present_in_html(self):
         source = dashboard.HTML.read_text(encoding="utf-8")
         for action in ("start-auto","stop-auto","start-manual","stop-manual"):
@@ -439,7 +478,8 @@ class HTTPTests(unittest.TestCase):
         self.assertIn("X-Subhub-Token", source)
         for identifier in ("translation-series","translation-season",
                            "translation-count","translation-preview-button",
-                           "translation-start-button","translation-stop-button"):
+                           "translation-start-button","translation-stop-button",
+                            "season-source-button","season-source-stop-button"):
             self.assertIn('id="' + identifier + '"', source)
         self.assertIn("Review ", source)
 

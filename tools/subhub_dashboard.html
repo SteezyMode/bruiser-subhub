@@ -159,7 +159,7 @@
         <div><div class="eyebrow">TV subtitle translation</div><h3>Start a season batch</h3></div>
         <span class="tag" id="season-run-status">Checking translation worker</span>
       </div>
-      <p class="subtext">Choose a show and season. Process missing Japanese subtitles in episode order. Existing subtitles are skipped; items awaiting English or Japanese sourcing are shown as blocked.</p>
+      <p class="subtext">Choose a series and season. Search existing Japanese subtitles for the entire selected season, or translate eligible English-subtitled episodes in order. Existing subtitles are never overwritten.</p>
       <div class="batch-form">
         <label>Series
           <input type="text" list="translation-series-options" id="translation-series" placeholder="Select or type a series" autocomplete="off">
@@ -182,12 +182,16 @@
       </div>
       <div class="batch-actions">
         <button type="button" id="translation-preview-button">Preview selection</button>
+        <button type="button" id="season-source-button" disabled>Find Japanese subs for season</button>
+        <button type="button" id="season-source-stop-button" disabled>Stop season sourcing</button>
         <button type="button" id="translation-start-button" disabled>Start translation batch</button>
         <button type="button" id="translation-stop-button" disabled>Stop active batch</button>
       </div>
       <p id="translation-batch-feedback" class="subtext" role="status" aria-live="polite">Select a series to see which episodes are ready.</p>
+      <p id="season-source-feedback" class="subtext" role="status" aria-live="polite">Select a season to run its existing Japanese subtitle source pipeline.</p>
       <ol id="translation-episodes" class="batch-list"></ol>
       <div class="divider"></div>
+      <p id="season-source-events" class="subtext">No recent season sourcing events.</p>
       <p id="translation-batch-events" class="subtext">No recent translation batch events.</p>
     </section>
     <section class="panel jobs-section" aria-label="PLaMo translation jobs">
@@ -219,6 +223,8 @@
     let sourceActive = false;
     let translationActive = false;
     let batchInstalled = false;
+    let seasonSourceActive = false;
+    let seasonSourceInstalled = false;
     const number = (v) => Number.isFinite(Number(v)) ? Number(v).toLocaleString() : "0";
     const text = (id, value) => { el(id).textContent = value == null ? "—" : String(value); };
     const progress = (id, label, current, total) => {
@@ -332,10 +338,24 @@
         "Translation status unavailable");
       drawTranslations(tr);
       const bt = d.season_translation || {};
-      sourceActive = !!d.source_active;
+      const sourceBatch = d.season_sources || {};
+      seasonSourceActive = !!sourceBatch.active;
+      seasonSourceInstalled = !!sourceBatch.available;
+      sourceActive = !!d.source_active || seasonSourceActive;
       translationActive = !!bt.active || !!(tr.american_dad_batch || {}).active ||
         Number(tr.active_jobs || 0) > 0;
       batchInstalled = !!bt.available;
+      text("season-source-events",(Array.isArray(sourceBatch.recent) &&
+        sourceBatch.recent.length) ? sourceBatch.recent.slice(-5).join(" | ") :
+        "No recent season sourcing events.");
+      text("source-worker",seasonSourceActive ? "Selected season sourcing" :
+        d.source_active ? "Active" : "Not active");
+      el("season-source-stop-button").disabled = batchBusy || !seasonSourceActive;
+      el("season-source-button").disabled = batchBusy || !seasonSourceInstalled ||
+        sourceActive || translationActive || !selectedBatch ||
+        !selectedBatch.items.some(item => item.status === "blocked" &&
+          (item.reason === "japanese_source_first" ||
+           item.reason === "english_text_not_ready"));
       text("season-run-status",bt.active ? "Running" :
         bt.available ? "Ready for selection" : "Batch worker not installed");
       el("translation-start-button").disabled = batchBusy || !batchInstalled ||
@@ -446,6 +466,7 @@
     function updateSeasonOptions() {
       selectedBatch = null;
       el("translation-start-button").disabled = true;
+      el("season-source-button").disabled = true;
       const list = el("translation-season");
       list.replaceChildren();
       const found = knownSeries.find(x => x.series === el("translation-series").value);
@@ -483,6 +504,7 @@
     async function previewSeason() {
       selectedBatch = null;
       el("translation-start-button").disabled = true;
+      el("season-source-button").disabled = true;
       const out = el("translation-episodes");
       out.replaceChildren();
       const series = el("translation-series").value;
@@ -516,6 +538,11 @@
         }
         el("translation-start-button").disabled = batchBusy || !batchInstalled ||
           sourceActive || translationActive || plan.ready < 1;
+        el("season-source-button").disabled = batchBusy || !seasonSourceInstalled ||
+          sourceActive || translationActive || !plan.items.some(item =>
+            item.status === "blocked" &&
+            (item.reason === "japanese_source_first" ||
+             item.reason === "english_text_not_ready"));
       } catch (err) {
         text("translation-batch-feedback","Preview failed: " + err.message);
       }
@@ -556,12 +583,51 @@
         await refresh();
       }
     }
+    async function sendSeasonSourceAction(startAction) {
+      if (batchBusy || (startAction && !selectedBatch)) return;
+      batchBusy = true;
+      el("season-source-button").disabled = true;
+      el("season-source-stop-button").disabled = true;
+      el("translation-start-button").disabled = true;
+      text("season-source-feedback",startAction ?
+        "Starting Japanese source discovery for the entire selected season…" :
+        "Requesting season sourcing stop…");
+      try {
+        const auth = await fetch("/api/owner-token", {cache:"no-store"});
+        if (!auth.ok) throw new Error("Owner access unavailable");
+        const token = (await auth.json()).token;
+        if (typeof token !== "string" || !token) throw new Error("Owner token missing");
+        const req = startAction ? {
+          series:selectedBatch.series,season:selectedBatch.season
+        } : {};
+        const response = await fetch("/api/source-season/" +
+          (startAction ? "start" : "stop"), {
+          method:"POST",
+          headers:{"Content-Type":"application/json","X-Subhub-Token":token},
+          body:JSON.stringify(req),cache:"no-store"
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "Season source operation refused");
+        text("season-source-feedback",startAction ?
+          ("Accepted: " + result.accepted + " episode(s) to source. " +
+           "This searches the full season, not only the translation batch selection.") :
+          "Stop requested; previous source results retained.");
+      } catch (err) {
+        text("season-source-feedback","Not completed: " + (err.message || "source failed"));
+      } finally {
+        batchBusy = false;
+        await refresh();
+      }
+    }
+    el("season-source-button").addEventListener("click",()=>sendSeasonSourceAction(true));
+    el("season-source-stop-button").addEventListener("click",()=>sendSeasonSourceAction(false));
     el("translation-series").addEventListener("input",updateSeasonOptions);
     el("translation-series").addEventListener("change",updateSeasonOptions);
     for (const id of ["translation-season","translation-count","translation-start-episode"])
       el(id).addEventListener("change", () => {
         selectedBatch = null;
         el("translation-start-button").disabled = true;
+        el("season-source-button").disabled = true;
       });
     el("translation-preview-button").addEventListener("click",previewSeason);
     el("translation-start-button").addEventListener("click",()=>sendTranslationAction(true));
