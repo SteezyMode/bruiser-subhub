@@ -504,7 +504,7 @@
         selectedBatch = plan;
         text("translation-batch-feedback",
           plan.ready + " ready · " + plan.blocked + " blocked · " +
-          plan.covered + " already covered (before selected range). " +
+          plan.covered + " already covered in this season. " +
           (plan.ready ? "Only ready episodes will be translated." :
           "No episodes currently pass source-first eligibility."));
         for (const item of plan.items) {
@@ -545,6 +545,7 @@
         });
         const result = await response.json();
         if (!response.ok) throw new Error(result.error || "Batch action refused");
+        if (startAction) selectedBatch = null;
         text("translation-batch-feedback",startAction ?
           ("Batch accepted: " + result.accepted + " eligible episode(s), " +
            result.blocked + " blocked.") : "Stop requested; checkpoints kept.");
