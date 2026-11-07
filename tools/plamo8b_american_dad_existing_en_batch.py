@@ -144,27 +144,29 @@ CUE_MODEL_RETRY_ERRORS=frozenset((
 
 
 def translate_with_one_retry(request, port, english, history):
-    """One bounded replay of a defective model response, with no prompt changes.
+    """Native PLaMo request; one context-free recovery, never identical replay.
 
-    Never checkpoint an empty/Latin-only answer as translated Japanese. The
-    episode will be held if a second identical PFML3 request also fails.
+    Only malformed/non-Japanese model responses may become per-cue holds.
+    Thermal, CUDA, transport and other infrastructure failures still abort.
     """
-    for attempt in range(2):
+    for attempt, pairs in enumerate([history, []] if history else [history]):
         try:
-            japanese,usage,status=request(port,english,history)
+            japanese,usage,status=request(port,english,pairs)
         except RuntimeError as exc:
             if str(exc) not in CUE_MODEL_RETRY_ERRORS:
                 raise
-            if attempt:
-                raise RuntimeError("cue_model_error_after_retry:"+str(exc)) from exc
-            print("CUE_RETRY invalid_model_output attempt=2/2",flush=True)
-            continue
+            if attempt==0 and history:
+                print("CUE_RETRY no_history_after_invalid_output",flush=True)
+                continue
+            print("CUE_HELD malformed_model_output",flush=True)
+            return english,{}, "held_non_japanese"
         if status == engine.SPOKEN:
             return japanese,usage,status
-        if attempt == 0:
-            print("CUE_RETRY non_japanese_output attempt=2/2",flush=True)
+        if attempt==0 and history:
+            print("CUE_RETRY no_history_after_non_japanese_output",flush=True)
             continue
-        return japanese,usage,status
+        print("CUE_HELD model_returned_no_japanese",flush=True)
+        return english,{}, "held_non_japanese"
     raise AssertionError("unreachable_translation_retry")
 
 
@@ -173,6 +175,7 @@ def episode_only_cue_failure(exc):
     reason=str(exc)
     return bool(
         re.fullmatch(r"model_did_not_translate_spoken_cue_[1-9][0-9]*",reason)
+        or reason.startswith("episode_held_limit_exceeded_")
         or (reason.startswith("cue_model_error_after_retry:")
             and reason.split(":",1)[1] in CUE_MODEL_RETRY_ERRORS)
     )
@@ -369,7 +372,8 @@ def with_batch_inference(tag, video, source_rows, origin, raw_sha, timing):
         real.request=guarded_request
         try:
             print("TRANSLATING:",tag,video.name,flush=True)
-            engine.run(argparse.Namespace(episode=tag,install=True,port=PORT))
+            engine.run(argparse.Namespace(episode=tag,install=True,port=PORT,
+                                              allow_held=True))
         finally:
             real.request=original_request
             small.start_server=original_start
