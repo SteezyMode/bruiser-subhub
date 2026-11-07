@@ -3,7 +3,7 @@
 
 On the existing OptiPlex: retry the two un-published IASIP S12 tracks using
 proven candidate selection/synchronization; stage at most one different saved
-candidate per held episode; then run one bounded source-only library cycle.
+candidate per held episode; then launch the already-installed automatic source service for a long\nsource-only library pass (visible on the dashboard).
 
 Never overwrites a media file or any Japanese sidecar. Does NOT start AI.
 Use systemd-run --user to make the work survive terminal disconnects.
@@ -213,30 +213,37 @@ def reconcile():
         banner("QUEUE_HELD",reason="installed_coverage_queue_helper_missing")
 
 
-def broad_source_only():
-    """One bounded library-wide cycle; the parent holds the daily source lock.
+def start_existing_automatic_source(autofill):
+    """Use the ALREADY installed source service and dashboard live counters.
 
-    The existing controller handles provider history, timing gates, staged-only
-    recovery, and create-only publication; no translation model is launched.
+    The daily worker owns its own lock. Called only after the repair lock has
+    been released; it will do up to 45 NEW searches plus its normal staged
+    backlog (max 200 downloads/publications), and will not launch AI.
     """
-    exe=SOURCE/"ja_first_cycle.py"
-    if not exe.is_file() or exe.is_symlink():
-        raise RuntimeError("existing_source_cycle_not_installed")
-    command=[sys.executable,"-B","-u",str(exe),"cycle",
-             "--sources-only","--apply",
-             "--search-budget",str(SEARCH_LIMIT),
-             "--stage-budget",str(STAGE_LIMIT),
-             "--publish-limit",str(PUBLISH_LIMIT)]
-    banner("BACKLOG_STARTED",search_limit=SEARCH_LIMIT,
-           download_limit=STAGE_LIMIT,publish_limit=PUBLISH_LIMIT,
-           model="not_started")
-    result=subprocess.run(command,stdin=subprocess.DEVNULL,
-                          timeout=MAX_SECONDS,check=False)
-    banner("BACKLOG_FINISHED",exit_code=result.returncode)
+    default_budget, custom = autofill.next_run_budget()
+    if not custom:
+        autofill.set_next_run_budget(45)
+        budget=45
+    else:
+        budget=default_budget
+    state = subprocess.run(
+        ["systemctl","--user","show",
+         "bruiser-ja-source-autofill.service",
+         "--property=ActiveState","--value"],
+        capture_output=True,text=True,check=False,timeout=8)
+    if state.returncode or state.stdout.strip() not in ("inactive","failed"):
+        raise RuntimeError("automatic_source_unit_not_idle_after_repair")
+    result=subprocess.run(
+        ["systemctl","--user","start","--no-block",
+         "bruiser-ja-source-autofill.service"],
+        capture_output=True,text=True,check=False,timeout=15)
     if result.returncode:
-        raise RuntimeError("bounded_source_cycle_failed")
-    return 0
-
+        raise RuntimeError("cannot_start_existing_automatic_source:"+
+                           (result.stderr or result.stdout)[:120])
+    banner("LONG_SOURCE_STARTED",unit="bruiser-ja-source-autofill.service",
+           search_budget=budget,stage_budget=200,publish_limit=200,
+           monitor="SubHub dashboard / automatic source cycle",
+           GPU_translation="not_started")
 
 def run():
     autofill,stage,publisher,direct=modules()
@@ -269,14 +276,15 @@ def run():
                    inventory[jid]["episode"] for jid in pending))
         if quota_stop:
             banner("BACKLOG_SKIPPED",reason="provider_limit_detected")
-        else:
-            broad_source_only()
-        reconcile()
-        banner("DONE",unresolved_S12=sorted(
+        banner("REPAIR_PHASE_DONE",unresolved_S12=sorted(
             inventory[jid]["episode"] for jid in pending),
             next_step="review_held_then_translate_if_source_exhausted")
     finally:
         os.close(fd)
+    # The standard daily source service holds its own lock and is already
+    # integrated into the dashboard. Do NOT start it before releasing ours.
+    if not quota_stop:
+        start_existing_automatic_source(autofill)
     return 0
 
 
