@@ -24,6 +24,10 @@
     .dot.completed { background:var(--blue) }
     button { font:inherit; background:#202a3a; color:var(--text); border:1px solid #44516a; padding:8px 15px; border-radius:10px; font-size:13px; cursor:pointer }
     button:hover { background:#303d52 }
+    button:disabled { cursor:not-allowed;opacity:.42;background:#202a3a }
+    .control-grid { display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:12px }
+    .control-grid button { white-space:normal;min-height:40px;padding:8px 9px }
+    .control-feedback { min-height:20px;color:var(--muted);font-size:12px;overflow-wrap:anywhere;margin-top:10px }
     button:focus-visible { outline:2px solid var(--blue);outline-offset:2px }
     .eyebrow { text-transform:uppercase; letter-spacing:1.3px; font-size:11px; color:var(--muted); font-weight:750 }
     .top { display:grid; grid-template-columns:minmax(0,1.8fr) minmax(270px,1fr); gap:18px; margin-bottom:18px }
@@ -102,11 +106,11 @@
           <p id="current-item" class="subtext">Retrieving the current batch state</p>
         </div>
         <div class="progress-group">
-          <div class="progress-row"><span>Source batch cycles</span><strong id="cycle-label">—</strong></div>
+          <div class="progress-row"><span>Saved manual batch cycles</span><strong id="cycle-label">—</strong></div>
           <div class="bar" role="progressbar" aria-label="Completed cycles" aria-valuemin="0" aria-valuemax="100" id="cycle-progress"><div class="fill" id="cycle-bar"></div></div>
-          <div class="progress-row"><span>Search attempts (planned maximum)</span><strong id="search-label">—</strong></div>
+          <div class="progress-row"><span>Saved manual search attempts (maximum)</span><strong id="search-label">—</strong></div>
           <div class="bar" role="progressbar" aria-label="Search attempts" aria-valuemin="0" aria-valuemax="100" id="search-progress"><div class="fill" id="search-bar"></div></div>
-          <div class="progress-row"><span>Current stage</span><strong id="stage-label">—</strong></div>
+          <div class="progress-row"><span>Saved manual batch stage</span><strong id="stage-label">—</strong></div>
           <div class="bar" role="progressbar" aria-label="Current stage progress" aria-valuemin="0" aria-valuemax="100" id="stage-progress"><div class="fill" id="stage-bar"></div></div>
           <div class="caption" id="updated">Waiting for first update</div>
         </div>
@@ -118,10 +122,18 @@
         <div class="row-between"><span>AI translation</span><span id="ai-worker" class="muted">Not connected yet</span></div>
         <div class="row-between"><span>Provider quota</span><span id="quota">—</span></div>
         <div class="divider"></div>
-        <div class="eyebrow">Current job</div>
+        <div class="eyebrow">Owner controls</div>
+        <div class="control-grid" aria-label="Subtitle source worker controls">
+          <button type="button" id="action-start-auto">Run automatic sourcing</button>
+          <button type="button" id="action-stop-auto">Stop automatic</button>
+          <button type="button" id="action-start-manual">Start manual cycle</button>
+          <button type="button" id="action-stop-manual">Stop manual cycle</button>
+        </div>
+        <p class="control-feedback" id="control-feedback" role="status" aria-live="polite">Checking available actions…</p>
+        <div class="divider"></div>
+        <div class="eyebrow">Last saved manual batch</div>
         <strong id="job">—</strong>
-        <p id="job-note">Status from the existing Bruiser batch; no additional worker.</p>
-        <div class="callout"><strong>Read-only preview</strong> Pause / Resume, Start and Prioritize Title will be enabled only when the safe controller API is implemented. This dashboard does not stop or restart any batch.</div>
+        <p id="job-note">Manual-batch history is separate from the live scheduled worker.</p>
       </section>
     </div>
     <section class="panel jobs-section" aria-label="PLaMo translation jobs">
@@ -132,7 +144,7 @@
       <p class="subtext" style="margin-bottom:16px">Live progress from committed cue checkpoints. Unresolved cues are tracked separately from translated Japanese.</p>
       <div class="job-list" id="translation-jobs" aria-live="polite"><p class="empty">Connecting to PLaMo checkpoint state…</p></div>
     </section>
-    <section class="stats" aria-label="Actual batch results">
+    <section class="stats" aria-label="Saved manual batch results">
       <div class="stat"><div class="number" id="published">—</div><div class="label">Newly published</div></div>
       <div class="stat"><div class="number" id="staged">—</div><div class="label">Subtitles staged</div></div>
       <div class="stat"><div class="number" id="held">—</div><div class="label">Titles held</div></div>
@@ -154,13 +166,14 @@
         <div class="holds"><div class="eyebrow">Top hold reasons</div><div id="hold-list">No holds reported for this batch</div></div>
       </section>
     </div>
-    <footer><span>SubHub Dashboard v0.1 · Local-only, independent of OptiPlex NOW</span><span>Updates every 3 seconds · Viewer disconnects do not affect processing</span></footer>
+    <footer><span>SubHub Dashboard v0.2 · Local-only, independent of OptiPlex NOW</span><span>Updates every 3 seconds · Viewer disconnects do not affect processing</span></footer>
   </main>
   <script>
     "use strict";
     const el = (id) => document.getElementById(id);
     let pending = false;
     let wasConnected = false;
+    let controlBusy = false;
     const number = (v) => Number.isFinite(Number(v)) ? Number(v).toLocaleString() : "0";
     const text = (id, value) => { el(id).textContent = value == null ? "—" : String(value); };
     const progress = (id, label, current, total) => {
@@ -247,9 +260,15 @@
         ((tr.active_jobs || 0) + " running · " + (tr.total_jobs || 0) + " saved jobs") :
         "Translation status unavailable");
       drawTranslations(tr);
-      text("quota", d.quota_exhausted ? "Provider limit reached" : "No limit reported");
+      text("quota", d.quota_exhausted ? "Manual batch reported exhaustion" : "Not measured · software budget ≠ allowance");
       el("quota").className = d.quota_exhausted ? "warning" : "";
-      text("job", d.batch_id || "No saved batch");
+      text("job", d.manual_batch_history?.batch_id || "No saved manual batch");
+      const cset = d.controls || {};
+      for (const action of ["start-auto","stop-auto","start-manual","stop-manual"]) {
+        const key = action.replace(/-/g, "_");
+        el("action-" + action).disabled = controlBusy || !cset.available || !cset[key];
+      }
+      if (!controlBusy && !cset.available) text("control-feedback", cset.reason || "Controls unavailable");
       progress("cycle", "cycle-label", d.cycle_done, d.cycles);
       progress("search", "search-label", d.search_progress?.current, d.search_progress?.total);
       progress("stage", "stage-label", d.phase_progress?.current, d.phase_progress?.total);
@@ -291,6 +310,39 @@
         text("updated", "The SubHub dashboard cannot read the backend right now.");
         text("source-worker", "Unknown");
       } finally { pending = false; }
+    }
+    async function runControl(action) {
+      if (controlBusy) return;
+      const button = el("action-" + action);
+      if (!button || button.disabled) return;
+      controlBusy = true;
+      for (const key of ["start-auto","stop-auto","start-manual","stop-manual"])
+        el("action-" + key).disabled = true;
+      text("control-feedback", "Sending " + action.replace(/-/g, " ") + "…");
+      try {
+        const keyResponse = await fetch("/api/owner-token", {cache:"no-store"});
+        if (!keyResponse.ok) throw new Error("Owner access unavailable");
+        const token = (await keyResponse.json()).token;
+        if (typeof token !== "string" || !token) throw new Error("Owner token missing");
+        const response = await fetch("/api/control/" + action, {
+          method:"POST",
+          headers:{"Content-Type":"application/json","X-Subhub-Token":token},
+          body:"{}",
+          cache:"no-store"
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "Control rejected (" + response.status + ")");
+        text("control-feedback", "Accepted: " + action.replace(/-/g, " "));
+      } catch (err) {
+        text("control-feedback", "Not completed: " + (err.message || "control failed"));
+      } finally {
+        controlBusy = false;
+        await refresh();
+      }
+    }
+    for (const action of ["start-auto","stop-auto","start-manual","stop-manual"]) {
+      el("action-" + action).disabled = true;
+      el("action-" + action).addEventListener("click", () => runControl(action));
     }
     el("refresh").addEventListener("click", refresh);
     refresh();
