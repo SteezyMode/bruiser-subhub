@@ -139,6 +139,13 @@
           <button type="button" id="action-start-manual">Start manual cycle</button>
           <button type="button" id="action-stop-manual">Stop manual cycle</button>
         </div>
+        <div class="divider"></div>
+        <div class="eyebrow">PLaMo · American Dad</div>
+        <div class="control-grid" aria-label="American Dad translation controls">
+          <button type="button" id="action-start-plamo" title="Resume the existing English-ready batch from saved cue checkpoints">Resume translations</button>
+          <button type="button" id="action-stop-plamo" title="Stop the dashboard-managed translation batch, keeping completed cues">Stop translations</button>
+        </div>
+        <p class="subtext" id="plamo-control-note">Existing batch only · saved cues are kept</p>
         <p class="control-feedback" id="control-feedback" role="status" aria-live="polite">Checking available actions…</p>
         <div class="divider"></div>
         <div class="eyebrow">Last saved manual batch</div>
@@ -281,10 +288,13 @@
       el("quota").className = d.quota_exhausted ? "warning" : "";
       text("job", d.manual_batch_history?.batch_id || "No saved manual batch");
       const cset = d.controls || {};
-      for (const action of ["start-auto","stop-auto","start-manual","stop-manual"]) {
+      const pset = d.plamo_controls || {};
+      for (const action of ["start-auto","stop-auto","start-manual","stop-manual","start-plamo","stop-plamo"]) {
         const key = action.replace(/-/g, "_");
-        el("action-" + action).disabled = controlBusy || !cset.available || !cset[key];
+        const set = action.endsWith("-plamo") ? pset : cset;
+        el("action-" + action).disabled = controlBusy || !set.available || !set[key];
       }
+      text("plamo-control-note", pset.reason || "Existing batch only · saved cues are kept");
       if (!controlBusy) {
         if (!cset.available) text("control-feedback", cset.reason || "Controls unavailable");
         else if (el("control-feedback").textContent.startsWith("Checking"))
@@ -351,7 +361,7 @@
       const button = el("action-" + action);
       if (!button || button.disabled) return;
       controlBusy = true;
-      for (const key of ["start-auto","stop-auto","start-manual","stop-manual"])
+      for (const key of ["start-auto","stop-auto","start-manual","stop-manual","start-plamo","stop-plamo"])
         el("action-" + key).disabled = true;
       text("control-feedback", "Sending " + action.replace(/-/g, " ") + "…");
       try {
@@ -375,7 +385,7 @@
         await refresh();
       }
     }
-    for (const action of ["start-auto","stop-auto","start-manual","stop-manual"]) {
+    for (const action of ["start-auto","stop-auto","start-manual","stop-manual","start-plamo","stop-plamo"]) {
       el("action-" + action).disabled = true;
       el("action-" + action).addEventListener("click", () => runControl(action));
     }
