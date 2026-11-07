@@ -4,6 +4,7 @@ No network, provider calls, subtitle writes, or actual video parsing.
 """
 from pathlib import Path
 import tempfile
+import subprocess
 import unittest
 
 from tools import ja_first_catalog_manifest as catalog
@@ -83,6 +84,13 @@ class NativeSeriesIdentityTests(unittest.TestCase):
     def test_no_audio_language_does_not_use_native_identity_to_bypass_review(self):
         self.item["MediaStreams"] = [{"Type": "Audio", "Language": "und"}]
         self.assertEqual(self.inspect()["status"], "review_audio_language_unverified")
+
+    def test_safe_installer_has_valid_shell_syntax(self):
+        installer = (Path(__file__).parent / "tools" /
+                     "install_native_series_identity_fix.sh")
+        result = subprocess.run(["bash", "-n", str(installer)],
+                                capture_output=True, text=True, timeout=5)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_external_matching_remains_strict(self):
         row = self.inspect()
