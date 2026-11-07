@@ -98,6 +98,33 @@ class StatusTests(unittest.TestCase):
                 "movie",set(),False)
             self.assertTrue(published["published"])
 
+    def test_running_american_dad_episode_uses_verified_batch_identity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            folder=root/"S20E03"
+            folder.mkdir(mode=0o700)
+            video=root/"S20E03.mp4"
+            video.write_bytes(b"video")
+            meta={"video":str(video),"cue_count":440,"episode":"S20E03"}
+            with sqlite3.connect(folder/"progress.sqlite3") as db:
+                db.execute("CREATE TABLE translation (status TEXT, seconds REAL)")
+                db.execute("INSERT INTO translation VALUES ('translated', 1.0)")
+            active=dashboard._plamo_checkpoint(folder,meta,"episode",set(),"S20E03")
+            stopped=dashboard._plamo_checkpoint(folder,meta,"episode",set(),"")
+            self.assertTrue(active["active"])
+            self.assertEqual(active["state"],"translating")
+            self.assertFalse(stopped["active"])
+            self.assertEqual(stopped["state"],"needs_resume")
+
+    def test_batch_summary_reports_running_even_before_episode_selected(self):
+        with patch.object(dashboard,"translation_jobs",return_value=[]), \
+             patch.object(dashboard,"american_dad_batch_activity",return_value={
+                 "active":True,"episode":"","pid":1234}):
+            snap=dashboard.translation_snapshot()
+        self.assertEqual(snap["state"],"active")
+        self.assertEqual(snap["active_jobs"],0)
+        self.assertTrue(snap["american_dad_batch"]["active"])
+
     def test_real_translation_contract_without_running_source_batch(self):
         with patch.object(dashboard,"translation_jobs",return_value=[{
             "state":"needs_resume","active":False,"published":False,
