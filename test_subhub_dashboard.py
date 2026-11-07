@@ -1,4 +1,4 @@
-"""Offline tests for standalone, read-only SubHub dashboard."""
+"""Offline tests for loopback-only SubHub dashboard and guarded owner controls."""
 import json
 import os
 import sqlite3
@@ -38,6 +38,69 @@ class StatusTests(unittest.TestCase):
         self.assertEqual(data["cycle_done"], 1)
         self.assertEqual(data["translation"]["state"], "not_connected")
         self.assertFalse(data["controls"]["available"])
+
+    def test_live_source_reads_real_cycle_progress_not_saved_manual_counts(self):
+        events=[
+            "RUNNING_SOURCES_ONLY_CYCLE search_budget=600 stage_budget=200 publish_limit=200",
+            "=== DISCOVERY ===",
+            "Search requests planned: 3 | budget: 600",
+            "[1/3] SEARCHING: Family Guy S15E02",
+            "[1/3] PLAUSIBLE: Family Guy S15E02",
+            "[2/3] SEARCHING: American Dad! S20E03",
+        ]
+        payload="\n".join(json.dumps({
+            "MESSAGE":message,"__REALTIME_TIMESTAMP":str(1794000000000000+i*1000000)
+        }) for i,message in enumerate(events))
+        result=dashboard.subprocess.CompletedProcess([],0,stdout=payload)
+        with patch.object(dashboard.subprocess,"run",return_value=result), \
+             patch.object(dashboard.time,"monotonic",return_value=2000.):
+            old=dict(dashboard._SOURCE_CACHE)
+            try:
+                dashboard._SOURCE_CACHE.update(when=0.0,state=None)
+                current=dashboard.scheduled_source_activity(True)
+                self.assertEqual(current["search_planned"],3)
+                self.assertEqual(current["search_completed"],1)
+                self.assertTrue(current["metrics_available"])
+                self.assertEqual(current["search_found"],1)
+                self.assertEqual(current["search_none"],0)
+                self.assertEqual(current["staged"],0)
+                self.assertEqual(current["published"],0)
+                self.assertIn("American Dad",current["current_item"])
+                self.assertEqual(current["stage_attempts"],0)
+                self.assertEqual(current["phase_label"],"Searching Japanese subtitle providers")
+                self.assertEqual(current["last_event"],1794000005.)
+            finally:
+                dashboard._SOURCE_CACHE.update(old)
+
+    def test_unavailable_journal_is_unknown_not_false_zero_success(self):
+        failed=dashboard.subprocess.CompletedProcess([],1,stdout="")
+        with patch.object(dashboard.subprocess,"run",return_value=failed), \
+             patch.object(dashboard.time,"monotonic",return_value=3000.):
+            old=dict(dashboard._SOURCE_CACHE)
+            try:
+                dashboard._SOURCE_CACHE.update(when=0.,state=None)
+                data=dashboard.scheduled_source_activity(True)
+                self.assertTrue(data["active"])
+                self.assertFalse(data["metrics_available"])
+                self.assertEqual(data["search_found"],0)
+            finally:
+                dashboard._SOURCE_CACHE.update(old)
+
+    def test_page_prioritizes_current_run_and_removes_manual_batch_dropdown(self):
+        html=dashboard.HTML.read_text(encoding="utf-8")
+        for name in ("live-matches","live-downloaded","live-published",
+                     "live-none","live-review","live-errors"):
+            self.assertIn('id="'+name+'"',html)
+        self.assertNotIn('id="manual-history"',html)
+        self.assertNotIn('aria-label="Saved manual batch results"',html)
+        self.assertNotIn('id="job"',html)
+        self.assertIn('live.metrics_available',html)
+
+    def test_inactive_source_returns_no_stale_live_progress(self):
+        result=dashboard.scheduled_source_activity(False)
+        self.assertFalse(result["active"])
+        self.assertEqual(result["search_completed"],0)
+        self.assertEqual(result["current_item"],"")
 
     def test_web_dashboard_shows_real_movie_cues_and_held_count(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -97,6 +160,33 @@ class StatusTests(unittest.TestCase):
                 "jellyfin_id":jid,"video":str(video),"cue_count":5},
                 "movie",set(),False)
             self.assertTrue(published["published"])
+
+    def test_running_american_dad_episode_uses_verified_batch_identity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            folder=root/"S20E03"
+            folder.mkdir(mode=0o700)
+            video=root/"S20E03.mp4"
+            video.write_bytes(b"video")
+            meta={"video":str(video),"cue_count":440,"episode":"S20E03"}
+            with sqlite3.connect(folder/"progress.sqlite3") as db:
+                db.execute("CREATE TABLE translation (status TEXT, seconds REAL)")
+                db.execute("INSERT INTO translation VALUES ('translated', 1.0)")
+            active=dashboard._plamo_checkpoint(folder,meta,"episode",set(),"S20E03")
+            stopped=dashboard._plamo_checkpoint(folder,meta,"episode",set(),"")
+            self.assertTrue(active["active"])
+            self.assertEqual(active["state"],"translating")
+            self.assertFalse(stopped["active"])
+            self.assertEqual(stopped["state"],"needs_resume")
+
+    def test_batch_summary_reports_running_even_before_episode_selected(self):
+        with patch.object(dashboard,"translation_jobs",return_value=[]), \
+             patch.object(dashboard,"american_dad_batch_activity",return_value={
+                 "active":True,"episode":"","pid":1234}):
+            snap=dashboard.translation_snapshot()
+        self.assertEqual(snap["state"],"active")
+        self.assertEqual(snap["active_jobs"],0)
+        self.assertTrue(snap["american_dad_batch"]["active"])
 
     def test_real_translation_contract_without_running_source_batch(self):
         with patch.object(dashboard,"translation_jobs",return_value=[{
@@ -199,6 +289,59 @@ class StatusTests(unittest.TestCase):
 
 
 class HTTPTests(unittest.TestCase):
+    def test_activating_oneshot_source_is_busy(self):
+        result = dashboard.subprocess.CompletedProcess([], 0, stdout="activating\n")
+        with patch.object(dashboard.subprocess, "run", return_value=result):
+            self.assertTrue(dashboard.unit_active(dashboard.SCHEDULED_UNIT))
+
+    def test_unknown_service_state_blocks_controls(self):
+        result = dashboard.subprocess.CompletedProcess([], 1, stdout="")
+        with patch.object(dashboard.subprocess, "run", return_value=result):
+            with self.assertRaisesRegex(RuntimeError, "cannot_verify"):
+                dashboard.control_availability()
+
+    def test_scheduled_work_does_not_fake_manual_batch_as_running(self):
+        saved = dashboard.snapshot(sample(), False, False, [])
+        source = {"active": True, "phase": "running", "phase_label": "Sourcing",
+                  "current_item": "Searching", "events": []}
+        result = dashboard.live_source_snapshot(saved, source)
+        self.assertEqual(result["state"], "scheduled_source_running")
+        self.assertEqual(result["manual_batch_history"]["state"], "interrupted")
+        self.assertTrue(result["source_active"])
+
+    def test_auto_start_is_nonblocking_and_only_requests_existing_unit(self):
+        with patch.object(dashboard, "unit_active", side_effect=[False, False]):
+            cp = dashboard.subprocess.CompletedProcess([], 0, stdout="ok")
+            with patch.object(dashboard.subprocess, "run", return_value=cp) as run:
+                result = dashboard.source_controls("start-auto")
+        self.assertTrue(result["ok"])
+        self.assertEqual(run.call_args.args[0], [
+            "systemctl", "--user", "start", "--no-block",
+            dashboard.SCHEDULED_UNIT])
+
+
+    def test_control_availability_prevents_duplicate_workers(self):
+        with patch.object(dashboard, "unit_active", side_effect=[False, True]):
+            c = dashboard.control_availability()
+        self.assertTrue(c["available"])
+        self.assertFalse(c["start_auto"])
+        self.assertTrue(c["stop_auto"])
+        self.assertFalse(c["start_manual"])
+        self.assertFalse(c["stop_manual"])
+
+    def test_source_start_is_guarded_when_another_service_is_active(self):
+        with patch.object(dashboard, "unit_active", side_effect=[False, True]):
+            with patch.object(dashboard.subprocess, "run") as runner:
+                with self.assertRaises(RuntimeError):
+                    dashboard.source_controls("start-auto")
+                runner.assert_not_called()
+
+    def test_dashboard_controls_are_present_in_html(self):
+        source = dashboard.HTML.read_text(encoding="utf-8")
+        for action in ("start-auto","stop-auto","start-manual","stop-manual"):
+            self.assertIn('id="action-' + action + '"', source)
+        self.assertIn("X-Subhub-Token", source)
+
     def test_owner_http_and_no_remote_listener(self):
         with patch.object(dashboard, "status_payload",
                           return_value=dashboard.snapshot(sample(), True)):
@@ -215,13 +358,29 @@ class HTTPTests(unittest.TestCase):
                     self.assertEqual(response.headers.get("Cache-Control"), "no-store")
                 with urlopen(base + "/healthz", timeout=3) as response:
                     self.assertEqual(json.load(response)["mode"], "owner_controls")
-                # The owner control is not available without the session token.
-                denied_req = Request(base + "/api/control/start-auto",
-                    data=b"{}", headers={"Content-Type":"application/json",
-                                         "Origin":base}, method="POST")
-                with self.assertRaises(HTTPError) as blocked:
-                    urlopen(denied_req,timeout=3)
-                self.assertEqual(blocked.exception.code,403)
+                with urlopen(base + "/api/owner-token", timeout=3) as response:
+                    token = json.load(response)["token"]
+                self.assertEqual(token, dashboard.OWNER_TOKEN)
+                control = Request(
+                    base + "/api/control/start-auto", data=b"{}",
+                    headers={"Content-Type":"application/json",
+                             "X-Subhub-Token":token,
+                             "Origin":base},
+                    method="POST")
+                with patch.object(dashboard, "source_controls",
+                                  return_value={"ok":True,"action":"start-auto"}) as action:
+                    with urlopen(control, timeout=3) as response:
+                        self.assertTrue(json.load(response)["ok"])
+                    action.assert_called_once_with("start-auto")
+                forbidden = Request(
+                    base + "/api/control/start-auto", data=b"{}",
+                    headers={"Content-Type":"application/json",
+                             "X-Subhub-Token":token,
+                             "Origin":"http://evil.example"},
+                    method="POST")
+                with self.assertRaises(HTTPError) as denied:
+                    urlopen(forbidden, timeout=3)
+                self.assertEqual(denied.exception.code,403)
                 req = Request(base + "/api/status", data=b"{}", method="POST")
                 with self.assertRaises(HTTPError) as result:
                     urlopen(req, timeout=3)

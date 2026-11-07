@@ -24,6 +24,10 @@
     .dot.completed { background:var(--blue) }
     button { font:inherit; background:#202a3a; color:var(--text); border:1px solid #44516a; padding:8px 15px; border-radius:10px; font-size:13px; cursor:pointer }
     button:hover { background:#303d52 }
+    button:disabled { cursor:not-allowed;opacity:.42;background:#202a3a }
+    .control-grid { display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:12px }
+    .control-grid button { white-space:normal;min-height:40px;padding:8px 9px }
+    .control-feedback { min-height:20px;color:var(--muted);font-size:12px;overflow-wrap:anywhere;margin-top:10px }
     button:focus-visible { outline:2px solid var(--blue);outline-offset:2px }
     .eyebrow { text-transform:uppercase; letter-spacing:1.3px; font-size:11px; color:var(--muted); font-weight:750 }
     .top { display:grid; grid-template-columns:minmax(0,1.8fr) minmax(270px,1fr); gap:18px; margin-bottom:18px }
@@ -53,7 +57,10 @@
     .job-fill { height:100%;width:0;background:linear-gradient(90deg,#6791ed,#91bcf9);transition:width .5s }
     .job-detail { color:var(--muted);font-size:12px;margin-top:8px }
     .job-warning { color:var(--amber) }
-    .stats { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:14px; margin-bottom:18px }
+    .live-kpis { display:grid; grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:20px }
+    .live-kpis .stat { padding:12px; border-radius:12px; background:#101724 }
+    .live-kpis .stat .number { font-size:24px }
+    .live-kpis .stat .label { font-size:11px }
     .stat { padding:19px 20px; background:var(--panel); border:1px solid var(--line); border-radius:16px }
     .stat .number { font-size:30px; line-height:1.2; font-weight:730; letter-spacing:-.5px; font-variant-numeric:tabular-nums }
     .stat .label { color:var(--muted); font-size:12px; margin:6px 0 0 }
@@ -78,8 +85,8 @@
     .holds div { border-bottom:1px solid var(--line); padding:8px 0; font-size:12px; color:var(--muted); overflow-wrap:anywhere }
     .holds b { color:var(--text); margin-right:6px }
     footer { display:flex; flex-wrap:wrap; justify-content:space-between; gap:10px; color:var(--muted); font-size:12px; margin-top:20px }
-    @media(max-width:850px){ .top,.cols { grid-template-columns:1fr }.stats { grid-template-columns:repeat(3,1fr) } }
-    @media(max-width:530px){.shell{padding:18px 14px 36px}.panel{padding:18px}.stats{grid-template-columns:repeat(2,1fr)}.brand h1{font-size:21px}.hero h2{font-size:22px} }
+    @media(max-width:850px){ .top,.cols { grid-template-columns:1fr } }
+    @media(max-width:530px){.shell{padding:18px 14px 36px}.panel{padding:18px}.live-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.brand h1{font-size:21px}.hero h2{font-size:22px} }
   </style>
 </head>
 <body>
@@ -100,15 +107,24 @@
           <div class="eyebrow">Current activity</div>
           <h2 id="phase-label">Connecting to the subtitle engine...</h2>
           <p id="current-item" class="subtext">Retrieving the current batch state</p>
+          <div class="live-kpis" id="live-kpis" aria-label="Current sourcing run results">
+            <div class="stat"><div class="number" id="live-matches">—</div><div class="label">Plausible title matches</div></div>
+            <div class="stat"><div class="number" id="live-downloaded">—</div><div class="label">Subtitles downloaded</div></div>
+            <div class="stat"><div class="number" id="live-published">—</div><div class="label">Japanese tracks published</div></div>
+            <div class="stat"><div class="number" id="live-none">—</div><div class="label">No matching source</div></div>
+            <div class="stat"><div class="number" id="live-review">—</div><div class="label">Matches needing review</div></div>
+            <div class="stat"><div class="number" id="live-errors">—</div><div class="label">Search errors</div></div>
+          </div>
+          <p class="subtext" id="source-phase-note" style="margin-top:12px">Results from the active run only.</p>
         </div>
-        <div class="progress-group">
-          <div class="progress-row"><span>Source batch cycles</span><strong id="cycle-label">—</strong></div>
-          <div class="bar" role="progressbar" aria-label="Completed cycles" aria-valuemin="0" aria-valuemax="100" id="cycle-progress"><div class="fill" id="cycle-bar"></div></div>
-          <div class="progress-row"><span>Search attempts (planned maximum)</span><strong id="search-label">—</strong></div>
-          <div class="bar" role="progressbar" aria-label="Search attempts" aria-valuemin="0" aria-valuemax="100" id="search-progress"><div class="fill" id="search-bar"></div></div>
-          <div class="progress-row"><span>Current stage</span><strong id="stage-label">—</strong></div>
-          <div class="bar" role="progressbar" aria-label="Current stage progress" aria-valuemin="0" aria-valuemax="100" id="stage-progress"><div class="fill" id="stage-bar"></div></div>
-          <div class="caption" id="updated">Waiting for first update</div>
+        <div class="progress-group" id="live-bars" hidden>
+          <div class="progress-row"><span>Current run · searches</span><strong id="live-search-label">—</strong></div>
+          <div class="bar" role="progressbar" aria-label="Current automatic searches" aria-valuemin="0" aria-valuemax="100" id="live-search-progress"><div class="fill" id="live-search-bar"></div></div>
+          <div class="progress-row"><span>Current run · download attempts</span><strong id="live-stage-label">—</strong></div>
+          <div class="bar" role="progressbar" aria-label="Current download attempts" aria-valuemin="0" aria-valuemax="100" id="live-stage-progress"><div class="fill" id="live-stage-bar"></div></div>
+          <div class="progress-row"><span>Current run · titles checked for publication</span><strong id="live-publish-label">—</strong></div>
+          <div class="bar" role="progressbar" aria-label="Current publication checks" aria-valuemin="0" aria-valuemax="100" id="live-publish-progress"><div class="fill" id="live-publish-bar"></div></div>
+          <div class="caption" id="live-updated">Waiting for source events…</div>
         </div>
       </section>
       <section class="panel side">
@@ -118,10 +134,15 @@
         <div class="row-between"><span>AI translation</span><span id="ai-worker" class="muted">Not connected yet</span></div>
         <div class="row-between"><span>Provider quota</span><span id="quota">—</span></div>
         <div class="divider"></div>
-        <div class="eyebrow">Current job</div>
-        <strong id="job">—</strong>
-        <p id="job-note">Status from the existing Bruiser batch; no additional worker.</p>
-        <div class="callout"><strong>Read-only preview</strong> Pause / Resume, Start and Prioritize Title will be enabled only when the safe controller API is implemented. This dashboard does not stop or restart any batch.</div>
+        <div class="eyebrow">Owner controls</div>
+        <div class="control-grid" aria-label="Subtitle source worker controls">
+          <button type="button" id="action-start-auto">Run automatic sourcing</button>
+          <button type="button" id="action-stop-auto">Stop automatic</button>
+          <button type="button" id="action-start-manual">Start manual cycle</button>
+          <button type="button" id="action-stop-manual">Stop manual cycle</button>
+        </div>
+        <p class="control-feedback" id="control-feedback" role="status" aria-live="polite">Checking available actions…</p>
+
       </section>
     </div>
     <section class="panel jobs-section" aria-label="PLaMo translation jobs">
@@ -132,35 +153,21 @@
       <p class="subtext" style="margin-bottom:16px">Live progress from committed cue checkpoints. Unresolved cues are tracked separately from translated Japanese.</p>
       <div class="job-list" id="translation-jobs" aria-live="polite"><p class="empty">Connecting to PLaMo checkpoint state…</p></div>
     </section>
-    <section class="stats" aria-label="Actual batch results">
-      <div class="stat"><div class="number" id="published">—</div><div class="label">Newly published</div></div>
-      <div class="stat"><div class="number" id="staged">—</div><div class="label">Subtitles staged</div></div>
-      <div class="stat"><div class="number" id="held">—</div><div class="label">Titles held</div></div>
-      <div class="stat"><div class="number" id="searches">—</div><div class="label">Searches completed</div></div>
-      <div class="stat"><div class="number" id="plausible">—</div><div class="label">Plausible matches</div></div>
-    </section>
-    <div class="cols">
+    <div class="cols" style="grid-template-columns:1fr">
       <section class="panel">
-        <div class="section-head"><h3>Recent activity</h3><span class="tag">Real worker events</span></div>
+        <div class="section-head"><h3>Recent activity</h3><span class="tag" id="activity-type">Current source cycle</span></div>
         <ol class="activity" id="activity"><li class="empty">Connecting...</li></ol>
       </section>
-      <section class="panel">
-        <div class="section-head"><h3>Diagnostics</h3><span class="tag">Live state</span></div>
-        <div class="row-between"><span>Searches in flight</span><span id="inflight">—</span></div>
-        <div class="row-between"><span>Review needed</span><span id="review">—</span></div>
-        <div class="row-between"><span>No matches</span><span id="none">—</span></div>
-        <div class="row-between"><span>Download attempts</span><span id="downloads">—</span></div>
-        <div class="row-between"><span>Search errors</span><span id="errors">—</span></div>
-        <div class="holds"><div class="eyebrow">Top hold reasons</div><div id="hold-list">No holds reported for this batch</div></div>
-      </section>
+
     </div>
-    <footer><span>SubHub Dashboard v0.1 · Local-only, independent of OptiPlex NOW</span><span>Updates every 3 seconds · Viewer disconnects do not affect processing</span></footer>
+    <footer><span>SubHub Dashboard v0.2 · Local-only, independent of OptiPlex NOW</span><span>Updates every 3 seconds · Viewer disconnects do not affect processing</span></footer>
   </main>
   <script>
     "use strict";
     const el = (id) => document.getElementById(id);
     let pending = false;
     let wasConnected = false;
+    let controlBusy = false;
     const number = (v) => Number.isFinite(Number(v)) ? Number(v).toLocaleString() : "0";
     const text = (id, value) => { el(id).textContent = value == null ? "—" : String(value); };
     const progress = (id, label, current, total) => {
@@ -173,8 +180,10 @@
     };
     function drawTranslations(t) {
       const jobs = Array.isArray(t.jobs) ? t.jobs : [];
+      const batch = t.american_dad_batch || {};
       text("translation-summary", jobs.length + " saved · " +
-        (t.active_jobs || 0) + " running · " + (t.published_jobs || 0) + " published");
+        (batch.active ? "American Dad batch active" + (batch.episode ? " (" + batch.episode + ")" : "") : (t.active_jobs || 0) + " running") +
+        " · " + (t.published_jobs || 0) + " published");
       const host = el("translation-jobs");
       host.replaceChildren();
       if (!jobs.length) {
@@ -236,45 +245,70 @@
     function draw(d) {
       wasConnected = true;
       const s = d.state || "unknown";
-      const names = {running:"Running",scheduled_source_running:"Daily sourcing",completed:"Completed",failed:"Failed",stopped:"Stopped",interrupted:"Interrupted — not running",idle:"Idle"};
+      const names = {running:"Manual batch",scheduled_source_running:"Daily sourcing",completed:"Completed",failed:"Failed",stopped:"Stopped",interrupted:"Interrupted — not running",idle:"Idle"};
       text("state", names[s] || s);
       el("state-dot").className = "dot " + (s === "running" || s === "scheduled_source_running" ? "running" : s);
       text("phase-label", d.phase_label);
       text("current-item", d.current_item || "Waiting for a current title");
       text("source-worker", d.source_active ? "Active" : "Not active");
       const tr = d.translation || {};
-      text("ai-worker", tr.engine === "PLaMo 8B" ?
+      const batch = tr.american_dad_batch || {};
+      text("ai-worker", batch.active ?
+        ("American Dad batch running" +
+         (batch.episode ? " · " + batch.episode : " · preparing next episode") +
+         " · " + (tr.active_jobs || 0) + " active job(s)") :
+        tr.engine === "PLaMo 8B" ?
         ((tr.active_jobs || 0) + " running · " + (tr.total_jobs || 0) + " saved jobs") :
         "Translation status unavailable");
       drawTranslations(tr);
-      text("quota", d.quota_exhausted ? "Provider limit reached" : "No limit reported");
-      el("quota").className = d.quota_exhausted ? "warning" : "";
-      text("job", d.batch_id || "No saved batch");
-      progress("cycle", "cycle-label", d.cycle_done, d.cycles);
-      progress("search", "search-label", d.search_progress?.current, d.search_progress?.total);
-      progress("stage", "stage-label", d.phase_progress?.current, d.phase_progress?.total);
-      const c = d.counts || {};
-      for (const [id,key] of [["published","published_new"],["staged","staged"],["held","held_titles"],["searches","search_completed"],["plausible","search_plausible"],["inflight","search_in_flight"],["review","search_review"],["none","search_none"],["downloads","download_attempted"],["errors","search_errors"]]) {
-        text(id, number(c[key] || 0));
+      const live = d.source_job || {};
+      text("quota", live.provider_limited ? "Limit reached in this run" : "Allowance unverified");
+      el("quota").className = live.provider_limited ? "warning" : "";
+
+      const cset = d.controls || {};
+      for (const action of ["start-auto","stop-auto","start-manual","stop-manual"]) {
+        const key = action.replace(/-/g, "_");
+        el("action-" + action).disabled = controlBusy || !cset.available || !cset[key];
       }
-      const updated = d.updated_utc ? "Last worker update: " + new Date(d.updated_utc).toLocaleString() : "No worker update yet";
-      text("updated", updated + (d.stale_seconds !== null && d.stale_seconds > 120 && d.source_active ? " · Activity delayed" : ""));
+      if (!controlBusy) {
+        if (!cset.available) text("control-feedback", cset.reason || "Controls unavailable");
+        else if (el("control-feedback").textContent.startsWith("Checking"))
+          text("control-feedback", "Controls ready");
+      }
+      el("live-bars").hidden = !live.active || !live.metrics_available;
+      if (live.active && live.metrics_available) {
+        progress("live-search","live-search-label",live.search_completed,live.search_planned);
+        progress("live-stage","live-stage-label",live.stage_attempts,live.stage_planned);
+        progress("live-publish","live-publish-label",live.publish_title_checked,live.publish_title_planned);
+        const last = Number(live.last_event)||0;
+        const elapsed = last ? Math.round(Date.now()/1000-last) : null;
+        text("live-updated", last ?
+          ("Last actual event: "+new Date(last*1000).toLocaleTimeString()+
+          (elapsed>120 ? " · No new events for "+Math.floor(elapsed/60)+" min" : "")) :
+          "Source worker active; no timestamped progress available");
+      }
+      const current = live.active && live.metrics_available;
+      for (const [id,key] of [
+        ["live-matches","search_found"],["live-downloaded","staged"],
+        ["live-published","published"],["live-none","search_none"],
+        ["live-review","search_review"],["live-errors","search_errors"]
+      ]) text(id, current ? number(live[key] ?? 0) : "—");
+      text("source-phase-note", current ?
+        (live.phase_label.includes("Searching") ?
+          "Searching sources now. Downloads start after searching; publishing follows downloads." :
+          "Results from the active automatic cycle only.") :
+        (live.active ? "Source worker active; journal progress unavailable." :
+          d.batch_active ? "Manual source batch active; automatic-run metrics unavailable." :
+          "No automatic source run active."));
+      text("activity-type",live.active ? "Current automatic cycle" :
+        d.batch_active ? "Current manual cycle" : "No active source cycle");
       const activity = el("activity");
       activity.replaceChildren();
-      const events = Array.isArray(d.events) ? d.events.slice(-9).reverse() : [];
+      const events = d.source_active && Array.isArray(d.events) ? d.events.slice(-9).reverse() : [];
       if (events.length === 0) {
         const item = document.createElement("li"); item.className="empty"; item.textContent="No worker events recorded yet"; activity.append(item);
       } else {
         for (const event of events) { const item = document.createElement("li"); item.textContent=event; activity.append(item); }
-      }
-      const holds = el("hold-list"); holds.replaceChildren();
-      if (!d.holds || !d.holds.length) { holds.textContent="No hold reasons recorded for this batch"; }
-      else for (const hold of d.holds) {
-        const line = document.createElement("div");
-        const count = document.createElement("b");
-        count.textContent = number(hold.count) + " × ";
-        line.append(count, document.createTextNode(hold.reason));
-        holds.append(line);
       }
     }
     async function refresh() {
@@ -288,9 +322,42 @@
         const word = wasConnected ? "Disconnected" : "Unavailable";
         text("state", word);
         el("state-dot").className = "dot interrupted";
-        text("updated", "The SubHub dashboard cannot read the backend right now.");
+        text("source-phase-note", "The SubHub dashboard cannot read the backend right now.");
         text("source-worker", "Unknown");
       } finally { pending = false; }
+    }
+    async function runControl(action) {
+      if (controlBusy) return;
+      const button = el("action-" + action);
+      if (!button || button.disabled) return;
+      controlBusy = true;
+      for (const key of ["start-auto","stop-auto","start-manual","stop-manual"])
+        el("action-" + key).disabled = true;
+      text("control-feedback", "Sending " + action.replace(/-/g, " ") + "…");
+      try {
+        const keyResponse = await fetch("/api/owner-token", {cache:"no-store"});
+        if (!keyResponse.ok) throw new Error("Owner access unavailable");
+        const token = (await keyResponse.json()).token;
+        if (typeof token !== "string" || !token) throw new Error("Owner token missing");
+        const response = await fetch("/api/control/" + action, {
+          method:"POST",
+          headers:{"Content-Type":"application/json","X-Subhub-Token":token},
+          body:"{}",
+          cache:"no-store"
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "Control rejected (" + response.status + ")");
+        text("control-feedback", "Accepted: " + action.replace(/-/g, " "));
+      } catch (err) {
+        text("control-feedback", "Not completed: " + (err.message || "control failed"));
+      } finally {
+        controlBusy = false;
+        await refresh();
+      }
+    }
+    for (const action of ["start-auto","stop-auto","start-manual","stop-manual"]) {
+      el("action-" + action).disabled = true;
+      el("action-" + action).addEventListener("click", () => runControl(action));
     }
     el("refresh").addEventListener("click", refresh);
     refresh();

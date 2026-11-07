@@ -90,11 +90,15 @@ def parse(events):
         "staged": 0, "stage_holds": 0,
         "publish_title_planned": 0, "publish_title_checked": 0,
         "published": 0, "publish_holds": 0,
+        "provider_limited": False,
         "existing_recognized": 0,
         "current": "",
         "recent": [],
     }
     notable = deque(maxlen=6)
+    legacy_published = 0
+    publisher_receipts = 0
+    publisher_summaries = 0
     for _, message in entries:
         for line in message.splitlines():
             line = line.strip()
@@ -136,6 +140,7 @@ def parse(events):
                 state["staged"] += 1
                 notable.append("Downloaded Japanese subtitle (staged)")
             elif line.startswith("PROVIDER_LIMIT_REACHED:"):
+                state["provider_limited"] = True
                 notable.append("Provider allowance reached; downloads stopped")
             elif (m := RE_MEDIA_PLAN.search(line)):
                 state["publish_title_planned"] = int(m.group(2))
@@ -148,8 +153,24 @@ def parse(events):
                 if " | published_" in line:
                     state["existing_recognized"] += 1
             elif line.startswith("PUBLISHED:"):
-                state["published"] += 1
-                notable.append("Published Japanese sidecar #" + str(state["published"]))
+                legacy_published += 1
+                notable.append("Published Japanese sidecar #" + str(legacy_published))
+            elif line.startswith("BRUISER_PUBLISH_ITEM:"):
+                # The unified publisher issues a structured receipt after a
+                # create-only write. Its logs may ALSO contain PUBLISHED:.
+                # Do not count the same track twice.
+                try:
+                    receipt = json.loads(line.split(":", 1)[1])
+                    if receipt.get("result") == "published":
+                        publisher_receipts += 1
+                except (ValueError, AttributeError, TypeError):
+                    pass
+            elif line.startswith("QUEUE SUMMARY:"):
+                try:
+                    summary = json.loads(line.split(":", 1)[1])
+                    publisher_summaries += int(summary.get("published_new") or 0)
+                except (ValueError, AttributeError, TypeError):
+                    pass
             elif line.startswith("HELD:"):
                 if state["phase"].startswith("Downloading"):
                     state["stage_holds"] += 1
@@ -166,6 +187,10 @@ def parse(events):
                 state["failed"] = True
                 state["phase"] = "Stopped / requires attention"
                 notable.append("Pipeline error; see service journal")
+    # Some publishers emit PUBLISHED, some issue structured receipts, and
+    # some emit both. They describe the same writes, never three new tracks.
+    state["published"] = max(legacy_published, publisher_receipts,
+                             publisher_summaries)
     state["recent"] = list(notable)
     return state
 
