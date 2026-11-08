@@ -1,3 +1,5 @@
+> **SUPERSEDED DASHBOARD FREEZE — Nov 8, 2026:** The owner explicitly rescinded the freeze below because the current dashboard actively obscures live work and offers no usable management of review/jobs. **Functional dashboard rebuilding is now P0**, in parallel with pipeline reliability. Follow [the current product roadmap](SUBHUB_PRODUCT_VISION_AND_ROADMAP_2026-11-08.md). Retain the historical Nov 7 reasoning below for context; preserve backend workers and checkpoints.
+
 # SubHub: architecture decision and next-chat handoff — 2026-11-07
 
 **Status: OWNER-APPROVED. Read this before proposing dashboard work or another subtitle worker.**
