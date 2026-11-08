@@ -34,8 +34,8 @@ def subtitle_ending(seconds):
             h,rest = divmod(t,3600)
             m,s = divmod(rest,60)
             return f"{h:02}:{m:02}:{s:02},000"
-        lines.append(f"{index+1}\\n{stamp(start)} --> {stamp(end)}\\n日本語の字幕")
-    return ("\\n\\n".join(lines)+"\\n").encode("utf-8")
+        lines.append(f"{index+1}\n{stamp(start)} --> {stamp(end)}\n日本語の字幕")
+    return ("\n\n".join(lines)+"\n").encode("utf-8")
 
 
 class WrongDurationTests(unittest.TestCase):
