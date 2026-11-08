@@ -57,7 +57,7 @@ class TestMovieRescue(unittest.TestCase):
                          "text":"日本語の字幕です"})
         result = movie.health(cues,3000)
         self.assertIn("large_dialogue_gap",result["holds"])
-        self.assertGreater(result["max_interior_dialogue_gap_seconds"],1100)
+        self.assertGreater(result["max_intercue_gap_seconds"],1100)
 
     def test_normal_television_cue_spacing_is_not_a_large_gap(self):
         cues=[{"start":10000+i*7500,"end":12500+i*7500,
