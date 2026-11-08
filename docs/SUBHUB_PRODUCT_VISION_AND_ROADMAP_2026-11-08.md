@@ -96,3 +96,27 @@ A user selects Sunny S03 from Library and presses **Get JA**; all eligible episo
 **Held-subtitle lifecycle:** The current automatic sync attempt already ran and rejected four candidates. After a season finishes, schedule one **bounded, quota-free** recovery attempt for recoverable timing/format issues using the retained staged bytes (avoid extra provider downloads), with strict cue/text preservation, validated offsets and no-overwrite. If still held, keep the staged bytes and present the exact reason with actionable review/offset repair, retry or fallback to English sourcing and PLaMo translation. Record when automatic repair has been attempted so the UI cannot imply endless background work. Avoid any unbounded retry loop or silent quality relaxation. See [issue #64](https://github.com/SteezyMode/bruiser-subhub/issues/64) and [dashboard issue #86](https://github.com/SteezyMode/bruiser-subhub/issues/86).
 
 **Beta testing discipline:** Treat every actual user-run test and complaint as acceptance evidence: observe what ran, count true publications and holds, record bugs and expected behavior in issues/docs, and connect to the next regression test. Never present a UI control without a working backend action or a correctly labeled unavailable state.
+
+## Owner priority refinement — November 8: PLaMo should run continuously on eligible work
+
+The owner explicitly wants **complete-series Japanese coverage for both It's Always Sunny in Philadelphia and American Dad**, not isolated season proofs or perpetual JA-provider searches. **Use available local GPU translation aggressively as soon as English text is ready.** Do not gate usable PLaMo work on first exhausting the provider's daily search quota or waiting for an otherwise unrelated episode to finish.
+
+Priority policy, applied per episode without duplicate concurrent work:
+
+1. If a verified, usable Japanese track already exists, mark covered; no provider request and no translation.
+2. If a verified Japanese candidate is **already downloaded/staged**, attempt bounded, quota-free timing recovery and publication first. A failed sync must create actionable held state; don't re-download identical bytes.
+3. If **verified local English text exists but Japanese doesn't**, queue PLaMo now (subject only to existing GPU temperature, Wolf gaming, model, checkpoint and one-worker safety rules). Japanese provider quota exhaustion is **not** a prerequisite.
+4. While Japanese downloads remain available, Japanese sourcing continues for episodes with no ready EN, and for any still unserved items where acquiring human Japanese is more useful than translating; avoid racing providers against active PLaMo on the same media identity.
+5. On **OpenSubtitles/SubDL download limit or cooldown**, immediately reallocate attention to all EN-ready missing-JA episodes; launch the existing safe PLaMo job(s) instead of stopping the entire subtitle program for the day.
+6. If neither EN nor JA exists, search for English (and recover embedded text/OCR if applicable); as soon as EN is verified, dispatch to PLaMo, independent of next day's JA quota reset.
+7. If a translated subtitle is held, preserve completed cue checkpoints and stage artifacts; recover/review rather than restarting from zero.
+
+The **existing PLaMo translator is to be used**, not replaced with a new model or project-specific runner. Existing source and translation workers remain separate and independent, with one queue/identity for arbitration. Require exact episode identity, source subtitle completeness, alignment with video, stable checkpoint and strict create-only publication. No GPU work during active Wolf/game-stream sessions or unsafe thermals; resource limits are guardrails, not excuses to leave EN-ready work idle.
+
+### Series completion acceptance
+
+- Whole-series inventory for Sunny and American Dad: total unique canonical episodes / JA already present / staged JA recoverable / verified EN text ready for immediate PLaMo / EN needs acquisition or OCR / held/unresolved.
+- Process all uncovered episodes across both shows over successive provider quota windows with no manual per-season launch; use PLaMo promptly on EN-ready episodes between and during provider runs, not only after all seasons are sourced.
+- Per-episode terminal state and playable JA sidecar; an episode cannot be counted as done solely because a translation job completed or a source candidate was found.
+- End result: full JA coverage for both available on-disk series, with truly unresolved items visibly held for action; zero duplicate downloads, reused checkpoints, no fake done counts.
+- First recovery target: Sunny S03E03/E04/E07/E08 have 4 retained Japanese stage records and sync rejects; salvage if safe, otherwise EN->JA PLaMo instead of indefinite sync retries. Existing 11/15 sidecars must remain unchanged.
