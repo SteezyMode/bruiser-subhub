@@ -120,3 +120,15 @@ The **existing PLaMo translator is to be used**, not replaced with a new model o
 - Per-episode terminal state and playable JA sidecar; an episode cannot be counted as done solely because a translation job completed or a source candidate was found.
 - End result: full JA coverage for both available on-disk series, with truly unresolved items visibly held for action; zero duplicate downloads, reused checkpoints, no fake done counts.
 - First recovery target: Sunny S03E03/E04/E07/E08 have 4 retained Japanese stage records and sync rejects; salvage if safe, otherwise EN->JA PLaMo instead of indefinite sync retries. Existing 11/15 sidecars must remain unchanged.
+
+## Current owner workload priority — November 8 (supersedes general queue order)
+
+**Priority media**: (1) all available episodes of **It's Always Sunny in Philadelphia**; (2) all available episodes of **American Dad!**; (3) the owner's **The Shining (1980)** file. Other library titles remain eligible for the ordinary background schedule but must not displace these three while the owner has explicitly prioritized them. No newly invented title-specific pipelines.
+
+**Throughput goal**: substantial unattended television coverage, ideally dozens of correctly published Japanese episodes over time, using the existing PLaMo pipeline whenever validated English subtitle text exists. Do not promise 100+ episodes in a single outing without verified elapsed-time/GPU performance and usable English sources.
+
+**Budget policy**: retain a small, configurable number of provider downloads for later movie requests; prioritize quota-free saved Japanese repair and local PLaMo translations for shows. Quota exhaustion is a signal to do English-ready PLaMo work, not to stop. Do not invent a concrete reserve without confirming remaining live quota; make reserve visible and operator-adjustable.
+
+**The Shining cut**: owner's file is *possibly* the ~119-minute international/European edition, **not yet verified**. Determine actual host video duration with ffprobe and map to the verified file identity *before* downloading, aligning or publishing; US 144-minute captions must not be blindly applied to the shorter edit. Prefer valid already-local EN/JA or correctly matched EU-cut source over a wrong-edition US subtitle. Preserve existing video and subtitle files.
+
+**Backend truth**: this is a GitHub priority decision, **not evidence that the running OptiPlex job queues or downloads have changed**. Any production change must first validate existing workers, locks, checkpoints, no-overwrite and quota gates.
