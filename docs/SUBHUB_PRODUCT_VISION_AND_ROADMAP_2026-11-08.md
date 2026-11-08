@@ -1,6 +1,6 @@
 # SubHub product vision and execution roadmap — 2026-11-08
 
-**Status: current owner direction.** This updates the GUI direction in `SUBHUB_ARCHITECTURE_AND_PIPELINE_HANDOFF_2026-11-07.md`: the existing dashboard remains a disposable diagnostic stopgap, but a cohesive, functioning operator UI is now an explicit product goal. **Do not sacrifice working workers to rebuild UI immediately.** The user wants a roadmap, not a cosmetic patch treadmill. This document is the current product-level direction; canonical coverage policy and production safeguards remain authoritative.
+**Status: current owner direction.** This updates the GUI direction in `SUBHUB_ARCHITECTURE_AND_PIPELINE_HANDOFF_2026-11-07.md`: the existing dashboard remains a disposable diagnostic stopgap, but a cohesive, functioning operator UI is now an explicit product goal. **Owner correction, Nov 8: the dashboard freeze was premature and is rescinded. The existing UI is actively preventing the owner from understanding and controlling the pipeline. Functional dashboard redevelopment is P0 work now, in parallel with finishing sourcing and translation.** Preserve working workers, checkpoints and media while upgrading the operator experience; do not wait for perfect pipeline stability. This document is the current product-level direction; canonical coverage policy and production safeguards remain authoritative.
 
 ## The job SubHub exists to do
 
@@ -41,23 +41,29 @@ Minimum contract: `job_id, media_id, operation, scope, state, phase, items_total
 
 ## Roadmap, ordered by value
 
-### P0 — Get current work finished; no UI rebuild dependency
-1. Let the current Sunny S03 Japanese sourcing run finish; report exact JA sidecars published / held / not found across all 15. Verify SubDL is actually used by Sublarr, not merely configured. Don't claim download usage without evidence.
-2. Connect the missing EN acquisition -> PLaMo translation fallback for uncovered episodes (existing issue #67), using existing workers and checkpoints.
-3. Make held subtitle/PLaMo results actionable at least via reliable existing backend operations; preserve completed cues (issues #4, #64, #71 PR evidence). Finish existing American Dad / Child's Play work safely before spawning duplicate jobs.
-4. Ensure worker state, crash/reboot recovery, and provider accounting are genuinely persisted (issue #66), with compact tests.
+### P0 — Fix the operator experience NOW, alongside current sourcing
+1. Immediately replace misleading sourcing and translation summary panels with truthful live job state, progress, completion/failure/held markers and compact per-episode JA/EN coverage. Display and wire working controls for the actions already supported; eliminate inert actions and old completed-job clutter from Active. Don't postpone this until backend research is complete.
+2. Make Work/Review functional in bounded increments: archive completed American Dad jobs from view, resume/retry unfinished Child's Play only with verified checkpoints, create work from selected library media, inspect/edit/approve held cues. Prioritize controls that remove actual operator blockers.
+3. Let the current Sunny S03 Japanese sourcing run finish; report exact JA sidecars published / held / not found across all 15. Verify SubDL is actually used by Sublarr, not merely configured. Don't claim download usage without evidence.
+4. Connect the missing EN acquisition -> PLaMo translation fallback for uncovered episodes (existing issue #67), using existing workers and checkpoints.
+5. Make held subtitle/PLaMo results actionable at least via reliable existing backend operations; preserve completed cues (issues #4, #64, #71 PR evidence). Finish existing American Dad / Child's Play work safely before spawning duplicate jobs.
+6. Ensure worker state, crash/reboot recovery, and provider accounting are genuinely persisted (issue #66), with compact tests.
 
-### P1 — Establish the generic operator API
+### P1 — Stabilize the generic operator API behind live UI controls
 1. Map existing coverage queue, Sublarr provider flow, PLaMo job storage, systemd units and on-disk outputs into a documented **single job state projection**.
 2. Implement generic enqueue, inspect, pause/resume, retry, review/edit/approve, archive-from-view as operations backed by existing durable state. Reject unsupported actions rather than drawing inert controls.
 3. Add tests for cases encountered Nov 7–8: stale BigDisk IDs/duplicate episodes; explicit JA search without EN or preassigned JA task; failed/unavailable JA -> EN search -> local translation; quota exhaustion; two providers; held cue recovery; completion accounting; old completed jobs; interrupted Child's Play.
 4. Add provider attribution per successful download and request (not just 600-search batch budgets), plus safe quota reset handling and historical reports.
 
-### P2 — Replace the dashboard experience, not its working backend
+### P2 — Complete and polish the replacement dashboard, not its working backend
 Build compact **Library / Work / Review / Settings** on the stable API. The normal workflow must require no SSH, no terminal, no knowledge of provider internals or PLaMo job IDs. Existing advanced diagnostic data remains optional. Test on the actual 4:3 and desktop client layouts. No hardcoded Sunny/American Dad/Child's Play controls.
 
 ### P3 — Reliability and maintenance pass
 Unify duplicated adapters where safe, remove obsolete UI code only after tests, document deployment/rollback and operator procedures, and verify true watchable-JA coverage over representative titles. Keep the current standalone app and stable source/translation workers.
+
+## Priority correction (Nov 8)
+
+The owner explicitly rescinds the Nov 7 freeze: **the bad dashboard is alienating them from the pipeline and preventing understanding of progress and work management.** Functional UI work is not optional future polish and must start immediately. The freeze was too conservative. Roll out operator improvements incrementally against the stable existing backend while work continues, without pausing the media pipeline to build unnecessary infrastructure.
 
 ## Concrete owner complaints recorded on 2026-11-08
 
