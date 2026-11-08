@@ -180,6 +180,15 @@ def health(cues, runtime, allow_offset_sec=0):
     ordered=sorted(cues,key=lambda c:(c["start"],c["end"]))
     overlaps=sum(ordered[i+1]["start"]+300<ordered[i]["end"]
                  for i in range(len(ordered)-1))
+    # A track can pass the old first-25%/last-24% checks while missing a
+    # large contiguous section in the middle. Fail closed for catastrophic
+    # holes; a legitimate long silent sequence can be independently reviewed.
+    # This is a structural screen, not proof that every spoken cue is covered.
+    max_gap_ms=max((max(0,ordered[i+1]["start"]-ordered[i]["end"])
+                    for i in range(len(ordered)-1)),default=0)
+    max_gap_seconds=round(max_gap_ms/1000,2)
+    max_allowed_gap_seconds=(360 if runtime<=3600
+                             else 600 if runtime<=7200 else 900)
     dense=sum(len(str(c.get("text") or ""))/max((c["end"]-c["start"])/1000,0.1)>27
               for c in dialogue)
     dup=sum(str(dialogue[i].get("text","")).strip()==str(dialogue[i-1].get("text","")).strip()
@@ -191,6 +200,8 @@ def health(cues, runtime, allow_offset_sec=0):
     if ratio<0.85:reason.append("not_predominantly_japanese")
     if first>runtime*1000*.25:reason.append("begins_too_late")
     if last<runtime*1000*.76:reason.append("ends_too_early")
+    if max_gap_ms>max_allowed_gap_seconds*1000:
+        reason.append("large_dialogue_gap")
     if invalid or over>0:reason.append("invalid_timing")
     if overlaps>len(cues)*.035:reason.append("excessive_overlap")
     if dense>len(dialogue)*.10:reason.append("excessive_reading_speed")
@@ -212,6 +223,8 @@ def health(cues, runtime, allow_offset_sec=0):
         "non_japanese_latin_word_cues":len(latin),
         "non_japanese_non_latin_cues":len(non_latin),
         "latin_word_cues_by_film_quarter":latin_quartiles,
+        "max_interior_dialogue_gap_seconds":max_gap_seconds,
+        "max_allowed_dialogue_gap_seconds":max_allowed_gap_seconds,
         "first_seconds":round(first/1000,2),
         "last_seconds":round(last/1000,2),
         "overlap_events":overlaps,"dense_events":dense,
