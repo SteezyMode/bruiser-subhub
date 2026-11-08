@@ -63,7 +63,7 @@ ASS_TIMING = re.compile(r"(?m)^Dialogue:\s*[^,]*,(\d+):(\d{2}):(\d{2})\.(\d{2}),
 JAPANESE = re.compile(r"[\u3040-\u30ff\u3400-\u9fff]")
 TAGS = re.compile(r"<[^>]+>|{\\[^}]+}")
 
-def analyze(raw, runtime):
+def analyze(raw, runtime, *, allow_duration_mismatch=False):
     if not raw or len(raw) > MAX_BYTES:
         raise RuntimeError("subtitle_empty_or_oversize")
     for encoding in ("utf-8-sig", "utf-16", "cp932", "shift_jis"):
@@ -97,7 +97,8 @@ def analyze(raw, runtime):
         if ja < 200:
             raise RuntimeError("too_few_japanese_characters")
         maximum = max(stamps)
-        if maximum > runtime * 1.15 or maximum < runtime * 0.60:
+        duration_mismatch = maximum > runtime * 1.15 or maximum < runtime * 0.60
+        if duration_mismatch and not allow_duration_mismatch:
             raise RuntimeError("subtitle_duration_inconsistent")
         if sum(a <= b for a,b in zip(stamps,stamps[1:])) < (len(stamps)-1)*0.95:
             raise RuntimeError("timing_out_of_order")
@@ -108,7 +109,10 @@ def analyze(raw, runtime):
             "video_seconds": round(runtime, 2),
             "last_end_video_ratio": round(maximum/runtime, 3),
             "bytes": len(raw),
-            "timing_note": "Duration plausible only; actual synchronization NOT confirmed",
+            "duration_mismatch": duration_mismatch,
+            "timing_note": ("HELD: candidate duration inconsistent with selected video"
+                            if duration_mismatch else
+                            "Duration plausible only; actual synchronization NOT confirmed"),
         }
     raise RuntimeError("unrecognized_subtitle_timing_or_encoding")
 
@@ -131,10 +135,12 @@ def run(job):
             path = STAGE / (STEM + "." + ext)
             if path.is_file() and not path.is_symlink():
                 data = path.read_bytes()
-                meta = analyze(data, runtime)
+                meta = analyze(data, runtime, allow_duration_mismatch=True)
                 if meta["format"] != ext:
                     raise RuntimeError("cached_subtitle_format_mismatch")
-                return {"result": "already_staged", "stage_path": str(path),
+                return {"result": ("held_duration_mismatch"
+                                   if meta["duration_mismatch"] else "already_staged"),
+                        "stage_path": str(path),
                         "metrics": meta, "new_download": False}
 
     # The live Sublarr server loads provider UI settings from config_entries
@@ -225,7 +231,7 @@ def run(job):
         raw = provider.download(candidate)  # At most one /download request.
     finally:
         provider.terminate()
-    metrics = analyze(raw, runtime)
+    metrics = analyze(raw, runtime, allow_duration_mismatch=True)
     if candidate.format.value not in {"unknown", metrics["format"]}:
         raise RuntimeError("provider_reported_format_conflicts_with_content")
     if not STAGE.exists():
@@ -242,7 +248,9 @@ def run(job):
         try: path.unlink()
         except OSError: pass
         raise
-    return {"result": "staged_not_published", "stage_path": str(path),
+    return {"result": ("held_duration_mismatch" if metrics["duration_mismatch"]
+                       else "staged_not_published"),
+            "stage_path": str(path),
             "metrics": metrics, "new_download": True}
 
 try:
@@ -400,8 +408,29 @@ def read_staged():
     return valid
 
 
+def rejected_duration_candidates():
+    """Previously downloaded wrong-duration tracks; never retry at provider cost."""
+    if not STAGE_DB.exists():
+        return set()
+    private_file(STAGE_DB)
+    uri = "file:" + quote(str(STAGE_DB.resolve()), safe="/") + "?mode=ro"
+    with sqlite3.connect(uri, uri=True, timeout=10) as db:
+        entries = db.execute(
+            "SELECT jellyfin_id,subtitle_id,host_path FROM staged "
+            "WHERE status='held_duration_mismatch'"
+        ).fetchall()
+    rejected = set()
+    for jid,sid,path in entries:
+        p = Path(path)
+        if (p.parent == STAGED / "held-duration" and p.is_file()
+                and not p.is_symlink() and 0 < p.stat().st_size <= 2_000_000):
+            rejected.add((str(jid), str(sid)))
+    return rejected
+
+
 def choices(inventory, searches, already, budget, kind):
     queue = priorities.active_coverage_queue()
+    already = set(already) | rejected_duration_candidates()
     possible = []
     for jid, text in searches:
         row = inventory.get(str(jid))
@@ -564,7 +593,7 @@ def stage_db():
     return db
 
 
-def preserve_from_container(row, candidate, report):
+def preserve_from_container(row, candidate, report, *, hold_duration=False):
     metrics = report.get("metrics")
     if not isinstance(metrics, dict):
         raise RuntimeError("stage_metrics_missing")
@@ -576,7 +605,11 @@ def preserve_from_container(row, candidate, report):
     STAGED.mkdir(mode=0o700, exist_ok=True)
     if STAGED.is_symlink() or STAGED.stat().st_mode & 0o077:
         raise RuntimeError("unsafe_private_staging_folder")
-    target = STAGED / name
+    destination = STAGED / "held-duration" if hold_duration else STAGED
+    destination.mkdir(mode=0o700, exist_ok=True)
+    if destination.is_symlink() or destination.stat().st_mode & 0o077:
+        raise RuntimeError("unsafe_private_duration_hold_folder")
+    target = destination / name
     tempdir = Path(tempfile.mkdtemp(prefix=".copy-", dir=STAGED))
     tmp = tempdir / name
     try:
@@ -622,24 +655,34 @@ def run_one(job, database):
         raise RuntimeError("container_staging_result_missing")
     report = json.loads(lines[-1][len("STAGE_RESULT_JSON:"):])
     if result.returncode or report.get("result") not in (
-        "staged_not_published", "already_staged"
+        "staged_not_published", "already_staged", "held_duration_mismatch"
     ):
         raise RuntimeError("container_staging_blocked:" +
                            str(report.get("error") or report.get("error_type") or "unknown")[:70])
-    target, digest = preserve_from_container(row, candidate, report)
+    held = report["result"] == "held_duration_mismatch"
+    target, digest = preserve_from_container(
+        row, candidate, report, hold_duration=held)
     database.execute("""INSERT INTO staged
         (jellyfin_id,subtitle_id,host_path,sha256,staged_at,status,metrics_json)
-        VALUES (?,?,?,?,?,'staged',?)
+        VALUES (?,?,?,?,?,?,?)
         ON CONFLICT(jellyfin_id,subtitle_id) DO UPDATE SET
           host_path=excluded.host_path,sha256=excluded.sha256,
           staged_at=excluded.staged_at,status=excluded.status,
           metrics_json=excluded.metrics_json
     """, (str(row["jellyfin_id"]), str(candidate["subtitle_id"]),
           str(target), digest, int(time.time()),
-          json.dumps(report["metrics"], ensure_ascii=False)))
+          "held_duration_mismatch" if held else "staged",
+          json.dumps({**report["metrics"],
+                      "provider":"opensubtitles",
+                      "source_filename":str(candidate.get("filename") or "")[:240],
+                      "source_release":str(candidate.get("release_info") or "")[:240]},
+                     ensure_ascii=False)))
     database.commit()
-    print("STAGED:", target, flush=True)
+    print("STAGED_HELD:" if held else "STAGED:", target, flush=True)
     print("METRICS:", json.dumps(report["metrics"], ensure_ascii=False), flush=True)
+    if held:
+        raise RuntimeError("subtitle_duration_inconsistent_saved_private:"
+                           + str(report["metrics"].get("last_end_video_ratio")))
     return str(report["result"])
 
 
