@@ -47,6 +47,34 @@ class TestMovieRescue(unittest.TestCase):
         r=movie.health(cues,4500)
         self.assertTrue(r["ok"],r)
 
+    def test_catastrophic_middle_gap_is_held_even_with_good_endpoints(self):
+        # Previously this 20-minute hole in a 50-minute episode passed
+        # both the first-quarter and last-quarter checks.
+        cues = []
+        for i in range(350):
+            start = (60+i*3 if i < 175 else 60+i*3+1200)*1000
+            cues.append({"start":start,"end":start+2000,
+                         "text":"日本語の字幕です"})
+        result = movie.health(cues,3000)
+        self.assertIn("large_dialogue_gap",result["holds"])
+        self.assertGreater(result["max_interior_dialogue_gap_seconds"],1100)
+
+    def test_normal_television_cue_spacing_is_not_a_large_gap(self):
+        cues=[{"start":10000+i*7500,"end":12500+i*7500,
+               "text":"日本語の字幕です"}
+              for i in range(380)]
+        result=movie.health(cues,3000)
+        self.assertNotIn("large_dialogue_gap",result["holds"])
+
+    def test_long_movie_gap_requires_recovery_not_false_completion(self):
+        cues=[]
+        for i in range(500):
+            start=(30+i*8 if i<250 else 30+i*8+1200)*1000
+            cues.append({"start":start,"end":start+2500,
+                         "text":"日本語の字幕です"})
+        result=movie.health(cues,5400)
+        self.assertIn("large_dialogue_gap",result["holds"])
+
     def test_symbols_do_not_count_as_untranslated_language(self):
         # Observed 365-cue shape: 283 Japanese, 80 symbols, two short Latin cues.
         # The old 283/365 gate incorrectly held this film as 77.5% Japanese.
