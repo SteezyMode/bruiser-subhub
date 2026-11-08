@@ -223,7 +223,7 @@ def health(cues, runtime, allow_offset_sec=0):
         "non_japanese_latin_word_cues":len(latin),
         "non_japanese_non_latin_cues":len(non_latin),
         "latin_word_cues_by_film_quarter":latin_quartiles,
-        "max_interior_dialogue_gap_seconds":max_gap_seconds,
+        "max_intercue_gap_seconds":max_gap_seconds,
         "max_allowed_dialogue_gap_seconds":max_allowed_gap_seconds,
         "first_seconds":round(first/1000,2),
         "last_seconds":round(last/1000,2),
