@@ -234,17 +234,17 @@ class ScopeTests(unittest.TestCase):
         auto.native_search_disabled.return_value=True
         auto.config.return_value={}
         search,stage,publish=mock.Mock(),mock.Mock(),mock.Mock()
-        with mock.patch.object(selected,"selected_scope",return_value=src), \\
+        with mock.patch.object(selected,"selected_scope",return_value=src), \
              mock.patch.object(selected,"native",return_value=(
-                 auto,search,stage,publish)), \\
-             mock.patch.object(selected,"scoped_audio_review",side_effect=permitted), \\
+                 auto,search,stage,publish)), \
+             mock.patch.object(selected,"scoped_audio_review",side_effect=permitted), \
              mock.patch.object(selected,"find_japanese",
-                               return_value=Counter({"plausible":1})) as searched, \\
+                               return_value=Counter({"plausible":1})) as searched, \
              mock.patch.object(selected,"stage_japanese",
-                               return_value=Counter({"staged":1})) as staged, \\
+                               return_value=Counter({"staged":1})) as staged, \
              mock.patch.object(selected,"publish_japanese",
-                               return_value=Counter({"published_new":1})) as published, \\
-             mock.patch.object(selected,"reconcile",return_value=0), \\
+                               return_value=Counter({"published_new":1})) as published, \
+             mock.patch.object(selected,"reconcile",return_value=0), \
              mock.patch.object(selected.os,"close") as closed:
             self.assertEqual(selected.run("Example Show",2,
                 [{"season":2,"episode":1}],recheck=True),0)
