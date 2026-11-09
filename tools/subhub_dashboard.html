@@ -1,812 +1,467 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="dark">
-  <title>SubHub · Subtitle Automation</title>
-  <style>
-    :root { color-scheme:dark; --bg:#0a0d13; --panel:#131925; --panel2:#171f2d; --line:#293343; --text:#f2f5fa; --muted:#96a6bd; --blue:#85aaff; --green:#5edab1; --amber:#f4bc6b; --red:#ff8995; --track:#303b4e; }
-    * { box-sizing:border-box }
-    html { min-height:100%; background:var(--bg) }
-    body { margin:0; background:radial-gradient(ellipse at 80% -15%,#202d4a 0%,transparent 52%),var(--bg); color:var(--text); font:15px/1.5 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
-    .shell { max-width:1180px; padding:32px 28px 62px; margin:0 auto }
-    header { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:18px; margin-bottom:30px }
-    .brand { display:flex; align-items:center; gap:14px }
-    .mark { display:grid; place-items:center; width:49px; height:49px; border-radius:15px; border:1px solid #5c6e9a; background:linear-gradient(145deg,#415b92,#222e4a); font-size:25px; font-weight:700; box-shadow:0 8px 25px #0004 }
-    .brand h1 { margin:0; line-height:1.05; font-size:24px; letter-spacing:-.6px; font-weight:730 }
-    .brand p { margin:5px 0 0; font-size:12px; color:var(--muted); letter-spacing:.6px; text-transform:uppercase }
-    .status { display:flex; align-items:center; gap:12px; flex-wrap:wrap }
-    .pill { display:inline-flex; align-items:center; gap:8px; padding:8px 12px; font-size:13px; font-weight:650; border-radius:99px; background:#1d2936; border:1px solid #3d5368 }
-    .dot { height:8px; width:8px; border-radius:50%; background:var(--muted) }
-    .dot.running { background:var(--green); box-shadow:0 0 0 4px #5edab121 }
-    .dot.failed,.dot.interrupted { background:var(--red) }
-    .dot.completed { background:var(--blue) }
-    button { font:inherit; background:#202a3a; color:var(--text); border:1px solid #44516a; padding:8px 15px; border-radius:10px; font-size:13px; cursor:pointer }
-    button:hover { background:#303d52 }
-    button:disabled { cursor:not-allowed;opacity:.42;background:#202a3a }
-    .control-grid { display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:12px }
-    .control-grid button { white-space:normal;min-height:40px;padding:8px 9px }
-    .control-feedback { min-height:20px;color:var(--muted);font-size:12px;overflow-wrap:anywhere;margin-top:10px }
-    button:focus-visible { outline:2px solid var(--blue);outline-offset:2px }
-    .eyebrow { text-transform:uppercase; letter-spacing:1.3px; font-size:11px; color:var(--muted); font-weight:750 }
-    .top { display:grid; grid-template-columns:minmax(0,1.8fr) minmax(270px,1fr); gap:18px; margin-bottom:18px }
-    .panel { background:linear-gradient(180deg,#171f2c,#121925); border:1px solid var(--line); border-radius:18px; padding:24px; box-shadow:0 10px 32px #0002; min-width:0 }
-    .hero { padding:28px; display:flex; flex-direction:column; justify-content:space-between; min-height:266px }
-    .hero h2 { margin:12px 0 7px; font-size:26px; font-weight:690; letter-spacing:-.6px; line-height:1.25; overflow-wrap:anywhere }
-    .subtext { color:var(--muted); font-size:14px; margin:0; overflow-wrap:anywhere }
-    .hero .caption { color:var(--muted); font-size:12px; margin-top:20px }
-    .progress-group { margin-top:22px }
-    .progress-row { display:flex; justify-content:space-between; gap:10px; font-size:12px; margin:13px 0 7px }
-    .progress-row span:first-child { color:var(--muted) }
-    .bar { width:100%; height:9px; border-radius:20px; background:var(--track); overflow:hidden }
-    .fill { height:100%; border-radius:inherit; background:linear-gradient(90deg,#6492f0,#a7baff); width:0; transition:width .4s ease }
-    .side h3,.section-head h3 { margin:8px 0 5px; font-size:18px; letter-spacing:-.3px }
-    .side p { color:var(--muted); font-size:13px; margin:5px 0 }
-    .side .divider { margin:18px 0; border-top:1px solid var(--line) }
-    .side strong { display:block; overflow-wrap:anywhere; font-size:14px; font-weight:640 }
-    .jobs-section { margin-bottom:18px }
-    .batch-form { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));gap:12px;margin:12px 0 }
-    .batch-form label { display:flex;flex-direction:column;gap:6px;color:var(--muted);font-size:12px }
-    .batch-form input,.batch-form select { background:#0e1724;color:var(--text);border:1px solid #465673;border-radius:9px;padding:10px;min-width:0;font:inherit }
-    .batch-actions { display:flex; flex-wrap:wrap;gap:10px;margin:13px 0 }
-    .batch-list {max-height:260px;overflow:auto;padding-left:25px;color:var(--muted);font-size:13px}
-    .batch-list li {padding:5px 2px}
-    .held-review { margin-top:12px; border-top:1px solid var(--line); padding-top:9px }
-    .held-review summary {cursor:pointer;color:var(--amber);font-size:13px}
-    .held-line {font-size:12px;color:var(--muted);padding:7px 0;overflow-wrap:anywhere;border-bottom:1px solid #273041}
-    .jobs-head { display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px }
-    .jobs-head h3 { margin:0;font-size:20px }
-    .job-list { display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:14px }
-    .job-card { border:1px solid #35435a;background:#111925;border-radius:14px;padding:17px;min-width:0 }
-    .job-card.active { border-color:#76a0ff }
-    .job-title { margin:4px 0 10px;font-size:16px;font-weight:650;overflow-wrap:anywhere }
-    .job-info { display:flex;gap:10px;justify-content:space-between;flex-wrap:wrap;font-size:12px;color:var(--muted) }
-    .job-meter { height:11px;margin:12px 0 10px;background:var(--track);border-radius:10px;overflow:hidden }
-    .job-fill { height:100%;width:0;background:linear-gradient(90deg,#6791ed,#91bcf9);transition:width .5s }
-    .job-detail { color:var(--muted);font-size:12px;margin-top:8px }
-    .job-warning { color:var(--amber) }
-    .live-kpis { display:grid; grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:20px }
-    .live-kpis .stat { padding:12px; border-radius:12px; background:#101724 }
-    .live-kpis .stat .number { font-size:24px }
-    .live-kpis .stat .label { font-size:11px }
-    .stat { padding:19px 20px; background:var(--panel); border:1px solid var(--line); border-radius:16px }
-    .stat .number { font-size:30px; line-height:1.2; font-weight:730; letter-spacing:-.5px; font-variant-numeric:tabular-nums }
-    .stat .label { color:var(--muted); font-size:12px; margin:6px 0 0 }
-    .stat:first-child .number { color:var(--green) }
-    .cols { display:grid; grid-template-columns:minmax(0,1.25fr) minmax(310px,1fr); gap:18px }
-    .section-head { display:flex; gap:12px; flex-wrap:wrap; align-items:center; justify-content:space-between; margin-bottom:14px }
-    .section-head h3 { margin:0 }
-    .tag { font-size:11px; padding:4px 9px; border:1px solid #48566b; border-radius:99px; color:var(--muted) }
-    .activity { list-style:none; padding:0; margin:0 }
-    .activity li { color:#cbd6e8; font-size:13px; overflow-wrap:anywhere; padding:11px 0 11px 18px; border-bottom:1px solid #263143; position:relative }
-    .activity li::before { content:""; position:absolute; top:18px; left:1px; width:6px; height:6px; border-radius:50%; background:#6485b9 }
-    .activity li:last-child { border-bottom:0 }
-    .empty { color:var(--muted)!important }
-    .row-between { display:flex; justify-content:space-between; gap:12px; margin:12px 0; font-size:13px }
-    .row-between span:first-child { color:var(--muted) }
-    .row-between span:last-child { text-align:right }
-    .warning { color:var(--amber) }
-    .good { color:var(--green) }
-    .muted { color:var(--muted) }
-    .callout { border-radius:12px; background:#1e2938; padding:13px 15px; margin-top:18px; border:1px solid #334155; font-size:13px; color:#c2d0e1 }
-    .holds { margin-top:18px }
-    .holds div { border-bottom:1px solid var(--line); padding:8px 0; font-size:12px; color:var(--muted); overflow-wrap:anywhere }
-    .holds b { color:var(--text); margin-right:6px }
-    footer { display:flex; flex-wrap:wrap; justify-content:space-between; gap:10px; color:var(--muted); font-size:12px; margin-top:20px }
-    @media(max-width:850px){ .top,.cols { grid-template-columns:1fr } }
-    @media(max-width:530px){.shell{padding:18px 14px 36px}.panel{padding:18px}.live-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.brand h1{font-size:21px}.hero h2{font-size:22px} }
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>SubHub · Japanese subtitles</title>
+<style>
+:root{color-scheme:dark;--bg:#11151b;--surface:#1b222b;--surface2:#222b36;--line:#374453;--ink:#e8edf2;--dim:#a8b5c2;--accent:#96b5ec;--good:#9ad6b0;--warn:#edc28c}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:14px/1.48 system-ui,-apple-system,"Segoe UI",sans-serif;margin:0}
+main{max-width:1120px;margin:auto;padding:24px 24px 80px}
+header{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:18px}
+h1{font-size:23px;letter-spacing:-.03em;margin:0}
+h2{font-size:18px;margin:0 0 8px}
+h3{font-size:15px;margin:0}
+p{margin:7px 0}
+.muted{color:var(--dim)}.small{font-size:12px}.warning{color:var(--warn)}.good{color:var(--good)}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:11px;padding:20px;margin:0 0 16px}
+.row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.split{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+button,input{font:inherit}button{border:1px solid #526276;color:var(--ink);background:#2a3543;padding:9px 13px;border-radius:7px;cursor:pointer}
+button:hover{background:#344256}button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button:disabled{opacity:.42;cursor:not-allowed}
+button.primary{background:#35547f;border-color:#718cc1}
+button.primary:hover{background:#406394}
+button.quiet{background:transparent;border-color:var(--line)}
+input[type=text],input[type=number]{background:#121923;color:var(--ink);border:1px solid #637084;border-radius:7px;padding:10px 12px;min-width:0}
+input[type=checkbox]{accent-color:#86aced;width:16px;height:16px;flex:none}
+label{cursor:pointer}
+hr{border:0;border-top:1px solid var(--line);margin:17px 0}
+#title-search{flex:1;min-width:220px;font-size:16px;padding:13px}
+.notice{background:#18222e;border-left:3px solid #7295c5;padding:10px 13px;color:var(--dim);margin-top:12px}
+.result-list{margin-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.result-list button{text-align:left;overflow-wrap:anywhere;min-width:0}
+.seasons{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0}
+.season-choice{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:8px;padding:9px 12px;background:var(--surface2)}
+.season-choice:has(input:checked){border-color:var(--accent)}
+.episode-controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:13px 0}
+.season-card{border:1px solid var(--line);border-radius:8px;margin:10px 0;background:#1a222d;overflow:hidden}
+.season-card summary{cursor:pointer;padding:13px 14px;font-weight:600}
+.season-card .body{padding:0 14px 14px}
+.episode{display:flex;align-items:start;gap:9px;padding:10px 0;border-top:1px solid #33404e}
+.episode>div{min-width:0;flex:1}
+.episode-title{overflow-wrap:anywhere}
+.detail{font-size:12px;color:var(--dim);margin-top:3px}
+.review{margin-top:7px}
+.review summary{cursor:pointer;font-weight:400;color:var(--accent);padding:3px 0}
+.review-list{font-size:12px;color:var(--dim);padding:5px 0}
+.status-strip{display:flex;gap:16px;flex-wrap:wrap;font-size:13px;color:var(--dim)}
+.status-strip strong{color:var(--ink)}
+.counter{color:var(--dim);font-size:12px}
+.job{border-top:1px solid var(--line);padding:12px 0}
+.meter{width:100%;background:#33404f;height:7px;border-radius:6px;overflow:hidden;margin-top:8px}
+.fill{height:100%;background:#89acdf;width:0}
+#toast{min-height:19px;margin:12px 0;color:var(--dim)}
+#feedback{white-space:pre-wrap}
+details>summary{cursor:pointer}
+[hidden]{display:none!important}
+@media(max-width:720px){main{padding:15px}.panel{padding:15px}.result-list{grid-template-columns:1fr}#title-search{width:100%}header{align-items:start}}
+</style>
 </head>
 <body>
-  <main class="shell">
-    <header>
-      <div class="brand">
-        <div class="mark" aria-hidden="true">S</div>
-        <div><h1>SubHub</h1><p>Subtitle automation · Standalone</p></div>
-      </div>
-      <div class="status">
-        <span class="pill"><span class="dot" id="state-dot"></span><span id="state">Connecting</span></span>
-        <button type="button" id="refresh">Refresh</button>
-      </div>
-    </header>
-    <div class="top">
-      <section class="panel hero">
-        <div>
-          <div class="eyebrow">Current activity</div>
-          <h2 id="phase-label">Connecting to the subtitle engine...</h2>
-          <p id="current-item" class="subtext">Retrieving the current batch state</p>
-          <div class="live-kpis" id="live-kpis" aria-label="Current sourcing run results">
-            <div class="stat"><div class="number" id="live-matches">—</div><div class="label">Plausible title matches</div></div>
-            <div class="stat"><div class="number" id="live-downloaded">—</div><div class="label">Subtitles downloaded</div></div>
-            <div class="stat"><div class="number" id="live-published">—</div><div class="label">Japanese tracks published</div></div>
-            <div class="stat"><div class="number" id="live-none">—</div><div class="label">No matching source</div></div>
-            <div class="stat"><div class="number" id="live-review">—</div><div class="label">Matches needing review</div></div>
-            <div class="stat"><div class="number" id="live-errors">—</div><div class="label">Search errors</div></div>
-          </div>
-          <p class="subtext" id="source-phase-note" style="margin-top:12px">Results from the active run only.</p>
-        </div>
-        <div class="progress-group" id="live-bars" hidden>
-          <div class="progress-row"><span>Current run · searches</span><strong id="live-search-label">—</strong></div>
-          <div class="bar" role="progressbar" aria-label="Current automatic searches" aria-valuemin="0" aria-valuemax="100" id="live-search-progress"><div class="fill" id="live-search-bar"></div></div>
-          <div class="progress-row"><span>Current run · download attempts</span><strong id="live-stage-label">—</strong></div>
-          <div class="bar" role="progressbar" aria-label="Current download attempts" aria-valuemin="0" aria-valuemax="100" id="live-stage-progress"><div class="fill" id="live-stage-bar"></div></div>
-          <div class="progress-row"><span>Current run · titles checked for publication</span><strong id="live-publish-label">—</strong></div>
-          <div class="bar" role="progressbar" aria-label="Current publication checks" aria-valuemin="0" aria-valuemax="100" id="live-publish-progress"><div class="fill" id="live-publish-bar"></div></div>
-          <div class="caption" id="live-updated">Waiting for source events…</div>
-        </div>
-      </section>
-      <section class="panel side">
-        <div class="eyebrow">Automation</div>
-        <h3>Engine status</h3>
-        <div class="row-between"><span>Source worker</span><span id="source-worker">—</span></div>
-        <div class="row-between"><span>AI translation</span><span id="ai-worker" class="muted">Not connected yet</span></div>
-        <div class="row-between"><span>Provider quota</span><span id="quota">—</span></div>
-        <div class="divider"></div>
-        <div class="eyebrow">Owner controls</div>
-        <div class="control-grid" aria-label="Subtitle source worker controls">
-          <button type="button" id="action-start-auto">Run automatic sourcing</button>
-          <button type="button" id="action-stop-auto">Stop automatic</button>
-          <button type="button" id="action-start-manual">Start manual cycle</button>
-          <button type="button" id="action-stop-manual">Stop manual cycle</button>
-        </div>
-        <p class="control-feedback" id="control-feedback" role="status" aria-live="polite">Checking available actions…</p>
+<main>
+<header>
+ <div><h1>SubHub</h1><p class="small muted">Japanese subtitle coverage · Local dashboard</p></div>
+ <div class="row"><span id="run-status" class="small muted">Checking workers…</span><button class="quiet" id="refresh">Refresh</button></div>
+</header>
 
-      </section>
-    </div>
-    <section class="panel jobs-section" aria-label="Japanese movie subtitles">
-      <div class="jobs-head">
-        <div><div class="eyebrow">Movies · Japanese subtitles</div><h3>Get Japanese subtitles</h3></div>
-        <span class="tag" id="movie-job-state">Checking movie worker</span>
-      </div>
-      <p class="subtext">Select the exact movie file. SubHub searches existing Japanese releases, checks timing, and saves a compatible subtitle beside the movie. English translation is a fallback when Japanese sources aren't usable.</p>
-      <div class="batch-form">
-        <label>Movie title
-          <input id="movie-title" type="text" placeholder="The Shining" autocomplete="off" maxlength="120">
-        </label>
-        <label>Release year
-          <input id="movie-year" type="number" min="1880" max="2100" placeholder="1980">
-        </label>
-      </div>
-      <div class="batch-actions">
-        <button type="button" id="movie-find">Find movie files</button>
-      </div>
-      <div class="batch-form">
-        <label>Movie edition / file
-          <select id="movie-choice" disabled><option value="">Search for a movie first</option></select>
-        </label>
-      </div>
-      <div class="batch-actions">
-        <button type="button" id="movie-start" disabled>Get Japanese subtitles</button>
-        <button type="button" id="movie-stop" disabled>Stop current movie job</button>
-      </div>
-      <p id="movie-feedback" class="subtext" role="status" aria-live="polite">Find a movie to begin.</p>
-      <p id="movie-result" class="subtext" role="status" aria-live="polite"></p>
-    </section>
-    <section class="panel jobs-section" aria-label="New translation batch">
-      <div class="jobs-head">
-        <div><div class="eyebrow">TV subtitle translation</div><h3>Start a season batch</h3></div>
-        <span class="tag" id="season-run-status">Checking translation worker</span>
-      </div>
-      <p class="subtext">Choose a series and season. Search existing Japanese subtitles for the entire selected season, or translate eligible English-subtitled episodes in order. Existing subtitles are never overwritten.</p>
-      <div class="batch-form">
-        <label>Series
-          <input type="text" list="translation-series-options" id="translation-series" placeholder="Select or type a series" autocomplete="off">
-          <datalist id="translation-series-options"></datalist>
-        </label>
-        <label>Season
-          <select id="translation-season" disabled><option value="">Choose a series first</option></select>
-        </label>
-        <label>Translation batch size
-          <select id="translation-count">
-            <option value="5">Next 5 missing episodes</option>
-            <option value="10">Next 10 missing episodes</option>
-            <option value="20" selected>Next 20 missing episodes</option>
-            <option value="40">Complete season (up to 40)</option>
-          </select>
-        </label>
-        <label>Start at episode
-          <input type="number" id="translation-start-episode" min="1" max="999" value="1">
-        </label>
-      </div>
-      <div class="batch-actions">
-        <button type="button" id="translation-preview-button">Preview selection</button>
-        <button type="button" id="season-source-button" disabled>Find Japanese subs for season</button>
-        <button type="button" id="season-source-stop-button" disabled>Stop season sourcing</button>
-        <button type="button" id="translation-start-button" disabled>Start translation batch</button>
-        <button type="button" id="translation-stop-button" disabled>Stop active batch</button>
-      </div>
-      <p id="translation-batch-feedback" class="subtext" role="status" aria-live="polite">Select a series to see which episodes are ready.</p>
-      <p id="season-source-feedback" class="subtext" role="status" aria-live="polite">Select a season to run its existing Japanese subtitle source pipeline.</p>
-      <ol id="translation-episodes" class="batch-list"></ol>
-      <div class="divider"></div>
-      <p id="season-source-events" class="subtext">No recent season sourcing events.</p>
-      <p id="translation-batch-events" class="subtext">No recent translation batch events.</p>
-    </section>
-    <section class="panel jobs-section" aria-label="PLaMo translation jobs">
-      <div class="jobs-head">
-        <div><div class="eyebrow">Japanese subtitle translation</div><h3>PLaMo jobs</h3></div>
-        <span class="tag" id="translation-summary">Reading saved checkpoints</span>
-      </div>
-      <p class="subtext" style="margin-bottom:16px">Live progress from committed cue checkpoints. Unresolved cues are tracked separately from translated Japanese.</p>
-      <div class="job-list" id="translation-jobs" aria-live="polite"><p class="empty">Connecting to PLaMo checkpoint state…</p></div>
-    </section>
-    <div class="cols" style="grid-template-columns:1fr">
-      <section class="panel">
-        <div class="section-head"><h3>Recent activity</h3><span class="tag" id="activity-type">Current source cycle</span></div>
-        <ol class="activity" id="activity"><li class="empty">Connecting...</li></ol>
-      </section>
+<section class="panel">
+ <h2>Find a movie or TV series</h2>
+ <form id="lookup" class="row">
+  <input type="text" id="title-search" placeholder="Type a title…" aria-label="Movie or series title" maxlength="120" autocomplete="off">
+  <button type="submit" class="primary">Find</button>
+ </form>
+ <p class="small muted">One search. TV shows open into seasons; movies open into the actual available files.</p>
+ <div id="search-results" class="result-list" aria-live="polite"></div>
+ <p id="search-feedback" class="small muted"></p>
+</section>
 
-    </div>
-    <footer><span>SubHub Dashboard v0.2 · Local-only, independent of OptiPlex NOW</span><span>Updates every 3 seconds · Viewer disconnects do not affect processing</span></footer>
-  </main>
-  <script>
-    "use strict";
-    const el = (id) => document.getElementById(id);
-    let pending = false;
-    let wasConnected = false;
-    let controlBusy = false;
-    let batchBusy = false;
-    let selectedBatch = null;
-    let knownSeries = [];
-    let sourceActive = false;
-    let translationActive = false;
-    let batchInstalled = false;
-    let seasonSourceActive = false;
-    let seasonSourceInstalled = false;
-    let movieBusy = false;
-    const number = (v) => Number.isFinite(Number(v)) ? Number(v).toLocaleString() : "0";
-    const text = (id, value) => { el(id).textContent = value == null ? "—" : String(value); };
-    const progress = (id, label, current, total) => {
-      const c = Math.max(0, Number(current) || 0);
-      const t = Math.max(0, Number(total) || 0);
-      const percent = t ? Math.max(0, Math.min(100, 100*c/t)) : 0;
-      text(label, t ? number(c) + " / " + number(t) : "Not yet measured");
-      el(id + "-bar").style.width = percent + "%";
-      el(id + "-progress").setAttribute("aria-valuenow", String(Math.round(percent)));
-    };
-    function drawTranslations(t) {
-      const jobs = Array.isArray(t.jobs) ? t.jobs : [];
-      const batch = t.american_dad_batch || {};
-      const activeJobs = jobs.filter(j => j.active);
-      const inactiveJobs = jobs.filter(j => !j.active);
-      text("translation-summary", activeJobs.length + " running · " +
-        inactiveJobs.length + " saved in history");
-      const host = el("translation-jobs");
-      host.replaceChildren();
-      if (!jobs.length) {
-        const p = document.createElement("p");
-        p.className = "empty";
-        p.textContent = "No saved PLaMo jobs detected yet.";
-        host.append(p);
-        return;
-      }
-      const archive = document.createElement("details");
-      archive.className = "held-review";
-      const archiveTitle = document.createElement("summary");
-      archiveTitle.textContent = "Previous translation jobs (" + inactiveJobs.length + ")";
-      archive.append(archiveTitle);
-      const history = document.createElement("div");
-      history.className = "job-list";
-      history.style.marginTop = "12px";
-      archive.append(history);
-      if (!activeJobs.length) {
-        const idle = document.createElement("p");
-        idle.className = "subtext";
-        idle.textContent = "No AI translation is running right now.";
-        host.append(idle);
-      }
-      for (const job of activeJobs.concat(inactiveJobs.slice(0,40))) {
-        const card = document.createElement("article");
-        card.className = "job-card" + (job.active ? " active" : "");
-        const top = document.createElement("div");
-        top.className = "job-info";
-        const kind = document.createElement("span");
-        kind.textContent = (job.kind === "movie" ? "Movie" : "TV episode") + " · PLaMo 8B";
-        const state = document.createElement("strong");
-        const names = {
-          translating:"Translating",published:"Published",
-          published_with_review:"Published · review needed",
-          needs_resume:"Stopped · resume needed",
-          needs_resume_with_holds:"Stopped · held cues",
-          awaiting_publication:"Final validation / publishing",
-          ready_or_queued:"Queued / not started"
-        };
-        state.textContent = names[job.state] || job.state;
-        state.className = (job.held || job.state.startsWith("needs_resume")) ? "job-warning" : "";
-        top.append(kind,state);
-        const title = document.createElement("div");
-        title.className = "job-title";
-        title.textContent = job.title || "Untitled job";
-        const counts = document.createElement("div");
-        counts.className = "job-info";
-        const count = document.createElement("strong");
-        count.textContent = number(job.processed) + " / " + number(job.total) +
-          " cues (" + Number(job.percent || 0).toFixed(1) + "% processed)";
-        counts.append(count);
-        const meter = document.createElement("div");
-        meter.className = "job-meter";
-        meter.setAttribute("role","progressbar");
-        meter.setAttribute("aria-label","Processed cues for " + (job.title || "job"));
-        meter.setAttribute("aria-valuemin","0");
-        meter.setAttribute("aria-valuemax","100");
-        meter.setAttribute("aria-valuenow",String(Math.round(job.percent || 0)));
-        const fill = document.createElement("div");
-        fill.className = "job-fill";
-        fill.style.width = Math.min(100,Math.max(0,Number(job.percent)||0))+"%";
-        meter.append(fill);
-        const detail = document.createElement("div");
-        detail.className = "job-detail";
-        detail.textContent = number(job.translated) + " translated · " +
-          number(job.non_dialogue) + " sound captions · " +
-          number(job.held) + " held for review";
-        if (job.held) detail.classList.add("job-warning");
-        card.append(top,title,counts,meter,detail);
-        if (job.held) {
-          const review = document.createElement("details");
-          review.className = "held-review";
-          const heading = document.createElement("summary");
-          heading.textContent = "Review " + number(job.held) + " held cue(s)";
-          review.append(heading);
-          for (const cue of (Array.isArray(job.held_details) ? job.held_details : [])) {
-            const line = document.createElement("div");
-            line.className = "held-line";
-            line.textContent = "Cue " + cue.cue + " · English: " + cue.english +
-              " · Saved Japanese: " + (cue.japanese || "(not translated)");
-            review.append(line);
+<section class="panel" id="tv-panel" hidden>
+ <div class="split">
+  <div><h2 id="series-heading">TV series</h2><p class="small muted">Select one or several seasons. All actions stay inside the selected show.</p></div>
+  <button id="clear-series" type="button" class="quiet">Close show</button>
+ </div>
+ <div class="row"><button id="select-seasons" type="button" class="quiet">Select all seasons</button><button id="clear-seasons" type="button" class="quiet">Clear seasons</button></div>
+ <div id="seasons" class="seasons" aria-label="Choose seasons"></div>
+ <div class="status-strip" id="coverage-totals" aria-live="polite">Choose seasons to inspect subtitle coverage.</div>
+ <div class="episode-controls">
+  <button id="source-selected" class="primary" type="button" disabled>Search Japanese subs for remaining episodes</button>
+  <button id="translate-selected" type="button" disabled>Send remaining to PLaMo</button>
+ </div>
+ <p id="action-note" class="small muted">Source matching is conservative. Rejected or unverified candidates are visible for review; no unsafe subtitle is automatically published.</p>
+ <div class="row">
+  <button id="toggle-episodes" type="button" class="quiet" disabled>Review remaining episodes</button>
+  <button id="clear-episodes" type="button" class="quiet" hidden>Clear checked episodes</button>
+  <label class="small muted" id="show-covered-wrap" hidden><input type="checkbox" id="show-covered"> Show completed episodes</label>
+ </div>
+ <div id="episode-details" hidden></div>
+ <div id="feedback" class="notice" role="status" aria-live="polite" hidden></div>
+</section>
+
+<section class="panel" id="movie-panel" hidden>
+ <div class="split"><h2>Movie file</h2><button type="button" id="close-movie" class="quiet">Close movie</button></div>
+ <p id="movie-file" class="small muted"></p>
+ <div class="row">
+  <label>Release year <input id="movie-year" type="number" min="1880" max="2100" style="width:92px"></label>
+  <button id="movie-start" class="primary" type="button">Find Japanese subtitles</button>
+  <button id="movie-stop" type="button" hidden>Stop movie job</button>
+ </div>
+ <p id="movie-feedback" class="small muted">Select the correct edition. Timing must pass validation before publication.</p>
+</section>
+
+<section class="panel">
+ <div class="split"><h2>Active work</h2><span id="current-work" class="small muted">No current job</span></div>
+ <div class="status-strip"><span>Source: <strong id="source-state">—</strong></span><span>PLaMo: <strong id="plamo-state">—</strong></span><span>Provider allowance: <strong id="quota">Unverified</strong></span></div>
+ <p class="small muted" id="job-progress">Source events and saved cue checkpoints are shown here. Closing this page does not stop jobs.</p>
+ <div id="active-jobs"></div>
+ <details id="history"><summary>Previous jobs and review holds</summary><div id="past-jobs"></div><p id="recent-events" class="small muted"></p></details>
+ <div class="row" style="margin-top:12px"><button type="button" id="stop-sourcing" class="quiet" hidden>Stop selected sourcing</button><button type="button" id="stop-translation" class="quiet" hidden>Stop translation batch</button></div>
+</section>
+<p id="toast" role="status" aria-live="polite"></p>
+<footer class="small muted">Source-first, PLaMo fallback. Existing Japanese tracks and completed cue checkpoints are preserved. A timing pass is not a guarantee of perfect synchronization.</footer>
+</main>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const escapeText = v => String(v == null ? "" : v);
+let catalog=[], selectedSeries="", selectedMovie=null;
+let selectedSeasons=new Set(), coverage=new Map(), checked=new Set();
+let expanded=false, showCovered=false, busy=false, lastWorkers=false, latest={};
+const key=(s,e)=>s+":"+e;
+const picksFor = kind => {
+  const items=[];
+  for (const [season,report] of coverage) for (const ep of report.items||[]){
+    const eligible = kind==="source"?ep.can_source:ep.can_translate;
+    if (eligible && (!checked.size || checked.has(key(season,ep.episode))))
+      items.push({season,episode:ep.episode});
+  }
+  return items.sort((a,b)=>a.season-b.season||a.episode-b.episode);
+};
+const showMessage = (str,error=false) => {
+  $("feedback").hidden=false;
+  $("feedback").textContent=str;
+  $("feedback").style.borderLeftColor=error?"#cb8181":"#7295c5";
+};
+const toast=str=>$("toast").textContent=str;
+async function getJson(url){
+  const response=await fetch(url,{cache:"no-store"});
+  const data=await response.json();
+  if(!response.ok) throw Error(data.error||"Request failed");
+  return data;
+}
+async function ownerPost(path,payload){
+  const token=(await getJson("/api/owner-token")).token;
+  const response=await fetch(path,{method:"POST",cache:"no-store",
+    headers:{"Content-Type":"application/json","X-Subhub-Token":token},
+    body:JSON.stringify(payload)});
+  const data=await response.json();
+  if(!response.ok) throw Error(data.error||"Action rejected");
+  return data;
+}
+async function loadCatalog(){
+  try{
+    const data=await getJson("/api/translation/catalog");
+    catalog=Array.isArray(data.series)?data.series:[];
+  }catch(err){toast("Series catalog unavailable: "+err.message);}
+}
+function resultButton(name,description,callback){
+  const btn=document.createElement("button");btn.type="button";
+  btn.textContent=name+(description?" · "+description:"");
+  btn.addEventListener("click",callback);
+  $("search-results").append(btn);
+}
+async function lookup(event){
+  if(event) event.preventDefault();
+  const text=$("title-search").value.trim();
+  $("search-results").replaceChildren();
+  if(text.length<2){$("search-feedback").textContent="Enter at least two characters.";return;}
+  const matches=catalog.filter(x=>x.series.toLowerCase().includes(text.toLowerCase())).slice(0,9);
+  for(const match of matches)resultButton(match.series,"TV · "+match.seasons.length+" seasons",()=>openSeries(match));
+  $("search-feedback").textContent=matches.length+" series matched. Checking movie files…";
+  if(text.length<3){$("search-feedback").textContent="Type at least three characters to search movie files.";return;}
+  try{
+    const data=await getJson("/api/movies/search?title="+encodeURIComponent(text));
+    const movies=Array.isArray(data.movies)?data.movies:[];
+    for(const movie of movies)resultButton(movie.filename,"Movie file",()=>openMovie(movie));
+    $("search-feedback").textContent=(matches.length+movies.length)+" results; select a matching title.";
+  }catch(err){$("search-feedback").textContent="TV results available; movie search: "+err.message;}
+}
+function openSeries(entry){
+  selectedSeries=entry.series;
+  selectedMovie=null;
+  selectedSeasons.clear();coverage.clear();checked.clear();expanded=false;
+  $("tv-panel").hidden=false;$("movie-panel").hidden=true;
+  $("series-heading").textContent=entry.series;
+  const host=$("seasons");host.replaceChildren();
+  for(const n of entry.seasons){
+    const label=document.createElement("label");label.className="season-choice";
+    const input=document.createElement("input");input.type="checkbox";input.value=String(n);
+    input.addEventListener("change",async()=>{
+      if(input.checked){selectedSeasons.add(n);await loadSeason(n);}
+      else{selectedSeasons.delete(n);coverage.delete(n);pruneChecked();}
+      renderCoverage();
+    });
+    label.append(input,document.createTextNode("Season "+n));host.append(label);
+  }
+  $("episode-details").hidden=true;$("toggle-episodes").textContent="Review remaining episodes";
+  $("feedback").hidden=true;renderCoverage();window.scrollTo({top:$("tv-panel").offsetTop-18,behavior:"smooth"});
+}
+function pruneChecked(){
+  for(const val of Array.from(checked)){
+    const season=Number(val.split(":")[0]);if(!selectedSeasons.has(season))checked.delete(val);
+  }
+}
+async function loadSeason(n){
+  if(!selectedSeries||!selectedSeasons.has(n))return;
+  try{
+    const params=new URLSearchParams({series:selectedSeries,season:String(n)});
+    const result=await getJson("/api/translation/coverage?"+params);
+    if(selectedSeries===result.series&&selectedSeasons.has(n))coverage.set(n,result);
+  }catch(err){
+    coverage.delete(n);
+    showMessage("Could not load Season "+n+": "+err.message,true);
+  }
+}
+function counts(){
+  const n={total:0,covered:0,ready:0,sourcing:0,review:0,needs_english:0};
+  for(const report of coverage.values())for(const item of report.items||[]){
+    n.total++;n[item.status]=(n[item.status]||0)+1;
+  }
+  return n;
+}
+function renderCoverage(){
+  const n=counts();
+  $("coverage-totals").textContent=selectedSeasons.size?
+    n.covered+" Japanese present · "+n.ready+" PLaMo-ready · "+
+    n.sourcing+" sourcing pending · "+n.review+" review · "+
+    n.needs_english+" need English · "+n.total+" episodes in "+
+    coverage.size+"/"+selectedSeasons.size+" loaded seasons":
+    "Choose one or several seasons to inspect coverage.";
+  const src=picksFor("source"), ai=picksFor("translate");
+  $("source-selected").disabled=busy||!src.length||latest.workersBusy;
+  $("translate-selected").disabled=busy||!ai.length||latest.workersBusy||!latest.aiAvailable;
+  $("source-selected").textContent="Recheck Japanese sources ("+src.length+")";
+  $("translate-selected").textContent="Send remaining to PLaMo ("+ai.length+")";
+  $("toggle-episodes").disabled=!n.total;
+  $("action-note").textContent=checked.size?
+    "Using "+checked.size+" checked episode(s). Ineligible episodes are excluded from each action. Clear checks to act on all remaining.":
+    "No individual checks: actions include all eligible remaining episodes in the selected seasons, never other media.";
+  if(expanded)renderEpisodes();
+}
+function statusName(item){
+  const labels={covered:"Japanese present",ready:"No accepted source · PLaMo-ready",
+    sourcing:"Japanese source search pending",review:"Review source/timing",
+    needs_english:"English subtitles required"};
+  return labels[item.status]||item.status;
+}
+function renderEpisodes(){
+  const host=$("episode-details");host.replaceChildren();
+  $("clear-episodes").hidden=false;$("show-covered-wrap").hidden=false;
+  for(const [season,report] of [...coverage].sort((a,b)=>a[0]-b[0])){
+    const items=report.items.filter(it=>showCovered||it.status!=="covered");
+    const card=document.createElement("details");card.className="season-card";
+    const title=document.createElement("summary");
+    const incomplete=report.items.filter(it=>it.status!=="covered").length;
+    title.textContent="Season "+season+" · "+incomplete+" remaining · "+report.covered+" Japanese present";
+    card.append(title);
+    const body=document.createElement("div");body.className="body";
+    if(!items.length){
+      const done=document.createElement("p");done.className="good";
+      done.textContent="All episodes already have Japanese tracks.";body.append(done);
+    }
+    for(const item of items){
+      const row=document.createElement("div");row.className="episode";
+      const input=document.createElement("input");input.type="checkbox";
+      const token=key(season,item.episode);
+      input.checked=checked.has(token);
+      input.disabled=(!item.can_source&&!item.can_translate)||item.status==="covered";
+      input.setAttribute("aria-label","Select S"+season+"E"+item.episode);
+      input.addEventListener("change",()=>{input.checked?checked.add(token):checked.delete(token);renderCoverage();});
+      const content=document.createElement("div");
+      const name=document.createElement("div");name.className="episode-title";
+      name.textContent="S"+String(season).padStart(2,"0")+"E"+String(item.episode).padStart(2,"0")+
+        "  "+item.title;
+      const state=document.createElement("div");state.className="detail";
+      state.textContent=statusName(item)+" · "+String(item.reason||"").replaceAll("_"," ");
+      content.append(name,state);
+      const search=item.search;
+      if(search){
+        const m=document.createElement("div");m.className="detail";
+        m.textContent="Last search: "+search.outcome+
+          " · provider results "+(search.provider_total==null?"unknown":search.provider_total)+
+          " · accepted "+search.plausible_candidates+
+          " · discarded "+(search.rejected_count||0);
+        content.append(m);
+        const candidates=[...(search.candidates||[]),...(search.rejected_candidates||[])];
+        if(candidates.length){
+          const details=document.createElement("details");details.className="review";
+          const label=document.createElement("summary");
+          label.textContent="Review "+candidates.length+" saved candidate(s)";
+          details.append(label);
+          for(const c of candidates){
+            const line=document.createElement("div");line.className="review-list";
+            line.textContent=(c.provider||"provider")+" · "+(c.release||"unnamed release")+
+              (c.grade?" · "+c.grade:" · rejected / unverified");
+            details.append(line);
           }
-          const note = document.createElement("p");
-          note.className = "job-detail";
-          note.textContent = "Review only. Existing subtitle tracks will not be overwritten.";
-          review.append(note);
-          card.append(review);
-        }
-        (job.active ? host : history).append(card);
-      }
-      if (inactiveJobs.length) host.append(archive);
-    }
-    function draw(d) {
-      wasConnected = true;
-      const s = d.state || "unknown";
-      const names = {running:"Manual batch",scheduled_source_running:"Daily sourcing",completed:"Completed",failed:"Failed",stopped:"Stopped",interrupted:"Interrupted — not running",idle:"Idle"};
-      text("state", names[s] || s);
-      el("state-dot").className = "dot " + (s === "running" || s === "scheduled_source_running" ? "running" : s);
-      text("phase-label", d.phase_label);
-      text("current-item", d.current_item || "Waiting for a current title");
-      text("source-worker", d.source_active ? "Active" : "Not active");
-      const tr = d.translation || {};
-      const batch = tr.american_dad_batch || {};
-      const currentAI = Array.isArray(tr.jobs) ?
-        tr.jobs.find(job => job.active) : null;
-      text("ai-worker",currentAI ?
-        ("PLaMo translating: " + (currentAI.title || "movie / episode") +
-         " · " + number(currentAI.processed) + "/" +
-         number(currentAI.total) + " cues") :
-        batch.active ? ("PLaMo: " + (batch.episode || "preparing episode")) :
-        "Not running");
-      drawTranslations(tr);
-      const mj = d.movie_source || {};
-      if (mj.active) {
-        text("phase-label","Finding Japanese subtitles for a movie");
-        text("current-item",mj.description || "Searching and synchronizing");
-        text("state","Movie sourcing");
-        el("state-dot").className="dot running";
-      } else if (currentAI || batch.active) {
-        text("phase-label","PLaMo translating Japanese subtitles");
-        text("current-item",currentAI ?
-          ((currentAI.title || "Current job") + " · " +
-           number(currentAI.processed) + "/" + number(currentAI.total) + " cues") :
-          (batch.episode || "Preparing next episode"));
-        text("state","Translation running");
-        el("state-dot").className="dot running";
-      } else if (d.state === "failed" && !d.source_active) {
-        // A failed historical source job is not current activity.
-        text("phase-label","No subtitle job running");
-        text("current-item","Choose media below to start or queue work.");
-        text("state","Idle");
-        el("state-dot").className="dot";
-      }
-      text("movie-job-state", mj.active ? "Processing movie" :
-           mj.available ? "Ready" : "Movie worker not installed");
-      el("movie-stop").disabled = movieBusy || !mj.active;
-      if (mj.active) text("movie-result","Finding and aligning Japanese subtitles for the selected movie.");
-      else if (mj.last_result && mj.last_result !== "No recent movie job") {
-        const result = mj.last_result;
-        if (result.startsWith("MOVIE_JA_RESULT ")) {
-          try {
-            const detail = JSON.parse(result.slice("MOVIE_JA_RESULT ".length));
-            text("movie-result",detail.state === "published" ?
-              "Japanese subtitles saved: " + detail.target :
-              detail.message || ("Movie status: " + detail.state));
-          } catch (_) {
-            text("movie-result","Movie job finished; result unavailable.");
-          }
-        } else {
-          text("movie-result","Movie subtitle job stopped: " +
-            result.replace(/^MOVIE_JA_HELD /,"").replaceAll("_"," "));
+          const note=document.createElement("p");note.className="detail";
+          note.textContent="Search matches do not establish correct edition or timing. Unapproved candidates are not auto-published.";
+          details.append(note);content.append(details);
         }
       }
-      const bt = d.season_translation || {};
-      const sourceBatch = d.season_sources || {};
-      seasonSourceActive = !!sourceBatch.active;
-      seasonSourceInstalled = !!sourceBatch.available;
-      sourceActive = !!d.source_active || seasonSourceActive;
-      translationActive = !!bt.active || !!(tr.american_dad_batch || {}).active ||
-        Number(tr.active_jobs || 0) > 0;
-      el("movie-start").disabled = movieBusy || mj.active || !mj.available ||
-        sourceActive || translationActive || !el("movie-choice").value;
-      batchInstalled = !!bt.available;
-      text("season-source-events",(Array.isArray(sourceBatch.recent) &&
-        sourceBatch.recent.length) ? sourceBatch.recent.slice(-5).join(" | ") :
-        "No recent season sourcing events.");
-      text("source-worker",seasonSourceActive ? "Selected season sourcing" :
-        d.source_active ? "Active" : "Not active");
-      el("season-source-stop-button").disabled = batchBusy || !seasonSourceActive;
-      el("season-source-button").disabled = batchBusy || !seasonSourceInstalled ||
-        sourceActive || translationActive || !selectedBatch ||
-        !selectedBatch.items.some(item => item.status === "blocked" &&
-          (item.reason === "japanese_source_first" ||
-           item.reason === "english_text_not_ready"));
-      text("season-run-status",bt.active ? "Running" :
-        bt.available ? "Ready for selection" : "Batch worker not installed");
-      el("translation-start-button").disabled = batchBusy || !batchInstalled ||
-        sourceActive || translationActive || !selectedBatch || selectedBatch.ready < 1;
-      el("translation-stop-button").disabled = batchBusy || !bt.active;
-      const ev = Array.isArray(bt.recent) ? bt.recent : [];
-      text("translation-batch-events",ev.length ? ev.slice(-4).join(" | ") :
-        "No recent translation batch events.");
-      const live = d.source_job || {};
-      text("quota", live.provider_limited ? "Limit reached in this run" : "Allowance unverified");
-      el("quota").className = live.provider_limited ? "warning" : "";
-
-      const cset = d.controls || {};
-      for (const action of ["start-auto","stop-auto","start-manual","stop-manual"]) {
-        const key = action.replace(/-/g, "_");
-        el("action-" + action).disabled = controlBusy || !cset.available || !cset[key];
-      }
-      if (!controlBusy) {
-        if (!cset.available) text("control-feedback", cset.reason || "Controls unavailable");
-        else if (el("control-feedback").textContent.startsWith("Checking"))
-          text("control-feedback", "Controls ready");
-      }
-      el("live-bars").hidden = !live.active || !live.metrics_available;
-      if (live.active && live.metrics_available) {
-        progress("live-search","live-search-label",live.search_completed,live.search_planned);
-        progress("live-stage","live-stage-label",live.stage_attempts,live.stage_planned);
-        progress("live-publish","live-publish-label",live.publish_title_checked,live.publish_title_planned);
-        const last = Number(live.last_event)||0;
-        const elapsed = last ? Math.round(Date.now()/1000-last) : null;
-        text("live-updated", last ?
-          ("Last actual event: "+new Date(last*1000).toLocaleTimeString()+
-          (elapsed>120 ? " · No new events for "+Math.floor(elapsed/60)+" min" : "")) :
-          "Source worker active; no timestamped progress available");
-      }
-      const current = live.active && live.metrics_available;
-      for (const [id,key] of [
-        ["live-matches","search_found"],["live-downloaded","staged"],
-        ["live-published","published"],["live-none","search_none"],
-        ["live-review","search_review"],["live-errors","search_errors"]
-      ]) text(id, current ? number(live[key] ?? 0) : "—");
-      text("source-phase-note", current ?
-        (live.phase_label.includes("Searching") ?
-          "Searching sources now. Downloads start after searching; publishing follows downloads." :
-          "Results from the active automatic cycle only.") :
-        (live.active ? "Source worker active; journal progress unavailable." :
-          d.batch_active ? "Manual source batch active; automatic-run metrics unavailable." :
-          "No automatic source run active."));
-      text("activity-type",live.active ? "Current automatic cycle" :
-        d.batch_active ? "Current manual cycle" : "No active source cycle");
-      const activity = el("activity");
-      activity.replaceChildren();
-      const events = d.source_active && Array.isArray(d.events) ? d.events.slice(-9).reverse() : [];
-      if (events.length === 0) {
-        const item = document.createElement("li"); item.className="empty"; item.textContent="No worker events recorded yet"; activity.append(item);
-      } else {
-        for (const event of events) { const item = document.createElement("li"); item.textContent=event; activity.append(item); }
-      }
+      row.append(input,content);body.append(row);
     }
-    async function refresh() {
-      if (pending) return;
-      pending = true;
-      try {
-        const response = await fetch("/api/status", {cache:"no-store"});
-        if (!response.ok) throw new Error("status unavailable");
-        draw(await response.json());
-      } catch (_) {
-        const word = wasConnected ? "Disconnected" : "Unavailable";
-        text("state", word);
-        el("state-dot").className = "dot interrupted";
-        text("source-phase-note", "The SubHub dashboard cannot read the backend right now.");
-        text("source-worker", "Unknown");
-      } finally { pending = false; }
+    card.append(body);host.append(card);
+  }
+  host.hidden=false;
+}
+async function bulkAction(kind){
+  if(busy||!selectedSeries)return;
+  const picks=picksFor(kind);
+  if(!picks.length){showMessage("No eligible episodes in this selection.",true);return;}
+  if(kind==="source"&&!confirm("Search configured subtitle providers for "+picks.length+
+      " selected episode(s)? This may consume provider search/download allowance. Only verified matching subtitles can be published."))return;
+  if(kind==="translate"&&!confirm("Send "+picks.length+
+      " source-exhausted episode(s) to PLaMo? Work resumes checkpoints and will skip tracks already present."))return;
+  busy=true;renderCoverage();
+  showMessage(kind==="source"?"Starting selected Japanese sourcing…":"Starting selected PLaMo batch…");
+  try{
+    const path=kind==="source"?"/api/source-season/start":"/api/translation/start";
+    const result=await ownerPost(path,{series:selectedSeries,picks});
+    showMessage("Accepted "+result.accepted+" episode(s) for "+(kind==="source"?"Japanese sourcing":"PLaMo translation")+
+      ". Refreshing coverage when the worker finishes.");
+    checked.clear();
+  }catch(err){showMessage("Not started: "+err.message,true);}
+  finally{busy=false;await refreshStatus();renderCoverage();}
+}
+function openMovie(movie){
+  selectedMovie=movie;selectedSeries="";
+  $("tv-panel").hidden=true;$("movie-panel").hidden=false;
+  $("movie-file").textContent=movie.path;
+  const year=movie.path.match(/(?:19|20)\d{2}/);
+  $("movie-year").value=year?year[0]:"";
+  $("movie-feedback").textContent="Use the correct file/edition. No movie is removed or replaced.";
+  window.scrollTo({top:$("movie-panel").offsetTop-18,behavior:"smooth"});
+}
+async function movieAction(stop){
+  if(!stop&&!selectedMovie)return;
+  busy=true;
+  try{
+    let result;
+    if(stop)result=await ownerPost("/api/movie/stop",{});
+    else{
+      const year=Number($("movie-year").value);
+      if(!Number.isInteger(year)||year<1880||year>2100)throw Error("Enter the correct release year.");
+      const title=$("title-search").value.trim()||selectedMovie.filename.split(".")[0];
+      result=await ownerPost("/api/movie/start",{video:selectedMovie.path,title,year});
     }
-    async function runControl(action) {
-      if (controlBusy) return;
-      const button = el("action-" + action);
-      if (!button || button.disabled) return;
-      controlBusy = true;
-      for (const key of ["start-auto","stop-auto","start-manual","stop-manual"])
-        el("action-" + key).disabled = true;
-      text("control-feedback", "Sending " + action.replace(/-/g, " ") + "…");
-      try {
-        const keyResponse = await fetch("/api/owner-token", {cache:"no-store"});
-        if (!keyResponse.ok) throw new Error("Owner access unavailable");
-        const token = (await keyResponse.json()).token;
-        if (typeof token !== "string" || !token) throw new Error("Owner token missing");
-        const response = await fetch("/api/control/" + action, {
-          method:"POST",
-          headers:{"Content-Type":"application/json","X-Subhub-Token":token},
-          body:"{}",
-          cache:"no-store"
-        });
-        const result = await response.json();
-        if (!response.ok) throw new Error(result.error || "Control rejected (" + response.status + ")");
-        text("control-feedback", "Accepted: " + action.replace(/-/g, " "));
-      } catch (err) {
-        text("control-feedback", "Not completed: " + (err.message || "control failed"));
-      } finally {
-        controlBusy = false;
-        await refresh();
-      }
-    }
-    for (const action of ["start-auto","stop-auto","start-manual","stop-manual"]) {
-      el("action-" + action).disabled = true;
-      el("action-" + action).addEventListener("click", () => runControl(action));
-    }
-
-    function updateSeasonOptions() {
-      selectedBatch = null;
-      el("translation-start-button").disabled = true;
-      el("season-source-button").disabled = true;
-      const list = el("translation-season");
-      list.replaceChildren();
-      const found = knownSeries.find(x => x.series === el("translation-series").value);
-      list.disabled = !found;
-      const seasons = found ? found.seasons : [];
-      for (const value of seasons) {
-        const option = document.createElement("option");
-        option.value = String(value);
-        option.textContent = "Season " + value;
-        list.append(option);
-      }
-      if (!found) text("translation-batch-feedback","Choose an exact series from the list.");
-    }
-    async function loadSeries() {
-      try {
-        const response = await fetch("/api/translation/catalog", {cache:"no-store"});
-        if (!response.ok) throw new Error("Library queue unavailable");
-        const data = await response.json();
-        knownSeries = Array.isArray(data.series) ? data.series : [];
-        const options = el("translation-series-options");
-        options.replaceChildren();
-        for (const series of knownSeries) {
-          const option = document.createElement("option");
-          option.value = series.series;
-          options.append(option);
+    $("movie-feedback").textContent=stop?"Movie worker stopping.":"Japanese subtitle sourcing started for the exact movie file.";
+  }catch(err){$("movie-feedback").textContent="Not started: "+err.message;}
+  finally{busy=false;await refreshStatus();}
+}
+function drawJobs(data){
+  const t=data.translation||{},jobs=Array.isArray(t.jobs)?t.jobs:[];
+  const active=jobs.filter(x=>x.active),history=jobs.filter(x=>!x.active);
+  const mount=(container,list)=>{
+    container.replaceChildren();
+    for(const job of list.slice(0,container===$("past-jobs")?12:5)){
+      const line=document.createElement("div");line.className="job";
+      const heading=document.createElement("div");heading.className="split";
+      const name=document.createElement("strong");name.textContent=job.title||"Subtitle job";
+      const state=document.createElement("span");state.className="small muted";
+      state.textContent=String(job.state||"unknown").replaceAll("_"," ");
+      heading.append(name,state);line.append(heading);
+      const progress=document.createElement("p");progress.className="small muted";
+      progress.textContent=(job.processed||0)+"/"+(job.total||0)+" cues · "+(job.held||0)+" held";
+      line.append(progress);
+      const meter=document.createElement("div");meter.className="meter";
+      const fill=document.createElement("div");fill.className="fill";
+      fill.style.width=Math.max(0,Math.min(100,Number(job.percent)||0))+"%";
+      meter.append(fill);line.append(meter);
+      if(job.held_details&&job.held_details.length){
+        const details=document.createElement("details");details.className="review";
+        const summary=document.createElement("summary");summary.textContent="Review held cues";
+        details.append(summary);
+        for(const cue of job.held_details.slice(0,12)){
+          const p=document.createElement("p");p.className="small muted";
+          p.textContent="Cue "+cue.cue+" · "+cue.english+" · "+(cue.japanese||"not translated");details.append(p);
         }
-        text("translation-batch-feedback",
-          knownSeries.length ? "Select a series and preview the next episodes." :
-          "No episodic library records found in the coverage queue.");
-      } catch (err) {
-        text("translation-batch-feedback",
-          "Cannot read the library queue: " + err.message);
+        line.append(details);
       }
+      container.append(line);
     }
-    async function previewSeason() {
-      selectedBatch = null;
-      el("translation-start-button").disabled = true;
-      el("season-source-button").disabled = true;
-      const out = el("translation-episodes");
-      out.replaceChildren();
-      const series = el("translation-series").value;
-      const season = Number(el("translation-season").value);
-      const count = Number(el("translation-count").value);
-      const start = Number(el("translation-start-episode").value);
-      if (!knownSeries.some(x => x.series === series && x.seasons.includes(season)) ||
-          !Number.isInteger(start) || start < 1 || start > 999) {
-        text("translation-batch-feedback","Select a known series, season and valid start episode.");
-        return;
-      }
-      text("translation-batch-feedback","Checking the source-first queue…");
-      try {
-        const qs = new URLSearchParams({series,season:String(season),
-                    count:String(count),start:String(start)});
-        const response = await fetch("/api/translation/plan?"+qs, {cache:"no-store"});
-        const plan = await response.json();
-        if (!response.ok) throw new Error(plan.error || "Plan unavailable");
-        selectedBatch = plan;
-        text("translation-batch-feedback",
-          plan.ready + " ready · " + plan.blocked + " blocked · " +
-          plan.covered + " already covered in this season. " +
-          (plan.ready ? "Only ready episodes will be translated." :
-          "No episodes currently pass source-first eligibility."));
-        for (const item of plan.items) {
-          const li = document.createElement("li");
-          li.textContent = "E" + String(item.episode).padStart(2,"0") +
-            " · " + item.title + " — " + (item.status === "ready" ?
-            "Ready to translate" : "Blocked: " + item.reason.replaceAll("_"," "));
-          out.append(li);
-        }
-        el("translation-start-button").disabled = batchBusy || !batchInstalled ||
-          sourceActive || translationActive || plan.ready < 1;
-        el("season-source-button").disabled = batchBusy || !seasonSourceInstalled ||
-          sourceActive || translationActive || !plan.items.some(item =>
-            item.status === "blocked" &&
-            (item.reason === "japanese_source_first" ||
-             item.reason === "english_text_not_ready"));
-      } catch (err) {
-        text("translation-batch-feedback","Preview failed: " + err.message);
-      }
+  };
+  mount($("active-jobs"),active);
+  mount($("past-jobs"),history);
+  const events=(data.season_sources&&data.season_sources.recent)||[];
+  const aiEvents=(data.season_translation&&data.season_translation.recent)||[];
+  $("recent-events").textContent=events.slice(-4).concat(aiEvents.slice(-4)).join(" | ")||"No recent scoped-job events.";
+}
+async function refreshStatus(){
+  try{
+    const d=await getJson("/api/status");
+    latest=d;
+    const t=d.translation||{};
+    const legacy=!!(t.american_dad_batch||{}).active;
+    const source=!!d.source_active||!!(d.season_sources||{}).active;
+    const ai=!!(d.season_translation||{}).active||legacy||Number(t.active_jobs||0)>0;
+    d.workersBusy=source||ai||!!(d.movie_source||{}).active;
+    d.aiAvailable=!!(d.season_translation||{}).available;
+    const scoped=!!(d.season_sources||{}).active;
+    $("run-status").textContent=scoped?"Selected sourcing active":ai?"PLaMo active":source?"Source worker active":"Idle";
+    $("current-work").textContent=escapeText(d.current_item||d.phase_label||"No current job");
+    $("source-state").textContent=scoped?"Selected episodes":source?"Running":"Idle";
+    $("plamo-state").textContent=ai?"Running":d.aiAvailable?"Ready":"Handoff not installed";
+    $("quota").textContent=(d.source_job||{}).provider_limited?"Provider limit reached":"Allowance unverified";
+    $("job-progress").textContent=escapeText(d.phase_label||"No active work");
+    $("stop-sourcing").hidden=!scoped;
+    $("stop-translation").hidden=!(d.season_translation||{}).active;
+    $("movie-stop").hidden=!(d.movie_source||{}).active;
+    drawJobs(d);
+    if(lastWorkers&&!d.workersBusy&&selectedSeries&&selectedSeasons.size){
+      await Promise.all([...selectedSeasons].map(loadSeason));
     }
-    async function sendTranslationAction(startAction) {
-      if (batchBusy || (startAction && (!selectedBatch || selectedBatch.ready < 1)))
-        return;
-      batchBusy = true;
-      const request = startAction ? {
-        series:selectedBatch.series,season:selectedBatch.season,
-        count:selectedBatch.requested,start:selectedBatch.start_episode
-      } : {};
-      el("translation-start-button").disabled = true;
-      el("translation-stop-button").disabled = true;
-      text("translation-batch-feedback",startAction ?
-        "Requesting the season batch…" : "Stopping current translation batch…");
-      try {
-        const keyResponse = await fetch("/api/owner-token", {cache:"no-store"});
-        if (!keyResponse.ok) throw new Error("Owner access unavailable");
-        const token = (await keyResponse.json()).token;
-        if (typeof token !== "string" || !token) throw new Error("Owner token missing");
-        const response = await fetch("/api/translation/" +
-          (startAction ? "start" : "stop"),{
-          method:"POST",
-          headers:{"Content-Type":"application/json","X-Subhub-Token":token},
-          body:JSON.stringify(request),cache:"no-store"
-        });
-        const result = await response.json();
-        if (!response.ok) throw new Error(result.error || "Batch action refused");
-        if (startAction) selectedBatch = null;
-        text("translation-batch-feedback",startAction ?
-          ("Batch accepted: " + result.accepted + " eligible episode(s), " +
-           result.blocked + " blocked.") : "Stop requested; checkpoints kept.");
-      } catch (err) {
-        text("translation-batch-feedback","Action not completed: " + err.message);
-      } finally {
-        batchBusy = false;
-        await refresh();
-      }
-    }
-    async function sendSeasonSourceAction(startAction) {
-      if (batchBusy || (startAction && !selectedBatch)) return;
-      batchBusy = true;
-      el("season-source-button").disabled = true;
-      el("season-source-stop-button").disabled = true;
-      el("translation-start-button").disabled = true;
-      text("season-source-feedback",startAction ?
-        "Starting Japanese source discovery for the entire selected season…" :
-        "Requesting season sourcing stop…");
-      try {
-        const auth = await fetch("/api/owner-token", {cache:"no-store"});
-        if (!auth.ok) throw new Error("Owner access unavailable");
-        const token = (await auth.json()).token;
-        if (typeof token !== "string" || !token) throw new Error("Owner token missing");
-        const req = startAction ? {
-          series:selectedBatch.series,season:selectedBatch.season
-        } : {};
-        const response = await fetch("/api/source-season/" +
-          (startAction ? "start" : "stop"), {
-          method:"POST",
-          headers:{"Content-Type":"application/json","X-Subhub-Token":token},
-          body:JSON.stringify(req),cache:"no-store"
-        });
-        const result = await response.json();
-        if (!response.ok) throw new Error(result.error || "Season source operation refused");
-        text("season-source-feedback",startAction ?
-          ("Accepted: " + result.accepted + " episode(s) to source. " +
-           "This searches the full season, not only the translation batch selection.") :
-          "Stop requested; previous source results retained.");
-      } catch (err) {
-        text("season-source-feedback","Not completed: " + (err.message || "source failed"));
-      } finally {
-        batchBusy = false;
-        await refresh();
-      }
-    }
-    el("season-source-button").addEventListener("click",()=>sendSeasonSourceAction(true));
-    el("season-source-stop-button").addEventListener("click",()=>sendSeasonSourceAction(false));
-    el("translation-series").addEventListener("input",updateSeasonOptions);
-    el("translation-series").addEventListener("change",updateSeasonOptions);
-    for (const id of ["translation-season","translation-count","translation-start-episode"])
-      el(id).addEventListener("change", () => {
-        selectedBatch = null;
-        el("translation-start-button").disabled = true;
-        el("season-source-button").disabled = true;
-      });
-    el("translation-preview-button").addEventListener("click",previewSeason);
-    el("translation-start-button").addEventListener("click",()=>sendTranslationAction(true));
-    el("translation-stop-button").addEventListener("click",()=>sendTranslationAction(false));
-    loadSeries();
-
-    async function findMovies() {
-      if (movieBusy) return;
-      const title = el("movie-title").value.trim();
-      const select = el("movie-choice");
-      select.replaceChildren();
-      select.disabled = true;
-      el("movie-start").disabled = true;
-      if (title.length < 3) {
-        text("movie-feedback","Enter a movie title (at least 3 characters).");
-        return;
-      }
-      movieBusy = true;
-      text("movie-feedback","Searching existing movie folders…");
-      try {
-        const response = await fetch("/api/movies/search?title="+
-             encodeURIComponent(title), {cache:"no-store"});
-        const out=await response.json();
-        if (!response.ok) throw new Error(out.error || "Movie search unavailable");
-        const files = Array.isArray(out.movies) ? out.movies : [];
-        if (!files.length) {
-          text("movie-feedback","No matching files on the approved movie drives. Check that the download has finished.");
-          return;
-        }
-        const placeholder=document.createElement("option");
-        placeholder.value="";
-        placeholder.textContent="Choose a specific file / edition";
-        select.append(placeholder);
-        for (const movie of files) {
-          const option=document.createElement("option");
-          option.value=movie.path;
-          option.textContent=movie.filename+" · "+
-            (movie.path.startsWith("/mnt/2TB/")?"2TB":movie.path.startsWith("/mnt/BigDisk/")?"BigDisk":"Storage");
-          select.append(option);
-        }
-        select.disabled=false;
-        text("movie-feedback",files.length+" matching file(s). Choose the correct cut.");
-      } catch (err) {
-        text("movie-feedback","Search failed: "+err.message);
-      } finally { movieBusy=false; }
-    }
-    async function movieAction(start) {
-      if (movieBusy) return;
-      const video=el("movie-choice").value;
-      const title=el("movie-title").value.trim();
-      const year=Number(el("movie-year").value);
-      if (start && (!video || !Number.isInteger(year) || year<1880 || year>2100)) {
-        text("movie-feedback","Select a movie file and enter its release year.");
-        return;
-      }
-      movieBusy=true;
-      el("movie-start").disabled=true;
-      el("movie-stop").disabled=true;
-      text("movie-feedback",start ? "Submitting Japanese subtitle job…" : "Stopping movie job…");
-      try {
-        const auth=await fetch("/api/owner-token",{cache:"no-store"});
-        if (!auth.ok) throw new Error("Owner authorization unavailable");
-        const token=(await auth.json()).token;
-        const response=await fetch("/api/movie/"+(start?"start":"stop"), {
-          method:"POST",cache:"no-store",
-          headers:{"Content-Type":"application/json","X-Subhub-Token":token},
-          body:JSON.stringify(start?{video,title,year}:{})
-        });
-        const out=await response.json();
-        if (!response.ok) throw new Error(out.error || "Movie operation rejected");
-        text("movie-feedback",start?
-          "Japanese sourcing started for "+out.video+". Follow progress here." :
-          "Stop requested. Previously downloaded sources are retained.");
-      } catch (err) {
-        text("movie-feedback","Not completed: "+err.message.replaceAll("_"," "));
-      } finally {
-        movieBusy=false;
-        await refresh();
-      }
-    }
-    el("movie-find").addEventListener("click",findMovies);
-    el("movie-choice").addEventListener("change",()=>refresh());
-    el("movie-start").addEventListener("click",()=>movieAction(true));
-    el("movie-stop").addEventListener("click",()=>movieAction(false));
-
-    el("refresh").addEventListener("click", refresh);
-    refresh();
-    setInterval(refresh, 3000);
-  </script>
+    lastWorkers=d.workersBusy;
+    renderCoverage();
+  }catch(err){$("run-status").textContent="Dashboard status unavailable";toast(err.message);}
+}
+async function stopJob(path){
+  try{await ownerPost(path,{});toast("Stop requested; saved checkpoints are preserved.");}
+  catch(err){toast("Could not stop job: "+err.message);}
+  await refreshStatus();
+}
+$("lookup").addEventListener("submit",lookup);
+$("refresh").addEventListener("click",async()=>{await loadCatalog();await refreshStatus();
+  if(selectedSeries)await Promise.all([...selectedSeasons].map(loadSeason));renderCoverage();});
+$("clear-series").addEventListener("click",()=>{$("tv-panel").hidden=true;selectedSeries="";coverage.clear();selectedSeasons.clear();checked.clear();});
+$("close-movie").addEventListener("click",()=>{$("movie-panel").hidden=true;selectedMovie=null;});
+$("select-seasons").addEventListener("click",async()=>{
+  const inputs=[...$("seasons").querySelectorAll('input[type="checkbox"]')];
+  for(const input of inputs){input.checked=true;selectedSeasons.add(Number(input.value));}
+  await Promise.all([...selectedSeasons].map(loadSeason));renderCoverage();
+});
+$("clear-seasons").addEventListener("click",()=>{
+  selectedSeasons.clear();coverage.clear();checked.clear();
+  for(const input of $("seasons").querySelectorAll('input[type="checkbox"]'))input.checked=false;
+  renderCoverage();
+});
+$("toggle-episodes").addEventListener("click",()=>{
+  expanded=!expanded;$("episode-details").hidden=!expanded;
+  $("toggle-episodes").textContent=expanded?"Hide episode details":"Review remaining episodes";
+  $("clear-episodes").hidden=!expanded;$("show-covered-wrap").hidden=!expanded;
+  if(expanded)renderEpisodes();
+});
+$("show-covered").addEventListener("change",e=>{showCovered=e.target.checked;if(expanded)renderEpisodes();});
+$("clear-episodes").addEventListener("click",()=>{checked.clear();renderCoverage();});
+$("source-selected").addEventListener("click",()=>bulkAction("source"));
+$("translate-selected").addEventListener("click",()=>bulkAction("translate"));
+$("movie-start").addEventListener("click",()=>movieAction(false));
+$("movie-stop").addEventListener("click",()=>movieAction(true));
+$("stop-sourcing").addEventListener("click",()=>stopJob("/api/source-season/stop"));
+$("stop-translation").addEventListener("click",()=>stopJob("/api/translation/stop"));
+loadCatalog();refreshStatus();setInterval(refreshStatus,5000);
+</script>
 </body>
 </html>
