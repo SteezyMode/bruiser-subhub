@@ -303,6 +303,8 @@ function renderEpisodes(){
       const search=item.search;
       const diagnostics=document.createElement("details");
       diagnostics.className="review";
+      diagnostics.dataset.review=token+"-technical";
+      diagnostics.open=openReviews.has(token+"-technical");
       const diagLabel=document.createElement("summary");
       diagLabel.textContent="Technical details / source matches";
       diagnostics.append(diagLabel);
