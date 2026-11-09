@@ -326,7 +326,29 @@ def normalize_external_english(raw, sync):
     return encoded
 
 
-def saved_media(video, jid, info, daily, source, small, sync, safe_media_path):
+def verify_owner_unlabeled_audio(video):
+    """Owner confirmation is permitted only for EN/untagged audio, never known JA/foreign."""
+    run=subprocess.run(
+        ["ffprobe","-v","error","-select_streams","a",
+         "-show_entries","stream_tags=language","-of","json",str(video)],
+        capture_output=True,text=True,check=False,timeout=40)
+    if run.returncode:
+        raise RuntimeError("owner_review_audio_probe_failed")
+    data=json.loads(run.stdout)
+    streams=data.get("streams") or []
+    if not isinstance(streams,list) or not streams:
+        raise RuntimeError("owner_review_audio_track_missing")
+    langs=[str((stream.get("tags") or {}).get("language") or "")
+           .lower().split("-")[0] for stream in streams]
+    if any(lang not in ("","und","unknown","mul","zxx",
+                        "en","eng","english") for lang in langs):
+        raise RuntimeError("known_non_english_audio_cannot_be_overridden")
+    print("SUBHUB_AI_OWNER_AUDIO_UNTAGGED_ENGLISH_SUBTITLE_REQUIRED",
+          flush=True)
+
+
+def saved_media(video, jid, info, daily, source, small, sync, safe_media_path,
+                *, allow_unlabeled_audio=False):
     """Exact-file EN only; hold bad external sync, missing EN, unexpected audio."""
     video = safe_media_path(str(video))
     if video.is_symlink() or not video.is_file():
@@ -334,7 +356,9 @@ def saved_media(video, jid, info, daily, source, small, sync, safe_media_path):
     if daily.already_ja(video) or info["ja"]:
         raise RuntimeError("japanese_already_present_skip")
     if not info["audio_en"]:
-        raise RuntimeError("english_audio_not_verified")
+        if not allow_unlabeled_audio:
+            raise RuntimeError("english_audio_not_verified")
+        verify_owner_unlabeled_audio(video)
     if info["embedded_en"] is None and daily.english_srt(video) is None:
         raise RuntimeError("english_text_source_not_available_yet")
     if info["embedded_en"] is not None:
@@ -405,7 +429,9 @@ def prepared_source(row, folder, mod):
             return video,cues,m
     info=daily.probe(video)
     video,cues,sha,origin,timing=saved_media(
-        video,row["jellyfin_id"],info,daily,source,small,sync,safe_media_path)
+        video,row["jellyfin_id"],info,daily,source,small,sync,safe_media_path,
+        allow_unlabeled_audio=(row.get("action")=="review_uncertain"
+                               and row.get("target")=="review"))
     now=video.stat()
     if (now.st_size!=st.st_size or now.st_mtime_ns!=st.st_mtime_ns):
         raise RuntimeError("media_changed_during_english_preparation")
