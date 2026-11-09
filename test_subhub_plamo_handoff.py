@@ -174,6 +174,31 @@ class HandoffTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError,"review_source_evidence"):
                     ai.validate_row(row,owner_review=True)
 
+    def test_untagged_episode_review_is_exact_and_rechecks_audio_tags(self):
+        import subprocess
+        jid="b"*32
+        with tempfile.TemporaryDirectory() as folder:
+            path=self.db(folder)
+            with sqlite3.connect(path) as db:
+                db.execute("UPDATE media SET jellyfin_id=?,en_text=1 "
+                           "WHERE kind='Episode'",(jid,))
+                db.execute("UPDATE tasks SET target='review',"
+                           "action='review_uncertain' WHERE path='/media/B/episode.mkv'")
+            with ai.safe_db(path) as db:
+                rows=ai.eligible(db,jid,owner_review=True)
+                self.assertEqual(len(rows),1)
+                ai.validate_row(rows[0],owner_review=True)
+            def fake_probe(lang):
+                return subprocess.CompletedProcess([],0,stdout=json.dumps({
+                    "streams":[{"tags":{"language":lang}}]}))
+            with patch.object(ai.subprocess,"run",return_value=fake_probe("und")):
+                ai.verify_owner_unlabeled_audio(Path("/fake/video.mkv"))
+            with patch.object(ai.subprocess,"run",return_value=fake_probe("jpn")):
+                with self.assertRaisesRegex(RuntimeError,"known_non_english_audio"):
+                    ai.verify_owner_unlabeled_audio(Path("/fake/video.mkv"))
+            with self.assertRaisesRegex(RuntimeError,"unlabeled_audio_review_not_eligible"):
+                ai.validate_row(dict(rows[0],target="ja"),owner_review=True)
+
     def test_extra_blank_srt_blocks_normalized_before_sync(self):
         import re
         class Sync:
