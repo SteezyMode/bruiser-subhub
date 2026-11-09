@@ -172,7 +172,7 @@ class ScopeTests(unittest.TestCase):
         search=mock.Mock()
         search.sidecar_present.return_value=False
         search.episode_tags.return_value=[(2,1)]
-        search.IMDB=re.compile(r"tt\\d{5,12}\\Z")
+        search.IMDB=re.compile(r"tt\d{5,12}\Z")
         row={"kind":"Episode","host_path":str(video),
              "status":"ready_ja_search","series_title":"Example Show",
              "season":2,"episode":1,"series_imdb_id":"tt1234567"}
