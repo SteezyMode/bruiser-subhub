@@ -806,7 +806,12 @@ def start_season_translation(doc):
     if not isinstance(doc, dict):
         raise ValueError("invalid_batch_request")
     selected_episodes = None
-    if set(doc) == {"series", "season", "episodes"}:
+    multi_picks = None
+    if set(doc) == {"series", "picks"}:
+        series = doc["series"]
+        multi_picks = doc["picks"]
+        season_batch.validate(series, 1, 40, 1)
+    elif set(doc) == {"series", "season", "episodes"}:
         series, season = doc["series"], doc["season"]
         selected_episodes = doc["episodes"]
         season_batch.validate(series, season, 40, 1)
@@ -823,7 +828,9 @@ def start_season_translation(doc):
             or not season_batch.ENGINE.is_file()
             or season_batch.ENGINE.is_symlink()):
         raise RuntimeError("translation_batch_controller_not_installed")
-    chosen = (season_batch.selected_episode_plan(series, season, selected_episodes)
+    chosen = (season_batch.selected_multi_plan(series, multi_picks)
+              if multi_picks is not None else
+              season_batch.selected_episode_plan(series, season, selected_episodes)
               if selected_episodes is not None else
               season_batch.plan(series, season, count, start))
     if not chosen["ready"]:
@@ -832,9 +839,13 @@ def start_season_translation(doc):
         "systemd-run", "--user", "--unit=bruiser-subhub-translation-batch",
         "--collect", "--property=KillMode=control-group", "--",
         sys.executable, "-B", "-u", str(BATCH_EXEC), "--run",
-        "--series", series, "--season", str(season),
+        "--series", series, "--season",
+        str(min(p["season"] for p in multi_picks) if multi_picks else season),
     ]
-    if selected_episodes is not None:
+    if multi_picks is not None:
+        for choice in sorted(multi_picks, key=lambda item:(item["season"],item["episode"])):
+            command.extend(["--pick", "S%02dE%03d" % (choice["season"],choice["episode"])])
+    elif selected_episodes is not None:
         for episode in sorted(selected_episodes):
             command.extend(["--episode", str(episode)])
     else:
@@ -845,7 +856,9 @@ def start_season_translation(doc):
         raise RuntimeError("translation_batch_start_failed: " +
                            safe_text(done.stderr or done.stdout, 160))
     return {"ok": True, "accepted": chosen["ready"],
-            "blocked": chosen["blocked"], "season": season, "series": series}
+            "blocked": chosen["blocked"],
+            "seasons": chosen.get("seasons", [season] if multi_picks is None else []),
+            "series": series}
 
 
 def stop_season_translation():
