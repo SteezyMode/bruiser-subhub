@@ -173,6 +173,51 @@ def season_report(series, season, *, path=None):
              WHERE m.kind='Episode' AND m.series=? AND m.season=?
              ORDER BY m.path
         """, (series, str(season))).fetchall()
+    # Expose the exact saved provider evidence, without rerunning a paid or
+    # quota-limited search. Provider totals are NOT approved subtitle counts.
+    evidence = {}
+    searches = HOME / "bruiser-pilot/ja-first-inventory/japanese-search.sqlite3"
+    if (searches.is_file() and not searches.is_symlink()
+            and searches.stat().st_uid == os.getuid()
+            and not searches.stat().st_mode & 0o077):
+        try:
+            with sqlite3.connect(
+                "file:" + str(searches.resolve()) + "?mode=ro",
+                uri=True, timeout=3) as db:
+                for rec in db.execute("""
+                    SELECT jellyfin_id,outcome,candidate_count,plausible_count,
+                           results_json,searched_at FROM searches
+                """):
+                    jid,outcome,total,plausible,raw,when = rec
+                    if jid not in {str(row["jellyfin_id"]) for row in rows}:
+                        continue
+                    try:
+                        record = json.loads(raw)
+                    except (TypeError, ValueError):
+                        record = {}
+                    candidates = []
+                    for entry in (record.get("candidates") or [])[:12]:
+                        if not isinstance(entry, dict):
+                            continue
+                        candidates.append({
+                            "grade":str(entry.get("grade") or "review")[:20],
+                            "provider":str(entry.get("provider") or "")[:60],
+                            "release":str(entry.get("release_info") or
+                                          entry.get("filename") or "")[:160],
+                            "score":entry.get("score") if
+                                type(entry.get("score")) in (int,float) else None
+                        })
+                    evidence[str(jid)] = {
+                        "outcome":str(outcome)[:30],
+                        "provider_total":record.get("provider_total")
+                            if type(record.get("provider_total")) is int else None,
+                        "retained_candidates":int(total or 0),
+                        "plausible_candidates":int(plausible or 0),
+                        "searched_at":int(when or 0),
+                        "candidates":candidates
+                    }
+        except (OSError, sqlite3.Error):
+            pass
     versions = {}
     for row in rows:
         try:
@@ -214,6 +259,13 @@ def season_report(series, season, *, path=None):
             status, reason = "review", "unresolved_" + action[:42]
         item = {"episode":number,"title":str(row["title"]),
                 "status":status,"reason":reason}
+        proof = evidence.get(jid)
+        if proof:
+            item["search"] = proof
+            if status == "ready" and proof["outcome"] == "none":
+                item["reason"] = ("no_candidate_retained_after_provider_search"
+                                  if proof["provider_total"] else
+                                  "provider_search_returned_no_candidates")
         if status == "ready":
             item["jellyfin_id"] = jid
         items.append(item)
