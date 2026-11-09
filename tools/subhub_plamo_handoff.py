@@ -130,8 +130,11 @@ def validate_row(row, owner_review=False):
     if row["kind"] not in ("Movie","Episode"):
         raise RuntimeError("invalid_media_kind")
     if not row["english_text"] and not (
-            owner_review and row["action"]=="review_uncertain"
-            and row["target"]=="review"):
+            owner_review and
+            ((row["action"]=="review_uncertain"
+              and row["target"]=="review") or
+             (row["target"]=="ja" and row["state"]=="held"
+              and row["action"] in OWNER_REVIEW_ACTIONS))):
         raise RuntimeError("english_text_not_indicated")
 
 
