@@ -268,9 +268,10 @@
     function drawTranslations(t) {
       const jobs = Array.isArray(t.jobs) ? t.jobs : [];
       const batch = t.american_dad_batch || {};
-      text("translation-summary", jobs.length + " saved · " +
-        (batch.active ? "American Dad batch active" + (batch.episode ? " (" + batch.episode + ")" : "") : (t.active_jobs || 0) + " running") +
-        " · " + (t.published_jobs || 0) + " published");
+      const activeJobs = jobs.filter(j => j.active);
+      const inactiveJobs = jobs.filter(j => !j.active);
+      text("translation-summary", activeJobs.length + " running · " +
+        inactiveJobs.length + " saved in history");
       const host = el("translation-jobs");
       host.replaceChildren();
       if (!jobs.length) {
@@ -280,7 +281,22 @@
         host.append(p);
         return;
       }
-      for (const job of jobs) {
+      const archive = document.createElement("details");
+      archive.className = "held-review";
+      const archiveTitle = document.createElement("summary");
+      archiveTitle.textContent = "Previous translation jobs (" + inactiveJobs.length + ")";
+      archive.append(archiveTitle);
+      const history = document.createElement("div");
+      history.className = "job-list";
+      history.style.marginTop = "12px";
+      archive.append(history);
+      if (!activeJobs.length) {
+        const idle = document.createElement("p");
+        idle.className = "subtext";
+        idle.textContent = "No AI translation is running right now.";
+        host.append(idle);
+      }
+      for (const job of activeJobs.concat(inactiveJobs.slice(0,40))) {
         const card = document.createElement("article");
         card.className = "job-card" + (job.active ? " active" : "");
         const top = document.createElement("div");
@@ -345,8 +361,9 @@
           review.append(note);
           card.append(review);
         }
-        host.append(card);
+        (job.active ? host : history).append(card);
       }
+      if (inactiveJobs.length) host.append(archive);
     }
     function draw(d) {
       wasConnected = true;
@@ -359,19 +376,38 @@
       text("source-worker", d.source_active ? "Active" : "Not active");
       const tr = d.translation || {};
       const batch = tr.american_dad_batch || {};
-      text("ai-worker", batch.active ?
-        ("American Dad batch running" +
-         (batch.episode ? " · " + batch.episode : " · preparing next episode") +
-         " · " + (tr.active_jobs || 0) + " active job(s)") :
-        tr.engine === "PLaMo 8B" ?
-        ((tr.active_jobs || 0) + " running · " + (tr.total_jobs || 0) + " saved jobs") :
-        "Translation status unavailable");
+      const currentAI = Array.isArray(tr.jobs) ?
+        tr.jobs.find(job => job.active) : null;
+      text("ai-worker",currentAI ?
+        ("PLaMo translating: " + (currentAI.title || "movie / episode") +
+         " · " + number(currentAI.processed) + "/" +
+         number(currentAI.total) + " cues") :
+        batch.active ? ("PLaMo: " + (batch.episode || "preparing episode")) :
+        "Not running");
       drawTranslations(tr);
       const mj = d.movie_source || {};
+      if (mj.active) {
+        text("phase-label","Finding Japanese subtitles for a movie");
+        text("current-item",mj.description || "Searching and synchronizing");
+        text("state","Movie sourcing");
+        el("state-dot").className="dot running";
+      } else if (currentAI || batch.active) {
+        text("phase-label","PLaMo translating Japanese subtitles");
+        text("current-item",currentAI ?
+          ((currentAI.title || "Current job") + " · " +
+           number(currentAI.processed) + "/" + number(currentAI.total) + " cues") :
+          (batch.episode || "Preparing next episode"));
+        text("state","Translation running");
+        el("state-dot").className="dot running";
+      } else if (d.state === "failed" && !d.source_active) {
+        // A failed historical source job is not current activity.
+        text("phase-label","No subtitle job running");
+        text("current-item","Choose media below to start or queue work.");
+        text("state","Idle");
+        el("state-dot").className="dot";
+      }
       text("movie-job-state", mj.active ? "Processing movie" :
            mj.available ? "Ready" : "Movie worker not installed");
-      el("movie-start").disabled = movieBusy || mj.active || !mj.available ||
-           sourceActive || translationActive || !el("movie-choice").value;
       el("movie-stop").disabled = movieBusy || !mj.active;
       if (mj.active) text("movie-result","Finding and aligning Japanese subtitles for the selected movie.");
       else if (mj.last_result && mj.last_result !== "No recent movie job") {
@@ -397,6 +433,8 @@
       sourceActive = !!d.source_active || seasonSourceActive;
       translationActive = !!bt.active || !!(tr.american_dad_batch || {}).active ||
         Number(tr.active_jobs || 0) > 0;
+      el("movie-start").disabled = movieBusy || mj.active || !mj.available ||
+        sourceActive || translationActive || !el("movie-choice").value;
       batchInstalled = !!bt.available;
       text("season-source-events",(Array.isArray(sourceBatch.recent) &&
         sourceBatch.recent.length) ? sourceBatch.recent.slice(-5).join(" | ") :
