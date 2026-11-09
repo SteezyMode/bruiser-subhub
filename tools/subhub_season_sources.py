@@ -154,6 +154,35 @@ def native():
     return autofill, search, stage, publish
 
 
+def container_video_paths(rows):
+    """Use live Docker mount mapping; never guess a container media path."""
+    run=subprocess.run(
+        ["docker","inspect","--format","{{json .Mounts}}","sublarr-pilot"],
+        capture_output=True,text=True,timeout=12,check=False)
+    if run.returncode:
+        print("SEASON_JA_PATH_MATCH unavailable_metadata_search_only",flush=True)
+        return {}
+    mounts=json.loads(run.stdout)
+    if not isinstance(mounts,list):
+        raise RuntimeError("unexpected_sublarr_mount_metadata")
+    result={}
+    for row in rows:
+        path=Path(str(row.get("host_path") or ""))
+        for mount in sorted(mounts,key=lambda x:len(str(x.get("Source") or "")),
+                            reverse=True):
+            source=str(mount.get("Source") or "")
+            target=str(mount.get("Destination") or "")
+            if not source.startswith("/") or not target.startswith("/"):
+                continue
+            if path.is_relative_to(Path(source)):
+                result[str(row["jellyfin_id"])]=str(
+                    Path(target)/path.relative_to(Path(source)))
+                break
+    print("SEASON_JA_PATH_MATCH",len(result),"of",len(rows),
+          "using_installed_sublarr_mounts",flush=True)
+    return result
+
+
 def find_japanese(ids, search, budget, *, recheck=False):
     """Existing Sublarr provider endpoint and existing result classification.
 
@@ -187,9 +216,13 @@ def find_japanese(ids, search, budget, *, recheck=False):
     with closing(search.open_db()) as db:
         if recheck:
             jobs = []
+            mapped=container_video_paths(rows)
             for row in rows:
                 query = search.query_for(row)
                 if query is not None:
+                    path=mapped.get(str(row["jellyfin_id"]))
+                    if path:
+                        query["file_path"]=path
                     jobs.append({"id":str(row["jellyfin_id"]),
                                  "row":row,"query":query})
             jobs=jobs[:budget]
