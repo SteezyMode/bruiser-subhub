@@ -297,6 +297,12 @@ function renderEpisodes(){
       const state=document.createElement("div");state.className="detail";
       state.textContent=statusName(item)+" · "+String(item.reason||"").replaceAll("_"," ");
       content.append(name,state);
+      if(item.queue_reason||item.queue_note){
+        const why=document.createElement("div");why.className="detail";
+        why.textContent="Recorded reason: "+[item.queue_reason,item.queue_note]
+          .filter(Boolean).join(" · ").replaceAll("_"," ");
+        content.append(why);
+      }
       const search=item.search;
       if(search){
         const m=document.createElement("div");m.className="detail";
