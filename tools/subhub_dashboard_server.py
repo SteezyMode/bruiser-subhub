@@ -855,8 +855,13 @@ def season_batch_status():
             capture_output=True, text=True, check=False,
             stdin=subprocess.DEVNULL, timeout=4)
         if res.returncode == 0:
+            # journalctl --grep together with -n implicitly enables --reverse:
+            # newest event FIRST. Parse in chronological order, otherwise
+            # BATCH_BEGIN appears after its ITEM_OK/HELD records and the
+            # dashboard falsely reports 0/N despite completed episodes.
             recent = [safe_text(x, 350) for x in res.stdout.splitlines()
                       if BATCH_EVENT.match(x)][-450:]
+            recent.reverse()
     except (OSError, subprocess.TimeoutExpired):
         pass
     return {
