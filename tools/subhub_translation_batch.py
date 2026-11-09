@@ -17,6 +17,7 @@ import re
 import sqlite3
 import subprocess
 import sys
+import time
 
 HOME = Path.home()
 DB = HOME / "bruiser-pilot/coverage-queue/coverage.sqlite3"
@@ -271,7 +272,8 @@ def season_report(series, season, *, path=None):
         else:
             status, reason = "review", "unresolved_" + action[:42]
         proof = evidence.get(jid)
-        searched = bool(proof and proof["outcome"] in ("none","review","plausible"))
+        searched = bool(proof and proof["outcome"] in ("none","review","plausible")
+            and 0 <= time.time()-proof["searched_at"] <= 31*86400)
         # User-requested explicit AI fallback for a reviewed/held source result.
         # Never convert a search error, an unsearched episode, or a duplicate
         # into proof that Japanese is unavailable. English is rechecked by AI.
