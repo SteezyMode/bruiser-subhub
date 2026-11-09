@@ -457,7 +457,7 @@ def stage_japanese(ids, stage, budget, *, recheck=False):
     saved = [row for row in stage.read_saved_searches()
              if str(row[0]) in inventory]
     if recheck:
-        already=stage.read_staged() | stage.rejected_duration_candidates()
+        already=stage.read_staged() | saved_duration_rejections(stage)
         chosen=[]
         for jid,raw in saved:
             jid=str(jid)
@@ -644,13 +644,13 @@ def main(argv=None):
                 part=[p for p in picks if p["season"]==season]
                 try:
                     run(args.series,season,part,recheck=args.recheck)
-                except (RuntimeError,ValueError,OSError,sqlite3.Error,
-                        subprocess.TimeoutExpired) as exc:
+                except Exception as exc:
                     failed.append(season)
                     print("SEASON_JA_SEASON_HELD",season,type(exc).__name__,
                           str(exc)[:160],flush=True)
-                    # Still attempt later selected seasons; one missing file
-                    # or stale manifest must not suppress unrelated episodes.
+                    # Includes unexpected developer errors (e.g. a stale
+                    # installed helper). Report a failed overall job, but do
+                    # not suppress later explicitly selected seasons.
             print("SEASON_JA_SELECTION_DONE",
                   json.dumps({"attempted_seasons":preview["seasons"],
                               "held_seasons":failed}),flush=True)
