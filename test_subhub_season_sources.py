@@ -45,6 +45,38 @@ class ScopeTests(unittest.TestCase):
               "/mnt/BigDisk/Video/S02E01.mkv","ja","search_ja","pending",1))
         self.path.chmod(0o600)
 
+    def test_shared_search_retains_old_ja_candidates_on_retry_and_rejects_for_review(self):
+        from tools import ja_first_search_pilot as search
+        root=Path(self.tmp.name)/"source-inventory"
+        root.mkdir(mode=0o700)
+        file=root/"japanese-search.sqlite3"
+        job={"id":"a"*32,"row":{"kind":"Episode","title":"Series E01"}}
+        good={"provider":"opensubtitles","subtitle_id":"123456",
+              "filename":"Example.S01E01.ja.srt","language":"ja"}
+        rejected={"provider":"subdl","subtitle_id":"other",
+                  "filename":"Example.S01E02.ja.srt","language":"ja"}
+        with mock.patch.object(search,"DB",file):
+            with search.open_db() as db:
+                search.save_attempt(db,job,"plausible",3,[("plausible",good)])
+                search.save_attempt(db,job,"in_progress")
+                search.save_attempt(db,job,"error")
+                search.save_attempt(db,job,"none",1,[("reject",rejected)])
+                row=db.execute("SELECT outcome,results_json FROM searches "
+                               "WHERE jellyfin_id=?",(job["id"],)).fetchone()
+                self.assertEqual(row[0],"plausible")
+                import json
+                data=json.loads(row[1])
+                self.assertEqual(data["candidates"][0]["subtitle_id"],"123456")
+                self.assertEqual(data["rejected_candidates"][0]["provider"],"subdl")
+                self.assertEqual(data["rejected_candidates"][0]["grade"],"reject")
+                self.assertEqual(data["rejected_count"],1)
+                first={"id":"b"*32,"row":{"kind":"Episode","title":"Other E02"}}
+                search.save_attempt(db,first,"in_progress")
+                search.save_attempt(db,first,"error")
+                self.assertEqual(db.execute(
+                    "SELECT outcome FROM searches WHERE jellyfin_id=?",
+                    (first["id"],)).fetchone()[0],"error")
+
     def test_scope_only_pending_source_first_same_season(self):
         p=selected.scope("It's Always Sunny in Philadelphia",1,path=self.path)
         self.assertEqual(set(p["ids"]),{f"{n:032x}" for n in (2,3,4)})
