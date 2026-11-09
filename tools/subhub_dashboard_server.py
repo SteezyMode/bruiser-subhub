@@ -774,22 +774,75 @@ def control_availability():
 
 
 
+BATCH_EVENT = re.compile(
+    r"^BATCH_(?:BEGIN |ITEM |ITEM_OK |ITEM_HELD |BLOCKED |DONE |STOPPED |HELD )")
+BATCH_TAG = re.compile(r"^(S[0-9]{2}E[0-9]{2,3})(?:\\s|$)")
+
+
+def season_batch_progress(lines, active):
+    """Only real BATCH_* journal events count toward batch-level completion.
+
+    A partially processed current episode is NOT a finished episode.
+    Old historical batches must never be presented as current progress.
+    """
+    starts = [i for i, line in enumerate(lines) if line.startswith("BATCH_BEGIN ")]
+    if not starts:
+        return {"known": False, "active": active}
+    events = lines[starts[-1]:]
+    try:
+        plan = json.loads(events[0][len("BATCH_BEGIN "):])
+        total = plan.get("selected")
+        if type(total) is not int or not 1 <= total <= 200:
+            return {"known": False, "active": active}
+    except (ValueError, TypeError, AttributeError):
+        return {"known": False, "active": active}
+    published, held, blocked = set(), set(), set()
+    current = ""
+    ended = False
+    for line in events[1:]:
+        for prefix, group in (("BATCH_ITEM_OK ", published),
+                              ("BATCH_ITEM_HELD ", held),
+                              ("BATCH_BLOCKED ", blocked)):
+            if line.startswith(prefix):
+                match = BATCH_TAG.match(line[len(prefix):])
+                if match:
+                    group.add(match.group(1))
+                    if current == match.group(1):
+                        current = ""
+                break
+        else:
+            if line.startswith("BATCH_ITEM "):
+                match = BATCH_TAG.match(line[len("BATCH_ITEM "):])
+                if match:
+                    current = match.group(1)
+            elif line.startswith(("BATCH_DONE ", "BATCH_STOPPED ",
+                                  "BATCH_HELD ")):
+                ended = True
+                current = ""
+    finished = len(published | held | blocked)
+    return {"known": True, "active": active, "series": safe_text(plan.get("series"), 120),
+            "total": total, "finished": min(finished, total),
+            "remaining": max(0, total-finished),
+            "published": len(published), "held": len(held),
+            "blocked": len(blocked), "current": current if active else "",
+            "state": "running" if active else
+                     "finished" if ended else "interrupted"}
+
+
 def season_batch_status():
-    """A transient systemd job; use the existing coverage and cue databases."""
+    """Read batch-wide progress from real per-episode worker events."""
     active = unit_active(TRANSLATION_UNIT)
     recent = []
     try:
         res = subprocess.run(
             ["journalctl", "--user", "-u", TRANSLATION_UNIT,
-             "-n", "18", "--no-pager", "-o", "cat"],
+             "--no-pager", "-o", "cat", "-n", "450", "--grep",
+             BATCH_EVENT.pattern],
             capture_output=True, text=True, check=False,
             stdin=subprocess.DEVNULL, timeout=4)
         if res.returncode == 0:
-            recent = [safe_text(x, 200) for x in res.stdout.splitlines()
-                      if x.startswith(("BATCH_BEGIN ", "BATCH_ITEM ",
-                                       "BATCH_BLOCKED ", "BATCH_ITEM_OK ",
-                                       "BATCH_ITEM_HELD ", "BATCH_STOPPED ",
-                                       "BATCH_DONE ", "BATCH_HELD "))][-12:]
+            recent = [safe_text(x, 350) for x in res.stdout.splitlines()
+                      if BATCH_EVENT.match(x)][-450:]
     except (OSError, subprocess.TimeoutExpired):
         pass
     return {
@@ -797,7 +850,8 @@ def season_batch_status():
         "available": BATCH_EXEC.is_file() and not BATCH_EXEC.is_symlink()
                      and season_batch.ENGINE.is_file()
                      and not season_batch.ENGINE.is_symlink(),
-        "recent": recent,
+        "progress": season_batch_progress(recent, active),
+        "recent": recent[-12:],
     }
 
 
