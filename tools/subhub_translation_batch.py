@@ -278,6 +278,7 @@ def season_report(series, season, *, path=None):
         # Never convert a search error, an unsearched episode, or a duplicate
         # into proof that Japanese is unavailable. English is rechecked by AI.
         review_ai = bool(status=="review" and row["en_text"] and searched
+            and state in ("pending","held")
             and action in ("review_saved_ja", "download_saved_ja",
                            "align_existing_staged_ja", "search_ja")
             and (state=="held" or action=="review_saved_ja")
