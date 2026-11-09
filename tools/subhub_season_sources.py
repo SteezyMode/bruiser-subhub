@@ -242,10 +242,14 @@ def scoped_audio_review(ids, reviewed, search, stage, publish):
     blocked={}
     for jid in reviewed:
         row=items.get(jid)
-        if not row or (row.get("status")!="review_audio_language_unverified"
-                       or row.get("host_path")!=ids[jid]
-                       or row.get("kind")!="Episode"):
-            blocked[jid]="stale_or_mismatched_media_identity"
+        allowed={"review_audio_language_unverified","review_missing_media_streams",
+                 "ready_ja_search"}
+        if (not row or row.get("status") not in allowed
+                or row.get("host_path")!=ids[jid]
+                or row.get("kind")!="Episode"):
+            state=str(row.get("status") or "missing") if row else "missing"
+            same_path=bool(row and row.get("host_path")==ids[jid])
+            blocked[jid]="manifest="+state+" path_matches="+str(same_path)
             continue
         try:
             # Existing stage code probes the ACTUAL video. It rejects
@@ -276,6 +280,29 @@ def scoped_audio_review(ids, reviewed, search, stage, publish):
           patch.object(stage,"read_inventory",side_effect=patched_inventory),
           patch.object(publish.direct,"read_inventory",side_effect=patched_direct)):
         yield approved, blocked
+
+
+def saved_duration_rejections(stage):
+    """Compatibility with older installed source controllers, read-only.
+
+    A host may predate the convenience function but have the same staging DB.
+    Do not re-download a known wrong-duration subtitle just to retry a title.
+    """
+    method=getattr(stage,"rejected_duration_candidates",None)
+    if callable(method):
+        return method()
+    db_path=Path(stage.STAGE_DB)
+    if not db_path.exists():
+        return set()
+    if (not db_path.is_file() or db_path.is_symlink()
+            or db_path.stat().st_uid!=os.getuid()
+            or db_path.stat().st_mode & 0o077):
+        raise RuntimeError("unsafe_existing_stage_database")
+    with sqlite3.connect("file:"+str(db_path)+"?mode=ro",
+                         uri=True,timeout=10) as db:
+        return {(str(jid),str(sid)) for jid,sid in db.execute(
+            "SELECT jellyfin_id,subtitle_id FROM staged "
+            "WHERE status='held_duration_mismatch'")}
 
 
 def find_japanese(ids, search, budget, *, recheck=False, approved_reviews=None, stage=None):
@@ -322,7 +349,7 @@ def find_japanese(ids, search, budget, *, recheck=False, approved_reviews=None, 
                         saved[str(known_jid)]=json.loads(raw)
                     except (ValueError,TypeError):
                         pass
-                previous=stage.read_staged() | stage.rejected_duration_candidates()
+                previous=stage.read_staged() | saved_duration_rejections(stage)
             for row in rows:
                 jid=str(row["jellyfin_id"])
                 saved_action=(queue.get(jid) or ("",))[0]
