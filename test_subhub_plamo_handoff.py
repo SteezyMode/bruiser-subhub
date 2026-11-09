@@ -199,6 +199,19 @@ class HandoffTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError,"unlabeled_audio_review_not_eligible"):
                 ai.validate_row(dict(rows[0],target="ja"),owner_review=True)
 
+    def test_held_publisher_failure_can_preflight_real_english_without_index(self):
+        row={"jellyfin_id":"f"*32,"path":"/media/episode.mkv",
+             "kind":"Episode","title":"Example","series":"Example Show",
+             "action":"align_existing_staged_ja","state":"held",
+             "target":"ja","english_text":0}
+        with patch.object(ai,"review_has_source_evidence",return_value=True):
+            ai.validate_row(row,owner_review=True)
+            with self.assertRaisesRegex(RuntimeError,"english_text_not_indicated"):
+                ai.validate_row(dict(row,state="pending"),owner_review=True)
+        with patch.object(ai,"review_has_source_evidence",return_value=False):
+            with self.assertRaisesRegex(RuntimeError,"review_source_evidence_missing"):
+                ai.validate_row(row,owner_review=True)
+
     def test_extra_blank_srt_blocks_normalized_before_sync(self):
         import re
         class Sync:
