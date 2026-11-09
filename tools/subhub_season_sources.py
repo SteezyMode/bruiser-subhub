@@ -508,6 +508,28 @@ def stage_japanese(ids, stage, budget, *, recheck=False):
     return counts
 
 
+def mark_publication_held(jid, reason):
+    """A real staged subtitle failed the publisher's independent timing gate.
+
+    Retain the saved candidate. Queue the failed JA publication as a hold so
+    owner-selected PLaMo can preflight English instead of hiding the episode.
+    """
+    try:
+        from . import bruiser_coverage_queue as coverage
+    except ImportError:
+        import bruiser_coverage_queue as coverage
+    note="ja_publication_held_after_real_timing_qa:"+str(reason)[:255]
+    try:
+        with coverage.queue_db() as db:
+            result=coverage.update_task_state(db,jid,"ja","held",note)
+        print("SEASON_JA_FALLBACK_AVAILABLE",jid,result["action"],flush=True)
+    except (OSError,ValueError,RuntimeError,sqlite3.Error) as exc:
+        # Review-target episodes are controlled by another queue task. Never
+        # create a fake JA task or invent a successful publication.
+        print("SEASON_JA_FALLBACK_NOT_RECORDED",jid,
+              type(exc).__name__,str(exc)[:90],flush=True)
+
+
 def publish_japanese(ids, publish, limit):
     # The established publisher enforces timing identity and never overwrites.
     rows = [row for row in publish.stages() if str(row[0]) in ids]
@@ -529,10 +551,12 @@ def publish_japanese(ids, publish, limit):
                 counts["published_new"] += 1
             else:
                 counts["held"] += 1
+                mark_publication_held(jid,"unpublishable_candidate:"+str(kind))
         except (OSError,RuntimeError,ValueError,KeyError,sqlite3.Error) as exc:
             counts["held"] += 1
             print("SEASON_JA_HELD",jid,type(exc).__name__,
                   str(exc)[:100],flush=True)
+            mark_publication_held(jid,str(exc))
     return counts
 
 
@@ -615,10 +639,22 @@ def main(argv=None):
                           "episode":int(match.group(2))})
         preview=selected_scope(args.series,picks,recheck=args.recheck)
         if args.run:
+            failed=[]
             for season in preview["seasons"]:
                 part=[p for p in picks if p["season"]==season]
-                run(args.series,season,part,recheck=args.recheck)
-            return 0
+                try:
+                    run(args.series,season,part,recheck=args.recheck)
+                except (RuntimeError,ValueError,OSError,sqlite3.Error,
+                        subprocess.TimeoutExpired) as exc:
+                    failed.append(season)
+                    print("SEASON_JA_SEASON_HELD",season,type(exc).__name__,
+                          str(exc)[:160],flush=True)
+                    # Still attempt later selected seasons; one missing file
+                    # or stale manifest must not suppress unrelated episodes.
+            print("SEASON_JA_SELECTION_DONE",
+                  json.dumps({"attempted_seasons":preview["seasons"],
+                              "held_seasons":failed}),flush=True)
+            return 1 if failed else 0
         result=preview
     else:
         if args.season is None:
