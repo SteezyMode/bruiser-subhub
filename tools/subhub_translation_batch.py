@@ -388,7 +388,7 @@ def run_batch(series, season, count, start, episodes=None, picks=None):
         completed = failed = 0
         for item in selected["items"]:
             tag = f'S{item.get("season",season):02d}E{item["episode"]:02d}'
-            if not item["can_translate"]:
+            if not item.get("can_translate", item["status"]=="ready"):
                 print(f'BATCH_BLOCKED {tag} {item["reason"]}', flush=True)
                 continue
             print(f'BATCH_ITEM {tag} {item["title"][:120]}', flush=True)
