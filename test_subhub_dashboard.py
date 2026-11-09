@@ -95,6 +95,9 @@ class StatusTests(unittest.TestCase):
         self.assertEqual(html.count('type="text"'),1)
         self.assertIn("Review remaining episodes",html)
         self.assertIn("Send all remaining to PLaMo",html)
+        for name in ("batch-overview","batch-count","batch-remaining",
+                     "batch-details","batch-fill"):
+            self.assertIn('id="'+name+'"',html)
         self.assertNotIn('id="action-start-manual"',html)
         self.assertNotIn('id="translation-series-options"',html)
 
@@ -222,6 +225,63 @@ class StatusTests(unittest.TestCase):
                 "jellyfin_id":jid,"video":str(video),"cue_count":5},
                 "movie",set(),False)
             self.assertTrue(published["published"])
+
+    def test_unstarted_movie_preparation_not_a_translation_job(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            movie=root/"ja-prepared-only"
+            movie.mkdir(mode=0o700)
+            video=root/"Child's Play"/"movie.mp4"
+            video.parent.mkdir()
+            video.write_bytes(b"video")
+            manifest=movie/"manifest.json"
+            manifest.write_text(json.dumps({
+                "jellyfin_id":"a"*32,"video":str(video),
+                "cue_count":550,"kind":"Movie"}))
+            manifest.chmod(0o600)
+            with patch.object(dashboard,"_plamo_running_ids",return_value=set()), \\
+                 patch.object(dashboard,"american_dad_batch_activity",
+                              return_value={"active":False,"episode":""}):
+                result=dashboard.translation_jobs(
+                    movie_root=root,episode_root=root/"none",
+                    single_root=root/"not-a-job")
+            self.assertEqual(result,[])
+
+    def test_television_pilot_title_uses_series_episode_not_season_folder(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            video=root/"It's Always Sunny in Philadelphia"/"Season 06"/"Sunny S06E05.mkv"
+            video.parent.mkdir(parents=True)
+            video.write_bytes(b"video")
+            folder=root/"ja-episode"
+            folder.mkdir(mode=0o700)
+            jid="a"*32
+            item=dashboard._plamo_checkpoint(folder,{
+                "jellyfin_id":jid,"video":str(video),
+                "kind":"Episode","cue_count":450},
+                "movie",{jid},"")
+            self.assertEqual(item["title"],
+                             "It's Always Sunny in Philadelphia S06E05")
+            self.assertTrue(item["active"])
+
+    def test_batch_progress_only_counts_finished_not_active_episode(self):
+        header="BATCH_BEGIN "+json.dumps({
+            "series":"It's Always Sunny in Philadelphia",
+            "selected":13,"ready":13})
+        lines=[header,"BATCH_ITEM S02E01 first",
+               "BATCH_ITEM_OK S02E01",
+               "BATCH_ITEM S03E03 third",
+               "BATCH_ITEM_HELD S03E03 exit=1",
+               "BATCH_ITEM S06E05 current"]
+        result=dashboard.season_batch_progress(lines,True)
+        self.assertEqual(result["total"],13)
+        self.assertEqual(result["finished"],2)
+        self.assertEqual(result["remaining"],11)
+        self.assertEqual(result["published"],1)
+        self.assertEqual(result["held"],1)
+        self.assertEqual(result["current"],"S06E05")
+        self.assertEqual(dashboard.season_batch_progress(lines,False)["current"],"")
+        self.assertFalse(dashboard.season_batch_progress([],True)["known"])
 
     def test_running_american_dad_episode_uses_verified_batch_identity(self):
         with tempfile.TemporaryDirectory() as tmp:
