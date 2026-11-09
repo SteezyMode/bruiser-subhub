@@ -354,7 +354,9 @@ async function movieAction(stop){
     else{
       const year=Number($("movie-year").value);
       if(!Number.isInteger(year)||year<1880||year>2100)throw Error("Enter the correct release year.");
-      const title=$("title-search").value.trim()||selectedMovie.filename.split(".")[0];
+      const parent=selectedMovie.path.split("/").slice(-2,-1)[0]||"";
+      const name=parent.replace(/\s*\((?:19|20)\d{2}\).*$/,"").trim();
+      const title=name.length>=3?name:($("title-search").value.trim()||selectedMovie.filename.split(".")[0]);
       result=await ownerPost("/api/movie/start",{video:selectedMovie.path,title,year});
     }
     $("movie-feedback").textContent=stop?"Movie worker stopping.":"Japanese subtitle sourcing started for the exact movie file.";
