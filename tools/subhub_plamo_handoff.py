@@ -437,8 +437,11 @@ def prepared_source(row, folder, mod):
     info=daily.probe(video)
     video,cues,sha,origin,timing=saved_media(
         video,row["jellyfin_id"],info,daily,source,small,sync,safe_media_path,
-        allow_unlabeled_audio=(row.get("action")=="review_uncertain"
-                               and row.get("target")=="review"))
+        allow_unlabeled_audio=(
+            (row.get("action")=="review_uncertain"
+             and row.get("target")=="review") or
+            (row.get("target")=="ja" and row.get("state")=="held"
+             and row.get("action") in OWNER_REVIEW_ACTIONS)))
     now=video.stat()
     if (now.st_size!=st.st_size or now.st_mtime_ns!=st.st_mtime_ns):
         raise RuntimeError("media_changed_during_english_preparation")
