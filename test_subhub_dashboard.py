@@ -94,7 +94,7 @@ class StatusTests(unittest.TestCase):
             self.assertIn('id="'+name+'"',html)
         self.assertEqual(html.count('type="text"'),1)
         self.assertIn("Review remaining episodes",html)
-        self.assertIn("Send remaining to PLaMo",html)
+        self.assertIn("Send all remaining to PLaMo",html)
         self.assertNotIn('id="action-start-manual"',html)
         self.assertNotIn('id="translation-series-options"',html)
 
