@@ -907,29 +907,45 @@ def season_sources_status():
 
 
 def start_season_sources(doc):
-    if not isinstance(doc,dict) or set(doc)!={"series","season"}:
+    if not isinstance(doc, dict):
         raise ValueError("invalid_season_source_request")
-    series,season=doc["series"],doc["season"]
-    season_batch.validate(series,season,40,1)
+    if set(doc) == {"series", "picks"}:
+        series = doc["series"]
+        picks = doc["picks"]
+        season_batch.validate(series, 1, 40, 1)
+    elif set(doc) == {"series", "season"}:
+        series = doc["series"]
+        season = doc["season"]
+        season_batch.validate(series, season, 40, 1)
+        picks = None
+    else:
+        raise ValueError("invalid_season_source_request")
     if (unit_active(BATCH_UNIT) or unit_active(SCHEDULED_UNIT)
             or unit_active(SEASON_SOURCE_UNIT) or translation_busy()):
         raise RuntimeError("another_source_or_translation_worker_is_active")
     if not season_sources_status()["available"]:
         raise RuntimeError("native_source_components_unavailable")
-    chosen=season_sources.scope(series,season)
+    chosen = (season_sources.selected_scope(series, picks, recheck=True)
+              if picks is not None else season_sources.scope(series, season))
     if not chosen["eligible"]:
         raise RuntimeError("no_pending_japanese_source_work_in_season")
     command=["systemd-run","--user","--unit=bruiser-subhub-season-sources",
              "--collect","--property=KillMode=control-group","--",
              sys.executable,"-B","-u",str(SEASON_SOURCE_EXEC),"--run",
-             "--series",series,"--season",str(season)]
+             "--series",series]
+    if picks is not None:
+        command.append("--recheck")
+        for choice in sorted(picks, key=lambda item:(item["season"],item["episode"])):
+            command.extend(["--pick", "S%02dE%03d" % (choice["season"],choice["episode"])])
+    else:
+        command.extend(["--season",str(season)])
     result=subprocess.run(command,capture_output=True,text=True,
                           stdin=subprocess.DEVNULL,timeout=20,check=False)
     if result.returncode:
         raise RuntimeError("season_source_start_failed: "+
                            safe_text(result.stderr or result.stdout,140))
     return {"ok":True,"accepted":chosen["eligible"],
-            "series":series,"season":season}
+            "series":series,"seasons":chosen.get("seasons", [season] if picks is None else [])}
 
 
 def stop_season_sources():
@@ -1055,16 +1071,16 @@ class Handler(BaseHTTPRequestHandler):
                 not hmac.compare_digest(token,OWNER_TOKEN) or
                 self.headers.get("Content-Type","").split(";")[0].strip()
                 != "application/json" or not size.isdecimal() or
-                 int(size) > (1200 if target=="/api/movie/start"
-                              else 300 if target in (
+                 int(size) > (16000 if target in (
                      "/api/translation/start","/api/source-season/start")
-                              else 2)):
+                     else 1200 if target=="/api/movie/start" else 2)):
             self.write(403,b'{"error":"owner_control_access_denied"}')
             return
         try:
             if target in ("/api/translation/start","/api/source-season/start",
                           "/api/movie/start"):
-                if not (2 <= int(size) <= (1200 if target=="/api/movie/start" else 300)):
+                if not (2 <= int(size) <= (
+                        1200 if target=="/api/movie/start" else 16000)):
                     raise ValueError("invalid_batch_request_size")
                 request = json.loads(self.rfile.read(int(size)).decode("utf-8"))
                 value = (start_season_translation(request)
