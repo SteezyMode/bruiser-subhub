@@ -283,6 +283,41 @@ class StatusTests(unittest.TestCase):
         self.assertEqual(dashboard.season_batch_progress(lines,False)["current"],"")
         self.assertFalse(dashboard.season_batch_progress([],True)["known"])
 
+    def test_journal_grep_newest_first_counts_actual_batch_outcomes(self):
+        # journalctl --grep together with -n outputs newest-first.
+        # The observed 13-episode run had 2 OK, 9 held, and S06E10 active.
+        header="BATCH_BEGIN "+json.dumps({
+            "series":"It's Always Sunny in Philadelphia",
+            "selected":13,"ready":13})
+        chronological=[header]
+        outcomes=[
+            ("S02E01","HELD"),("S03E03","HELD"),
+            ("S03E04","HELD"),("S03E07","HELD"),
+            ("S03E08","HELD"),("S04E09","OK"),
+            ("S05E13","HELD"),("S06E05","OK"),
+            ("S06E07","HELD"),("S06E08","HELD"),
+            ("S06E09","HELD")]
+        for episode,result in outcomes:
+            chronological.append("BATCH_ITEM "+episode+" Example")
+            chronological.append("BATCH_ITEM_"+result+" "+episode+
+                                 (" exit=1" if result=="HELD" else ""))
+        chronological.append("BATCH_ITEM S06E10 Charlie Kelly: King of the Rats")
+        journal=dashboard.subprocess.CompletedProcess(
+            [],0,stdout="\n".join(reversed(chronological)))
+        with patch.object(dashboard,"unit_active",return_value=True), \
+             patch.object(dashboard.subprocess,"run",return_value=journal):
+            report=dashboard.season_batch_status()
+        counts=report["progress"]
+        self.assertTrue(counts["known"])
+        self.assertTrue(counts["active"])
+        self.assertEqual(counts["finished"],11)
+        self.assertEqual(counts["published"],2)
+        self.assertEqual(counts["held"],9)
+        self.assertEqual(counts["remaining"],2)
+        self.assertEqual(counts["current"],"S06E10")
+        self.assertEqual(report["recent"][-1],
+                         "BATCH_ITEM S06E10 Charlie Kelly: King of the Rats")
+
     def test_running_american_dad_episode_uses_verified_batch_identity(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp)
