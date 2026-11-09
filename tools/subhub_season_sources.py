@@ -421,7 +421,7 @@ def main(argv=None):
     if args.pick:
         picks=[]
         for value in args.pick:
-            match=batch.re.fullmatch(r"S(\\d{1,2})E(\\d{1,3})",value,batch.re.I)
+            match=batch.re.fullmatch(r"S(\d{1,2})E(\d{1,3})",value,batch.re.I)
             if not match:
                 raise ValueError("invalid_pick_sxxexxx")
             picks.append({"season":int(match.group(1)),
