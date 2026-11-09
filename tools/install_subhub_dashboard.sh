@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SubHub Dashboard v0.4: loopback-only owner GUI, season sourcing and translation.
+# SubHub Dashboard: one title search, source-first selectable seasons, PLaMo fallback.
 # Installs only the dashboard. Owner controls require explicit in-browser action.
 set -euo pipefail
 umask 077
@@ -38,11 +38,12 @@ ast.parse(pathlib.Path(sys.argv[1]).with_name('bruiser_coverage_queue.py').read_
 assert '("127.0.0.1", args.port)' in server, "loopback-only policy missing"
 assert '/api/control/start-auto' in server and 'owner_control_access_denied' in server, "owner control safeguards missing"
 assert "/api/status" in server and "textContent" in html
-assert 'id="action-start-auto"' in html and 'id="action-stop-manual"' in html, "owner controls missing from UI"
-assert '/api/translation/start' in server and 'start_season_translation' in server
-assert '/api/source-season/start' in server and 'start_season_sources' in server
-assert 'id="season-source-button"' in html and 'id="season-source-stop-button"' in html
-assert 'id="translation-start-button"' in html and 'id="translation-season"' in html
+assert 'id="title-search"' in html and html.count('type="text"') == 1, "single title search missing"
+assert 'id="episode-details"' in html and 'Review remaining episodes' in html, "compact episode review missing"
+assert '/api/translation/start' in server and 'selected_multi_plan' in server
+assert '/api/source-season/start' in server and 'selected_scope' in server
+assert 'id="source-selected"' in html and 'id="translate-selected"' in html
+assert 'library_wide_sourcing_disabled_use_selected_season' in server
 print("SUBHUB_DASHBOARD_PREFLIGHT_OK", flush=True)
 PY
 (
