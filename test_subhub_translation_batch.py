@@ -127,6 +127,22 @@ class SeasonBatchTests(unittest.TestCase):
             held=next(x for x in report["items"] if x["episode"]==3)
             self.assertFalse(held["can_translate"])
 
+    def test_audio_language_review_can_translate_verified_english_by_owner(self):
+        with sqlite3.connect(self.dbpath) as db:
+            db.execute("UPDATE tasks SET target='review',"
+                       " action='review_uncertain' WHERE path LIKE '%S01E05.mkv'")
+        report=batch.season_report(
+            "It's Always Sunny in Philadelphia",1,path=self.dbpath)
+        item=next(x for x in report["items"] if x["episode"]==5)
+        self.assertEqual(item["status"],"review")
+        self.assertTrue(item["owner_unlabeled_audio"])
+        self.assertTrue(item["can_translate"])
+        self.assertFalse(item["can_source"])
+        plan=batch.selected_multi_plan(
+            "It's Always Sunny in Philadelphia",
+            [{"season":1,"episode":5}],path=self.dbpath)
+        self.assertTrue(plan["items"][0]["owner_review_fallback"])
+
     def test_invalid_inputs_and_insecure_db_fail_closed(self):
         for value in (0,41,True):
             with self.assertRaises(ValueError):
