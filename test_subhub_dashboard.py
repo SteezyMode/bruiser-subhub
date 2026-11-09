@@ -359,15 +359,16 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(result["manual_batch_history"]["state"], "interrupted")
         self.assertTrue(result["source_active"])
 
-    def test_auto_start_is_nonblocking_and_only_requests_existing_unit(self):
+    def test_library_wide_dashboard_start_is_disabled(self):
         with patch.object(dashboard, "unit_active", return_value=False):
-            cp = dashboard.subprocess.CompletedProcess([], 0, stdout="ok")
-            with patch.object(dashboard.subprocess, "run", return_value=cp) as run:
-                result = dashboard.source_controls("start-auto")
-        self.assertTrue(result["ok"])
-        self.assertEqual(run.call_args.args[0], [
-            "systemctl", "--user", "start", "--no-block",
-            dashboard.SCHEDULED_UNIT])
+            with patch.object(dashboard.subprocess, "run") as runner:
+                with self.assertRaisesRegex(RuntimeError,
+                                            "library_wide_sourcing_disabled"):
+                    dashboard.source_controls("start-auto")
+                with self.assertRaisesRegex(RuntimeError,
+                                            "library_wide_sourcing_disabled"):
+                    dashboard.source_controls("start-manual")
+                runner.assert_not_called()
 
 
     def test_control_availability_prevents_duplicate_workers(self):
@@ -386,12 +387,12 @@ class HTTPTests(unittest.TestCase):
                     dashboard.source_controls("start-auto")
                 runner.assert_not_called()
 
-    def test_source_controls_refuse_competing_translation_batch(self):
+    def test_library_wide_starts_always_rejected_even_with_other_workers(self):
         with patch.object(dashboard, "unit_active",
                           side_effect=[False, False, True]), \
              patch.object(dashboard.subprocess, "run") as runner:
             with self.assertRaisesRegex(RuntimeError,
-                                        "translation_active_cannot_start_source"):
+                                        "library_wide_sourcing_disabled"):
                 dashboard.source_controls("start-auto")
             runner.assert_not_called()
 
