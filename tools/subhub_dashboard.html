@@ -87,10 +87,10 @@ details>summary{cursor:pointer}
  <div id="seasons" class="seasons" aria-label="Choose seasons"></div>
  <div class="status-strip" id="coverage-totals" aria-live="polite">Choose seasons to inspect subtitle coverage.</div>
  <div class="episode-controls">
-  <button id="source-selected" class="primary" type="button" disabled>Search Japanese subs for remaining episodes</button>
-  <button id="translate-selected" type="button" disabled>Send remaining to PLaMo</button>
+  <button id="translate-selected" class="primary" type="button" disabled>Send all remaining to PLaMo</button>
+  <button id="source-selected" type="button" disabled>Retry Japanese sources / timing</button>
  </div>
- <p id="action-note" class="small muted">Source matching is conservative. Rejected or unverified candidates are visible for review; no unsafe subtitle is automatically published.</p>
+ <p id="action-note" class="small muted">First try Japanese sources and timing repair. Remaining episodes with verified prior search evidence and English subtitles can go to PLaMo. Invalid source results never overwrite good subtitles.</p>
  <div class="row">
   <button id="toggle-episodes" type="button" class="quiet" disabled>Review remaining episodes</button>
   <button id="clear-episodes" type="button" class="quiet" hidden>Clear checked episodes</button>
@@ -234,16 +234,16 @@ function counts(){
 function renderCoverage(){
   const n=counts();
   $("coverage-totals").textContent=selectedSeasons.size?
-    n.covered+" Japanese present · "+n.ready+" PLaMo-ready · "+
-    n.sourcing+" sourcing pending · "+n.review+" review · "+
+    n.covered+" Japanese present · "+picksFor("translate").length+" PLaMo-eligible · "+
+    n.sourcing+" sourcing pending · "+n.review+" source/timing holds · "+
     n.needs_english+" need English · "+n.total+" episodes in "+
     coverage.size+"/"+selectedSeasons.size+" loaded seasons":
     "Choose one or several seasons to inspect coverage.";
   const src=picksFor("source"), ai=picksFor("translate");
   $("source-selected").disabled=busy||!src.length||latest.workersBusy;
   $("translate-selected").disabled=busy||!ai.length||latest.workersBusy||!latest.aiAvailable;
-  $("source-selected").textContent="Recheck Japanese sources ("+src.length+")";
-  $("translate-selected").textContent="Send remaining to PLaMo ("+ai.length+")";
+  $("source-selected").textContent="Retry Japanese sources / timing ("+src.length+")";
+  $("translate-selected").textContent=(checked.size?"Send checked to PLaMo (":"Send all remaining to PLaMo (")+ai.length+")";
   $("toggle-episodes").disabled=!n.total;
   $("action-note").textContent=checked.size?
     "Using "+checked.size+" checked episode(s). Ineligible episodes are excluded from each action. Clear checks to act on all remaining.":
@@ -252,16 +252,27 @@ function renderCoverage(){
 }
 function statusName(item){
   const labels={covered:"Japanese present",ready:"No accepted source · PLaMo-ready",
-    sourcing:"Japanese source search pending",review:"Review source/timing",
-    needs_english:"English subtitles required"};
+    sourcing:"Japanese sourcing still pending",
+    review:item.can_translate?"Source/timing held · PLaMo available":
+           item.can_source?"Source/timing held · retry available":
+           "Held · needs a concrete next step",
+    needs_english:"English text required for PLaMo"};
   return labels[item.status]||item.status;
 }
 function renderEpisodes(){
-  const host=$("episode-details");host.replaceChildren();
+  const host=$("episode-details");
+  // Keep the user's open seasons and candidate reviews open across the
+  // 5-second worker-status refresh and checkbox changes.
+  const openSeasons=new Set([...host.querySelectorAll("details.season-card[open]")]
+       .map(node=>node.dataset.season));
+  const openReviews=new Set([...host.querySelectorAll("details.review[open]")]
+       .map(node=>node.dataset.review));
+  host.replaceChildren();
   $("clear-episodes").hidden=false;$("show-covered-wrap").hidden=false;
   for(const [season,report] of [...coverage].sort((a,b)=>a[0]-b[0])){
     const items=report.items.filter(it=>showCovered||it.status!=="covered");
     const card=document.createElement("details");card.className="season-card";
+    card.dataset.season=String(season);card.open=openSeasons.has(String(season));
     const title=document.createElement("summary");
     const incomplete=report.items.filter(it=>it.status!=="covered").length;
     title.textContent="Season "+season+" · "+incomplete+" remaining · "+report.covered+" Japanese present";
@@ -297,6 +308,7 @@ function renderEpisodes(){
         const candidates=[...(search.candidates||[]),...(search.rejected_candidates||[])];
         if(candidates.length){
           const details=document.createElement("details");details.className="review";
+          details.dataset.review=token;details.open=openReviews.has(token);
           const label=document.createElement("summary");
           label.textContent="Review "+candidates.length+" saved candidate(s)";
           details.append(label);
@@ -311,27 +323,50 @@ function renderEpisodes(){
           details.append(note);content.append(details);
         }
       }
+      if(item.can_source||item.can_translate){
+        const actions=document.createElement("div");actions.className="row";
+        actions.style.marginTop="8px";
+        if(item.can_source){
+          const retry=document.createElement("button");retry.type="button";
+          retry.className="quiet";retry.textContent="Retry source / timing";
+          retry.addEventListener("click",()=>bulkAction("source",
+                 [{season,episode:item.episode}]));
+          actions.append(retry);
+        }
+        if(item.can_translate){
+          const translate=document.createElement("button");translate.type="button";
+          translate.textContent="Send this episode to PLaMo";
+          translate.addEventListener("click",()=>bulkAction("translate",
+                 [{season,episode:item.episode}]));
+          actions.append(translate);
+        }
+        content.append(actions);
+      }else if(item.status!=="covered"){
+        const blocked=document.createElement("p");blocked.className="detail warning";
+        blocked.textContent="Not yet eligible for automatic repair or translation; check the reason above.";
+        content.append(blocked);
+      }
       row.append(input,content);body.append(row);
     }
     card.append(body);host.append(card);
   }
   host.hidden=false;
 }
-async function bulkAction(kind){
+async function bulkAction(kind,exactPicks=null){
   if(busy||!selectedSeries)return;
-  const picks=picksFor(kind);
+  const picks=exactPicks||picksFor(kind);
   if(!picks.length){showMessage("No eligible episodes in this selection.",true);return;}
-  if(kind==="source"&&!confirm("Search configured subtitle providers for "+picks.length+
-      " selected episode(s)? This may consume provider search/download allowance. Only verified matching subtitles can be published."))return;
+  if(kind==="source"&&!confirm("Retry Japanese subtitle sourcing and existing timing repair for "+picks.length+
+      " episode(s)? This can consume provider allowance. Failed alignment is held instead of published."))return;
   if(kind==="translate"&&!confirm("Send "+picks.length+
-      " source-exhausted episode(s) to PLaMo? Work resumes checkpoints and will skip tracks already present."))return;
+      " selected remaining episode(s) to PLaMo? English text and existing Japanese tracks are verified again before every translation; completed checkpoints resume."))return;
   busy=true;renderCoverage();
   showMessage(kind==="source"?"Starting selected Japanese sourcing…":"Starting selected PLaMo batch…");
   try{
     const path=kind==="source"?"/api/source-season/start":"/api/translation/start";
     const result=await ownerPost(path,{series:selectedSeries,picks});
-    showMessage("Accepted "+result.accepted+" episode(s) for "+(kind==="source"?"Japanese sourcing":"PLaMo translation")+
-      ". Refreshing coverage when the worker finishes.");
+    showMessage("Accepted "+result.accepted+" episode(s) for "+(kind==="source"?"Japanese sourcing / timing repair":"PLaMo translation")+
+      ". Exact selection only. Results and remaining holds will update after the worker finishes.");
     checked.clear();
   }catch(err){showMessage("Not started: "+err.message,true);}
   finally{busy=false;await refreshStatus();renderCoverage();}
