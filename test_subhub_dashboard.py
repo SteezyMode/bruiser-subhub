@@ -86,15 +86,17 @@ class StatusTests(unittest.TestCase):
             finally:
                 dashboard._SOURCE_CACHE.update(old)
 
-    def test_page_prioritizes_current_run_and_removes_manual_batch_dropdown(self):
+    def test_page_has_single_search_and_compact_season_review(self):
         html=dashboard.HTML.read_text(encoding="utf-8")
-        for name in ("live-matches","live-downloaded","live-published",
-                     "live-none","live-review","live-errors"):
+        for name in ("title-search","search-results","seasons","episode-details",
+                     "source-selected","translate-selected","toggle-episodes",
+                     "active-jobs"):
             self.assertIn('id="'+name+'"',html)
-        self.assertNotIn('id="manual-history"',html)
-        self.assertNotIn('aria-label="Saved manual batch results"',html)
-        self.assertNotIn('id="job"',html)
-        self.assertIn('live.metrics_available',html)
+        self.assertEqual(html.count('type="text"'),1)
+        self.assertIn("Review remaining episodes",html)
+        self.assertIn("Send remaining to PLaMo",html)
+        self.assertNotIn('id="action-start-manual"',html)
+        self.assertNotIn('id="translation-series-options"',html)
 
     def test_inactive_source_without_history_returns_no_live_progress(self):
         # This MUST be independent of the install target's actual systemd
@@ -471,17 +473,15 @@ class HTTPTests(unittest.TestCase):
                 dashboard.start_season_sources(selection)
             runner.assert_not_called()
 
-    def test_dashboard_controls_are_present_in_html(self):
-        source = dashboard.HTML.read_text(encoding="utf-8")
-        for action in ("start-auto","stop-auto","start-manual","stop-manual"):
-            self.assertIn('id="action-' + action + '"', source)
-        self.assertIn("X-Subhub-Token", source)
-        for identifier in ("translation-series","translation-season",
-                           "translation-count","translation-preview-button",
-                           "translation-start-button","translation-stop-button",
-                            "season-source-button","season-source-stop-button"):
-            self.assertIn('id="' + identifier + '"', source)
-        self.assertIn("Review ", source)
+    def test_dashboard_actions_are_exact_scoped_and_same_origin(self):
+        source=dashboard.HTML.read_text(encoding="utf-8")
+        for identifier in ("source-selected","translate-selected","movie-start",
+                           "stop-sourcing","stop-translation","clear-episodes"):
+            self.assertIn('id="'+identifier+'"',source)
+        self.assertIn("X-Subhub-Token",source)
+        self.assertIn("series:selectedSeries,picks",source)
+        self.assertNotIn("/api/control/start-manual",source)
+        self.assertIn("Review ",source)
 
     def test_owner_http_and_no_remote_listener(self):
         with patch.object(dashboard, "status_payload",
