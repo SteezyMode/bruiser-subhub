@@ -167,7 +167,8 @@ def season_report(series, season, *, path=None):
     with read_queue(path) as db:
         rows = db.execute("""
             SELECT m.path,m.jellyfin_id,m.title,m.episode,m.en_text,
-                   m.ja_present,t.action,t.state
+                   m.ja_present,t.action,t.state,t.reason AS queue_reason,
+                   t.note AS queue_note
               FROM media AS m LEFT JOIN tasks AS t
                 ON t.path=m.path AND t.target='ja' AND t.active=1
              WHERE m.kind='Episode' AND m.series=? AND m.season=?
@@ -269,30 +270,47 @@ def season_report(series, season, *, path=None):
             status, reason = "review", "japanese_candidate_needs_review"
         else:
             status, reason = "review", "unresolved_" + action[:42]
+        proof = evidence.get(jid)
+        searched = bool(proof and proof["outcome"] in ("none","review","plausible"))
+        # User-requested explicit AI fallback for a reviewed/held source result.
+        # Never convert a search error, an unsearched episode, or a duplicate
+        # into proof that Japanese is unavailable. English is rechecked by AI.
+        review_ai = bool(status=="review" and row["en_text"] and searched
+            and action in ("review_saved_ja", "download_saved_ja",
+                           "align_existing_staged_ja", "search_ja")
+            and (state=="held" or action=="review_saved_ja")
+            and JELLYFIN_ID.fullmatch(jid))
+        retry_source = bool(not covered and JELLYFIN_ID.fullmatch(jid)
+            and action in ("search_ja", "download_saved_ja",
+                           "align_existing_staged_ja", "review_saved_ja",
+                           "validate_english_for_ja_fallback",
+                           "recover_english_for_ja_fallback")
+            and state in ("pending","held"))
         item = {"episode":number,"title":str(row["title"]),
                 "status":status,"reason":reason,
-                "can_source":bool(not covered and state=="pending"
-                    and action in ("search_ja","download_saved_ja",
-                                   "align_existing_staged_ja","review_saved_ja",
-                                   "validate_english_for_ja_fallback",
-                                   "recover_english_for_ja_fallback")
-                    and JELLYFIN_ID.fullmatch(jid)),
-                "can_translate":status=="ready"}
-        proof = evidence.get(jid)
+                "queue_reason":str(row["queue_reason"] or "")[:120],
+                "queue_note":str(row["queue_note"] or "")[:120],
+                "can_source":retry_source,
+                "can_translate":status=="ready" or review_ai,
+                "owner_review_fallback":review_ai}
+        if review_ai:
+            item["reason"]="reviewed_source_not_publishable_owner_ai_fallback"
+        
         if proof:
             item["search"] = proof
             if status == "ready" and proof["outcome"] == "none":
                 item["reason"] = ("search_had_unaccepted_results_review_rejections"
                                   if proof["provider_total"] else
                                   "no_japanese_candidate_found_in_last_search")
-        if status == "ready":
+        if item["can_translate"]:
             item["jellyfin_id"] = jid
         items.append(item)
     from collections import Counter
     counts = Counter(item["status"] for item in items)
     return {"series":series, "season":season,"items":items,
             "total":len(items), "covered":counts["covered"],
-            "ready":counts["ready"],"sourcing":counts["sourcing"],
+            "ready":sum(bool(i.get("can_translate")) for i in items),
+            "sourcing":counts["sourcing"],
             "needs_english":counts["needs_english"],"review":counts["review"],
             "source_eligible":sum(bool(i.get("can_source")) for i in items),
             "timing_note":"Unverified alignment is never certified accurate."}
@@ -309,7 +327,7 @@ def selected_episode_plan(series, season, episodes, *, path=None):
     chosen = []
     for number in sorted(episodes):
         item = allowed.get(number)
-        if item is None or item["status"] != "ready":
+        if item is None or not item["can_translate"]:
             raise RuntimeError("selected_episode_not_ready_source_first:E" + str(number))
         chosen.append(item)
     return {"series":series,"season":season,"start_episode":min(episodes),
@@ -368,12 +386,14 @@ def run_batch(series, season, count, start, episodes=None, picks=None):
         completed = failed = 0
         for item in selected["items"]:
             tag = f'S{item.get("season",season):02d}E{item["episode"]:02d}'
-            if item["status"] != "ready":
+            if not item["can_translate"]:
                 print(f'BATCH_BLOCKED {tag} {item["reason"]}', flush=True)
                 continue
             print(f'BATCH_ITEM {tag} {item["title"][:120]}', flush=True)
             command = [str(ENGINE), "--apply", "--jellyfin-id",
                        item["jellyfin_id"]]
+            if item.get("owner_review_fallback"):
+                command.append("--owner-reviewed-source")
             # Existing worker owns the cue checkpoints, thermal safety,
             # English verification, and create-only subtitle publication.
             fatal = False
