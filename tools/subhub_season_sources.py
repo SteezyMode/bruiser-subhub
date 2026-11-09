@@ -120,7 +120,10 @@ def selected_scope(series, picks, *, recheck=False, path=None):
         if len(versions)!=1:
             raise RuntimeError("duplicate_episode_requires_review")
         row=versions[0]
-        if (batch._already_covered(row) or row["state"]!="pending"
+        state_ok = (row["state"]=="pending" or
+                    (recheck and row["state"]=="held" and
+                     row["action"] in RECHECK_ACTIONS))
+        if (batch._already_covered(row) or not state_ok
                 or row["action"] not in allowed
                 or not batch.JELLYFIN_ID.fullmatch(str(row["jellyfin_id"] or ""))):
             raise RuntimeError("selected_episode_not_eligible_for_source:"+
