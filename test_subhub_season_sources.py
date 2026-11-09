@@ -105,8 +105,8 @@ class ScopeTests(unittest.TestCase):
     def test_exact_pick_cli_preview_never_uses_providers(self):
         with mock.patch.object(selected,"selected_scope",return_value={
                 "eligible":1,"seasons":[1],"ids":{"2"*32:"/some/file"},
-                "series":"It's Always Sunny in Philadelphia","skipped":{}}) as scope, \\
-             mock.patch.object(selected,"native") as native, \\
+                "series":"It's Always Sunny in Philadelphia","skipped":{}}) as scope, \
+             mock.patch.object(selected,"native") as native, \
              mock.patch.object(selected,"run") as runner:
             self.assertEqual(selected.main([
                 "--series","It's Always Sunny in Philadelphia",
