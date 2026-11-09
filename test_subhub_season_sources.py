@@ -102,6 +102,18 @@ class ScopeTests(unittest.TestCase):
                 [{"season":1,"episode":2},{"season":1,"episode":2}],
                 recheck=True,path=self.path)
 
+    def test_explicit_source_repair_includes_held_candidate_not_global_queue(self):
+        with sqlite3.connect(self.path) as db:
+            db.execute("UPDATE tasks SET state='held' "
+                       "WHERE path LIKE '%S01E05.mkv'")
+        pick=[{"season":1,"episode":5}]
+        selected_item=selected.selected_scope(
+            "It's Always Sunny in Philadelphia",pick,recheck=True,path=self.path)
+        self.assertEqual(selected_item["eligible"],1)
+        with self.assertRaisesRegex(RuntimeError,"not_eligible_for_source"):
+            selected.selected_scope(
+                "It's Always Sunny in Philadelphia",pick,recheck=False,path=self.path)
+
     def test_exact_pick_cli_preview_never_uses_providers(self):
         with mock.patch.object(selected,"selected_scope",return_value={
                 "eligible":1,"seasons":[1],"ids":{"2"*32:"/some/file"},
