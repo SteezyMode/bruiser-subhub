@@ -129,7 +129,9 @@ def validate_row(row, owner_review=False):
         raise RuntimeError("invalid_coverage_queue_identity")
     if row["kind"] not in ("Movie","Episode"):
         raise RuntimeError("invalid_media_kind")
-    if not row["english_text"]:
+    if not row["english_text"] and not (
+            owner_review and row["action"]=="review_uncertain"
+            and row["target"]=="review"):
         raise RuntimeError("english_text_not_indicated")
 
 
