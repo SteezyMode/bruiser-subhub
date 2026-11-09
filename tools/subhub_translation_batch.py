@@ -77,9 +77,24 @@ def _already_covered(row):
     # The matrix refresh may lag a successfully published PLaMo sidecar.
     # This is only a skip hint; the underlying engine checks ALL JA sources.
     video = Path(str(row["path"] or ""))
-    target = video.with_name(video.stem + ".ja.PLaMo8B.srt")
-    return (target.is_file() and not target.is_symlink()
-            and 0 < target.stat().st_size <= 2_000_000)
+    # Check exact-video JA sidecars, not just our PLaMo output. The queue
+    # snapshot may lag a separate human subtitle or successful source publisher.
+    try:
+        for candidate in video.parent.iterdir():
+            if candidate.is_symlink() or not candidate.is_file():
+                continue
+            if not candidate.name.casefold().startswith(video.stem.casefold() + "."):
+                continue
+            if candidate.suffix.casefold() not in (".srt", ".ass", ".ssa", ".vtt"):
+                continue
+            tags = re.findall(r"[a-z0-9]+", candidate.name[len(video.stem):].casefold())
+            if (any(x in ("ja", "jp", "jpn", "japanese") for x in tags)
+                    and not any(x in ("forced", "signs") for x in tags)
+                    and 0 < candidate.stat().st_size <= 2_000_000):
+                return True
+    except OSError:
+        return False
+    return False
 
 
 def plan(series, season, count=20, start=1, *, path=None):
