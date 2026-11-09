@@ -142,6 +142,95 @@ def plan(series, season, count=20, start=1, *, path=None):
                      "are reported, never silently replaced with other seasons.")}
 
 
+def season_report(series, season, *, path=None):
+    """A complete, read-only view of one selected season and its JA outcome.
+
+    Never call providers, never treat a search miss as proof that a human
+    subtitle cannot exist, and never infer that unverified timing is correct.
+    """
+    validate(series, season, MAX_COUNT, 1)
+    with read_queue(path) as db:
+        rows = db.execute("""
+            SELECT m.path,m.jellyfin_id,m.title,m.episode,m.en_text,
+                   m.ja_present,t.action,t.state
+              FROM media AS m LEFT JOIN tasks AS t
+                ON t.path=m.path AND t.target='ja' AND t.active=1
+             WHERE m.kind='Episode' AND m.series=? AND m.season=?
+             ORDER BY m.path
+        """, (series, str(season))).fetchall()
+    versions = {}
+    for row in rows:
+        try:
+            number = int(row["episode"])
+        except (TypeError, ValueError):
+            continue
+        if 1 <= number <= 999:
+            versions.setdefault(number, []).append(row)
+    if not versions:
+        raise RuntimeError("selected_season_not_in_coverage_queue")
+    if len(versions) > MAX_COUNT:
+        raise RuntimeError("season_exceeds_40_episode_controller_limit")
+    items = []
+    for number, candidates in sorted(versions.items()):
+        if len(candidates) != 1:
+            items.append({"episode":number,"title":str(candidates[0]["title"]),
+                          "status":"review","reason":"duplicate_episode_versions"})
+            continue
+        row = candidates[0]
+        action, state = str(row["action"] or ""), str(row["state"] or "")
+        covered = _already_covered(row)
+        jid = str(row["jellyfin_id"] or "")
+        if covered:
+            status, reason = "covered", "japanese_subtitle_present"
+        elif state == "held" or action == "repair_existing_timing":
+            status, reason = "review", "timing_or_publication_held"
+        elif action == READY_ACTION and state == "pending":
+            if row["en_text"] and JELLYFIN_ID.fullmatch(jid):
+                status, reason = "ready", "no_accepted_japanese_source_in_saved_search"
+            else:
+                status, reason = "needs_english", "english_not_verified"
+        elif action == "recover_english_for_ja_fallback":
+            status, reason = "needs_english", "japanese_search_missed_english_needed"
+        elif action in ("search_ja", "download_saved_ja", "align_existing_staged_ja"):
+            status, reason = "sourcing", action
+        elif action == "review_saved_ja":
+            status, reason = "review", "japanese_candidate_needs_review"
+        else:
+            status, reason = "review", "unresolved_" + action[:42]
+        item = {"episode":number,"title":str(row["title"]),
+                "status":status,"reason":reason}
+        if status == "ready":
+            item["jellyfin_id"] = jid
+        items.append(item)
+    from collections import Counter
+    counts = Counter(item["status"] for item in items)
+    return {"series":series, "season":season,"items":items,
+            "total":len(items), "covered":counts["covered"],
+            "ready":counts["ready"],"sourcing":counts["sourcing"],
+            "needs_english":counts["needs_english"],"review":counts["review"],
+            "source_eligible":counts["sourcing"],
+            "timing_note":"Unverified alignment is never certified accurate."}
+
+
+def selected_episode_plan(series, season, episodes, *, path=None):
+    """Require every explicitly requested episode to be source-exhausted and ready."""
+    if (not isinstance(episodes, list) or not 1 <= len(episodes) <= MAX_COUNT
+            or any(type(n) is not int or not 1 <= n <= 999 for n in episodes)
+            or len(set(episodes)) != len(episodes)):
+        raise ValueError("invalid_explicit_episode_selection")
+    report = season_report(series, season, path=path)
+    allowed = {item["episode"]:item for item in report["items"]}
+    chosen = []
+    for number in sorted(episodes):
+        item = allowed.get(number)
+        if item is None or item["status"] != "ready":
+            raise RuntimeError("selected_episode_not_ready_source_first:E" + str(number))
+        chosen.append(item)
+    return {"series":series,"season":season,"start_episode":min(episodes),
+            "requested":len(episodes),"ready":len(episodes),"blocked":0,
+            "covered":report["covered"],"selected":len(episodes),"items":chosen}
+
+
 def _safe_work_dir():
     if WORK.is_symlink():
         raise RuntimeError("unsafe_translation_workdir")
@@ -151,7 +240,7 @@ def _safe_work_dir():
     return WORK
 
 
-def run_batch(series, season, count, start):
+def run_batch(series, season, count, start, episodes=None):
     if not ENGINE.is_file() or ENGINE.is_symlink() or not os.access(ENGINE, os.X_OK):
         raise RuntimeError("subhub_ai_not_installed")
     root = _safe_work_dir()
@@ -160,7 +249,8 @@ def run_batch(series, season, count, start):
         raise RuntimeError("unsafe_series_batch_lock")
     with lock.open("a+b") as handle:
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        selected = plan(series, season, count, start)
+        selected = (selected_episode_plan(series, season, episodes)
+                    if episodes is not None else plan(series, season, count, start))
         print("BATCH_BEGIN " + json.dumps({
             k: v for k, v in selected.items() if k not in ("items", "note")},
             ensure_ascii=False), flush=True)
@@ -208,12 +298,15 @@ def main(argv=None):
     ap.add_argument("--season", type=int, required=True)
     ap.add_argument("--count", type=int, default=20)
     ap.add_argument("--start", type=int, default=1)
+    ap.add_argument("--episode", type=int, action="append",
+                    help="Exact episode to translate; repeat for explicit selection")
     ap.add_argument("--run", action="store_true",
                     help="Run eligible selected episodes via existing subhub-ai")
     args = ap.parse_args(argv)
     try:
         if args.run:
-            return run_batch(args.series, args.season, args.count, args.start)
+            return run_batch(args.series, args.season, args.count, args.start,
+                             episodes=args.episode)
         print(json.dumps(plan(args.series,args.season,args.count,args.start),
                          ensure_ascii=False, indent=2))
         return 0
