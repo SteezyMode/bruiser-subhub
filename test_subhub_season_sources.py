@@ -218,6 +218,42 @@ class ScopeTests(unittest.TestCase):
         close.assert_called_once_with(9)
 
 
+    def test_scoped_source_runner_routes_only_owner_selected_reviewed_episode(self):
+        from contextlib import contextmanager
+        jid="a"*32
+        path="/mnt/2TB/Plex Expansion/S02E01.mkv"
+        src={"series":"Example Show","season":2,"ids":{jid:path},
+             "reviewed":[jid],"eligible":1,"skipped":{}}
+        approved={jid:{"jellyfin_id":jid,"status":"ready_ja_search",
+                       "host_path":path}}
+        @contextmanager
+        def permitted(*args,**kwargs):
+            yield approved,{}
+        auto=mock.Mock()
+        auto.lock.return_value=7
+        auto.native_search_disabled.return_value=True
+        auto.config.return_value={}
+        search,stage,publish=mock.Mock(),mock.Mock(),mock.Mock()
+        with mock.patch.object(selected,"selected_scope",return_value=src), \\
+             mock.patch.object(selected,"native",return_value=(
+                 auto,search,stage,publish)), \\
+             mock.patch.object(selected,"scoped_audio_review",side_effect=permitted), \\
+             mock.patch.object(selected,"find_japanese",
+                               return_value=Counter({"plausible":1})) as searched, \\
+             mock.patch.object(selected,"stage_japanese",
+                               return_value=Counter({"staged":1})) as staged, \\
+             mock.patch.object(selected,"publish_japanese",
+                               return_value=Counter({"published_new":1})) as published, \\
+             mock.patch.object(selected,"reconcile",return_value=0), \\
+             mock.patch.object(selected.os,"close") as closed:
+            self.assertEqual(selected.run("Example Show",2,
+                [{"season":2,"episode":1}],recheck=True),0)
+        self.assertEqual(searched.call_args.args[0],{jid:path})
+        self.assertEqual(searched.call_args.kwargs["approved_reviews"],approved)
+        self.assertEqual(staged.call_args.args[0],{jid:path})
+        self.assertEqual(published.call_args.args[0],{jid:path})
+        closed.assert_called_once_with(7)
+
     def test_zero_work_cannot_claim_success(self):
         src={"series":"It's Always Sunny in Philadelphia","season":12,
              "ids":{"a"*32:"/verified/S12E01.mkv"},"eligible":1,"skipped":{}}
