@@ -288,12 +288,13 @@ def season_report(series, season, *, path=None):
             and row["queue_target"]=="review" and state=="pending"
             and JELLYFIN_ID.fullmatch(jid))
         review_ai = review_ai or owner_unlabeled
-        retry_source = bool(not covered and JELLYFIN_ID.fullmatch(jid)
-            and action in ("search_ja", "download_saved_ja",
-                           "align_existing_staged_ja", "review_saved_ja",
-                           "validate_english_for_ja_fallback",
-                           "recover_english_for_ja_fallback")
-            and state in ("pending","held"))
+        retry_source = bool(owner_unlabeled or
+            (not covered and JELLYFIN_ID.fullmatch(jid)
+             and action in ("search_ja", "download_saved_ja",
+                            "align_existing_staged_ja", "review_saved_ja",
+                            "validate_english_for_ja_fallback",
+                            "recover_english_for_ja_fallback")
+             and state in ("pending","held")))
         item = {"episode":number,"title":str(row["title"]),
                 "status":status,"reason":reason,
                 "queue_reason":str(row["queue_reason"] or "")[:120],
