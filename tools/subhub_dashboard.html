@@ -368,8 +368,14 @@ async function bulkAction(kind,exactPicks=null){
   if(!picks.length){showMessage("No eligible episodes in this selection.",true);return;}
   if(kind==="source"&&!confirm("Retry Japanese subtitle sourcing and existing timing repair for "+picks.length+
       " episode(s)? This can consume provider allowance. Failed alignment is held instead of published."))return;
-  if(kind==="translate"&&!confirm("Send "+picks.length+
-      " selected remaining episode(s) to PLaMo? English text and existing Japanese tracks are verified again before every translation; completed checkpoints resume."))return;
+  if(kind==="translate"){
+    const audioUnlabeled=picks.filter(p=>(coverage.get(p.season)?.items||[])
+       .some(it=>it.episode===p.episode&&it.owner_unlabeled_audio)).length;
+    const note=audioUnlabeled?
+      " "+audioUnlabeled+" episode(s) have untagged audio: you are confirming their original audio is English. English subtitle timing will still be validated.":"";
+    if(!confirm("Send "+picks.length+
+      " selected remaining episode(s) to PLaMo? Existing Japanese tracks and English text are checked again; saved checkpoints resume."+note))return;
+  }
   busy=true;renderCoverage();
   showMessage(kind==="source"?"Starting selected Japanese sourcing…":"Starting selected PLaMo batch…");
   try{
