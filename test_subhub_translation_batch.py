@@ -137,7 +137,7 @@ class SeasonBatchTests(unittest.TestCase):
         self.assertEqual(item["status"],"review")
         self.assertTrue(item["owner_unlabeled_audio"])
         self.assertTrue(item["can_translate"])
-        self.assertFalse(item["can_source"])
+        self.assertTrue(item["can_source"])
         plan=batch.selected_multi_plan(
             "It's Always Sunny in Philadelphia",
             [{"season":1,"episode":5}],path=self.dbpath)
