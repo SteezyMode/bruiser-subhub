@@ -272,6 +272,24 @@ class ScopeTests(unittest.TestCase):
         self.assertEqual(selected.saved_duration_rejections(old),
                          {("c"*32,"9999")})
 
+    def test_recheck_stage_accepts_old_host_helper_without_duration_method(self):
+        from types import SimpleNamespace
+        jid="b"*32
+        video="/mnt/2TB/Plex Expansion/Example/S04E09.mkv"
+        stage=SimpleNamespace(
+            STAGE_DB=Path(self.tmp.name)/"legacy-stage.sqlite3",
+            read_inventory=lambda:{jid:{
+                "jellyfin_id":jid,"host_path":video,
+                "status":"ready_ja_search"}},
+            read_saved_searches=lambda:[],
+            read_staged=lambda:set())
+        with sqlite3.connect(stage.STAGE_DB) as db:
+            db.execute("CREATE TABLE staged (jellyfin_id TEXT,"
+                       "subtitle_id TEXT,status TEXT)")
+        stage.STAGE_DB.chmod(0o600)
+        result=selected.stage_japanese({jid:video},stage,1,recheck=True)
+        self.assertEqual(dict(result),{})
+
     def test_real_publication_failure_is_recorded_not_silent(self):
         jid="d"*32
         publisher=mock.Mock()
@@ -290,7 +308,7 @@ class ScopeTests(unittest.TestCase):
         def fake_run(series,season,picks,recheck=False):
             calls.append((series,season,recheck))
             if season==2:
-                raise RuntimeError("manifest_mismatch")
+                raise AttributeError("missing_host_helper")
             return 0
         with mock.patch.object(selected,"selected_scope",return_value=plan), \
              mock.patch.object(selected,"run",side_effect=fake_run):
