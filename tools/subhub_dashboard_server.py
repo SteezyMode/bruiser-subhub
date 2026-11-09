@@ -716,6 +716,8 @@ def source_controls(action):
     manual=unit_active(BATCH_UNIT)
     scheduled=unit_active(SCHEDULED_UNIT)
     script=Path.home()/".local/bin/bruiser-subs"
+    if action in ("start-auto", "start-manual"):
+        raise RuntimeError("library_wide_sourcing_disabled_use_selected_season")
     if action in ("start-auto", "start-manual") and not (manual or scheduled):
         if translation_busy():
             raise RuntimeError("translation_active_cannot_start_source_worker")
@@ -764,10 +766,11 @@ def control_availability():
     if can_start:
         can_start=not translation_busy()
     return {"available":True,
-            "start_auto":can_start,
+            "start_auto":False,
             "stop_auto":scheduled,
-            "start_manual":can_start,
-            "stop_manual":manual}
+            "start_manual":False,
+            "stop_manual":manual,
+            "reason":"Select a series and season; library-wide starts disabled"}
 
 
 
@@ -800,11 +803,19 @@ def season_batch_status():
 
 def start_season_translation(doc):
     """Reject unsafe/conflicting work before passing exact selection to systemd."""
-    if not isinstance(doc, dict) or set(doc) != {"series", "season", "count", "start"}:
+    if not isinstance(doc, dict):
         raise ValueError("invalid_batch_request")
-    series, season = doc["series"], doc["season"]
-    count, start = doc["count"], doc["start"]
-    season_batch.validate(series, season, count, start)
+    selected_episodes = None
+    if set(doc) == {"series", "season", "episodes"}:
+        series, season = doc["series"], doc["season"]
+        selected_episodes = doc["episodes"]
+        season_batch.validate(series, season, 40, 1)
+    elif set(doc) == {"series", "season", "count", "start"}:
+        series, season = doc["series"], doc["season"]
+        count, start = doc["count"], doc["start"]
+        season_batch.validate(series, season, count, start)
+    else:
+        raise ValueError("invalid_batch_request")
     if (unit_active(BATCH_UNIT) or unit_active(SCHEDULED_UNIT)
             or unit_active(SEASON_SOURCE_UNIT) or translation_busy()):
         raise RuntimeError("another_source_or_translation_worker_is_active")
@@ -812,7 +823,9 @@ def start_season_translation(doc):
             or not season_batch.ENGINE.is_file()
             or season_batch.ENGINE.is_symlink()):
         raise RuntimeError("translation_batch_controller_not_installed")
-    chosen = season_batch.plan(series, season, count, start)
+    chosen = (season_batch.selected_episode_plan(series, season, selected_episodes)
+              if selected_episodes is not None else
+              season_batch.plan(series, season, count, start))
     if not chosen["ready"]:
         raise RuntimeError("no_source_first_eligible_episodes_in_selection")
     command = [
@@ -820,8 +833,12 @@ def start_season_translation(doc):
         "--collect", "--property=KillMode=control-group", "--",
         sys.executable, "-B", "-u", str(BATCH_EXEC), "--run",
         "--series", series, "--season", str(season),
-        "--count", str(count), "--start", str(start),
     ]
+    if selected_episodes is not None:
+        for episode in sorted(selected_episodes):
+            command.extend(["--episode", str(episode)])
+    else:
+        command.extend(["--count", str(count), "--start", str(start)])
     done = subprocess.run(command, capture_output=True, text=True,
                           stdin=subprocess.DEVNULL, timeout=20, check=False)
     if done.returncode:
@@ -977,6 +994,19 @@ class Handler(BaseHTTPRequestHandler):
                     params["series"][0], int(params["season"][0]),
                     int(params["count"][0]), int(params["start"][0]))
                 self.write(200, json.dumps(obj, ensure_ascii=False).encode("utf-8"))
+            except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
+                self.write(400, json.dumps(
+                    {"error": safe_text(str(exc), 120)}).encode("utf-8"))
+        elif target == "/api/translation/coverage":
+            try:
+                params = parse_qs(urlsplit(self.path).query)
+                if (len(urlsplit(self.path).query) > 600 or
+                        set(params) != {"series", "season"} or
+                        any(len(v) != 1 for v in params.values())):
+                    raise ValueError("invalid_coverage_query")
+                report = season_batch.season_report(
+                    params["series"][0], int(params["season"][0]))
+                self.write(200, json.dumps(report, ensure_ascii=False).encode("utf-8"))
             except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
                 self.write(400, json.dumps(
                     {"error": safe_text(str(exc), 120)}).encode("utf-8"))
