@@ -150,6 +150,38 @@ class SeasonBatchTests(unittest.TestCase):
         self.assertTrue(item["can_translate"])
         self.assertFalse(item["english_indexed"])
 
+    def test_timing_qa_hold_allows_owner_plamo_fallback(self):
+        import json, time
+        root=Path(self.temp.name)
+        inventory=root/"bruiser-pilot/ja-first-inventory"
+        inventory.mkdir(parents=True,exist_ok=True)
+        saved=inventory/"japanese-search.sqlite3"
+        jid=f"{4:032x}"
+        with sqlite3.connect(saved) as db:
+            db.execute("CREATE TABLE searches (jellyfin_id TEXT,outcome TEXT,"
+                       "candidate_count INTEGER,plausible_count INTEGER,"
+                       "results_json TEXT,searched_at INTEGER)")
+            db.execute("INSERT INTO searches VALUES(?,?,?,?,?,?)",
+                (jid,"plausible",1,1,json.dumps({"candidates":[]}),
+                 int(time.time())))
+        saved.chmod(0o600)
+        with sqlite3.connect(self.dbpath) as db:
+            db.execute(
+                "UPDATE tasks SET action='align_existing_staged_ja',"
+                "state='held',note='ja_publication_held_after_real_timing_qa:no_fit' "
+                "WHERE path LIKE '%S01E04.mkv'")
+            db.execute("UPDATE media SET en_text=0 WHERE path LIKE '%S01E04.mkv'")
+        with mock.patch.object(batch,"HOME",root):
+            report=batch.season_report("It's Always Sunny in Philadelphia",
+                                       1,path=self.dbpath)
+            item=next(i for i in report["items"] if i["episode"]==4)
+            self.assertTrue(item["can_translate"])
+            self.assertTrue(item["failed_source_qa"])
+            self.assertFalse(item["english_indexed"])
+            chosen=batch.selected_multi_plan("It's Always Sunny in Philadelphia",
+                       [{"season":1,"episode":4}],path=self.dbpath)
+            self.assertTrue(chosen["items"][0]["owner_review_fallback"])
+
     def test_invalid_inputs_and_insecure_db_fail_closed(self):
         for value in (0,41,True):
             with self.assertRaises(ValueError):
