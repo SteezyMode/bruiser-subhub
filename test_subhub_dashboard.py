@@ -102,9 +102,12 @@ class StatusTests(unittest.TestCase):
         html=dashboard.HTML.read_text(encoding="utf-8")
         for phrase in ("openSeasons","openReviews","card.open=openSeasons.has",
                        "Send all remaining to PLaMo",
-                       "Send this episode to PLaMo","Retry source / timing",
+                       "Translate this episode with PLaMo","Find Japanese / fix timing",
                        'bulkAction("source",','bulkAction("translate",'):
             self.assertIn(phrase,html)
+        self.assertIn("Technical details / source matches",html)
+        self.assertIn("of "+'"'+"',html)
+        self.assertNotIn("review/metadata holds",html)
         self.assertNotIn('id="action-start-auto"',html)
 
     def test_inactive_source_without_history_returns_no_live_progress(self):
