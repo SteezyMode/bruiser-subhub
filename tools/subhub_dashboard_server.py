@@ -776,7 +776,7 @@ def control_availability():
 
 BATCH_EVENT = re.compile(
     r"^BATCH_(?:BEGIN |ITEM |ITEM_OK |ITEM_HELD |BLOCKED |DONE |STOPPED |HELD )")
-BATCH_TAG = re.compile(r"^(S[0-9]{2}E[0-9]{2,3})(?:\\s|$)")
+BATCH_TAG = re.compile(r"^(S[0-9]{2}E[0-9]{2,3})(?:\s|$)")
 
 
 def season_batch_progress(lines, active):
