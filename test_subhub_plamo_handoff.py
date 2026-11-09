@@ -148,6 +148,32 @@ class HandoffTests(unittest.TestCase):
                     ai.validate_row(rows[1])
                 self.assertEqual(ai.eligible(db,"fid_A")[0]["series"],"")
 
+    def test_owner_review_fallback_requires_saved_evidence_and_exact_episode(self):
+        import time
+        jid="a"*32
+        with tempfile.TemporaryDirectory() as folder:
+            search=Path(folder)/"search.sqlite3"
+            with sqlite3.connect(search) as db:
+                db.execute("CREATE TABLE searches (jellyfin_id TEXT PRIMARY KEY,"
+                           "outcome TEXT,searched_at INTEGER)")
+                db.execute("INSERT INTO searches VALUES(?,?,?)",
+                           (jid,"review",int(time.time())))
+            search.chmod(0o600)
+            row={"jellyfin_id":jid,"path":"/media/ep.mkv",
+                 "target":"ja","kind":"Episode","state":"held",
+                 "english_text":1,"action":"review_saved_ja"}
+            with patch.object(ai,"SEARCH_DB",search):
+                self.assertTrue(ai.review_has_source_evidence(jid))
+                ai.validate_row(row,owner_review=True)
+                with self.assertRaisesRegex(RuntimeError,"japanese_sourcing_not_exhausted"):
+                    ai.validate_row(row)
+                with self.assertRaisesRegex(RuntimeError,"review_source_evidence"):
+                    ai.validate_row(dict(row,kind="Movie"),owner_review=True)
+                with sqlite3.connect(search) as db:
+                    db.execute("UPDATE searches SET outcome='error'")
+                with self.assertRaisesRegex(RuntimeError,"review_source_evidence"):
+                    ai.validate_row(row,owner_review=True)
+
     def test_extra_blank_srt_blocks_normalized_before_sync(self):
         import re
         class Sync:
