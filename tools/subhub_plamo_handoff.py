@@ -155,7 +155,8 @@ def recent_running_source():
     """Do not start model inference while either source worker is active."""
     try:
         for unit in ("bruiser-subhub-batch.service",
-                     "bruiser-ja-source-autofill.service"):
+                     "bruiser-ja-source-autofill.service",
+                     "bruiser-subhub-season-sources.service"):
             check = subprocess.run(
                 ["systemctl","--user","is-active","--quiet",unit],
                 check=False, timeout=8, stdout=subprocess.DEVNULL,
