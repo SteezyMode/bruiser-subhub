@@ -49,6 +49,14 @@ TRANSLATION_UNIT = "bruiser-subhub-translation-batch.service"
 SEASON_SOURCE_UNIT = "bruiser-subhub-season-sources.service"
 SEASON_SOURCE_EXEC = Path(__file__).with_name("subhub_season_sources.py")
 BATCH_EXEC = Path(__file__).with_name("subhub_translation_batch.py")
+MOVIE_EXEC = Path(__file__).with_name("subhub_movie_job.py")
+MOVIE_UNIT = "bruiser-subhub-movie-ja.service"
+MOVIE_ROOTS = (
+    Path("/mnt/2TB/Plex Expansion/Movies"),
+    Path("/mnt/BigDisk/Video/Movies"),
+)
+MOVIE_EXT = {".mkv", ".mp4", ".avi", ".m4v", ".mov"}
+
 PHASES = {
     "queued": "Preparing the source engine",
     "reconcile_queue": "Reconcile saved subtitle work",
@@ -580,6 +588,112 @@ def live_source_snapshot(result, scheduled):
     return result
 
 
+def search_movie_files(title, *, roots=MOVIE_ROOTS):
+    """Exact filesystem discovery, independent of stale Jellyfin snapshots.
+
+    Read-only, limited results and traversal. No new directories, media writes
+    or provider calls. The movie job revalidates the exact selected file.
+    """
+    title = str(title or "").strip()
+    if not 3 <= len(title) <= 120 or not re.fullmatch(r"[\w\s.,'!():-]+", title):
+        raise ValueError("enter_a_movie_title_to_search")
+    terms = [t.casefold() for t in re.findall(r"[\w]+", title) if len(t) >= 2]
+    if not terms:
+        raise ValueError("enter_a_movie_title_to_search")
+    matches = []
+    visited = 0
+    for root in roots:
+        if not root.is_dir() or root.is_symlink():
+            continue
+        for base, folders, files in os.walk(root, followlinks=False):
+            depth = len(Path(base).relative_to(root).parts)
+            if depth >= 5:
+                folders[:] = []
+            else:
+                folders[:] = [x for x in folders
+                              if not (Path(base) / x).is_symlink()]
+            for name in files:
+                visited += 1
+                if visited > 120_000:
+                    raise RuntimeError("movie_library_search_limit_reached")
+                path = Path(base) / name
+                if (path.suffix.casefold() not in MOVIE_EXT or path.is_symlink()
+                        or not all(t in (name + " " + path.parent.name).casefold()
+                                   for t in terms)):
+                    continue
+                matches.append({"filename": name, "path": str(path)})
+                if len(matches) >= 30:
+                    return matches
+    return matches
+
+
+def movie_source_status():
+    active = unit_active(MOVIE_UNIT)
+    recent = []
+    try:
+        proc = subprocess.run(
+            ["journalctl", "--user", "-u", MOVIE_UNIT,
+             "-n", "50", "--no-pager", "-o", "cat"],
+            capture_output=True, text=True, stdin=subprocess.DEVNULL,
+            timeout=4, check=False)
+        if proc.returncode == 0:
+            recent = [safe_text(x, 280) for x in proc.stdout.splitlines()
+                      if x.startswith(("MOVIE_JA_RESULT ", "MOVIE_JA_HELD "))]
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return {"active": active,
+            "available": MOVIE_EXEC.is_file() and not MOVIE_EXEC.is_symlink(),
+            "last_result": recent[-1] if recent else
+                           "No recent movie job",
+            "description": "Searching Japanese subtitles and synchronizing" if active
+                           else "No movie job running"}
+
+
+def start_movie_source(doc):
+    if not isinstance(doc, dict) or set(doc) != {"video", "title", "year"}:
+        raise ValueError("invalid_movie_request")
+    video, title, year = doc["video"], doc["title"], doc["year"]
+    if not isinstance(video, str) or len(video)>1000 or not Path(video).is_absolute():
+        raise ValueError("invalid_video_path")
+    if not isinstance(title, str) or not 3<=len(title)<=120:
+        raise ValueError("invalid_movie_title")
+    if type(year) is not int or not 1880<=year<=2100:
+        raise ValueError("invalid_release_year")
+    path=Path(video)
+    if (path.suffix.casefold() not in MOVIE_EXT or path.is_symlink()
+            or not path.is_file() or not any(path.is_relative_to(root)
+                                            for root in MOVIE_ROOTS)):
+        raise ValueError("selected_movie_no_longer_available")
+    if (unit_active(BATCH_UNIT) or unit_active(SCHEDULED_UNIT)
+            or unit_active(SEASON_SOURCE_UNIT) or unit_active(MOVIE_UNIT)
+            or translation_busy()):
+        raise RuntimeError("another_source_or_translation_worker_is_active")
+    if not movie_source_status()["available"]:
+        raise RuntimeError("movie_source_controller_not_installed")
+    command=["systemd-run","--user","--unit=bruiser-subhub-movie-ja",
+             "--collect","--property=KillMode=control-group","--",
+             sys.executable,"-B","-u",str(MOVIE_EXEC),
+             "--video",str(path),"--title",title,
+             "--year",str(year),"--apply"]
+    done=subprocess.run(command,capture_output=True,text=True,
+                        stdin=subprocess.DEVNULL,timeout=20,check=False)
+    if done.returncode:
+        raise RuntimeError("movie_source_start_failed: "+
+                           safe_text(done.stderr or done.stdout,160))
+    return {"ok":True,"video":path.name,"action":"get_japanese_subtitles"}
+
+
+def stop_movie_source():
+    if not unit_active(MOVIE_UNIT):
+        raise RuntimeError("no_movie_source_job_running")
+    done=subprocess.run(["systemctl","--user","stop","--no-block",MOVIE_UNIT],
+                        capture_output=True,text=True,stdin=subprocess.DEVNULL,
+                        timeout=15,check=False)
+    if done.returncode:
+        raise RuntimeError("movie_source_stop_failed")
+    return {"ok":True,"action":"stop_movie_source"}
+
+
 def status_payload():
     doc = checked_state()
     log = trusted_log(doc) if doc else None
@@ -591,6 +705,7 @@ def status_payload():
     result["translation"]=translation_snapshot()
     result["season_translation"]=season_batch_status()
     result["season_sources"]=season_sources_status()
+    result["movie_source"]=movie_source_status()
     result["controls"]=control_availability()
     return result
 
@@ -833,6 +948,17 @@ class Handler(BaseHTTPRequestHandler):
                 self.write(200, body)
             except (OSError, ValueError, RuntimeError, TypeError, json.JSONDecodeError):
                 self.write(503, b'{"error":"status_unavailable"}')
+        elif target == "/api/movies/search":
+            try:
+                params=parse_qs(urlsplit(self.path).query)
+                query=urlsplit(self.path).query
+                if len(query)>200 or set(params)!={"title"} or len(params["title"])!=1:
+                    raise ValueError("invalid_movie_search")
+                matches=search_movie_files(params["title"][0])
+                self.write(200,json.dumps({"movies":matches},ensure_ascii=False).encode("utf-8"))
+            except (ValueError,OSError,RuntimeError) as exc:
+                self.write(400,json.dumps(
+                    {"error":safe_text(str(exc),130)}).encode("utf-8"))
         elif target == "/api/translation/catalog":
             try:
                 self.write(200, json.dumps(
@@ -867,7 +993,8 @@ class Handler(BaseHTTPRequestHandler):
             "/api/control/start-auto","/api/control/stop-auto",
             "/api/control/start-manual","/api/control/stop-manual",
             "/api/translation/start","/api/translation/stop",
-            "/api/source-season/start","/api/source-season/stop"):
+            "/api/source-season/start","/api/source-season/stop",
+            "/api/movie/start","/api/movie/stop"):
             self.write(405,b'{"error":"controls_not_available_in_v0_1"}')
             return
         origin=self.headers.get("Origin","")
@@ -885,22 +1012,29 @@ class Handler(BaseHTTPRequestHandler):
                 not hmac.compare_digest(token,OWNER_TOKEN) or
                 self.headers.get("Content-Type","").split(";")[0].strip()
                 != "application/json" or not size.isdecimal() or
-                 int(size) > (300 if target in (
-                     "/api/translation/start","/api/source-season/start") else 2)):
+                 int(size) > (1200 if target=="/api/movie/start"
+                              else 300 if target in (
+                     "/api/translation/start","/api/source-season/start")
+                              else 2)):
             self.write(403,b'{"error":"owner_control_access_denied"}')
             return
         try:
-            if target in ("/api/translation/start","/api/source-season/start"):
-                if not (2 <= int(size) <= 300):
+            if target in ("/api/translation/start","/api/source-season/start",
+                          "/api/movie/start"):
+                if not (2 <= int(size) <= (1200 if target=="/api/movie/start" else 300)):
                     raise ValueError("invalid_batch_request_size")
                 request = json.loads(self.rfile.read(int(size)).decode("utf-8"))
                 value = (start_season_translation(request)
                          if target == "/api/translation/start"
+                         else start_movie_source(request)
+                         if target == "/api/movie/start"
                          else start_season_sources(request))
             else:
                 if size=="2" and self.rfile.read(2)!=b"{}":
                     raise ValueError("empty_json_object_required")
-                if target == "/api/translation/stop":
+                if target == "/api/movie/stop":
+                    value = stop_movie_source()
+                elif target == "/api/translation/stop":
                     value = stop_season_translation()
                 elif target == "/api/source-season/stop":
                     value = stop_season_sources()
