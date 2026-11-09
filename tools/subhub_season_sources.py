@@ -217,14 +217,19 @@ def find_japanese(ids, search, budget, *, recheck=False):
         if recheck:
             jobs = []
             mapped=container_video_paths(rows)
+            queue=search.priorities.active_coverage_queue()
             for row in rows:
+                jid=str(row["jellyfin_id"])
+                saved_action=(queue.get(jid) or ("",))[0]
+                if saved_action in ("download_saved_ja","align_existing_staged_ja"):
+                    print("SEASON_JA_REUSE_SAVED",jid,saved_action,flush=True)
+                    continue  # Prefer quota-free staging/publication before re-search.
                 query = search.query_for(row)
                 if query is not None:
-                    path=mapped.get(str(row["jellyfin_id"]))
+                    path=mapped.get(jid)
                     if path:
                         query["file_path"]=path
-                    jobs.append({"id":str(row["jellyfin_id"]),
-                                 "row":row,"query":query})
+                    jobs.append({"id":jid,"row":row,"query":query})
             jobs=jobs[:budget]
         else:
             jobs = search.pick(rows, db, budget)
