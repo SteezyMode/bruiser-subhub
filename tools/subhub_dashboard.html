@@ -87,10 +87,10 @@ details>summary{cursor:pointer}
  <div id="seasons" class="seasons" aria-label="Choose seasons"></div>
  <div class="status-strip" id="coverage-totals" aria-live="polite">Choose seasons to inspect subtitle coverage.</div>
  <div class="episode-controls">
-  <button id="translate-selected" class="primary" type="button" disabled>Send all remaining to PLaMo</button>
-  <button id="source-selected" type="button" disabled>Retry Japanese sources / timing</button>
+  <button id="source-selected" class="primary" type="button" disabled>1. Find Japanese subtitles / fix timing</button>
+  <button id="translate-selected" type="button" disabled>2. Send all remaining to PLaMo</button>
  </div>
- <p id="action-note" class="small muted">First try Japanese sources and timing repair. Remaining episodes with verified prior search evidence and English subtitles can go to PLaMo. Invalid source results never overwrite good subtitles.</p>
+ <p id="action-note" class="small muted">Source available Japanese subtitles first. When the job finishes, translate whatever is still missing. Expand episodes only if you want to choose individually.</p>
  <div class="row">
   <button id="toggle-episodes" type="button" class="quiet" disabled>Review remaining episodes</button>
   <button id="clear-episodes" type="button" class="quiet" hidden>Clear checked episodes</button>
@@ -234,35 +234,33 @@ function counts(){
 function renderCoverage(){
   const n=counts();
   $("coverage-totals").textContent=selectedSeasons.size?
-    n.covered+" Japanese present · "+picksFor("translate").length+" PLaMo-eligible · "+
-    n.sourcing+" sourcing pending · "+n.review+" review/metadata holds · "+
-    n.needs_english+" need English · "+n.total+" episodes in "+
-    coverage.size+"/"+selectedSeasons.size+" loaded seasons":
+    n.covered+" of "+n.total+" episodes have Japanese subtitles · "+
+    (n.total-n.covered)+" remaining · "+
+    coverage.size+"/"+selectedSeasons.size+" seasons loaded":
     "Choose one or several seasons to inspect coverage.";
   const src=picksFor("source"), ai=picksFor("translate");
   $("source-selected").disabled=busy||!src.length||latest.workersBusy;
   $("translate-selected").disabled=busy||!ai.length||latest.workersBusy||!latest.aiAvailable;
-  $("source-selected").textContent="Retry Japanese sources / timing ("+src.length+")";
-  $("translate-selected").textContent=(checked.size?"Send checked to PLaMo (":"Send all remaining to PLaMo (")+ai.length+")";
+  $("source-selected").textContent="1. Find Japanese / fix timing ("+src.length+")";
+  $("translate-selected").textContent=(checked.size?"2. Send checked to PLaMo (":"2. Send all remaining to PLaMo (")+ai.length+")";
   $("toggle-episodes").disabled=!n.total;
   $("action-note").textContent=checked.size?
-    "Using "+checked.size+" checked episode(s). Clear checks to act on all eligible remaining.":
+    "Only your "+checked.size+" checked episode(s) are included. Clear checks to work on all remaining.":
+    src.length?
+    "Start with Japanese sourcing and timing repair. Then send the episodes still missing Japanese to PLaMo. Both actions stay within the selected seasons.":
     ai.length?
-    "Send all eligible remaining to PLaMo, or open episode details to pick individuals. Retry sources/timing first when a usable Japanese candidate may still be recoverable.":
-    n.review||n.sourcing?
-    "No PLaMo-ready episodes yet. Retry sourcing/timing, then open the held episodes to see whether English text or saved source evidence is missing.":
-    "Nothing needs PLaMo in this selection. Existing Japanese tracks are preserved.";
+    "No more source work is queued. Send remaining eligible episodes to PLaMo; those without usable English subtitles will be held and identified.":
+    "No available source or translation action. Open episode details for the specific blocker.";
   if(expanded)renderEpisodes();
 }
 function statusName(item){
-  const labels={covered:"Japanese present",ready:"No accepted source · PLaMo-ready",
-    sourcing:"Japanese sourcing still pending",
-    review:item.owner_unlabeled_audio?"Audio metadata unclear · owner PLaMo option":
-           item.can_translate?"Source/timing held · PLaMo available":
-           item.can_source?"Source/timing held · retry available":
-           "Held · needs a concrete next step",
-    needs_english:"English text required for PLaMo"};
-  return labels[item.status]||item.status;
+  if(item.status==="covered")return "Japanese subtitles present";
+  if(item.can_source && (item.search?.plausible_candidates||0)>0)
+    return "Japanese subtitle match found · try sourcing first";
+  if(item.can_source)return "Needs Japanese sourcing or timing repair";
+  if(item.can_translate)return "PLaMo translation available";
+  if(item.status==="needs_english")return "Needs English subtitles for translation";
+  return "Needs attention";
 }
 function renderEpisodes(){
   const host=$("episode-details");
@@ -300,22 +298,25 @@ function renderEpisodes(){
       name.textContent="S"+String(season).padStart(2,"0")+"E"+String(item.episode).padStart(2,"0")+
         "  "+item.title;
       const state=document.createElement("div");state.className="detail";
-      state.textContent=statusName(item)+" · "+String(item.reason||"").replaceAll("_"," ");
+      state.textContent=statusName(item);
       content.append(name,state);
-      if(item.queue_reason||item.queue_note){
-        const why=document.createElement("div");why.className="detail";
-        why.textContent="Recorded reason: "+[item.queue_reason,item.queue_note]
-          .filter(Boolean).join(" · ").replaceAll("_"," ");
-        content.append(why);
-      }
       const search=item.search;
+      const diagnostics=document.createElement("details");
+      diagnostics.className="review";
+      const diagLabel=document.createElement("summary");
+      diagLabel.textContent="Technical details / source matches";
+      diagnostics.append(diagLabel);
+      const reason=document.createElement("div");reason.className="detail";
+      reason.textContent="Reason: "+String(item.reason||"unknown").replaceAll("_"," ")+
+        (item.queue_reason?" · "+String(item.queue_reason).replaceAll("_"," "):"");
+      diagnostics.append(reason);
       if(search){
         const m=document.createElement("div");m.className="detail";
         m.textContent="Last search: "+search.outcome+
           " · provider results "+(search.provider_total==null?"unknown":search.provider_total)+
           " · accepted "+search.plausible_candidates+
           " · discarded "+(search.rejected_count||0);
-        content.append(m);
+        diagnostics.append(m);
         const candidates=[...(search.candidates||[]),...(search.rejected_candidates||[])];
         if(candidates.length){
           const details=document.createElement("details");details.className="review";
@@ -331,22 +332,23 @@ function renderEpisodes(){
           }
           const note=document.createElement("p");note.className="detail";
           note.textContent="Search matches do not establish correct edition or timing. Unapproved candidates are not auto-published.";
-          details.append(note);content.append(details);
+          details.append(note);diagnostics.append(details);
         }
       }
+      content.append(diagnostics);
       if(item.can_source||item.can_translate){
         const actions=document.createElement("div");actions.className="row";
         actions.style.marginTop="8px";
         if(item.can_source){
           const retry=document.createElement("button");retry.type="button";
-          retry.className="quiet";retry.textContent="Retry source / timing";
+          retry.className="quiet";retry.textContent="Find Japanese / fix timing";
           retry.addEventListener("click",()=>bulkAction("source",
                  [{season,episode:item.episode}]));
           actions.append(retry);
         }
         if(item.can_translate){
           const translate=document.createElement("button");translate.type="button";
-          translate.textContent="Send this episode to PLaMo";
+          translate.textContent="Translate this episode with PLaMo";
           translate.addEventListener("click",()=>bulkAction("translate",
                  [{season,episode:item.episode}]));
           actions.append(translate);
