@@ -154,6 +154,35 @@
 
       </section>
     </div>
+    <section class="panel jobs-section" aria-label="Japanese movie subtitles">
+      <div class="jobs-head">
+        <div><div class="eyebrow">Movies · Japanese subtitles</div><h3>Get Japanese subtitles</h3></div>
+        <span class="tag" id="movie-job-state">Checking movie worker</span>
+      </div>
+      <p class="subtext">Select the exact movie file. SubHub searches existing Japanese releases, checks timing, and saves a compatible subtitle beside the movie. English translation is a fallback when Japanese sources aren't usable.</p>
+      <div class="batch-form">
+        <label>Movie title
+          <input id="movie-title" type="text" placeholder="The Shining" autocomplete="off" maxlength="120">
+        </label>
+        <label>Release year
+          <input id="movie-year" type="number" min="1880" max="2100" placeholder="1980">
+        </label>
+      </div>
+      <div class="batch-actions">
+        <button type="button" id="movie-find">Find movie files</button>
+      </div>
+      <div class="batch-form">
+        <label>Movie edition / file
+          <select id="movie-choice" disabled><option value="">Search for a movie first</option></select>
+        </label>
+      </div>
+      <div class="batch-actions">
+        <button type="button" id="movie-start" disabled>Get Japanese subtitles</button>
+        <button type="button" id="movie-stop" disabled>Stop current movie job</button>
+      </div>
+      <p id="movie-feedback" class="subtext" role="status" aria-live="polite">Find a movie to begin.</p>
+      <p id="movie-result" class="subtext" role="status" aria-live="polite"></p>
+    </section>
     <section class="panel jobs-section" aria-label="New translation batch">
       <div class="jobs-head">
         <div><div class="eyebrow">TV subtitle translation</div><h3>Start a season batch</h3></div>
@@ -225,6 +254,7 @@
     let batchInstalled = false;
     let seasonSourceActive = false;
     let seasonSourceInstalled = false;
+    let movieBusy = false;
     const number = (v) => Number.isFinite(Number(v)) ? Number(v).toLocaleString() : "0";
     const text = (id, value) => { el(id).textContent = value == null ? "—" : String(value); };
     const progress = (id, label, current, total) => {
@@ -337,6 +367,29 @@
         ((tr.active_jobs || 0) + " running · " + (tr.total_jobs || 0) + " saved jobs") :
         "Translation status unavailable");
       drawTranslations(tr);
+      const mj = d.movie_source || {};
+      text("movie-job-state", mj.active ? "Processing movie" :
+           mj.available ? "Ready" : "Movie worker not installed");
+      el("movie-start").disabled = movieBusy || mj.active || !mj.available ||
+           sourceActive || translationActive || !el("movie-choice").value;
+      el("movie-stop").disabled = movieBusy || !mj.active;
+      if (mj.active) text("movie-result","Finding and aligning Japanese subtitles for the selected movie.");
+      else if (mj.last_result && mj.last_result !== "No recent movie job") {
+        const result = mj.last_result;
+        if (result.startsWith("MOVIE_JA_RESULT ")) {
+          try {
+            const detail = JSON.parse(result.slice("MOVIE_JA_RESULT ".length));
+            text("movie-result",detail.state === "published" ?
+              "Japanese subtitles saved: " + detail.target :
+              detail.message || ("Movie status: " + detail.state));
+          } catch (_) {
+            text("movie-result","Movie job finished; result unavailable.");
+          }
+        } else {
+          text("movie-result","Movie subtitle job stopped: " +
+            result.replace(/^MOVIE_JA_HELD /,"").replaceAll("_"," "));
+        }
+      }
       const bt = d.season_translation || {};
       const sourceBatch = d.season_sources || {};
       seasonSourceActive = !!sourceBatch.active;
@@ -633,6 +686,85 @@
     el("translation-start-button").addEventListener("click",()=>sendTranslationAction(true));
     el("translation-stop-button").addEventListener("click",()=>sendTranslationAction(false));
     loadSeries();
+
+    async function findMovies() {
+      if (movieBusy) return;
+      const title = el("movie-title").value.trim();
+      const select = el("movie-choice");
+      select.replaceChildren();
+      select.disabled = true;
+      el("movie-start").disabled = true;
+      if (title.length < 3) {
+        text("movie-feedback","Enter a movie title (at least 3 characters).");
+        return;
+      }
+      movieBusy = true;
+      text("movie-feedback","Searching existing movie folders…");
+      try {
+        const response = await fetch("/api/movies/search?title="+
+             encodeURIComponent(title), {cache:"no-store"});
+        const out=await response.json();
+        if (!response.ok) throw new Error(out.error || "Movie search unavailable");
+        const files = Array.isArray(out.movies) ? out.movies : [];
+        if (!files.length) {
+          text("movie-feedback","No matching files on the approved movie drives. Check that the download has finished.");
+          return;
+        }
+        const placeholder=document.createElement("option");
+        placeholder.value="";
+        placeholder.textContent="Choose a specific file / edition";
+        select.append(placeholder);
+        for (const movie of files) {
+          const option=document.createElement("option");
+          option.value=movie.path;
+          option.textContent=movie.filename+" · "+
+            (movie.path.startsWith("/mnt/2TB/")?"2TB":movie.path.startsWith("/mnt/BigDisk/")?"BigDisk":"Storage");
+          select.append(option);
+        }
+        select.disabled=false;
+        text("movie-feedback",files.length+" matching file(s). Choose the correct cut.");
+      } catch (err) {
+        text("movie-feedback","Search failed: "+err.message);
+      } finally { movieBusy=false; }
+    }
+    async function movieAction(start) {
+      if (movieBusy) return;
+      const video=el("movie-choice").value;
+      const title=el("movie-title").value.trim();
+      const year=Number(el("movie-year").value);
+      if (start && (!video || !Number.isInteger(year) || year<1880 || year>2100)) {
+        text("movie-feedback","Select a movie file and enter its release year.");
+        return;
+      }
+      movieBusy=true;
+      el("movie-start").disabled=true;
+      el("movie-stop").disabled=true;
+      text("movie-feedback",start ? "Submitting Japanese subtitle job…" : "Stopping movie job…");
+      try {
+        const auth=await fetch("/api/owner-token",{cache:"no-store"});
+        if (!auth.ok) throw new Error("Owner authorization unavailable");
+        const token=(await auth.json()).token;
+        const response=await fetch("/api/movie/"+(start?"start":"stop"), {
+          method:"POST",cache:"no-store",
+          headers:{"Content-Type":"application/json","X-Subhub-Token":token},
+          body:JSON.stringify(start?{video,title,year}:{})
+        });
+        const out=await response.json();
+        if (!response.ok) throw new Error(out.error || "Movie operation rejected");
+        text("movie-feedback",start?
+          "Japanese sourcing started for "+out.video+". Follow progress here." :
+          "Stop requested. Previously downloaded sources are retained.");
+      } catch (err) {
+        text("movie-feedback","Not completed: "+err.message.replaceAll("_"," "));
+      } finally {
+        movieBusy=false;
+        await refresh();
+      }
+    }
+    el("movie-find").addEventListener("click",findMovies);
+    el("movie-choice").addEventListener("change",()=>refresh());
+    el("movie-start").addEventListener("click",()=>movieAction(true));
+    el("movie-stop").addEventListener("click",()=>movieAction(false));
 
     el("refresh").addEventListener("click", refresh);
     refresh();
