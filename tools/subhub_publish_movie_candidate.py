@@ -76,7 +76,10 @@ def cues(raw):
         if b<=a:raise RuntimeError("invalid_cue_timing")
         result.append((a,b,dialogue))
     if not 100<=len(result)<=6000:raise RuntimeError("unexpected_subtitle_cue_count")
-    if sum(bool(JP.search(x[2])) for x in result)/len(result)<.80:
+    # Ignore symbol-only captions when measuring Japanese-language coverage.
+    # Match the source worker's policy; don't reject an otherwise valid film.
+    lettered=[x[2] for x in result if any(ch.isalpha() for ch in x[2])]
+    if sum(bool(JP.search(text)) for text in lettered)/max(1,len(lettered))<.85:
         raise RuntimeError("candidate_not_predominantly_japanese")
     return result
 
