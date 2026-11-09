@@ -21,7 +21,8 @@ class SeasonBatchTests(unittest.TestCase):
                 kind TEXT,season TEXT,episode TEXT,en_text INTEGER,ja_present INTEGER
             );
             CREATE TABLE tasks (
-                path TEXT,target TEXT,action TEXT,state TEXT,active INTEGER
+                path TEXT,target TEXT,action TEXT,state TEXT,active INTEGER,
+                reason TEXT NOT NULL DEFAULT '',note TEXT NOT NULL DEFAULT ''
             );
         """)
         for n in range(1, 9):
@@ -32,7 +33,7 @@ class SeasonBatchTests(unittest.TestCase):
             action = ("search_ja" if n==3 else
                       "recover_english_for_ja_fallback" if n==5 else
                       "validate_english_for_ja_fallback")
-            db.execute("INSERT INTO tasks VALUES(?,?,?,?,?)",
+            db.execute("INSERT INTO tasks(path,target,action,state,active) VALUES(?,?,?,?,?)",
                 (path,"ja",action,"pending",1))
         # Different series and seasons must never leak into a selection.
         db.execute("INSERT INTO media VALUES(?,?,?,?,?,?,?,?,?)",
