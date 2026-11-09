@@ -239,7 +239,7 @@ class StatusTests(unittest.TestCase):
                 "jellyfin_id":"a"*32,"video":str(video),
                 "cue_count":550,"kind":"Movie"}))
             manifest.chmod(0o600)
-            with patch.object(dashboard,"_plamo_running_ids",return_value=set()), \\
+            with patch.object(dashboard,"_plamo_running_ids",return_value=set()), \
                  patch.object(dashboard,"american_dad_batch_activity",
                               return_value={"active":False,"episode":""}):
                 result=dashboard.translation_jobs(
