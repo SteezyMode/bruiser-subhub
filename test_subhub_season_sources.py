@@ -80,6 +80,41 @@ class ScopeTests(unittest.TestCase):
             native.assert_not_called()
             run.assert_not_called()
 
+    def test_explicit_recheck_respects_exact_show_episode_scope(self):
+        selected_items=[{"season":1,"episode":2},{"season":1,"episode":5},
+                        {"season":1,"episode":6}]
+        result=selected.selected_scope("It's Always Sunny in Philadelphia",
+                                     selected_items,recheck=True,path=self.path)
+        self.assertEqual(result["eligible"],3)
+        self.assertEqual(set(result["ids"]),{f"{n:032x}" for n in (2,5,6)})
+        self.assertEqual(result["seasons"],[1])
+        with self.assertRaises(RuntimeError):
+            selected.selected_scope("It's Always Sunny in Philadelphia",
+                [{"season":1,"episode":5}],path=self.path)
+        with self.assertRaises(RuntimeError):
+            selected.selected_scope("It's Always Sunny in Philadelphia",
+                [{"season":1,"episode":1}],recheck=True,path=self.path)
+        with self.assertRaises(RuntimeError):
+            selected.selected_scope("American Dad!",
+                [{"season":1,"episode":2}],recheck=True,path=self.path)
+        with self.assertRaises(ValueError):
+            selected.selected_scope("It's Always Sunny in Philadelphia",
+                [{"season":1,"episode":2},{"season":1,"episode":2}],
+                recheck=True,path=self.path)
+
+    def test_exact_pick_cli_preview_never_uses_providers(self):
+        with mock.patch.object(selected,"selected_scope",return_value={
+                "eligible":1,"seasons":[1],"ids":{"2"*32:"/some/file"},
+                "series":"It's Always Sunny in Philadelphia","skipped":{}}) as scope, \\
+             mock.patch.object(selected,"native") as native, \\
+             mock.patch.object(selected,"run") as runner:
+            self.assertEqual(selected.main([
+                "--series","It's Always Sunny in Philadelphia",
+                "--pick","S01E002","--recheck"]),0)
+            scope.assert_called_once()
+            native.assert_not_called()
+            runner.assert_not_called()
+
     def test_run_uses_existing_source_lock_and_reconciles(self):
         src={"series":"It's Always Sunny in Philadelphia","season":1,
              "ids":{"b"*32:"/verified/video.mkv"},"eligible":1,"skipped":{}}
