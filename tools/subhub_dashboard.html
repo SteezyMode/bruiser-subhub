@@ -235,7 +235,7 @@ function renderCoverage(){
   const n=counts();
   $("coverage-totals").textContent=selectedSeasons.size?
     n.covered+" Japanese present · "+picksFor("translate").length+" PLaMo-eligible · "+
-    n.sourcing+" sourcing pending · "+n.review+" source/timing holds · "+
+    n.sourcing+" sourcing pending · "+n.review+" review/metadata holds · "+
     n.needs_english+" need English · "+n.total+" episodes in "+
     coverage.size+"/"+selectedSeasons.size+" loaded seasons":
     "Choose one or several seasons to inspect coverage.";
@@ -257,7 +257,8 @@ function renderCoverage(){
 function statusName(item){
   const labels={covered:"Japanese present",ready:"No accepted source · PLaMo-ready",
     sourcing:"Japanese sourcing still pending",
-    review:item.can_translate?"Source/timing held · PLaMo available":
+    review:item.owner_unlabeled_audio?"Audio metadata unclear · owner PLaMo option":
+           item.can_translate?"Source/timing held · PLaMo available":
            item.can_source?"Source/timing held · retry available":
            "Held · needs a concrete next step",
     needs_english:"English text required for PLaMo"};
