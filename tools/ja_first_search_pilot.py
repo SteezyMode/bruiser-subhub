@@ -320,8 +320,10 @@ def save_attempt(db, job, outcome, total=None, rated=None):
     previous = db.execute(
         "SELECT kind,title,outcome,results_json FROM searches WHERE jellyfin_id=?",
         (job["id"],)).fetchone()
-    if previous and outcome in ("in_progress", "error"):
-        # Never replace previously discovered subtitles with an empty attempt.
+    if (previous and outcome in ("in_progress", "error")
+            and previous[2] not in ("in_progress", "error")):
+        # Never replace completed evidence with an empty/error attempt,
+        # but allow a new initial in_progress record to become error.
         return
     prior = {}
     if previous and previous[0] == job["row"]["kind"] and previous[1] == job["row"]["title"]:
