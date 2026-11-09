@@ -176,6 +176,7 @@ def season_report(series, season, *, path=None):
     # Expose the exact saved provider evidence, without rerunning a paid or
     # quota-limited search. Provider totals are NOT approved subtitle counts.
     evidence = {}
+    episode_ids = {str(row["jellyfin_id"]) for row in rows}
     searches = HOME / "bruiser-pilot/ja-first-inventory/japanese-search.sqlite3"
     if (searches.is_file() and not searches.is_symlink()
             and searches.stat().st_uid == os.getuid()
@@ -189,7 +190,7 @@ def season_report(series, season, *, path=None):
                            results_json,searched_at FROM searches
                 """):
                     jid,outcome,total,plausible,raw,when = rec
-                    if jid not in {str(row["jellyfin_id"]) for row in rows}:
+                    if jid not in episode_ids:
                         continue
                     try:
                         record = json.loads(raw)
@@ -207,7 +208,18 @@ def season_report(series, season, *, path=None):
                             "score":entry.get("score") if
                                 type(entry.get("score")) in (int,float) else None
                         })
+                    rejects = []
+                    for entry in (record.get("rejected_candidates") or [])[:12]:
+                        if isinstance(entry,dict):
+                            rejects.append({
+                                "provider":str(entry.get("provider") or "")[:60],
+                                "release":str(entry.get("release") or "")[:160],
+                                "score":entry.get("score") if
+                                    type(entry.get("score")) in (int,float) else None})
                     evidence[str(jid)] = {
+                        "rejected_count":int(record.get("rejected_count") or 0),
+                        "rejected_candidates":rejects,
+                        "searched_providers":record.get("searched_providers") or [],
                         "outcome":str(outcome)[:30],
                         "provider_total":record.get("provider_total")
                             if type(record.get("provider_total")) is int else None,
@@ -258,14 +270,21 @@ def season_report(series, season, *, path=None):
         else:
             status, reason = "review", "unresolved_" + action[:42]
         item = {"episode":number,"title":str(row["title"]),
-                "status":status,"reason":reason}
+                "status":status,"reason":reason,
+                "can_source":bool(not covered and state=="pending"
+                    and action in ("search_ja","download_saved_ja",
+                                   "align_existing_staged_ja","review_saved_ja",
+                                   "validate_english_for_ja_fallback",
+                                   "recover_english_for_ja_fallback")
+                    and JELLYFIN_ID.fullmatch(jid)),
+                "can_translate":status=="ready"}
         proof = evidence.get(jid)
         if proof:
             item["search"] = proof
             if status == "ready" and proof["outcome"] == "none":
-                item["reason"] = ("no_candidate_retained_after_provider_search"
+                item["reason"] = ("search_had_unaccepted_results_review_rejections"
                                   if proof["provider_total"] else
-                                  "provider_search_returned_no_candidates")
+                                  "no_japanese_candidate_found_in_last_search")
         if status == "ready":
             item["jellyfin_id"] = jid
         items.append(item)
@@ -275,7 +294,7 @@ def season_report(series, season, *, path=None):
             "total":len(items), "covered":counts["covered"],
             "ready":counts["ready"],"sourcing":counts["sourcing"],
             "needs_english":counts["needs_english"],"review":counts["review"],
-            "source_eligible":counts["sourcing"],
+            "source_eligible":sum(bool(i.get("can_source")) for i in items),
             "timing_note":"Unverified alignment is never certified accurate."}
 
 
