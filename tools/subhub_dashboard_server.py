@@ -406,8 +406,19 @@ def _plamo_checkpoint(folder, meta, kind, running_ids, batch_running):
         state="needs_resume_with_holds"
     else:
         state="needs_resume" if processed else "ready_or_queued"
-    title=(video.parent.name if kind=="movie" else
-           "American Dad! "+safe_text(meta.get("episode"),20))
+    # The generic PLaMo checkpoint folder is shared by movies AND TV.
+    # An episode's immediate parent is often "Season 06", not its title.
+    if kind=="movie" and meta.get("kind")=="Episode":
+        match=re.search(r"S([0-9]{1,2})E([0-9]{1,3})",video.name,re.I)
+        if match:
+            series=video.parent.parent.name
+            title=(series+" S"+match.group(1).zfill(2)+
+                   "E"+match.group(2).zfill(2))
+        else:
+            title=video.stem
+    else:
+        title=(video.parent.name if kind=="movie" else
+               "American Dad! "+safe_text(meta.get("episode"),20))
     title=safe_text(title,110)
     return {
         "id":safe_text(folder.name,72),"kind":kind,
@@ -457,7 +468,10 @@ def translation_jobs(movie_root=PLAMO_MOVIES,
                 if not isinstance(meta,dict):
                     continue
                 item=_plamo_checkpoint(folder,meta,kind,running_ids,batch_running)
-                if item:
+                if item and (item["active"] or item["processed"]>0
+                             or item["published"]):
+                    # A prepared manifest is not a launched translation job.
+                    # Exclude no-cue entries such as the unstarted movie pilots.
                     jobs.append(item)
             except (OSError,ValueError,TypeError,sqlite3.Error,RuntimeError):
                 continue
