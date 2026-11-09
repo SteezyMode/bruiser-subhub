@@ -64,11 +64,16 @@ def eligible(db, jid=None, limit=15, owner_review=False):
     params = [jid] if jid else []
     params.append(limit)
     if owner_review:
-        action = """AND m.kind='Episode' AND t.state IN ('pending','held')
-                    AND t.action IN ('review_saved_ja','download_saved_ja',
-                        'align_existing_staged_ja','search_ja')
-                    AND (t.state='held' OR t.action='review_saved_ja')"""
+        target_sql="t.target IN ('ja','review') "
+        action = """AND m.kind='Episode' AND (
+                    (t.target='ja' AND t.state IN ('pending','held')
+                     AND t.action IN ('review_saved_ja','download_saved_ja',
+                         'align_existing_staged_ja','search_ja')
+                     AND (t.state='held' OR t.action='review_saved_ja'))
+                    OR (t.target='review' AND t.state='pending'
+                        AND t.action='review_uncertain'))"""
     else:
+        target_sql="t.target='ja' "
         action = """AND t.state='pending'
                     AND t.action IN ('validate_english_for_ja_fallback',
                                      'recover_english_for_ja_fallback')"""
@@ -78,8 +83,7 @@ def eligible(db, jid=None, limit=15, owner_review=False):
                 SELECT m.jellyfin_id,m.path,m.kind,m.title,m.series,t.action,t.state,
                        t.target,m.en_text
                   FROM tasks AS t JOIN media AS m ON m.path=t.path
-                 WHERE t.active=1 AND t.target='ja'
-                   """ + action + cond +
+                 WHERE t.active=1 AND """ + target_sql + action + cond +
                  " ORDER BY t.priority,m.title LIMIT ?", params)]
 
 
@@ -101,7 +105,11 @@ def review_has_source_evidence(jid):
 
 def validate_row(row, owner_review=False):
     if owner_review:
-        if (row["kind"] != "Episode" or
+        if row["action"]=="review_uncertain":
+            if (row["target"]!="review" or row["kind"]!="Episode"
+                    or row["state"]!="pending"):
+                raise RuntimeError("unlabeled_audio_review_not_eligible")
+        elif (row["target"]!="ja" or row["kind"]!="Episode" or
                 row["action"] not in OWNER_REVIEW_ACTIONS or
                 row["state"] not in ("pending","held") or
                 (row["state"] != "held" and row["action"] != "review_saved_ja") or
@@ -111,7 +119,9 @@ def validate_row(row, owner_review=False):
         raise RuntimeError("japanese_sourcing_not_exhausted_or_english_not_available")
     elif row["state"] != "pending":
         raise RuntimeError("not_a_pending_japanese_fallback_task")
-    if row["target"] != "ja":
+    if row["target"]!="ja" and not (
+            owner_review and row["target"]=="review"
+            and row["action"]=="review_uncertain"):
         raise RuntimeError("not_a_japanese_fallback_task")
     if not row["jellyfin_id"] or not row["path"].startswith("/"):
         raise RuntimeError("invalid_coverage_queue_identity")
