@@ -278,7 +278,14 @@ def season_report(series, season, *, path=None):
         # User-requested explicit AI fallback for a reviewed/held source result.
         # Never convert a search error, an unsearched episode, or a duplicate
         # into proof that Japanese is unavailable. English is rechecked by AI.
-        review_ai = bool(status=="review" and row["en_text"] and searched
+        # A genuine attempted staged publication can fail timing validation.
+        # Do not strand it solely because the snapshot lacks EN text metadata:
+        # the exact-file PLaMo handoff will verify a usable English source.
+        source_qa_held = bool(state=="held" and
+            str(row["queue_note"] or "").startswith(
+                "ja_publication_held_after_real_timing_qa:"))
+        review_ai = bool(status=="review" and
+            (row["en_text"] or source_qa_held) and searched
             and state in ("pending","held")
             and action in ("review_saved_ja", "download_saved_ja",
                            "align_existing_staged_ja", "search_ja")
@@ -302,6 +309,7 @@ def season_report(series, season, *, path=None):
                 "can_source":retry_source,
                 "can_translate":status=="ready" or review_ai,
                 "owner_review_fallback":review_ai,
+                "failed_source_qa":source_qa_held,
                 "owner_unlabeled_audio":owner_unlabeled,
                 "english_indexed":bool(row["en_text"])}
         if owner_unlabeled:
