@@ -206,7 +206,7 @@ class HandoffTests(unittest.TestCase):
              "target":"ja","english_text":0}
         with patch.object(ai,"review_has_source_evidence",return_value=True):
             ai.validate_row(row,owner_review=True)
-            with self.assertRaisesRegex(RuntimeError,"english_text_not_indicated"):
+            with self.assertRaisesRegex(RuntimeError,"review_source_evidence_missing"):
                 ai.validate_row(dict(row,state="pending"),owner_review=True)
         with patch.object(ai,"review_has_source_evidence",return_value=False):
             with self.assertRaisesRegex(RuntimeError,"review_source_evidence_missing"):
