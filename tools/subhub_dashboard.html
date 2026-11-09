@@ -114,6 +114,11 @@ details>summary{cursor:pointer}
 <section class="panel">
  <div class="split"><h2>Active work</h2><span id="current-work" class="small muted">No current job</span></div>
  <div class="status-strip"><span>Source: <strong id="source-state">—</strong></span><span>PLaMo: <strong id="plamo-state">—</strong></span><span>Provider allowance: <strong id="quota">Unverified</strong></span></div>
+ <div id="batch-overview" hidden>
+  <div class="split"><strong id="batch-count">PLaMo batch</strong><span id="batch-remaining" class="small muted"></span></div>
+  <div class="meter" role="progressbar" aria-label="PLaMo episodes finished" id="batch-meter" aria-valuemin="0" aria-valuenow="0" aria-valuemax="100"><div class="fill" id="batch-fill"></div></div>
+  <p id="batch-details" class="small muted"></p>
+ </div>
  <p class="small muted" id="job-progress">Source events and saved cue checkpoints are shown here. Closing this page does not stop jobs.</p>
  <div id="active-jobs"></div>
  <details id="history"><summary>Previous jobs and review holds</summary><div id="past-jobs"></div><p id="recent-events" class="small muted"></p></details>
@@ -472,7 +477,22 @@ async function refreshStatus(){
     d.aiAvailable=!!(d.season_translation||{}).available;
     const scoped=!!(d.season_sources||{}).active;
     $("run-status").textContent=scoped?"Selected sourcing active":ai?"PLaMo active":source?"Source worker active":"Idle";
-    $("current-work").textContent=escapeText(d.current_item||d.phase_label||"No current job");
+    const batch=(d.season_translation||{}).progress||{};
+    $("batch-overview").hidden=!batch.known;
+    if(batch.known){
+      $("batch-count").textContent=(batch.active?"Current PLaMo batch":"Previous PLaMo batch")+
+          " · "+batch.finished+"/"+batch.total+" episodes finished";
+      $("batch-remaining").textContent=batch.remaining+" remaining";
+      $("batch-fill").style.width=Math.max(0,Math.min(100,100*batch.finished/batch.total))+"%";
+      $("batch-meter").setAttribute("aria-valuenow",String(Math.round(100*batch.finished/batch.total)));
+      $("batch-details").textContent=(batch.current?"Now: "+batch.series+" "+batch.current+" · ":"")+
+          batch.published+" published · "+batch.held+" held"+
+          (batch.blocked?" · "+batch.blocked+" blocked":"")+
+          (batch.state==="interrupted"?" · interrupted":"");
+    }
+    $("current-work").textContent=batch.active&&batch.current?
+       "PLaMo: "+batch.series+" "+batch.current:
+       escapeText(d.current_item||d.phase_label||"No current job");
     $("source-state").textContent=scoped?"Selected episodes":source?"Running":"Idle";
     $("plamo-state").textContent=ai?"Running":d.aiAvailable?"Ready":"Handoff not installed";
     $("quota").textContent=(d.source_job||{}).provider_limited?"Provider limit reached":"Allowance unverified";
