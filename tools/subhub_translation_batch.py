@@ -298,6 +298,30 @@ def selected_episode_plan(series, season, episodes, *, path=None):
             "covered":report["covered"],"selected":len(episodes),"items":chosen}
 
 
+
+def selected_multi_plan(series, selection, *, path=None):
+    """Only explicitly selected source-exhausted episodes across seasons."""
+    if (not isinstance(selection, list) or not 1 <= len(selection) <= 200
+            or any(not isinstance(p,dict) or set(p)!={"season","episode"}
+                   or type(p["season"]) is not int or type(p["episode"]) is not int
+                   or not 1 <= p["season"] <= 60 or not 1 <= p["episode"] <= 999
+                   for p in selection)):
+        raise ValueError("invalid_cross_season_selection")
+    pairs=[(p["season"],p["episode"]) for p in selection]
+    if len(set(pairs))!=len(pairs):
+        raise ValueError("duplicate_selected_episode")
+    chosen=[]
+    for season in sorted({s for s,e in pairs}):
+        episodes=[e for s,e in pairs if s==season]
+        selected=selected_episode_plan(series,season,episodes,path=path)
+        for item in selected["items"]:
+            chosen.append(dict(item,season=season))
+    chosen.sort(key=lambda r:(r["season"],r["episode"]))
+    return {"series":series,"ready":len(chosen),"requested":len(chosen),
+            "blocked":0,"selected":len(chosen),"covered":0,"items":chosen,
+            "seasons":sorted({s for s,e in pairs})}
+
+
 def _safe_work_dir():
     if WORK.is_symlink():
         raise RuntimeError("unsafe_translation_workdir")
@@ -307,7 +331,7 @@ def _safe_work_dir():
     return WORK
 
 
-def run_batch(series, season, count, start, episodes=None):
+def run_batch(series, season, count, start, episodes=None, picks=None):
     if not ENGINE.is_file() or ENGINE.is_symlink() or not os.access(ENGINE, os.X_OK):
         raise RuntimeError("subhub_ai_not_installed")
     root = _safe_work_dir()
@@ -316,14 +340,15 @@ def run_batch(series, season, count, start, episodes=None):
         raise RuntimeError("unsafe_series_batch_lock")
     with lock.open("a+b") as handle:
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        selected = (selected_episode_plan(series, season, episodes)
-                    if episodes is not None else plan(series, season, count, start))
+        selected = (selected_multi_plan(series, picks) if picks is not None else
+                    selected_episode_plan(series, season, episodes) if episodes is not None else
+                    plan(series, season, count, start))
         print("BATCH_BEGIN " + json.dumps({
             k: v for k, v in selected.items() if k not in ("items", "note")},
             ensure_ascii=False), flush=True)
         completed = failed = 0
         for item in selected["items"]:
-            tag = f'S{season:02d}E{item["episode"]:02d}'
+            tag = f'S{item.get("season",season):02d}E{item["episode"]:02d}'
             if item["status"] != "ready":
                 print(f'BATCH_BLOCKED {tag} {item["reason"]}', flush=True)
                 continue
@@ -365,15 +390,25 @@ def main(argv=None):
     ap.add_argument("--season", type=int, required=True)
     ap.add_argument("--count", type=int, default=20)
     ap.add_argument("--start", type=int, default=1)
+    ap.add_argument("--pick", action="append", help="Exact SxxExxx; repeat for other episodes")
     ap.add_argument("--episode", type=int, action="append",
                     help="Exact episode to translate; repeat for explicit selection")
     ap.add_argument("--run", action="store_true",
                     help="Run eligible selected episodes via existing subhub-ai")
     args = ap.parse_args(argv)
     try:
+        picks=None
+        if args.pick:
+            picks=[]
+            for value in args.pick:
+                match=re.fullmatch(r"S(\\d{1,2})E(\\d{1,3})",value,re.I)
+                if not match:
+                    raise ValueError("invalid_pick_sxxexxx")
+                picks.append({"season":int(match.group(1)),
+                              "episode":int(match.group(2))})
         if args.run:
-            return run_batch(args.series, args.season, args.count, args.start,
-                             episodes=args.episode)
+            return run_batch(args.series,args.season,args.count,args.start,
+                             episodes=args.episode,picks=picks)
         print(json.dumps(plan(args.series,args.season,args.count,args.start),
                          ensure_ascii=False, indent=2))
         return 0
