@@ -88,6 +88,45 @@ class SeasonBatchTests(unittest.TestCase):
             batch.selected_multi_plan("It's Always Sunny in Philadelphia",
                 [{"season":20,"episode":1}],path=self.dbpath)
 
+    def test_reviewed_source_can_be_sent_explicitly_to_plamo(self):
+        # No provider call: a real previous source-search result is mandatory.
+        import json, time
+        root=Path(self.temp.name)
+        saved=root/"bruiser-pilot/ja-first-inventory"
+        saved.mkdir(parents=True)
+        searchdb=saved/"japanese-search.sqlite3"
+        jid=f"{3:032x}"
+        with sqlite3.connect(self.dbpath) as db:
+            db.execute(
+                "UPDATE tasks SET action='review_saved_ja',state='held' "
+                "WHERE path LIKE '%S01E03.mkv'")
+        with sqlite3.connect(searchdb) as db:
+            db.execute("CREATE TABLE searches (jellyfin_id TEXT,outcome TEXT,"
+                       "candidate_count INTEGER,plausible_count INTEGER,"
+                       "results_json TEXT,searched_at INTEGER)")
+            db.execute("INSERT INTO searches VALUES(?,?,?,?,?,?)",
+                       (jid,"review",1,0,json.dumps({"provider_total":1,
+                        "candidates":[]}),int(time.time())))
+        searchdb.chmod(0o600)
+        with mock.patch.object(batch,"HOME",root):
+            report=batch.season_report(
+                "It's Always Sunny in Philadelphia",1,path=self.dbpath)
+            held=next(x for x in report["items"] if x["episode"]==3)
+            self.assertTrue(held["owner_review_fallback"])
+            self.assertTrue(held["can_translate"])
+            self.assertTrue(held["can_source"])
+            chosen=batch.selected_multi_plan(
+                "It's Always Sunny in Philadelphia",
+                [{"season":1,"episode":3}],path=self.dbpath)
+            self.assertTrue(chosen["items"][0]["owner_review_fallback"])
+        with sqlite3.connect(searchdb) as db:
+            db.execute("UPDATE searches SET outcome='error' WHERE jellyfin_id=?",(jid,))
+        with mock.patch.object(batch,"HOME",root):
+            report=batch.season_report(
+                "It's Always Sunny in Philadelphia",1,path=self.dbpath)
+            held=next(x for x in report["items"] if x["episode"]==3)
+            self.assertFalse(held["can_translate"])
+
     def test_invalid_inputs_and_insecure_db_fail_closed(self):
         for value in (0,41,True):
             with self.assertRaises(ValueError):
