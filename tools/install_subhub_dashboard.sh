@@ -15,7 +15,7 @@ trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/tools"
 touch "$WORK/tools/__init__.py"
 
-for name in subhub_dashboard_server.py subhub_dashboard.html ja_first_source_tracker.py subhub_translation_batch.py subhub_season_sources.py bruiser_coverage_queue.py; do
+for name in subhub_dashboard_server.py subhub_dashboard.html ja_first_source_tracker.py subhub_translation_batch.py subhub_season_sources.py bruiser_coverage_queue.py ja_first_search_pilot.py ja_first_priority.py; do
   curl -fsSL --retry 3 --connect-timeout 10 --max-time 90 \
     "$BASE/tools/$name" -o "$WORK/tools/$name"
 done
@@ -35,6 +35,7 @@ ast.parse(pathlib.Path(sys.argv[1]).with_name('ja_first_source_tracker.py').read
 ast.parse(pathlib.Path(sys.argv[1]).with_name('subhub_translation_batch.py').read_text(encoding='utf-8'))
 ast.parse(pathlib.Path(sys.argv[1]).with_name('subhub_season_sources.py').read_text(encoding='utf-8'))
 ast.parse(pathlib.Path(sys.argv[1]).with_name('bruiser_coverage_queue.py').read_text(encoding='utf-8'))
+ast.parse(pathlib.Path(sys.argv[1]).with_name('ja_first_search_pilot.py').read_text(encoding='utf-8'))
 assert '("127.0.0.1", args.port)' in server, "loopback-only policy missing"
 assert '/api/control/start-auto' in server and 'owner_control_access_denied' in server, "owner control safeguards missing"
 assert "/api/status" in server and "textContent" in html
@@ -51,6 +52,21 @@ PY
   PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$WORK" \
     python3 -m unittest -v test_subhub_dashboard test_subhub_translation_batch test_subhub_season_sources
 )
+
+# The same Japanese discovery helper is used by the daily source cycle and
+# owner-selected seasons. Update it only when both are idle, after tests pass.
+SOURCE_DEST="$HOME/bruiser-pilot/subhub-control"
+if [[ ! -d "$SOURCE_DEST" || -L "$SOURCE_DEST" || -L "$SOURCE_DEST/ja_first_search_pilot.py" ]]; then
+  echo "Existing shared Japanese source directory is unavailable or unsafe" >&2
+  exit 1
+fi
+for unit in bruiser-ja-source-autofill.service bruiser-subhub-season-sources.service bruiser-subhub-batch.service; do
+  state="$(systemctl --user show --property=ActiveState --value "$unit")"
+  case "$state" in
+    inactive|failed) ;;
+    *) echo "Source worker not idle ($unit: $state); installation deferred" >&2; exit 1 ;;
+  esac
+done
 
 DEST="$HOME/.local/share/bruiser-subhub-dashboard"
 BIN="$HOME/.local/share/applications"
@@ -72,6 +88,8 @@ if [[ "$(stat -c %u "$DEST")" != "$(id -u)" ||
   exit 1
 fi
 chmod 700 "$DEST"
+install -m 600 "$WORK/tools/ja_first_search_pilot.py" "$SOURCE_DEST/ja_first_search_pilot.py.new"
+mv -f "$SOURCE_DEST/ja_first_search_pilot.py.new" "$SOURCE_DEST/ja_first_search_pilot.py"
 install -m 600 "$WORK/tools/subhub_dashboard_server.py" "$DEST/subhub_dashboard_server.py.new"
 install -m 600 "$WORK/tools/subhub_dashboard.html" "$DEST/subhub_dashboard.html.new"
 install -m 600 "$WORK/tools/ja_first_source_tracker.py" "$DEST/ja_first_source_tracker.py.new"
