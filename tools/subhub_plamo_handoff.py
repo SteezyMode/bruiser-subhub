@@ -105,6 +105,8 @@ def review_has_source_evidence(jid):
 
 def validate_row(row, owner_review=False):
     if owner_review:
+        if not JELLYFIN_ID.fullmatch(str(row.get("jellyfin_id") or "")):
+            raise RuntimeError("owner_review_requires_exact_jellyfin_identity")
         if row["action"]=="review_uncertain":
             if (row["target"]!="review" or row["kind"]!="Episode"
                     or row["state"]!="pending"):
