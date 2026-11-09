@@ -333,8 +333,10 @@ function renderEpisodes(){
           details.append(label);
           for(const c of candidates){
             const line=document.createElement("div");line.className="review-list";
-            line.textContent=(c.provider||"provider")+" · "+(c.release||"unnamed release")+
-              (c.grade?" · "+c.grade:" · rejected / unverified");
+            line.textContent=(c.provider||"provider")+" · "+
+              (c.release_info||c.filename||c.release||"unnamed release")+
+              (c.grade?" · "+(c.grade==="reject"?"review only · rejected identity":c.grade):
+                       " · rejected / unverified");
             details.append(line);
           }
           const note=document.createElement("p");note.className="detail";
