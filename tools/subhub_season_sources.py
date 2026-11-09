@@ -408,37 +408,20 @@ def find_japanese(ids, search, budget, *, recheck=False, approved_reviews=None, 
                         break
                     raise RuntimeError("native_provider_search_failed")
                 options = result.get("results") or []
-                rated = [(grade,r) for r in options if isinstance(r,dict)
-                         for grade in [search.candidate_grade(row,r)]
-                         if grade != "reject"]
-                plausible = sum(grade == "plausible" for grade,_ in rated)
-                review = sum(grade == "review" for grade,_ in rated)
-                status = "plausible" if plausible else (
-                    "review" if review else "none")
+                # Keep ALL provider results, even identity rejects, as
+                # review-only evidence. The source helper owns durable history.
+                rated = [(search.candidate_grade(row,r),r)
+                         for r in options if isinstance(r,dict)]
+                plausible = sum(grade=="plausible" for grade,_ in rated)
+                review = sum(grade=="review" for grade,_ in rated)
+                rejected = sum(grade=="reject" for grade,_ in rated)
+                status = ("plausible" if plausible else
+                          "review" if review else "none")
                 search.save_attempt(db,job,status,result.get("total"),rated)
-                if recheck:
-                    discarded = []
-                    for option in options:
-                        if (isinstance(option,dict) and
-                                search.candidate_grade(row,option)=="reject"):
-                            discarded.append({
-                                "provider":str(option.get("provider") or "")[:60],
-                                "release":str(option.get("release_info") or
-                                              option.get("filename") or "")[:160],
-                                "score":option.get("score") if
-                                    type(option.get("score")) in (int,float) else None})
-                    saved=db.execute("SELECT results_json FROM searches WHERE jellyfin_id=?",
-                                     (job["id"],)).fetchone()
-                    if saved:
-                        detail=json.loads(saved[0])
-                        detail["rejected_count"]=len(discarded)
-                        detail["rejected_candidates"]=discarded[:15]
-                        detail["searched_providers"]=sorted({
-                            str(o.get("provider") or "")[:60]
-                            for o in options if isinstance(o,dict)})
-                        db.execute("UPDATE searches SET results_json=? WHERE jellyfin_id=?",
-                                   (json.dumps(detail,ensure_ascii=False),job["id"]))
-                        db.commit()
+                print("SEASON_JA_CANDIDATES",label,
+                      "provider_total",result.get("total"),
+                      "plausible",plausible,"review",review,
+                      "rejected_for_review",rejected,flush=True)
                 counts[status] += 1
                 print("SEASON_JA_RESULT",label,status,
                       "plausible",plausible,"review",review,flush=True)
