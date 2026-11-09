@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter, defaultdict
-from contextlib import closing
+from contextlib import closing, contextmanager
 import json
 import os
 from pathlib import Path
@@ -97,12 +97,13 @@ def selected_scope(series, picks, *, recheck=False, path=None):
         raise ValueError("duplicate_source_episode_selection")
     allowed = RECHECK_ACTIONS if recheck else SOURCE_ACTIONS
     selected = {}
+    reviewed = []
     with batch.read_queue(path) as db:
         rows = db.execute("""
             SELECT m.path,m.jellyfin_id,m.season,m.episode,m.ja_present,
-                   t.action,t.state
+                   t.target,t.action,t.state
               FROM media m LEFT JOIN tasks t
-                ON t.path=m.path AND t.target='ja' AND t.active=1
+                ON t.path=m.path AND t.target IN ('ja','review') AND t.active=1
              WHERE m.kind='Episode' AND m.series=?
         """, (series,)).fetchall()
     by_episode = defaultdict(list)
@@ -120,16 +121,24 @@ def selected_scope(series, picks, *, recheck=False, path=None):
         if len(versions)!=1:
             raise RuntimeError("duplicate_episode_requires_review")
         row=versions[0]
+        manual_review = bool(recheck and row["target"]=="review"
+            and row["action"]=="review_uncertain" and row["state"]=="pending")
         state_ok = (row["state"]=="pending" or
                     (recheck and row["state"]=="held" and
                      row["action"] in RECHECK_ACTIONS))
-        if (batch._already_covered(row) or not state_ok
-                or row["action"] not in allowed
+        if (batch._already_covered(row)
+                or not (manual_review or
+                        (row["target"]=="ja" and state_ok
+                         and row["action"] in allowed))
                 or not batch.JELLYFIN_ID.fullmatch(str(row["jellyfin_id"] or ""))):
             raise RuntimeError("selected_episode_not_eligible_for_source:"+
                                "S%02dE%03d"%tag)
-        selected[str(row["jellyfin_id"])] = str(row["path"])
+        jid=str(row["jellyfin_id"])
+        selected[jid] = str(row["path"])
+        if manual_review:
+            reviewed.append(jid)
     return {"series":series, "ids":selected,"eligible":len(selected),
+            "reviewed":sorted(reviewed),
             "seasons":sorted({sn for sn,ep in wanted}),"skipped":{}}
 
 
@@ -186,13 +195,97 @@ def container_video_paths(rows):
     return result
 
 
-def find_japanese(ids, search, budget, *, recheck=False):
+def manual_source_query(row, search):
+    """Exact episode search for an explicitly selected, file-probed unlabeled audio.
+
+    This does not assign an English audio tag to the media. The existing
+    publication gate still performs independent same-file safety and sync QA.
+    """
+    video=Path(str(row.get("host_path") or ""))
+    season,episode=row.get("season"),row.get("episode")
+    if (row.get("kind")!="Episode" or row.get("status")!="ready_ja_search"
+            or type(season) is not int or type(episode) is not int
+            or season<1 or episode<1 or not row.get("series_title")
+            or not video.is_file() or video.is_symlink()
+            or search.sidecar_present(video)):
+        return None
+    tags=search.episode_tags(video.stem)
+    if tags and any(tag!=(season,episode) for tag in tags):
+        return None
+    query={"file_path":"","language":"ja",
+           "series_title":row["series_title"],"season":season,"episode":episode}
+    imdb=str(row.get("series_imdb_id") or "")
+    if search.IMDB.fullmatch(imdb):
+        query["imdb_id"]=imdb
+    return query
+
+
+@contextmanager
+def scoped_audio_review(ids, reviewed, search, stage, publish):
+    """In-memory exact-ID approval of an owner-selected untagged-audio episode.
+
+    No catalog, database or media identity is modified. The normal Japanese
+    source publisher still verifies language, identity, timing and no overwrite.
+    """
+    if not reviewed:
+        yield {}, {}
+        return
+    from unittest.mock import patch
+    manifests=sorted(search.ROOT.glob("ja-intake-*.json"))
+    if not manifests:
+        raise RuntimeError("review_source_manifest_unavailable")
+    original_manifest=search.private_manifest
+    base=original_manifest(manifests[-1])
+    items={str(row.get("jellyfin_id")):row for row in base["items"]
+           if isinstance(row,dict)}
+    approved={}
+    blocked={}
+    for jid in reviewed:
+        row=items.get(jid)
+        if not row or (row.get("status")!="review_audio_language_unverified"
+                       or row.get("host_path")!=ids[jid]
+                       or row.get("kind")!="Episode"):
+            blocked[jid]="stale_or_mismatched_media_identity"
+            continue
+        try:
+            # Existing stage code probes the ACTUAL video. It rejects
+            # Japanese-audio tags, embedded Japanese, sidecars and wrong paths.
+            stage.duration_if_safe(row)
+        except (OSError,ValueError,RuntimeError,subprocess.TimeoutExpired) as exc:
+            blocked[jid]=type(exc).__name__ + ":" + str(exc)[:80]
+            continue
+        approved[jid]=dict(row,status="ready_ja_search")
+    for jid,reason in blocked.items():
+        print("SEASON_JA_REVIEW_HELD",jid,reason,flush=True)
+    print("SEASON_JA_AUDIO_REVIEW",len(approved),"eligible",
+          len(blocked),"held",flush=True)
+    original_inventory=stage.read_inventory
+    original_direct=publish.direct.read_inventory
+    def patched_manifest(path):
+        doc=original_manifest(path)
+        return dict(doc,items=[approved.get(str(row.get("jellyfin_id")),row)
+                               for row in doc["items"]])
+    def patched_inventory():
+        rows=original_inventory()
+        rows.update(approved)
+        return rows
+    def patched_direct(jid,*,allow_existing_ja=False):
+        return approved.get(jid) or original_direct(
+            jid,allow_existing_ja=allow_existing_ja)
+    with (patch.object(search,"private_manifest",side_effect=patched_manifest),
+          patch.object(stage,"read_inventory",side_effect=patched_inventory),
+          patch.object(publish.direct,"read_inventory",side_effect=patched_direct)):
+        yield approved, blocked
+
+
+def find_japanese(ids, search, budget, *, recheck=False, approved_reviews=None, stage=None):
     """Existing Sublarr provider endpoint and existing result classification.
 
     The ordinary source script does not yet offer season filtering; select the
     exact approved IDs in memory, but reuse its eligibility, scoring, history
     and native Sublarr API worker without changing its installed behavior.
     """
+    approved_reviews=approved_reviews or {}
     paths = sorted(search.ROOT.glob("ja-intake-*.json"))
     if not paths:
         raise RuntimeError("source_manifest_unavailable")
@@ -221,13 +314,33 @@ def find_japanese(ids, search, budget, *, recheck=False):
             jobs = []
             mapped=container_video_paths(rows)
             queue=search.priorities.active_coverage_queue()
+            saved={}
+            previous=set()
+            if approved_reviews and stage is not None:
+                for known_jid,raw in stage.read_saved_searches():
+                    try:
+                        saved[str(known_jid)]=json.loads(raw)
+                    except (ValueError,TypeError):
+                        pass
+                previous=stage.read_staged() | stage.rejected_duration_candidates()
             for row in rows:
                 jid=str(row["jellyfin_id"])
                 saved_action=(queue.get(jid) or ("",))[0]
                 if saved_action in ("download_saved_ja","align_existing_staged_ja"):
                     print("SEASON_JA_REUSE_SAVED",jid,saved_action,flush=True)
                     continue  # Prefer quota-free staging/publication before re-search.
-                query = search.query_for(row)
+                if jid in approved_reviews and stage is not None:
+                    prior=saved.get(jid) or {}
+                    matched=any(isinstance(c,dict)
+                        and stage.identity_ok(row,c)
+                        and (jid,str(c.get("subtitle_id"))) not in previous
+                        for c in prior.get("candidates",[]))
+                    if matched:
+                        print("SEASON_JA_REUSE_SAVED",jid,
+                              "manual_review_release_match",flush=True)
+                        continue
+                query=(manual_source_query(row,search) if jid in approved_reviews
+                       else search.query_for(row))
                 if query is not None:
                     path=mapped.get(jid)
                     if path:
@@ -430,9 +543,15 @@ def run(series,season,picks=None,recheck=False):
         if current["ids"] != ids:
             raise RuntimeError("source_scope_changed_repreview_required")
         budget=min(MAX_EPISODES,len(ids))
-        searched=find_japanese(ids,search,budget,recheck=recheck)
-        staged=stage_japanese(ids,stage,budget,recheck=recheck)
-        published=publish_japanese(ids,publish,budget)
+        reviewed=current.get("reviewed",[])
+        with scoped_audio_review(ids,reviewed,search,stage,publish) as (approved,blocked):
+            effective={jid:path for jid,path in ids.items() if jid not in blocked}
+            if not effective:
+                raise RuntimeError("all_selected_audio_reviews_held_see_job_log")
+            searched=find_japanese(effective,search,budget,recheck=recheck,
+                                   approved_reviews=approved,stage=stage)
+            staged=stage_japanese(effective,stage,budget,recheck=recheck)
+            published=publish_japanese(effective,publish,budget)
         # Re-plan from the existing inventory after new provider evidence.
         # This transitions 'search_ja' -> fallback ONLY after a real no-match.
         reconcile()
