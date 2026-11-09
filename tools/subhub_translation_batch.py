@@ -168,10 +168,11 @@ def season_report(series, season, *, path=None):
     with read_queue(path) as db:
         rows = db.execute("""
             SELECT m.path,m.jellyfin_id,m.title,m.episode,m.en_text,
-                   m.ja_present,t.action,t.state,t.reason AS queue_reason,
-                   t.note AS queue_note
+                   m.ja_present,t.action,t.state,t.target AS queue_target,
+                   t.reason AS queue_reason,t.note AS queue_note
               FROM media AS m LEFT JOIN tasks AS t
-                ON t.path=m.path AND t.target='ja' AND t.active=1
+                ON t.path=m.path AND t.target IN ('ja','review')
+                   AND t.active=1
              WHERE m.kind='Episode' AND m.series=? AND m.season=?
              ORDER BY m.path
         """, (series, str(season))).fetchall()
@@ -283,6 +284,10 @@ def season_report(series, season, *, path=None):
                            "align_existing_staged_ja", "search_ja")
             and (state=="held" or action=="review_saved_ja")
             and JELLYFIN_ID.fullmatch(jid))
+        owner_unlabeled = bool(status=="review" and action=="review_uncertain"
+            and row["queue_target"]=="review" and state=="pending"
+            and row["en_text"] and JELLYFIN_ID.fullmatch(jid))
+        review_ai = review_ai or owner_unlabeled
         retry_source = bool(not covered and JELLYFIN_ID.fullmatch(jid)
             and action in ("search_ja", "download_saved_ja",
                            "align_existing_staged_ja", "review_saved_ja",
@@ -295,8 +300,11 @@ def season_report(series, season, *, path=None):
                 "queue_note":str(row["queue_note"] or "")[:120],
                 "can_source":retry_source,
                 "can_translate":status=="ready" or review_ai,
-                "owner_review_fallback":review_ai}
-        if review_ai:
+                "owner_review_fallback":review_ai,
+                "owner_unlabeled_audio":owner_unlabeled}
+        if owner_unlabeled:
+            item["reason"]="audio_metadata_uncertain_owner_may_choose_verified_english_to_japanese"
+        elif review_ai:
             item["reason"]="reviewed_source_not_publishable_owner_ai_fallback"
         
         if proof:
