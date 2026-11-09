@@ -63,6 +63,30 @@ class SeasonBatchTests(unittest.TestCase):
         p=batch.plan("It's Always Sunny in Philadelphia",1,20,6,path=self.dbpath)
         self.assertEqual([x["episode"] for x in p["items"]],[6,7,8])
 
+    def test_compact_coverage_and_exact_multi_season_selection(self):
+        report=batch.season_report("It's Always Sunny in Philadelphia",1,path=self.dbpath)
+        self.assertEqual(report["total"],8)
+        self.assertEqual(report["covered"],1)
+        self.assertEqual(report["ready"],5)
+        self.assertEqual([x["episode"] for x in report["items"] if x["can_translate"]],
+                         [2,4,6,7,8])
+        self.assertTrue(next(x for x in report["items"] if x["episode"]==3)["can_source"])
+        p=batch.selected_multi_plan("It's Always Sunny in Philadelphia",
+            [{"season":1,"episode":2},{"season":1,"episode":6}],
+            path=self.dbpath)
+        self.assertEqual([(x["season"],x["episode"]) for x in p["items"]],
+                         [(1,2),(1,6)])
+        with self.assertRaisesRegex(RuntimeError,"selected_episode_not_ready"):
+            batch.selected_multi_plan("It's Always Sunny in Philadelphia",
+                [{"season":1,"episode":3}],path=self.dbpath)
+        with self.assertRaises(ValueError):
+            batch.selected_multi_plan("It's Always Sunny in Philadelphia",
+                [{"season":1,"episode":2},{"season":1,"episode":2}],
+                path=self.dbpath)
+        with self.assertRaises(RuntimeError):
+            batch.selected_multi_plan("It's Always Sunny in Philadelphia",
+                [{"season":20,"episode":1}],path=self.dbpath)
+
     def test_invalid_inputs_and_insecure_db_fail_closed(self):
         for value in (0,41,True):
             with self.assertRaises(ValueError):
