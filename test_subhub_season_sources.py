@@ -254,6 +254,52 @@ class ScopeTests(unittest.TestCase):
         self.assertEqual(published.call_args.args[0],{jid:path})
         closed.assert_called_once_with(7)
 
+    def test_old_installed_source_helper_missing_duration_function(self):
+        import os
+        from types import SimpleNamespace
+        dbpath=Path(self.tmp.name)/"staging.sqlite3"
+        with sqlite3.connect(dbpath) as db:
+            db.execute("CREATE TABLE staged (jellyfin_id TEXT,"
+                       "subtitle_id TEXT,status TEXT)")
+            db.executemany("INSERT INTO staged VALUES (?,?,?)",[
+                ("a"*32,"1234","held_duration_mismatch"),
+                ("b"*32,"5678","staged")])
+        dbpath.chmod(0o600)
+        old=SimpleNamespace(STAGE_DB=dbpath)
+        self.assertEqual(selected.saved_duration_rejections(old),
+                         {("a"*32,"1234")})
+        old.rejected_duration_candidates=lambda:{("c"*32,"9999")}
+        self.assertEqual(selected.saved_duration_rejections(old),
+                         {("c"*32,"9999")})
+
+    def test_real_publication_failure_is_recorded_not_silent(self):
+        jid="d"*32
+        publisher=mock.Mock()
+        publisher.stages.return_value=[(jid,"1001","digest")]
+        publisher.unique_titles.return_value={jid:[("1001","digest")]}
+        publisher.choose.side_effect=RuntimeError("timing_gate_not_met")
+        with mock.patch.object(selected,"mark_publication_held") as hold:
+            result=selected.publish_japanese({jid:"/video.mkv"},publisher,1)
+        self.assertEqual(result["held"],1)
+        hold.assert_called_once_with(jid,"timing_gate_not_met")
+
+    def test_multiseason_run_continues_after_one_season_fails(self):
+        plan={"seasons":[2,4],"ids":{"a"*32:"/media/S02E01.mkv"},
+              "eligible":2,"reviewed":[],"skipped":{}}
+        calls=[]
+        def fake_run(series,season,picks,recheck=False):
+            calls.append((series,season,recheck))
+            if season==2:
+                raise RuntimeError("manifest_mismatch")
+            return 0
+        with mock.patch.object(selected,"selected_scope",return_value=plan), \
+             mock.patch.object(selected,"run",side_effect=fake_run):
+            result=selected.main([
+                "--series","Example Show","--pick","S02E001",
+                "--pick","S04E009","--recheck","--run"])
+        self.assertEqual(result,1)
+        self.assertEqual([x[1] for x in calls],[2,4])
+
     def test_zero_work_cannot_claim_success(self):
         src={"series":"It's Always Sunny in Philadelphia","season":12,
              "ids":{"a"*32:"/verified/S12E01.mkv"},"eligible":1,"skipped":{}}
