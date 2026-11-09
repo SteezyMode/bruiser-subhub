@@ -286,7 +286,7 @@ def season_report(series, season, *, path=None):
             and JELLYFIN_ID.fullmatch(jid))
         owner_unlabeled = bool(status=="review" and action=="review_uncertain"
             and row["queue_target"]=="review" and state=="pending"
-            and row["en_text"] and JELLYFIN_ID.fullmatch(jid))
+            and JELLYFIN_ID.fullmatch(jid))
         review_ai = review_ai or owner_unlabeled
         retry_source = bool(not covered and JELLYFIN_ID.fullmatch(jid)
             and action in ("search_ja", "download_saved_ja",
@@ -301,9 +301,12 @@ def season_report(series, season, *, path=None):
                 "can_source":retry_source,
                 "can_translate":status=="ready" or review_ai,
                 "owner_review_fallback":review_ai,
-                "owner_unlabeled_audio":owner_unlabeled}
+                "owner_unlabeled_audio":owner_unlabeled,
+                "english_indexed":bool(row["en_text"])}
         if owner_unlabeled:
-            item["reason"]="audio_metadata_uncertain_owner_may_choose_verified_english_to_japanese"
+            item["reason"]=("audio_metadata_uncertain_owner_may_choose_verified_english_to_japanese"
+                if row["en_text"] else
+                "audio_and_english_text_unverified_ai_will_hold_without_real_english")
         elif review_ai:
             item["reason"]="reviewed_source_not_publishable_owner_ai_fallback"
         
