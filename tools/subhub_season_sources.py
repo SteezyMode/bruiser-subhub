@@ -76,6 +76,60 @@ def scope(series, season, *, path=None):
             "eligible": len(selected), "skipped": dict(held)}
 
 
+
+RECHECK_ACTIONS = SOURCE_ACTIONS | frozenset({
+    "review_saved_ja", "validate_english_for_ja_fallback",
+    "recover_english_for_ja_fallback"
+})
+
+
+def selected_scope(series, picks, *, recheck=False, path=None):
+    """Fail closed unless every requested episode is in exactly this series."""
+    batch.validate(series, 1, MAX_EPISODES, 1)
+    if (not isinstance(picks, list) or not 1 <= len(picks) <= 200
+            or any(not isinstance(p,dict) or set(p)!={"season","episode"}
+                   or type(p["season"]) is not int or type(p["episode"]) is not int
+                   or not 1 <= p["season"] <= 60 or not 1 <= p["episode"] <= 999
+                   for p in picks)):
+        raise ValueError("invalid_source_episode_selection")
+    wanted = {(p["season"],p["episode"]) for p in picks}
+    if len(wanted) != len(picks):
+        raise ValueError("duplicate_source_episode_selection")
+    allowed = RECHECK_ACTIONS if recheck else SOURCE_ACTIONS
+    selected = {}
+    with batch.read_queue(path) as db:
+        rows = db.execute("""
+            SELECT m.path,m.jellyfin_id,m.season,m.episode,m.ja_present,
+                   t.action,t.state
+              FROM media m LEFT JOIN tasks t
+                ON t.path=m.path AND t.target='ja' AND t.active=1
+             WHERE m.kind='Episode' AND m.series=?
+        """, (series,)).fetchall()
+    by_episode = defaultdict(list)
+    for row in rows:
+        try:
+            tag = (int(row["season"]),int(row["episode"]))
+        except (TypeError,ValueError):
+            continue
+        if tag in wanted:
+            by_episode[tag].append(row)
+    if set(by_episode) != wanted:
+        raise RuntimeError("selected_episode_missing_from_exact_series")
+    for tag in sorted(wanted):
+        versions = by_episode[tag]
+        if len(versions)!=1:
+            raise RuntimeError("duplicate_episode_requires_review")
+        row=versions[0]
+        if (batch._already_covered(row) or row["state"]!="pending"
+                or row["action"] not in allowed
+                or not batch.JELLYFIN_ID.fullmatch(str(row["jellyfin_id"] or ""))):
+            raise RuntimeError("selected_episode_not_eligible_for_source:"+
+                               "S%02dE%03d"%tag)
+        selected[str(row["jellyfin_id"])] = str(row["path"])
+    return {"series":series, "ids":selected,"eligible":len(selected),
+            "seasons":sorted({sn for sn,ep in wanted}),"skipped":{}}
+
+
 def native():
     """Import existing installed search/stage/publish components, unchanged."""
     path = SOURCE_CODE
@@ -100,7 +154,7 @@ def native():
     return autofill, search, stage, publish
 
 
-def find_japanese(ids, search, budget):
+def find_japanese(ids, search, budget, *, recheck=False):
     """Existing Sublarr provider endpoint and existing result classification.
 
     The ordinary source script does not yet offer season filtering; select the
@@ -131,8 +185,18 @@ def find_japanese(ids, search, budget):
         "held":dict(holds)},sort_keys=True),flush=True)
     counts = Counter()
     with closing(search.open_db()) as db:
-        jobs = search.pick(rows, db, budget)
-        print("SEASON_JA_SEARCH_PLANNED",len(jobs),flush=True)
+        if recheck:
+            jobs = []
+            for row in rows:
+                query = search.query_for(row)
+                if query is not None:
+                    jobs.append({"id":str(row["jellyfin_id"]),
+                                 "row":row,"query":query})
+            jobs=jobs[:budget]
+        else:
+            jobs = search.pick(rows, db, budget)
+        print("SEASON_JA_SEARCH_PLANNED",len(jobs),
+              "mode","explicit_recheck" if recheck else "saved_history",flush=True)
         for idx, job in enumerate(jobs, 1):
             row = job["row"]
             label = str(row.get("series_title") or "") + (
@@ -171,6 +235,29 @@ def find_japanese(ids, search, budget):
                 status = "plausible" if plausible else (
                     "review" if review else "none")
                 search.save_attempt(db,job,status,result.get("total"),rated)
+                if recheck:
+                    discarded = []
+                    for option in options:
+                        if (isinstance(option,dict) and
+                                search.candidate_grade(row,option)=="reject"):
+                            discarded.append({
+                                "provider":str(option.get("provider") or "")[:60],
+                                "release":str(option.get("release_info") or
+                                              option.get("filename") or "")[:160],
+                                "score":option.get("score") if
+                                    type(option.get("score")) in (int,float) else None})
+                    saved=db.execute("SELECT results_json FROM searches WHERE jellyfin_id=?",
+                                     (job["id"],)).fetchone()
+                    if saved:
+                        detail=json.loads(saved[0])
+                        detail["rejected_count"]=len(discarded)
+                        detail["rejected_candidates"]=discarded[:15]
+                        detail["searched_providers"]=sorted({
+                            str(o.get("provider") or "")[:60]
+                            for o in options if isinstance(o,dict)})
+                        db.execute("UPDATE searches SET results_json=? WHERE jellyfin_id=?",
+                                   (json.dumps(detail,ensure_ascii=False),job["id"]))
+                        db.commit()
                 counts[status] += 1
                 print("SEASON_JA_RESULT",label,status,
                       "plausible",plausible,"review",review,flush=True)
@@ -183,12 +270,37 @@ def find_japanese(ids, search, budget):
     return counts
 
 
-def stage_japanese(ids, stage, budget):
+def stage_japanese(ids, stage, budget, *, recheck=False):
     inventory = {jid:row for jid,row in stage.read_inventory().items()
                  if jid in ids and row.get("host_path") == ids[jid]}
     saved = [row for row in stage.read_saved_searches()
              if str(row[0]) in inventory]
-    chosen = stage.choices(inventory,saved,stage.read_staged(),budget,"episode")
+    if recheck:
+        already=stage.read_staged() | stage.rejected_duration_candidates()
+        chosen=[]
+        for jid,raw in saved:
+            jid=str(jid)
+            row=inventory.get(jid)
+            if not row or row.get("status")!="ready_ja_search":
+                continue
+            try:
+                document=json.loads(raw)
+            except (TypeError,ValueError):
+                continue
+            candidates=[c for c in document.get("candidates",[])
+                        if isinstance(c,dict)
+                        and str(c.get("provider") or "").casefold()
+                            in ("opensubtitles","opensubtitlescom")
+                        and stage.identity_ok(row,c)
+                        and (jid,str(c.get("subtitle_id"))) not in already]
+            candidates.sort(key=lambda c:-int(c.get("score") or 0))
+            if candidates:
+                chosen.append({"row":row,"candidate":candidates[0],
+                    "label":str(row.get("series_title"))+
+                      " S%02dE%03d"%(row["season"],row["episode"])})
+        chosen=chosen[:budget]
+    else:
+        chosen = stage.choices(inventory,saved,stage.read_staged(),budget,"episode")
     counts = Counter()
     print("SEASON_JA_STAGE_PLANNED",len(chosen),flush=True)
     if not chosen:
@@ -251,8 +363,9 @@ def reconcile():
     return coverage.main(["init"])
 
 
-def run(series,season):
-    selection = scope(series,season)
+def run(series,season,picks=None,recheck=False):
+    selection = (selected_scope(series,picks,recheck=recheck)
+                 if picks is not None else scope(series,season))
     ids = selection["ids"]
     print("SEASON_JA_BEGIN",json.dumps({
         "series":series,"season":season,"eligible":len(ids),
@@ -271,12 +384,13 @@ def run(series,season):
         autofill.check_scheduler_idle()
         autofill.refresh_manifest()
         # Recheck scope after obtaining the shared source lock.
-        current=scope(series,season)
+        current=(selected_scope(series,picks,recheck=recheck)
+                 if picks is not None else scope(series,season))
         if current["ids"] != ids:
             raise RuntimeError("source_scope_changed_repreview_required")
         budget=min(MAX_EPISODES,len(ids))
-        searched=find_japanese(ids,search,budget)
-        staged=stage_japanese(ids,stage,budget)
+        searched=find_japanese(ids,search,budget,recheck=recheck)
+        staged=stage_japanese(ids,stage,budget,recheck=recheck)
         published=publish_japanese(ids,publish,budget)
         # Re-plan from the existing inventory after new provider evidence.
         # This transitions 'search_ja' -> fallback ONLY after a real no-match.
@@ -298,12 +412,35 @@ def run(series,season):
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--series",required=True)
-    parser.add_argument("--season",type=int,required=True)
+    parser.add_argument("--season",type=int)
+    parser.add_argument("--pick",action="append",
+                        help="Explicit SxxExxx; multiple selections permitted")
+    parser.add_argument("--recheck",action="store_true")
     parser.add_argument("--run",action="store_true")
     args=parser.parse_args(argv)
-    if args.run:
-        return run(args.series,args.season)
-    result=scope(args.series,args.season)
+    if args.pick:
+        picks=[]
+        for value in args.pick:
+            match=batch.re.fullmatch(r"S(\\d{1,2})E(\\d{1,3})",value,batch.re.I)
+            if not match:
+                raise ValueError("invalid_pick_sxxexxx")
+            picks.append({"season":int(match.group(1)),
+                          "episode":int(match.group(2))})
+        preview=selected_scope(args.series,picks,recheck=args.recheck)
+        if args.run:
+            for season in preview["seasons"]:
+                part=[p for p in picks if p["season"]==season]
+                run(args.series,season,part,recheck=args.recheck)
+            return 0
+        result=preview
+    else:
+        if args.season is None:
+            parser.error("--season or --pick required")
+        if args.recheck:
+            parser.error("--recheck requires explicit episode selection")
+        if args.run:
+            return run(args.series,args.season)
+        result=scope(args.series,args.season)
     print(json.dumps({k:v for k,v in result.items() if k!="ids"},
                      ensure_ascii=False))
     return 0
