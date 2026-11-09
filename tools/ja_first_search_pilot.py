@@ -311,9 +311,56 @@ def pick(rows, db, budget):
     return chosen
 
 def save_attempt(db, job, outcome, total=None, rated=None):
-    """Write each search result immediately, including interrupted attempts."""
+    """Retain Japanese discoveries across later misses and failed searches.
+
+    Provider rejects remain review-only; only positively verified candidates
+    can pass the independently strict staging and publication code.
+    """
     rated = rated or []
-    plausible = [r for grade, r in rated if grade == "plausible"]
+    previous = db.execute(
+        "SELECT kind,title,outcome,results_json FROM searches WHERE jellyfin_id=?",
+        (job["id"],)).fetchone()
+    if previous and outcome in ("in_progress", "error"):
+        # Never replace previously discovered subtitles with an empty attempt.
+        return
+    prior = {}
+    if previous and previous[0] == job["row"]["kind"] and previous[1] == job["row"]["title"]:
+        try:
+            prior = json.loads(previous[3])
+            if not isinstance(prior,dict):
+                prior = {}
+        except (ValueError,TypeError):
+            prior = {}
+    def key(item):
+        return (str(item.get("provider") or "").casefold(),
+                str(item.get("subtitle_id") or ""),
+                str(item.get("filename") or ""))
+    kept = {}
+    for item in prior.get("candidates",[]):
+        if isinstance(item,dict) and item.get("grade") in ("plausible","review"):
+            kept[key(item)] = item
+    rejected = {}
+    for item in prior.get("rejected_candidates",[]):
+        if isinstance(item,dict):
+            rejected[key(item)] = item
+    for grade,item in rated:
+        if not isinstance(item,dict):
+            continue
+        candidate = dict(item,grade=grade)
+        if grade in ("plausible","review"):
+            kept[key(candidate)] = candidate
+            rejected.pop(key(candidate),None)
+        elif grade=="reject":
+            rejected[key(candidate)] = candidate
+    candidates=list(kept.values())[:120]
+    rejected_candidates=list(rejected.values())[:120]
+    plausible=sum(item["grade"]=="plausible" for item in candidates)
+    final=("plausible" if plausible else "review" if candidates else outcome)
+    payload={"provider_total":total,"candidates":candidates,
+             "rejected_candidates":rejected_candidates,
+             "rejected_count":len(rejected_candidates),
+             "searched_providers":sorted({str(item.get("provider"))
+                 for item in candidates+rejected_candidates if item.get("provider")})}
     db.execute("""INSERT INTO searches (
         jellyfin_id,searched_at,kind,title,outcome,candidate_count,
         plausible_count,results_json
@@ -324,13 +371,10 @@ def save_attempt(db, job, outcome, total=None, rated=None):
         candidate_count=excluded.candidate_count,
         plausible_count=excluded.plausible_count,
         results_json=excluded.results_json
-    """, (job["id"], int(time.time()), job["row"]["kind"],
-          job["row"]["title"], outcome, len(rated), len(plausible),
-          json.dumps({"provider_total": total,
-                      "candidates": [{"grade": grade, **r} for grade, r in rated]},
-                     ensure_ascii=False)))
+    """,(job["id"],int(time.time()),job["row"]["kind"],
+         job["row"]["title"],final,len(candidates),plausible,
+         json.dumps(payload,ensure_ascii=False)))
     db.commit()
-
 
 
 def offline_report(limit=10):
@@ -464,8 +508,8 @@ def main():
                       flush=True)
                 continue
             options = response.get("results") or []
-            rated = [(grade, r) for r in options if isinstance(r, dict)
-                     for grade in [candidate_grade(row, r)] if grade != "reject"]
+            rated = [(candidate_grade(row, r), r)
+                     for r in options if isinstance(r, dict)]
             plausible = [r for grade, r in rated if grade == "plausible"]
             review = [r for grade, r in rated if grade == "review"]
             outcome = "plausible" if plausible else ("review" if review else "none")
