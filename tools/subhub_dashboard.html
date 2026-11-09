@@ -246,8 +246,12 @@ function renderCoverage(){
   $("translate-selected").textContent=(checked.size?"Send checked to PLaMo (":"Send all remaining to PLaMo (")+ai.length+")";
   $("toggle-episodes").disabled=!n.total;
   $("action-note").textContent=checked.size?
-    "Using "+checked.size+" checked episode(s). Ineligible episodes are excluded from each action. Clear checks to act on all remaining.":
-    "No individual checks: actions include all eligible remaining episodes in the selected seasons, never other media.";
+    "Using "+checked.size+" checked episode(s). Clear checks to act on all eligible remaining.":
+    ai.length?
+    "Send all eligible remaining to PLaMo, or open episode details to pick individuals. Retry sources/timing first when a usable Japanese candidate may still be recoverable.":
+    n.review||n.sourcing?
+    "No PLaMo-ready episodes yet. Retry sourcing/timing, then open the held episodes to see whether English text or saved source evidence is missing.":
+    "Nothing needs PLaMo in this selection. Existing Japanese tracks are preserved.";
   if(expanded)renderEpisodes();
 }
 function statusName(item){
