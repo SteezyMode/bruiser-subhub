@@ -233,7 +233,7 @@ def health(cues, runtime, allow_offset_sec=0):
 
 
 
-def search_movie_sources(provider, video, title, query_type=None):
+def search_movie_sources(provider, video, title, year=2017, query_type=None):
     """Search both exact file-hash and title/year; bad hash match must not end discovery.
 
     Upstream 1.18 provider queries by moviehash *instead of* title when a file
@@ -244,10 +244,10 @@ def search_movie_sources(provider, video, title, query_type=None):
         from providers.base import VideoQuery
         query_type=VideoQuery
     exact = provider.search(query_type(
-        title=title, year=2017, languages=["ja"], file_path=str(video)
+        title=title, year=year, languages=["ja"], file_path=str(video)
     ))
     general = provider.search(query_type(
-        title=title, year=2017, languages=["ja"]
+        title=title, year=year, languages=["ja"]
     ))
     seen=set()
     merged=[]
@@ -493,12 +493,24 @@ def resume_staged(video,runtime,report_path,apply=False):
           'source_preserved',True,'translation_quality_unverified',True,flush=True)
 
 
-def run(title=TARGET_TITLE,apply=False,max_downloads=3,staged_report=''):
+def run(title=TARGET_TITLE,apply=False,max_downloads=3,staged_report='',
+        year=2017,video_path='',stage_only=False):
     from config import get_settings
     settings=get_settings()
-    if token(title)!=token(TARGET_TITLE):
-        raise RuntimeError("Safety: this initial rescue is pinned to the requested film")
-    vids=find_video(title)
+    if not isinstance(title,str) or len(title.strip())<4 or len(title)>160:
+        raise RuntimeError("Movie title must be specific")
+    if type(year) is not int or not 1880<=year<=2100:
+        raise RuntimeError("Unsupported movie year")
+    if video_path:
+        video=Path(video_path)
+        if (not video.is_absolute() or video.suffix.lower() not in VID_EXT
+                or not any(video.is_relative_to(root) for root in MEDIA_ROOTS)
+                or video.is_symlink() or not video.is_file()
+                or not video.name.casefold().startswith(title.strip().split()[0].casefold())):
+            raise RuntimeError("Exact video path invalid or mismatched")
+        vids=[video]
+    else:
+        vids=find_video(title)
     if len(vids)!=1:
         print("FILM_MATCH_COUNT",len(vids),flush=True)
         raise RuntimeError("Expected one exact video filename; no changes")
@@ -527,7 +539,7 @@ def run(title=TARGET_TITLE,apply=False,max_downloads=3,staged_report=''):
         client.initialize()
         if not getattr(client,"session",None):
             raise RuntimeError("Provider could not initialize")
-        results=search_movie_sources(client,video,title)
+        results=search_movie_sources(client,video,title,year=year)
         candidates=select_candidates(results,title)[:max_downloads]
         print("SOURCE_SEARCH_STRATEGY hash_plus_title_and_year",flush=True)
         print("JAPANESE_CANDIDATES",len(candidates),flush=True)
@@ -574,6 +586,15 @@ def run(title=TARGET_TITLE,apply=False,max_downloads=3,staged_report=''):
                 if not after or not after["ok"] or after["cue_count"]!=before["cue_count"]:
                     print("HELD_ALIGNED_CONTENT",json.dumps(after,ensure_ascii=False),flush=True)
                     continue
+                if stage_only:
+                    print("MOVIE_JA_HOST_PUBLISH_READY",
+                          json.dumps({"video":str(video),
+                                      "report":str(staged_report),
+                                      "candidate_id":str(result.subtitle_id),
+                                      "cues":after["cue_count"]},
+                                     ensure_ascii=False),
+                          flush=True)
+                    return
                 target=publish_create_only(video,corrected,fmt)
                 info={
                     "title":title,"video_file":video.name,"source":"opensubtitles",
@@ -607,8 +628,13 @@ if __name__=="__main__":
     a.add_argument("--apply",action="store_true")
     a.add_argument("--max-downloads",type=int,default=3,choices=(1,2,3))
     a.add_argument("--from-staged",default="",help="resume saved candidate without network or ffsubsync")
+    a.add_argument("--year",type=int,default=2017,help="Original release year")
+    a.add_argument("--video-path",default="",help="Exact file in an approved Sublarr movie mount")
+    a.add_argument("--stage-only",action="store_true",
+                   help="Stop after validation; host publisher writes the sidecar")
     args=a.parse_args()
-    try:run(args.title,args.apply,args.max_downloads,args.from_staged)
+    try:run(args.title,args.apply,args.max_downloads,args.from_staged,
+            args.year,args.video_path,args.stage_only)
     except Exception as exc:
         # No dialogue or spoilers in error reports.
         print("SOURCE_RESCUE_HELD",type(exc).__name__,str(exc)[:180],file=sys.stderr)
