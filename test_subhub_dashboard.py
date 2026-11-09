@@ -98,6 +98,15 @@ class StatusTests(unittest.TestCase):
         self.assertNotIn('id="action-start-manual"',html)
         self.assertNotIn('id="translation-series-options"',html)
 
+    def test_episode_review_stays_open_and_has_real_actions(self):
+        html=dashboard.HTML.read_text(encoding="utf-8")
+        for phrase in ("openSeasons","openReviews","card.open=openSeasons.has",
+                       "Send all remaining to PLaMo",
+                       "Send this episode to PLaMo","Retry source / timing",
+                       'bulkAction("source",','bulkAction("translate",'):
+            self.assertIn(phrase,html)
+        self.assertNotIn('id="action-start-auto"',html)
+
     def test_inactive_source_without_history_returns_no_live_progress(self):
         # This MUST be independent of the install target's actual systemd
         # journal. Completed real sourcing runs are allowed to have counts.
