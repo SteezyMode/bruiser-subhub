@@ -32,6 +32,9 @@ ROOT = HOME / "bruiser-pilot/plamo3-ab"
 WORK = HOME / "bruiser-pilot/subhub-translation"
 BATCH_STATE = ROOT / "american-dad-existing-english-batch/batch.pid"
 ALLOWED_ACTIONS = {"validate_english_for_ja_fallback"}
+OWNER_REVIEW_ACTIONS = {"review_saved_ja", "download_saved_ja",
+                        "align_existing_staged_ja", "search_ja"}
+SEARCH_DB = HOME / "bruiser-pilot/ja-first-inventory/japanese-search.sqlite3"
 PLANNABLE_ACTIONS = {
     "validate_english_for_ja_fallback",
     "recover_english_for_ja_fallback",
@@ -55,11 +58,20 @@ def safe_db(path):
                            uri=True, timeout=10)
 
 
-def eligible(db, jid=None, limit=15):
-    """Only source-exhausted JA targets. English 'present' is NOT verified yet."""
+def eligible(db, jid=None, limit=15, owner_review=False):
+    """Exact ID lookup; owner-review requests cannot reach unrelated episodes."""
     cond = " AND m.jellyfin_id=?" if jid else ""
     params = [jid] if jid else []
     params.append(limit)
+    if owner_review:
+        action = """AND m.kind='Episode' AND t.state IN ('pending','held')
+                    AND t.action IN ('review_saved_ja','download_saved_ja',
+                        'align_existing_staged_ja','search_ja')
+                    AND (t.state='held' OR t.action='review_saved_ja')"""
+    else:
+        action = """AND t.state='pending'
+                    AND t.action IN ('validate_english_for_ja_fallback',
+                                     'recover_english_for_ja_fallback')"""
     return [dict(zip(("jellyfin_id","path","kind","title","series","action",
                       "state","target","english_text"), r))
             for r in db.execute("""
@@ -67,18 +79,40 @@ def eligible(db, jid=None, limit=15):
                        t.target,m.en_text
                   FROM tasks AS t JOIN media AS m ON m.path=t.path
                  WHERE t.active=1 AND t.target='ja'
-                   AND t.state='pending'
-                   AND t.action IN ('validate_english_for_ja_fallback',
-                                    'recover_english_for_ja_fallback')
-                   """ + cond +
+                   """ + action + cond +
                  " ORDER BY t.priority,m.title LIMIT ?", params)]
 
 
-def validate_row(row):
-    if row["action"] not in ALLOWED_ACTIONS:
+def review_has_source_evidence(jid):
+    """An owner may choose AI after an actual saved source search, not an API error."""
+    if not JELLYFIN_ID.fullmatch(str(jid or "")):
+        return False
+    with safe_db(SEARCH_DB) as db:
+        row = db.execute(
+            "SELECT outcome,searched_at FROM searches WHERE jellyfin_id=?", (jid,)
+        ).fetchone()
+    if not row:
+        return False
+    outcome, searched_at = row
+    return (outcome in ("none", "review", "plausible")
+            and isinstance(searched_at, int)
+            and 0 <= time.time() - searched_at <= 31 * 86400)
+
+
+def validate_row(row, owner_review=False):
+    if owner_review:
+        if (row["kind"] != "Episode" or
+                row["action"] not in OWNER_REVIEW_ACTIONS or
+                row["state"] not in ("pending","held") or
+                (row["state"] != "held" and row["action"] != "review_saved_ja") or
+                not review_has_source_evidence(row["jellyfin_id"])):
+            raise RuntimeError("review_source_evidence_missing_or_not_eligible")
+    elif row["action"] not in ALLOWED_ACTIONS:
         raise RuntimeError("japanese_sourcing_not_exhausted_or_english_not_available")
-    if row["target"] != "ja" or row["state"] != "pending":
+    elif row["state"] != "pending":
         raise RuntimeError("not_a_pending_japanese_fallback_task")
+    if row["target"] != "ja":
+        raise RuntimeError("not_a_japanese_fallback_task")
     if not row["jellyfin_id"] or not row["path"].startswith("/"):
         raise RuntimeError("invalid_coverage_queue_identity")
     if row["kind"] not in ("Movie","Episode"):
@@ -611,6 +645,8 @@ def main(argv=None):
     group.add_argument("--apply",action="store_true",
                        help="translate exactly one eligible title with proven GPU engine")
     parser.add_argument("--jellyfin-id",help="exact Jellyfin item ID; mandatory for writes")
+    parser.add_argument("--owner-reviewed-source",action="store_true",
+                        help="Explicit owner AI fallback for one reviewed/held searched episode")
     parser.add_argument("--limit",type=int,default=15)
     parser.add_argument("--explicit-movie-pilot",action="store_true",
                         help="owner-opt-in newly added movie before queue refresh; no JA provider attempts")
@@ -620,6 +656,10 @@ def main(argv=None):
         parser.error("--limit must be 1..50")
     if (args.prepare or args.apply) and not args.jellyfin_id:
         parser.error("--prepare/--apply requires --jellyfin-id")
+    if args.owner_reviewed_source and (args.explicit_movie_pilot or
+                                      not args.jellyfin_id or
+                                      not (args.prepare or args.apply)):
+        parser.error("--owner-reviewed-source requires an exact queued episode")
     if args.explicit_movie_pilot:
         if not (args.prepare or args.apply) or not args.movie_path:
             parser.error("--explicit-movie-pilot requires --prepare or --apply and --movie-path")
@@ -628,7 +668,8 @@ def main(argv=None):
     rows = []
     if not args.explicit_movie_pilot:
         with safe_db(QUEUE) as db:
-            rows=eligible(db,args.jellyfin_id,args.limit)
+            rows=eligible(db,args.jellyfin_id,args.limit,
+                          owner_review=args.owner_reviewed_source)
         if not (args.prepare or args.apply):
             from collections import Counter
             print("SUBHUB_AI_HANDOFF_READ_ONLY")
@@ -643,7 +684,10 @@ def main(argv=None):
         if len(rows)!=1:
             raise RuntimeError("requested_exact_pending_fallback_task_not_found")
         row=rows[0]
-        validate_row(row)
+        validate_row(row,owner_review=args.owner_reviewed_source)
+        if args.owner_reviewed_source:
+            print("SUBHUB_AI_OWNER_REVIEW_FALLBACK media="+row["jellyfin_id"]+
+                  " action="+row["action"]+" state="+row["state"],flush=True)
     if args.explicit_movie_pilot:
         if recent_running_source():
             raise RuntimeError("source_batch_still_running_retry_after_it_finishes")
@@ -669,6 +713,13 @@ def main(argv=None):
         if recent_running_source():
             raise RuntimeError("source_batch_still_running_retry_after_it_finishes")
         if not args.explicit_movie_pilot:
+            if args.owner_reviewed_source:
+                # Recheck the queue and source proof immediately before GPU use.
+                with safe_db(QUEUE) as db:
+                    fresh=eligible(db,row["jellyfin_id"],1,owner_review=True)
+                if (len(fresh)!=1 or fresh[0]["path"]!=row["path"]):
+                    raise RuntimeError("review_queue_changed_repreview_required")
+                validate_row(fresh[0],owner_review=True)
             mod=modules()
         else:
             # Recheck current Jellyfin identity immediately before first write;
