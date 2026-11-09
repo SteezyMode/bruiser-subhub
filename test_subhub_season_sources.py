@@ -114,6 +114,75 @@ class ScopeTests(unittest.TestCase):
             selected.selected_scope(
                 "It's Always Sunny in Philadelphia",pick,recheck=False,path=self.path)
 
+    def test_general_untagged_audio_review_is_selected_only_by_owner(self):
+        with sqlite3.connect(self.path) as db:
+            db.execute("UPDATE tasks SET target='review',action='review_uncertain' "
+                       "WHERE path LIKE '%S01E05.mkv'")
+        selected_items=[{"season":1,"episode":5}]
+        scoped=selected.selected_scope(
+            "It's Always Sunny in Philadelphia",selected_items,
+            recheck=True,path=self.path)
+        jid=f"{5:032x}"
+        self.assertEqual(scoped["reviewed"],[jid])
+        self.assertEqual(scoped["ids"],{jid:"/mnt/BigDisk/Video/S01E05.mkv"})
+        with self.assertRaises(RuntimeError):
+            selected.selected_scope(
+                "It's Always Sunny in Philadelphia",selected_items,
+                recheck=False,path=self.path)
+        with self.assertRaises(RuntimeError):
+            selected.selected_scope(
+                "American Dad!",selected_items,
+                recheck=True,path=self.path)
+
+    def test_audio_review_is_in_memory_and_retains_japanese_publish_gates(self):
+        from types import SimpleNamespace
+        jid="a"*32
+        row={"jellyfin_id":jid,"kind":"Episode","status":
+             "review_audio_language_unverified","host_path":"/media/file.mkv",
+             "season":2,"episode":1,"series_title":"Example Show"}
+        root=Path(self.tmp.name)
+        (root/"ja-intake-20261109T000001Z.json").write_text("{}")
+        search=mock.Mock()
+        search.ROOT=root
+        search.private_manifest.return_value={"items":[row]}
+        stage=mock.Mock()
+        stage.duration_if_safe.return_value=1800
+        stage.read_inventory.return_value={jid:row}
+        direct=mock.Mock()
+        publisher=SimpleNamespace(direct=direct)
+        with selected.scoped_audio_review({jid:row["host_path"]},
+                [jid],search,stage,publisher) as (approved,blocked):
+            self.assertFalse(blocked)
+            self.assertEqual(approved[jid]["status"],"ready_ja_search")
+            stage.duration_if_safe.assert_called_once_with(row)
+            self.assertEqual(stage.read_inventory()[jid]["status"],
+                             "ready_ja_search")
+            self.assertEqual(publisher.direct.read_inventory(jid)["status"],
+                             "ready_ja_search")
+            doc=search.private_manifest(root/"ja-intake-20261109T000001Z.json")
+            self.assertEqual(doc["items"][0]["status"],"ready_ja_search")
+        self.assertEqual(search.private_manifest(
+            root/"ja-intake-20261109T000001Z.json")["items"][0]["status"],
+                         "review_audio_language_unverified")
+
+    def test_manual_review_source_search_requires_correct_episode_file(self):
+        import re
+        video=Path(self.tmp.name)/"Example.Show.S02E01.mkv"
+        video.write_bytes(b"test")
+        search=mock.Mock()
+        search.sidecar_present.return_value=False
+        search.episode_tags.return_value=[(2,1)]
+        search.IMDB=re.compile(r"tt\\d{5,12}\\Z")
+        row={"kind":"Episode","host_path":str(video),
+             "status":"ready_ja_search","series_title":"Example Show",
+             "season":2,"episode":1,"series_imdb_id":"tt1234567"}
+        q=selected.manual_source_query(row,search)
+        self.assertEqual(q["series_title"],"Example Show")
+        self.assertEqual((q["season"],q["episode"]),(2,1))
+        self.assertEqual(q["imdb_id"],"tt1234567")
+        search.episode_tags.return_value=[(2,2)]
+        self.assertIsNone(selected.manual_source_query(row,search))
+
     def test_exact_pick_cli_preview_never_uses_providers(self):
         with mock.patch.object(selected,"selected_scope",return_value={
                 "eligible":1,"seasons":[1],"ids":{"2"*32:"/some/file"},
