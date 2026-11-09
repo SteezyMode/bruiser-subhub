@@ -372,8 +372,11 @@ async function bulkAction(kind,exactPicks=null){
   if(kind==="translate"){
     const audioUnlabeled=picks.filter(p=>(coverage.get(p.season)?.items||[])
        .some(it=>it.episode===p.episode&&it.owner_unlabeled_audio)).length;
-    const note=audioUnlabeled?
-      " "+audioUnlabeled+" episode(s) have untagged audio: you are confirming their original audio is English. English subtitle timing will still be validated.":"";
+    const noEnglish=picks.filter(p=>(coverage.get(p.season)?.items||[])
+       .some(it=>it.episode===p.episode&&it.english_indexed===false)).length;
+    const note=(audioUnlabeled?
+      " "+audioUnlabeled+" episode(s) have untagged audio: you confirm their original audio is English.":"")+
+      (noEnglish?" "+noEnglish+" episode(s) lack indexed English text; PLaMo will check the real file and HOLD those with no usable English subtitles.":"");
     if(!confirm("Send "+picks.length+
       " selected remaining episode(s) to PLaMo? Existing Japanese tracks and English text are checked again; saved checkpoints resume."+note))return;
   }
