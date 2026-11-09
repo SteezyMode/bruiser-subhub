@@ -23,7 +23,7 @@ from bruiser_ja_movie_rescue import health
 
 CONTAINER = "sublarr-pilot"
 MAX_SHIFT_SECONDS = 30.0
-MAX_SHIFT_SPREAD_SECONDS = 8.0
+MAX_SHIFT_SPREAD_SECONDS = 1.5  # Reject progressive drift; a large global offset is different.
 NO_CHANGE_THRESHOLD_SECONDS = 0.4
 # Conservative local repair of short overlapping Japanese subtitle cues.
 # No subtitle text or cue START timestamps are ever altered by this pass.
@@ -190,6 +190,9 @@ def check_alignment(original,aligned,runtime):
     if [cue["text"] for cue in before] != [cue["text"] for cue in after]:
         raise RuntimeError("ffsubsync_changed_dialogue")
     shifts=[(b["start"]-a["start"])/1000 for a,b in zip(before,after)]
+    # An audio matcher can return a different offset for the cold open than
+    # the remainder of an episode. A plausible runtime is not proof of sync:
+    # reject substantial variable shifts instead of publishing visible drift.
     if max(abs(value) for value in shifts)>MAX_SHIFT_SECONDS or max(shifts)-min(shifts)>MAX_SHIFT_SPREAD_SECONDS:
         raise RuntimeError("ffsubsync_shift_or_variation_excessive")
     if (min(c["start"] for c in after)<0
