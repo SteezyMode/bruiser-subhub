@@ -142,6 +142,13 @@ class SeasonBatchTests(unittest.TestCase):
             "It's Always Sunny in Philadelphia",
             [{"season":1,"episode":5}],path=self.dbpath)
         self.assertTrue(plan["items"][0]["owner_review_fallback"])
+        with sqlite3.connect(self.dbpath) as db:
+            db.execute("UPDATE media SET en_text=0 WHERE path LIKE '%S01E05.mkv'")
+        report=batch.season_report(
+            "It's Always Sunny in Philadelphia",1,path=self.dbpath)
+        item=next(x for x in report["items"] if x["episode"]==5)
+        self.assertTrue(item["can_translate"])
+        self.assertFalse(item["english_indexed"])
 
     def test_invalid_inputs_and_insecure_db_fail_closed(self):
         for value in (0,41,True):
