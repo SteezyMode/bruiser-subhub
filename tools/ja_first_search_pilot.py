@@ -434,7 +434,7 @@ def pick(rows, db, budget):
             legacy_zero=(outcome=="none")
             if legacy_zero:
                 try:
-                    legacy_zero=int(json.loads(raw).get("strategy_version") or 0)<3
+                    legacy_zero=int(json.loads(raw).get("strategy_version") or 0)<4
                 except (TypeError,ValueError):
                     legacy_zero=True
             if not legacy_zero:
