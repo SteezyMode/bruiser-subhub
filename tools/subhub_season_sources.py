@@ -388,7 +388,8 @@ def find_japanese(ids, search, budget, *, recheck=False, approved_reviews=None, 
                 run = subprocess.run(
                     ["docker", "exec", "-i", "-e", "PYTHONPATH=/app",
                      "sublarr-pilot", "python3", "-c", search.CONTAINER_WORKER],
-                    input=json.dumps([{"id":job["id"],"query":job["query"]}]),
+                    input=json.dumps([{"id":job["id"],"query":job["query"],
+                                       "retry_by_title":bool(recheck)}]),
                     capture_output=True, text=True, timeout=110, check=False)
                 if run.returncode:
                     raise RuntimeError("native_container_search_failed")
@@ -408,6 +409,10 @@ def find_japanese(ids, search, budget, *, recheck=False, approved_reviews=None, 
                         break
                     raise RuntimeError("native_provider_search_failed")
                 options = result.get("results") or []
+                if result.get("query_variant") == "title_only_fallback":
+                    print("SEASON_JA_TITLE_FALLBACK",label,
+                          "initial_total",result.get("initial_total"),
+                          "title_total",result.get("total"),flush=True)
                 # Keep ALL provider results, even identity rejects, as
                 # review-only evidence. The source helper owns durable history.
                 rated = [(search.candidate_grade(row,r),r)
