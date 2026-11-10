@@ -58,20 +58,20 @@ for i, job in enumerate(jobs):
             data = json.load(res)
         original_total = data.get("total")
         query_variant = "original"
-        # Manual, selected-episode recheck only. OpenSubtitles can return zero
-        # for an upload not linked to the IMDb ID / video hash even when a
-        # series-title + SxxExx search finds an exact release. Do not use this
-        # fallback in scheduled/default provider searches.
-        if (job.get("retry_by_title") is True and
-            payload.get("series_title") and
-            type(payload.get("season")) is int and
-            type(payload.get("episode")) is int and
-            (payload.get("imdb_id") or payload.get("file_path")) and
-            original_total == 0 and not data.get("results")):
+        # Library-wide strategy: prefer identifiers, then try the known
+        # title+year or series+episode route when identifiers return nothing.
+        # This search-only recovery applies to EVERY eligible movie/episode.
+        # No candidate is approved for download merely by appearing here.
+        has_title = (bool(payload.get("title")) or
+                     (bool(payload.get("series_title")) and
+                      type(payload.get("season")) is int and
+                      type(payload.get("episode")) is int))
+        if (has_title and (payload.get("imdb_id") or payload.get("file_path"))
+            and original_total == 0 and not data.get("results")):
             title_payload = dict(payload)
             title_payload.pop("imdb_id", None)
             title_payload["file_path"] = ""
-            time.sleep(3.3)  # Sublarr limit 20 / minute
+            time.sleep(3.3)  # combined API: maximum 20 requests/minute
             req = Request(url, data=json.dumps(title_payload).encode(),
                           headers=headers, method="POST")
             with urlopen(req, timeout=90) as res:
@@ -86,7 +86,7 @@ for i, job in enumerate(jobs):
                 "language", "score", "matches", "format", "forced", "kind"
             )})
         out = {"id": job["id"], "ok": True, "total": data.get("total"),
-               "initial_total": original_total,
+               "initial_total": original_total, "strategy_version": 2,
                "query_variant": query_variant, "results": results}
     except Exception as exc:
         out = {"id": job["id"], "ok": False, "error": type(exc).__name__}
@@ -222,13 +222,12 @@ def private_manifest(path):
 def query_for(row):
     if row.get("status") != "ready_ja_search":
         return None
-    # Defense against a stale intake manifest: never query a Japanese source
-    # for media that could itself have Japanese audio or has untagged audio.
-    # A fresh review/ffprobe must confirm the primary audio first.
+    # Unknown audio-language tags are not proof a title lacks Japanese
+    # subtitles. Search is safe; downstream identity, embedded-track and
+    # no-overwrite gates still decide whether publication is allowed.
     audio = str(row.get("audio_language") or "").casefold().strip()
     audio = audio.replace("_", "-").split("-", 1)[0]
-    if audio in {"", "unknown", "und", "mul", "zxx", "none",
-                 "ja", "jp", "jpn", "japanese"}:
+    if audio in {"ja", "jp", "jpn", "japanese"}:
         return None
     path = row.get("host_path")
     if not isinstance(path, str) or not path.startswith("/"):
@@ -240,9 +239,12 @@ def query_for(row):
     base = {"file_path": "", "language": "ja"}
     if row.get("kind") == "Movie":
         imdb = row.get("imdb_id", "")
-        if not IMDB.fullmatch(str(imdb)) or not row.get("title"):
+        if not row.get("title") or not re.fullmatch(r"(?:19|20)\d{2}",str(row.get("year") or "")):
             return None
-        return dict(base, title=row["title"], imdb_id=imdb)
+        query=dict(base, title=row["title"], year=row["year"])
+        if IMDB.fullmatch(str(imdb)):
+            query["imdb_id"]=imdb
+        return query
     if row.get("kind") == "Episode":
         series = row.get("series_title")
         season, ep = row.get("season"), row.get("episode")
@@ -286,13 +288,25 @@ def open_db():
 def pick(rows, db, budget):
     """Sort catalog metadata in memory; touch ONLY a few shortlisted files."""
     now = int(time.time())
-    done = {str(r[0]) for r in db.execute(
-        """SELECT jellyfin_id FROM searches WHERE
-            (outcome = 'in_progress' AND searched_at >= ?)
-            OR (outcome = 'error' AND searched_at >= ?)
-            OR (outcome NOT IN ('in_progress', 'error') AND searched_at >= ?)""",
-        (now - 6 * 3600, now - 86400, now - 30 * 86400)
-    )}
+    done=set()
+    for jid,outcome,when,raw in db.execute(
+        "SELECT jellyfin_id,outcome,searched_at,results_json FROM searches"):
+        if outcome == "in_progress" and when >= now-6*3600:
+            done.add(str(jid))
+        elif outcome == "error" and when >= now-86400:
+            done.add(str(jid))
+        elif outcome not in ("in_progress","error") and when >= now-30*86400:
+            # Revisit legacy zero-result entries ONCE with the improved
+            # search strategy, not every day. Existing positive candidates
+            # are left untouched; their staging queue already owns them.
+            legacy_zero=(outcome=="none")
+            if legacy_zero:
+                try:
+                    legacy_zero=int(json.loads(raw).get("strategy_version") or 0)<2
+                except (TypeError,ValueError):
+                    legacy_zero=True
+            if not legacy_zero:
+                done.add(str(jid))
     # The persistent coverage queue ranks missing Japanese subtitle work;
     # never burn provider calls on titles already staged, held or headed to AI.
     # A new library item not yet in the last matrix is eligible only AFTER
@@ -310,7 +324,7 @@ def pick(rows, db, budget):
         if Path(row["host_path"]).suffix.lower() not in SUPPORTED:
             continue
         if kind == "Movie":
-            if not IMDB.fullmatch(str(row.get("imdb_id") or "")) or not row.get("title"):
+            if not row.get("title") or not re.fullmatch(r"(?:19|20)\d{2}",str(row.get("year") or "")):
                 continue
         else:
             season, episode = row.get("season"), row.get("episode")
@@ -332,7 +346,7 @@ def pick(rows, db, budget):
                            "query": query})
     return chosen
 
-def save_attempt(db, job, outcome, total=None, rated=None):
+def save_attempt(db, job, outcome, total=None, rated=None, *, strategy_version=None, query_variant=None):
     """Retain Japanese discoveries across later misses and failed searches.
 
     Provider rejects remain review-only; only positively verified candidates
@@ -383,6 +397,9 @@ def save_attempt(db, job, outcome, total=None, rated=None):
     payload={"provider_total":total,"candidates":candidates,
              "rejected_candidates":rejected_candidates,
              "rejected_count":len(rejected_candidates),
+             "strategy_version":(strategy_version if isinstance(strategy_version,int)
+                                 else prior.get("strategy_version",0)),
+             "query_variant":query_variant or prior.get("query_variant","unknown"),
              "searched_providers":sorted({str(item.get("provider"))
                  for item in candidates+rejected_candidates if item.get("provider")})}
     db.execute("""INSERT INTO searches (
@@ -515,7 +532,7 @@ def main():
                 run = subprocess.run(
                     command, input=json.dumps([{"id": job["id"],
                                                "query": job["query"]}]),
-                    text=True, capture_output=True, timeout=110
+                    text=True, capture_output=True, timeout=225
                 )
                 if run.returncode != 0:
                     raise RuntimeError("container_search_failed")
@@ -537,10 +554,13 @@ def main():
             plausible = [r for grade, r in rated if grade == "plausible"]
             review = [r for grade, r in rated if grade == "review"]
             outcome = "plausible" if plausible else ("review" if review else "none")
-            save_attempt(db, job, outcome, response.get("total"), rated)
+            save_attempt(db, job, outcome, response.get("total"), rated,
+                         strategy_version=response.get("strategy_version"),
+                         query_variant=response.get("query_variant"))
             summary[outcome] += 1
             print(f"[{i}/{len(chosen)}] {outcome.upper()}: plausible={len(plausible)} "
-                  f"review={len(review)} provider_total={response.get('total')}",
+                  f"review={len(review)} provider_total={response.get('total')}"
+                  f" strategy={response.get('query_variant')}",
                   flush=True)
             if plausible:
                 best = sorted(plausible, key=lambda r: -(r.get("score") or 0))[0]
