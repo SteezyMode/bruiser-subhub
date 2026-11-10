@@ -127,10 +127,11 @@ class ScopeTests(unittest.TestCase):
         self.assertNotIn("imdb_id",calls[1])
         self.assertEqual(calls[1]["file_path"],"")
         self.assertEqual(result["results"][0]["language"],"ja")
-        no_retry,calls=exercise(False)
-        self.assertEqual(no_retry["query_variant"],"original")
-        self.assertEqual(no_retry["total"],0)
-        self.assertEqual(len(calls),1)
+        ordinary,calls=exercise(False)
+        # Library-wide, not a special manually-selected episode path:
+        self.assertEqual(ordinary["query_variant"],"title_only_fallback")
+        self.assertEqual(ordinary["total"],1)
+        self.assertEqual(len(calls),2)
 
     def test_scope_only_pending_source_first_same_season(self):
         p=selected.scope("It's Always Sunny in Philadelphia",1,path=self.path)
