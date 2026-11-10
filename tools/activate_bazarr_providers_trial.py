@@ -5,7 +5,9 @@ Reads existing Sublarr provider credentials locally where available, prompts on
 /dev/tty for missing credentials, disables scheduled searches, then searches
 ONE episode (S02E01). No production mounts, downloads or subtitle publication.
 Never prints or commits passwords, API keys, or authentication responses.
-For a missing OpenSubtitles login, use --stdin-credentials with two lines\nof credentials passed over SSH stdin by a local Mac mini prompt.\nDo NOT pipe the script itself into python3 -.
+For a missing OpenSubtitles login, use --stdin-credentials with two lines
+of credentials passed over SSH stdin by a local Mac mini prompt.
+Do NOT pipe the script itself into python3 -.
 """
 from __future__ import annotations
 
@@ -101,7 +103,7 @@ values={k:decrypt(v) or "" for k,v in rows}
 print(json.dumps(values))
 '''
     proc = subprocess.run(
-        ["docker", "exec", "-i", "-e", "PYTHONPATH=/app", "sublarr-pilot",
+        ["docker", "exec", "-e", "PYTHONPATH=/app", "sublarr-pilot",
          "python3", "-c", source],
         capture_output=True, text=True, timeout=25)
     if proc.returncode:
@@ -112,7 +114,7 @@ print(json.dumps(values))
     except ValueError:
         return {}
 
-def terminal_credentials(existing, from_sublarr):
+def terminal_credentials(existing, from_sublarr, supplied=None):
     osuser = (existing.get("opensubtitlescom", {}).get("username")
               or from_sublarr.get("opensubtitles_username")
               or from_sublarr.get("opensubtitlescom_subliminal_username") or "")
@@ -124,18 +126,14 @@ def terminal_credentials(existing, from_sublarr):
         print("OpenSubtitles.com login: obtained locally (not displayed)")
     if subdl:
         print("SubDL key: obtained locally (not displayed)")
-    if "--stdin-credentials" in sys.argv and not (osuser and ospass):
-        # Credentials arrive from an interactive prompt on the Mac mini,
-        # via SSH standard input (never CLI arguments or shell history).
-        # Only two lines: OpenSubtitles.com username and password.
-        supplied_user = sys.stdin.readline().rstrip("\r\n")
-        supplied_pass = sys.stdin.readline().rstrip("\r\n")
+    if supplied is not None:
+        supplied_user, supplied_pass = supplied
         if supplied_user and supplied_pass:
             osuser, ospass = supplied_user, supplied_pass
             print("OpenSubtitles.com login: received over SSH (not displayed)")
         else:
             print("OpenSubtitles.com login: not supplied (provider stays disabled)")
-    elif "--stdin-credentials" not in sys.argv and not ((osuser and ospass) and subdl):
+    elif not ((osuser and ospass) and subdl):
         try:
             with open("/dev/tty", "r+", encoding="utf-8") as tty:
                 if not (osuser and ospass):
@@ -182,6 +180,12 @@ def provider_log_diagnostics(key):
 
 
 def main():
+    # Drain the SSH pipe before running any subprocess. In particular,
+    # docker exec -i previously consumed credentials before this function.
+    supplied = None
+    if "--stdin-credentials" in sys.argv:
+        supplied = (sys.stdin.readline().rstrip("\r\n"),
+                    sys.stdin.readline().rstrip("\r\n"))
     inspect_trial()
     key = bazarr_key()
     settings = api("/api/system/settings", key)
@@ -216,7 +220,7 @@ def main():
         print("SUBLARR: provider credential settings inspected read-only")
     else:
         print("SUBLARR: no usable credential settings found; local input may be required")
-    username, password, subdl = terminal_credentials(settings, old)
+    username, password, subdl = terminal_credentials(settings, old, supplied=supplied)
     chosen = []
     fields = {
         "settings-general-upgrade_subs": "false",
