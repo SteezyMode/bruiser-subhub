@@ -186,6 +186,7 @@ def candidate_grade(row, result):
         if not title_tokens or not re.fullmatch(r"\d{4}", year):
             return "review"
         found_title, conflicting_year, exact_identity = False, False, False
+        near_year_conflict = False
         for text in (name, release):
             words = tokens(text)
             for i in range(len(words) - len(title_tokens) + 1):
@@ -199,8 +200,12 @@ def candidate_grade(row, result):
                 for neighbor in (preceding, following):
                     if re.fullmatch(r"(?:19|20)\d{2}", neighbor) and neighbor != year:
                         conflicting_year = True
+                        # A festival-premiere year and theatrical-release year
+                        # can legitimately differ by one. Retain the candidate
+                        # for REVIEW, never automatic staging/publication.
+                        near_year_conflict |= abs(int(neighbor) - int(year)) == 1
         if conflicting_year:
-            return "review" if exact_identity else "reject"
+            return "review" if exact_identity or (found_title and near_year_conflict) else "reject"
         if exact_identity:
             return "plausible"
         # Search score alone cannot prove that the candidate is the right film.
@@ -223,6 +228,12 @@ def checks():
     assert candidate_grade(friday, result) == "plausible"
     assert candidate_grade(friday, dict(result, filename="Next.Friday.2000.1080p")) == "reject"
     assert candidate_grade(friday, dict(result, filename="Friday.2010.1080p")) == "reject"
+    release_year = {"kind":"Movie","title":"Late Night with the Devil","year":2024}
+    premiere = dict(result, filename="Late.Night.with.the.Devil.2023.WEB-DL.ja-JP",
+                   matches=["title"])
+    assert candidate_grade(release_year, premiere) == "review"
+    assert candidate_grade(release_year, dict(premiere, filename="Late.Night.with.the.Devil.2013.WEB-DL")) == "reject"
+    assert candidate_grade(release_year, dict(premiere, filename="Late.Night.with.the.Demons.2023.WEB-DL", matches=[])) == "reject"
     assert candidate_grade(friday, dict(result, filename=".srt", matches=["title"])) == "review"
     fargo = {"kind": "Movie", "title": "Fargo", "year": 1996}
     assert candidate_grade(fargo, dict(result, filename="1996-_Fargo",
