@@ -82,9 +82,12 @@ class NativeSeriesIdentityTests(unittest.TestCase):
         self.series[self.series_id]["Name"] = "Unrelated Series"
         self.assertEqual(self.inspect()["status"], "review_missing_series_identity")
 
-    def test_no_audio_language_does_not_use_native_identity_to_bypass_review(self):
+    def test_unknown_audio_allows_non_destructive_discovery_with_review_flag(self):
         self.item["MediaStreams"] = [{"Type": "Audio", "Language": "und"}]
-        self.assertEqual(self.inspect()["status"], "review_audio_language_unverified")
+        row=self.inspect()
+        self.assertEqual(row["status"], "ready_ja_search")
+        self.assertTrue(row["audio_review_required"])
+        self.assertEqual(row["audio_language"], "und")
 
     def test_safe_installer_has_valid_shell_syntax(self):
         installer = (Path(__file__).parent / "tools" /
