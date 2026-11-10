@@ -1,4 +1,4 @@
-"""Source priorities: user-requested films/shows first, all others still eligible."""
+"""Source priorities: general-purpose across all series, movie genre ordering."""
 import unittest
 from tools import ja_first_priority as p
 from tools import ja_first_search_pilot as search
@@ -15,13 +15,10 @@ class PriorityTests(unittest.TestCase):
         self.assertLess(p.priority(horror),p.priority(drama))
         self.assertLess(p.priority(drama),p.priority(other))
 
-    def test_x_files_and_sunny_prioritized_without_episode_overrides(self):
-        self.assertEqual(p.priority({"kind":"Episode","series_title":"The X-Files"}),0)
-        self.assertEqual(p.priority({"kind":"Episode","series_title":"The X Files"}),0)
-        self.assertEqual(p.priority({"kind":"Episode",
-                                     "series_title":"It's Always Sunny in Philadelphia"}),0)
-        self.assertGreater(p.priority({"kind":"Episode",
-                                        "series_title":"Unrelated Show"}),0)
+    def test_all_series_get_same_generic_priority(self):
+        for name in ("The X-Files", "The X Files",
+                     "It's Always Sunny in Philadelphia", "Unrelated Show"):
+            self.assertEqual(p.priority({"kind":"Episode","series_title":name}),2)
 
     def test_no_false_match_based_on_horror_in_film_title(self):
         self.assertEqual(p.priority({"kind":"Movie","title":"Horror Stories",
