@@ -5,8 +5,7 @@ Reads existing Sublarr provider credentials locally where available, prompts on
 /dev/tty for missing credentials, disables scheduled searches, then searches
 ONE episode (S02E01). No production mounts, downloads or subtitle publication.
 Never prints or commits passwords, API keys, or authentication responses.
-Run as a local downloaded Python file on the OptiPlex over SSH -tt.
-Do NOT pipe the script into python3 -; that consumes standard input for prompts.
+For a missing OpenSubtitles login, use --stdin-credentials with two lines\nof credentials passed over SSH stdin by a local Mac mini prompt.\nDo NOT pipe the script itself into python3 -.
 """
 from __future__ import annotations
 
@@ -125,7 +124,18 @@ def terminal_credentials(existing, from_sublarr):
         print("OpenSubtitles.com login: obtained locally (not displayed)")
     if subdl:
         print("SubDL key: obtained locally (not displayed)")
-    if not ((osuser and ospass) and subdl):
+    if "--stdin-credentials" in sys.argv and not (osuser and ospass):
+        # Credentials arrive from an interactive prompt on the Mac mini,
+        # via SSH standard input (never CLI arguments or shell history).
+        # Only two lines: OpenSubtitles.com username and password.
+        supplied_user = sys.stdin.readline().rstrip("\r\n")
+        supplied_pass = sys.stdin.readline().rstrip("\r\n")
+        if supplied_user and supplied_pass:
+            osuser, ospass = supplied_user, supplied_pass
+            print("OpenSubtitles.com login: received over SSH (not displayed)")
+        else:
+            print("OpenSubtitles.com login: not supplied (provider stays disabled)")
+    elif "--stdin-credentials" not in sys.argv and not ((osuser and ospass) and subdl):
         try:
             with open("/dev/tty", "r+", encoding="utf-8") as tty:
                 if not (osuser and ospass):
