@@ -422,7 +422,9 @@ def find_japanese(ids, search, budget, *, recheck=False, approved_reviews=None, 
                 rejected = sum(grade=="reject" for grade,_ in rated)
                 status = ("plausible" if plausible else
                           "review" if review else "none")
-                search.save_attempt(db,job,status,result.get("total"),rated)
+                search.save_attempt(db,job,status,result.get("total"),rated,
+                                    strategy_version=result.get("strategy_version"),
+                                    query_variant=result.get("query_variant"))
                 print("SEASON_JA_CANDIDATES",label,
                       "provider_total",result.get("total"),
                       "plausible",plausible,"review",review,
