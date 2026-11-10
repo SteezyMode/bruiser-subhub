@@ -56,6 +56,27 @@ for i, job in enumerate(jobs):
         req = Request(url, data=json.dumps(payload).encode(), headers=headers, method="POST")
         with urlopen(req, timeout=90) as res:
             data = json.load(res)
+        original_total = data.get("total")
+        query_variant = "original"
+        # Manual, selected-episode recheck only. OpenSubtitles can return zero
+        # for an upload not linked to the IMDb ID / video hash even when a
+        # series-title + SxxExx search finds an exact release. Do not use this
+        # fallback in scheduled/default provider searches.
+        if (job.get("retry_by_title") is True and
+            payload.get("series_title") and
+            type(payload.get("season")) is int and
+            type(payload.get("episode")) is int and
+            (payload.get("imdb_id") or payload.get("file_path")) and
+            original_total == 0 and not data.get("results")):
+            title_payload = dict(payload)
+            title_payload.pop("imdb_id", None)
+            title_payload["file_path"] = ""
+            time.sleep(3.3)  # Sublarr limit 20 / minute
+            req = Request(url, data=json.dumps(title_payload).encode(),
+                          headers=headers, method="POST")
+            with urlopen(req, timeout=90) as res:
+                data = json.load(res)
+            query_variant = "title_only_fallback"
         results = []
         for r in data.get("results", [])[:50]:
             if not isinstance(r, dict):
@@ -65,7 +86,8 @@ for i, job in enumerate(jobs):
                 "language", "score", "matches", "format", "forced", "kind"
             )})
         out = {"id": job["id"], "ok": True, "total": data.get("total"),
-               "results": results}
+               "initial_total": original_total,
+               "query_variant": query_variant, "results": results}
     except Exception as exc:
         out = {"id": job["id"], "ok": False, "error": type(exc).__name__}
     print(json.dumps(out, ensure_ascii=False), flush=True)
