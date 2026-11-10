@@ -111,10 +111,10 @@ class ScopeTests(unittest.TestCase):
             fake_cfg = types.ModuleType("config")
             fake_cfg.get_settings = lambda: SimpleNamespace(api_key="TEST_KEY")
             output = io.StringIO()
-            with mock.patch.dict(sys.modules, {"config":fake_cfg}), \\
-                 mock.patch("urllib.request.urlopen",side_effect=respond), \\
-                 mock.patch("time.sleep"), \\
-                 mock.patch.object(sys,"stdin",io.StringIO(json.dumps(job))), \\
+            with mock.patch.dict(sys.modules, {"config":fake_cfg}), \
+                 mock.patch("urllib.request.urlopen",side_effect=respond), \
+                 mock.patch("time.sleep"), \
+                 mock.patch.object(sys,"stdin",io.StringIO(json.dumps(job))), \
                  mock.patch.object(sys,"stdout",output):
                 exec(search.CONTAINER_WORKER,{"__name__":"__main__"})
             return json.loads(output.getvalue()),calls
