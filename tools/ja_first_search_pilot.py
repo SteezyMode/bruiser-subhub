@@ -38,7 +38,7 @@ AGE_LIMIT = 72 * 3600
 # This runs ONLY inside the already-running Sublarr container. The key never
 # leaves the container and is never printed or passed on a command line.
 CONTAINER_WORKER = r'''
-import json, sys, time
+import json, re, sys, time
 from urllib.request import Request, urlopen
 from config import get_settings
 
@@ -49,8 +49,6 @@ if key:
     headers["X-Api-Key"] = key
 url = "http://127.0.0.1:5765/api/v1/providers/search"
 health_url = "http://127.0.0.1:5765/api/v1/providers/health"
-# These general-purpose JA providers must be available for an authoritative
-# 'no match'; unrelated/anime-only sources cannot establish a negative.
 core = {"opensubtitles", "subdl"}
 
 class SourceProvidersDeferred(Exception):
@@ -80,56 +78,131 @@ def require_sources():
         raise SourceProvidersDeferred(gates)
     return gates
 
-for i, job in enumerate(jobs):
-    if i:
-        time.sleep(3.3)
-    payload = job["query"]
-    try:
-        gates = require_sources()
-        req = Request(url, data=json.dumps(payload).encode(), headers=headers, method="POST")
-        with urlopen(req, timeout=90) as res:
-            data = json.load(res)
-        original_total = data.get("total")
-        query_variant = "original"
-        # Library-wide strategy: prefer identifiers, then try the known
-        # title+year or series+episode route when identifiers return nothing.
-        # This search-only recovery applies to EVERY eligible movie/episode.
-        # No candidate is approved for download merely by appearing here.
-        has_title = (bool(payload.get("title")) or
-                     (bool(payload.get("series_title")) and
-                      type(payload.get("season")) is int and
-                      type(payload.get("episode")) is int))
-        if (has_title and (payload.get("imdb_id") or payload.get("file_path"))
-            and original_total == 0 and not data.get("results")):
-            gates = require_sources()  # The first request might consume the last slot.
-            title_payload = dict(payload)
-            title_payload.pop("imdb_id", None)
-            title_payload["file_path"] = ""
-            time.sleep(3.3)  # combined API: maximum 20 requests/minute
-            req = Request(url, data=json.dumps(title_payload).encode(),
-                          headers=headers, method="POST")
-            with urlopen(req, timeout=90) as res:
-                data = json.load(res)
-            query_variant = "title_only_fallback"
-        if not data.get("results"):
-            gates = require_sources()  # A later budget closure means inconclusive.
-        results = []
-        for r in data.get("results", [])[:50]:
+def request_search(payload):
+    gates = require_sources()
+    req = Request(url, data=json.dumps(payload).encode(), headers=headers, method="POST")
+    with urlopen(req, timeout=90) as res:
+        data = json.load(res)
+    if not isinstance(data, dict) or not isinstance(data.get("results"), list):
+        raise RuntimeError("invalid_sublarr_search_response")
+    return data, gates
+
+def title_words(value):
+    return re.findall(r"[a-z0-9]+", str(value or "").casefold())
+
+def credible_movie_hit(data, title, year):
+    """Only suppress the refined query for evidence of the SAME movie.
+
+    This is NOT publication approval. Final identity and timing checks still
+    run in the host workflow. A shared title word ("Mad") proves nothing.
+    """
+    needle = title_words(title)
+    if not needle:
+        return False
+    for result in data.get("results") or []:
+        if (not isinstance(result, dict)
+                or result.get("language") not in ("ja", "jpn")):
+            continue
+        for source in (result.get("filename"), result.get("release_info")):
+            words = title_words(source)
+            for i in range(len(words) - len(needle) + 1):
+                if words[i:i+len(needle)] != needle:
+                    continue
+                before = words[i-1] if i else ""
+                after = words[i+len(needle)] if i+len(needle) < len(words) else ""
+                years = [int(x) for x in (before, after)
+                         if re.fullmatch(r"(?:19|20)\d{2}",x)]
+                if (years and any(abs(y-int(year))<=1 for y in years)
+                        or not years and "title" in (result.get("matches") or [])):
+                    return True
+    return False
+
+def unique_results(*replies):
+    seen = set()
+    out = []
+    for data in replies:
+        for r in data.get("results") or []:
             if not isinstance(r, dict):
                 continue
-            results.append({k: r.get(k) for k in (
+            key = (str(r.get("provider")), str(r.get("subtitle_id")),
+                   str(r.get("filename")))
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append({k: r.get(k) for k in (
                 "provider", "subtitle_id", "filename", "release_info",
                 "language", "score", "matches", "format", "forced", "kind"
             )})
-        out = {"id": job["id"], "ok": True, "total": data.get("total"),
-               "initial_total": original_total, "strategy_version": 3,
-               "query_variant": query_variant, "provider_gates": gates,
-               "results": results}
+    return out[:100]
+
+for i, job in enumerate(jobs):
+    if i:
+        time.sleep(3.3)
+    payload = dict(job["query"])
+    is_episode = (bool(payload.get("series_title"))
+                  and type(payload.get("season")) is int
+                  and type(payload.get("episode")) is int)
+    original = None
+    gates = {}
+    replies = []
+    variant = "original"
+    try:
+        if is_episode:
+            # Sublarr 1.18's /providers/search sends the series IMDb ID as
+            # OpenSubtitles' *episode* imdb_id, not parent_imdb_id. Prefer the
+            # series-name + S/E search which the installed API handles correctly.
+            payload.pop("imdb_id", None)
+            payload["file_path"] = ""
+            variant = "series_title_episode"
+        elif payload.get("title") and payload.get("year") and not payload.get("imdb_id"):
+            # The 1.18 combined endpoint DROPS the year field. Put it into
+            # the text query so providers can narrow their own search.
+            title = str(payload["title"])
+            year = str(payload["year"])
+            payload["title"] = title if year in title_words(title) else title+" "+year
+            variant = "movie_title_year"
+
+        first, gates = request_search(payload)
+        replies.append(first)
+        original = first.get("total")
+        if (not is_episode and payload.get("imdb_id")
+                and payload.get("title") and payload.get("year")
+                and not credible_movie_hit(first, payload["title"], payload["year"])):
+            # A full page of unrelated 'Bride', 'Mad' or 'Rainbow' hits is
+            # NOT success. Try one year-qualified title lookup, even when the
+            # combined provider search returned 50 unrelated subtitles.
+            fallback = dict(payload)
+            fallback.pop("imdb_id", None)
+            fallback["file_path"] = ""
+            year = str(fallback["year"])
+            title = str(fallback["title"])
+            fallback["title"] = title if year in title_words(title) else title+" "+year
+            time.sleep(3.3)  # Sublarr combined search: 20 requests/minute
+            second, gates = request_search(fallback)
+            replies.append(second)
+            variant = "imdb_then_movie_title_year"
+
+        if not any(x.get("results") for x in replies):
+            gates = require_sources()  # Could have exhausted the last budget slot.
+        results = unique_results(*replies)
+        out = {
+            "id": job["id"], "ok": True,
+            "total": sum(int(x.get("total") or 0) for x in replies),
+            "initial_total": original,
+            "strategy_version": 4, "query_variant": variant,
+            "provider_gates": gates, "results": results,
+            "requests_made": len(replies),
+        }
     except SourceProvidersDeferred as exc:
-        out = {"id": job["id"], "ok": True, "deferred": True, "total": 0,
-               "strategy_version": 3, "query_variant": "provider_gate_deferred",
-               "provider_reason": str(exc), "provider_gates": exc.gates,
-               "results": []}
+        out = {
+            "id": job["id"], "ok": True, "deferred": True,
+            "total": sum(int(x.get("total") or 0) for x in replies),
+            "initial_total": original, "strategy_version": 4,
+            "query_variant": "provider_gate_deferred",
+            "provider_reason": str(exc), "provider_gates": exc.gates,
+            "results": unique_results(*replies),
+            "requests_made": len(replies),
+        }
     except Exception as exc:
         out = {"id": job["id"], "ok": False, "error": type(exc).__name__}
     print(json.dumps(out, ensure_ascii=False), flush=True)
