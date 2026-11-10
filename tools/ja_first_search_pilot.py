@@ -730,7 +730,8 @@ def main():
             if response.get("deferred"):
                 save_attempt(db, job, "deferred", response.get("total"),
                              strategy_version=response.get("strategy_version"),
-                             query_variant=response.get("query_variant"))
+                             query_variant=response.get("query_variant"),
+                             provider_gates=response.get("provider_gates"))
                 summary["deferred"] += 1
                 print(f"[{i}/{len(chosen)}] DEFERRED: {response.get('provider_reason')} "
                       "(remaining items not queried)", flush=True)
