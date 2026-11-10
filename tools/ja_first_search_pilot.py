@@ -54,7 +54,9 @@ health_url = "http://127.0.0.1:5765/api/v1/providers/health"
 core = {"opensubtitles", "subdl"}
 
 class SourceProvidersDeferred(Exception):
-    pass
+    def __init__(self, gates):
+        self.gates = gates
+        super().__init__(str(gates))
 
 def provider_gates():
     try:
@@ -75,7 +77,7 @@ def provider_gates():
 def require_sources():
     gates = provider_gates()
     if any(value != "ok" for value in gates.values()):
-        raise SourceProvidersDeferred(str(gates))
+        raise SourceProvidersDeferred(gates)
     return gates
 
 for i, job in enumerate(jobs):
@@ -126,7 +128,8 @@ for i, job in enumerate(jobs):
     except SourceProvidersDeferred as exc:
         out = {"id": job["id"], "ok": True, "deferred": True, "total": 0,
                "strategy_version": 3, "query_variant": "provider_gate_deferred",
-               "provider_reason": str(exc), "results": []}
+               "provider_reason": str(exc), "provider_gates": exc.gates,
+               "results": []}
     except Exception as exc:
         out = {"id": job["id"], "ok": False, "error": type(exc).__name__}
     print(json.dumps(out, ensure_ascii=False), flush=True)
@@ -340,13 +343,14 @@ def pick(rows, db, budget):
         elif outcome == "error" and when >= now-86400:
             done.add(str(jid))
         elif outcome not in ("in_progress","error","deferred") and when >= now-30*86400:
-            # Revisit legacy zero-result entries ONCE with the improved
-            # search strategy, not every day. Existing positive candidates
+            # Zero-result entries made before provider-gate verification are
+            # inconclusive and may be retried once with the improved
+            # strategy. Existing positive candidates
             # are left untouched; their staging queue already owns them.
             legacy_zero=(outcome=="none")
             if legacy_zero:
                 try:
-                    legacy_zero=int(json.loads(raw).get("strategy_version") or 0)<2
+                    legacy_zero=int(json.loads(raw).get("strategy_version") or 0)<3
                 except (TypeError,ValueError):
                     legacy_zero=True
             if not legacy_zero:
