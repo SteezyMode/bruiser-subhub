@@ -79,7 +79,7 @@ def queue_position(row, action, tasks):
 
 
 
-PREFERRED_SHOWS = {"thexfiles", "xfiles", "itsalwayssunnyinphiladelphia"}
+# No hard-coded show priority: every series participates in the same queue.
 
 
 def simplify(text):
@@ -89,8 +89,7 @@ def simplify(text):
 def priority(row):
     kind = row.get("kind")
     if kind == "Episode":
-        series = simplify(row.get("series_title") or "")
-        return 0 if series in PREFERRED_SHOWS else 2
+        return 2
     if kind == "Movie":
         genres = row.get("genres")
         genre_text = " ".join(str(x) for x in genres) if isinstance(genres, list) else ""
