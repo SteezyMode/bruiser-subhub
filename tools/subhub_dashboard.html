@@ -74,7 +74,19 @@ details>summary{cursor:pointer}
   <button id="source-library" class="primary" type="button" disabled>Find Japanese subtitles throughout library</button>
   <button id="stop-library" type="button" class="quiet" hidden>Stop current library pass</button>
  </div>
- <p id="library-source-note" class="small muted">Existing daily sourcing timer can continue the remaining queue after each bounded pass. Use Refresh to see the latest status.</p>
+ <p id="library-source-note" class="small muted">Each pass is bounded by provider allowance and records saved results.</p>
+ <div id="library-live" hidden aria-live="polite">
+  <div class="split"><strong id="library-live-heading">Current sourcing pass</strong><span class="small muted" id="library-live-phase">Reading progress…</span></div>
+  <div class="split"><span>Searches in this pass</span><strong id="library-search-label">—</strong></div>
+  <div class="meter" id="library-search-meter" role="progressbar" aria-label="Japanese source searches in this pass" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="fill" id="library-search-fill"></div></div>
+  <div class="split"><span>Candidate downloads</span><strong id="library-stage-label">—</strong></div>
+  <div class="meter" id="library-stage-meter" role="progressbar" aria-label="Japanese subtitle staging in this pass" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="fill" id="library-stage-fill"></div></div>
+  <div class="split"><span>Publication checks</span><strong id="library-publish-label">—</strong></div>
+  <div class="meter" id="library-publish-meter" role="progressbar" aria-label="Japanese subtitle publication checks in this pass" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="fill" id="library-publish-fill"></div></div>
+  <p id="library-live-summary" class="small muted"></p>
+  <p id="library-live-current" class="small muted"></p>
+  <p class="small muted">Each bar measures the current bounded pass, not total library coverage. Subsequent passes may have different totals.</p>
+ </div>
 </section>
 
 <section class="panel">
@@ -477,10 +489,39 @@ function drawJobs(data){
   const aiEvents=(data.season_translation&&data.season_translation.recent)||[];
   $("recent-events").textContent=events.slice(-4).concat(aiEvents.slice(-4)).join(" | ")||"No recent scoped-job events.";
 }
+function renderLibrarySourceProgress(d){
+  const p=d.source_job||{};
+  const known=!!p.metrics_available;
+  const active=!!p.active;
+  $("library-live").hidden=!known;
+  if(!known)return;
+  $("library-live-heading").textContent=active?"Live sourcing pass":"Previous sourcing pass";
+  $("library-live-phase").textContent=escapeText(p.phase_label||p.phase||"");
+  const bar=(kind,done,planned)=>{
+    const current=Math.max(0,Number(done)||0);
+    const total=Math.max(0,Number(planned)||0);
+    const percent=total?Math.max(0,Math.min(100,Math.round(100*current/total))):0;
+    $(kind+"-label").textContent=total?current+" / "+total+" · "+percent+"%":"Not planned yet";
+    $(kind+"-fill").style.width=percent+"%";
+    $(kind+"-meter").setAttribute("aria-valuenow",String(percent));
+    $(kind+"-meter").setAttribute("aria-valuetext",
+      total?current+" of "+total+" checked":"Waiting for planned count");
+  };
+  bar("library-search",p.search_completed,p.search_planned);
+  bar("library-stage",p.stage_attempts,p.stage_planned);
+  bar("library-publish",p.publish_title_checked,p.publish_title_planned);
+  $("library-live-summary").textContent=
+    "Matches: "+(p.search_found||0)+" · No match: "+(p.search_none||0)+
+    " · Review: "+(p.search_review||0)+" · Errors: "+(p.search_errors||0)+
+    " · Staged: "+(p.staged||0)+" · Published: "+(p.published||0)+
+    " · Held: "+((p.stage_holds||0)+(p.publish_holds||0));
+  $("library-live-current").textContent="Current: "+escapeText(p.current_item||"Waiting for next item");
+}
 async function refreshStatus(){
   try{
     const d=await getJson("/api/status");
     latest=d;
+    renderLibrarySourceProgress(d);
     const t=d.translation||{};
     const legacy=!!(t.american_dad_batch||{}).active;
     const source=!!d.source_active||!!(d.season_sources||{}).active;
