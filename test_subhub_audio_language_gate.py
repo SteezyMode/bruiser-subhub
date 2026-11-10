@@ -11,7 +11,7 @@ from tools import ja_first_search_pilot as search
 
 
 class AudioLanguageGateTests(unittest.TestCase):
-    def test_catalog_untagged_audio_is_review_not_japanese_search(self):
+    def test_catalog_untagged_audio_is_searchable_with_review_flag(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder)
             video=root/"Trick.S01E01.mkv"
@@ -24,13 +24,14 @@ class AudioLanguageGateTests(unittest.TestCase):
             }
             mounts=[(root,Path("/media/bigdisk-video"))]
             state=catalog.classify(item,{},mounts,{})
-            self.assertEqual(state["status"],"review_audio_language_unverified")
+            self.assertEqual(state["status"],"ready_ja_search")
+            self.assertTrue(state["audio_review_required"])
             self.assertEqual(state["audio_language"],"und")
-            self.assertNotEqual(state["status"],"ready_ja_search")
             for label in ("", "unknown", "mul", "zxx", "none"):
                 item["MediaStreams"][0]["Language"]=label
                 state=catalog.classify(item,{},mounts,{})
-                self.assertEqual(state["status"],"review_audio_language_unverified")
+                self.assertEqual(state["status"],"ready_ja_search")
+                self.assertTrue(state["audio_review_required"])
 
     def test_catalog_verified_audio_keeps_normal_routing(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -55,7 +56,7 @@ class AudioLanguageGateTests(unittest.TestCase):
             self.assertEqual(catalog.classify(item,{},mounts,{})["status"],
                              "existing_japanese_subtitle")
 
-    def test_saved_old_manifest_cannot_search_untagged_audio(self):
+    def test_search_unknown_audio_without_presuming_english_audio(self):
         with tempfile.TemporaryDirectory() as folder:
             video=Path(folder)/"Trick.S01E01.mkv"
             video.write_bytes(b"synthetic")
@@ -65,7 +66,10 @@ class AudioLanguageGateTests(unittest.TestCase):
                 "kind":"Episode","series_title":"Trick",
                 "season":1,"episode":1,
             }
-            for lang in ("unknown","und","",None,"jpn","ja-JP","mul"):
+            for lang in ("unknown","und","",None,"mul"):
+                row["audio_language"]=lang
+                self.assertIsNotNone(search.query_for(row))
+            for lang in ("jpn","ja-JP"):
                 row["audio_language"]=lang
                 self.assertIsNone(search.query_for(row))
             row["audio_language"]="eng"
