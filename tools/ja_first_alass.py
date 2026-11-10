@@ -85,42 +85,88 @@ def prepare(jid,sid,*,aligner=None):
         raise RuntimeError("staging_cue_count_has_changed")
     quality.require_not_garbage(raw)
     if aligner is None:
-        aligned=align(video,raw)
+        aligned,reference_type=align(video,raw)
     else:
         aligned=aligner(video,raw)
+        reference_type="test_or_external"
     if not 0<len(aligned)<=MAX_ALIGNED_SIZE:
         raise RuntimeError("invalid_alass_output_size")
     # Existing QA confirms Japanese content/coverage did not disappear.
     if gate.validate_srt(aligned,runtime)!=src_metrics:
         raise RuntimeError("alass_subtitle_health_changed")
     metrics=assess(raw,aligned,runtime)
+    metrics["alignment_reference"]=reference_type
     return {
         "jid":jid,"sid":sid,"row":row,"video":video,
         "target":gate.video_target(video), "original":raw,"chosen":aligned,
         "assessment":metrics
     }
 
+def _embedded_english(video):
+    """Reuse an English text track from the SAME media file, when available."""
+    p=subprocess.run(["ffprobe","-v","error","-show_streams","-of","json",str(video)],
+                     capture_output=True,timeout=45,check=False)
+    if p.returncode:
+        return None
+    try:
+        streams=json.loads(p.stdout)["streams"]
+    except (ValueError,KeyError,TypeError):
+        return None
+    for stream in streams:
+        if stream.get("codec_type")!="subtitle" or stream.get("codec_name") not in {
+                "subrip","ass","ssa","mov_text","webvtt","text"}:
+            continue
+        tag=str((stream.get("tags") or {}).get("language") or "").lower()
+        if tag not in {"en","eng","english"} or stream.get("disposition",{}).get("forced"):
+            continue
+        index=stream.get("index")
+        if not isinstance(index,int):
+            continue
+        result=subprocess.run(
+            ["ffmpeg","-nostdin","-hide_banner","-loglevel","error",
+             "-i",str(video),"-map",f"0:{index}","-c:s","srt","-f","srt","pipe:1"],
+            capture_output=True,timeout=120,check=False
+        )
+        if result.returncode or not 100<len(result.stdout)<=MAX_ALIGNED_SIZE:
+            continue
+        try:
+            if len(ff.parse_cues(result.stdout))>=75:
+                return result.stdout
+        except (RuntimeError,UnicodeError):
+            continue
+    return None
+
 def align(video,raw):
-    """Full alass VIDEO AUDIO -> Japanese SRT; no --no-splits or offset-only mode."""
+    """Full standalone alass: same-video embedded EN when present, else audio."""
     if not available():
         raise RuntimeError("standalone_alass_unavailable")
     if not gate.STAGED.is_dir() or gate.STAGED.is_symlink():
         raise RuntimeError("private_stage_missing")
     with tempfile.TemporaryDirectory(prefix=".alass-",dir=gate.STAGED) as folder:
         source=Path(folder)/"input.ja.srt"
-        dest=Path(folder)/"output.ja.srt"
         source.write_bytes(raw)
-        try:
-            p=subprocess.run([str(BINARY),str(video),str(source),str(dest)],
-                             stdout=subprocess.PIPE,stderr=subprocess.PIPE,
-                             timeout=600,check=False)
-        except subprocess.TimeoutExpired:
-            raise RuntimeError("alass_timeout") from None
-        if p.returncode or not dest.is_file():
-            raise RuntimeError("alass_failed_no_output")
-        if not 0<dest.stat().st_size<=MAX_ALIGNED_SIZE:
-            raise RuntimeError("alass_invalid_output_size")
-        return dest.read_bytes()
+        choices=[]
+        english=_embedded_english(video)
+        if english is not None:
+            ref=Path(folder)/"same-video.english.srt"
+            ref.write_bytes(english)
+            choices.append(("same_video_embedded_english",ref))
+        choices.append(("video_audio",video))
+        for label,reference in choices:
+            dest=Path(folder)/(label+".ja.srt")
+            try:
+                p=subprocess.run([str(BINARY),str(reference),str(source),str(dest)],
+                                 stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                                 timeout=600,check=False)
+            except subprocess.TimeoutExpired:
+                continue
+            if p.returncode or not dest.is_file():
+                continue
+            if not 0<dest.stat().st_size<=MAX_ALIGNED_SIZE:
+                continue
+            return dest.read_bytes(),label
+        raise RuntimeError("alass_failed_no_valid_output")
+
 
 def artifact(jid,sid):
     if not gate.EXPECTED_ID_PATTERN.fullmatch(jid) or not str(sid).isdigit():
