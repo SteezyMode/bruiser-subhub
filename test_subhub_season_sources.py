@@ -77,68 +77,161 @@ class ScopeTests(unittest.TestCase):
                     "SELECT outcome FROM searches WHERE jellyfin_id=?",
                     (first["id"],)).fetchone()[0],"error")
 
-    def test_manual_metadata_fallback_recovers_title_only_subtitles(self):
-        # Execute the exact small container worker offline using mocked API replies.
-        # An IMDb/hash search can return zero even when title+episode has a JA file.
-        import io
-        import json
-        import sys
-        import types
-        from tools import ja_first_search_pilot as search
+    def test_episode_search_does_not_send_series_imdb_as_episode_imdb(self):
+        # Sublarr v1.18.0 misuses a series' IMDb ID as the episode IMDb ID.
+        import io, json, sys, types
         from types import SimpleNamespace
+        from tools import ja_first_search_pilot as search
 
-        original_query = {
-            "series_title": "It's Always Sunny in Philadelphia",
-            "season": 7, "episode": 2, "language": "ja",
-            "imdb_id": "tt0472954", "file_path": "/mnt/tv/S07E02.mkv"
-        }
+        calls = []
+        def respond(request, timeout):
+            if request.data is None:
+                return io.BytesIO(json.dumps({"providers":[
+                    {"name":"opensubtitles","enabled":True,"initialized":True,"gate":"ok"},
+                    {"name":"subdl","enabled":True,"initialized":True,"gate":"ok"}
+                ]}).encode())
+            q = json.loads(request.data)
+            calls.append(q)
+            assert "imdb_id" not in q and not q.get("file_path")
+            return io.BytesIO(json.dumps({"total":1,"results":[{
+                "provider":"opensubtitles","subtitle_id":"123456","language":"ja",
+                "filename":"Its.Always.Sunny.in.Philadelphia.S07E02.ja",
+                "matches":["series","season","episode"]
+            }]}).encode())
 
-        def exercise(allow_fallback):
-            calls = []
-            def respond(request, timeout):
-                if request.data is None:
-                    return io.BytesIO(json.dumps({"providers":[
-                        {"name":"opensubtitles","enabled":True,
-                         "initialized":True,"gate":"ok"},
-                        {"name":"subdl","enabled":True,
-                         "initialized":True,"gate":"ok"}
-                    ]}).encode())
-                q = json.loads(request.data)
-                calls.append(q)
-                if q.get("imdb_id") or q.get("file_path"):
-                    return io.BytesIO(b'{"total":0,"results":[]}')
-                return io.BytesIO(json.dumps({"total":1,"results":[{
-                    "provider":"opensubtitles","subtitle_id":"123456",
-                    "language":"ja",
-                    "filename":"Its.Always.Sunny.in.Philadelphia.S07E02.WEB-DL.DSNP.ja",
-                    "matches":["series","season","episode"]
-                }]}).encode())
-            job = [{"id":"episode-id","query":original_query,
-                    "retry_by_title":allow_fallback}]
-            fake_cfg = types.ModuleType("config")
-            fake_cfg.get_settings = lambda: SimpleNamespace(api_key="TEST_KEY")
-            output = io.StringIO()
-            with mock.patch.dict(sys.modules, {"config":fake_cfg}), \
-                 mock.patch("urllib.request.urlopen",side_effect=respond), \
-                 mock.patch("time.sleep"), \
-                 mock.patch.object(sys,"stdin",io.StringIO(json.dumps(job))), \
-                 mock.patch.object(sys,"stdout",output):
-                exec(search.CONTAINER_WORKER,{"__name__":"__main__"})
-            return json.loads(output.getvalue()),calls
-
-        result,calls=exercise(True)
-        self.assertEqual(result["query_variant"],"title_only_fallback")
-        self.assertEqual(result["initial_total"],0)
+        fake_cfg = types.ModuleType("config")
+        fake_cfg.get_settings = lambda: SimpleNamespace(api_key="TEST_KEY")
+        output = io.StringIO()
+        jobs = [{"id":"episode-id","query":{
+            "series_title":"It's Always Sunny in Philadelphia",
+            "season":7,"episode":2,"language":"ja",
+            "imdb_id":"tt0472954","file_path":"/mnt/tv/S07E02.mkv"}}]
+        with mock.patch.dict(sys.modules,{"config":fake_cfg}), \
+             mock.patch("urllib.request.urlopen",side_effect=respond), \
+             mock.patch("time.sleep"), \
+             mock.patch.object(sys,"stdin",io.StringIO(json.dumps(jobs))), \
+             mock.patch.object(sys,"stdout",output):
+            exec(search.CONTAINER_WORKER,{"__name__":"__main__"})
+        result=json.loads(output.getvalue())
+        self.assertEqual(result["query_variant"],"series_title_episode")
+        self.assertEqual(result["strategy_version"],4)
+        self.assertEqual(result["requests_made"],1)
+        self.assertEqual(len(calls),1)
+        self.assertEqual(calls[0]["season"],7)
+        self.assertEqual(calls[0]["episode"],2)
         self.assertEqual(result["total"],1)
+
+    def test_movie_refinement_recovers_exact_year_after_fifty_wrong_titles(self):
+        import io, json, sys, types
+        from types import SimpleNamespace
+        from tools import ja_first_search_pilot as search
+
+        calls=[]
+        def respond(request, timeout):
+            if request.data is None:
+                return io.BytesIO(json.dumps({"providers":[
+                    {"name":"opensubtitles","enabled":True,"initialized":True,"gate":"ok"},
+                    {"name":"subdl","enabled":True,"initialized":True,"gate":"ok"}
+                ]}).encode())
+            q=json.loads(request.data)
+            calls.append(q)
+            if "imdb_id" in q:
+                return io.BytesIO(json.dumps({"total":50,"results":[{
+                    "provider":"opensubtitles","subtitle_id":str(2000+i),"language":"ja",
+                    "filename":"Bride.of.Re-Animator.1990.ja","matches":[]
+                } for i in range(50)]}).encode())
+            assert q["title"] == "Bride of Chucky 1998"
+            return io.BytesIO(json.dumps({"total":1,"results":[{
+                "provider":"opensubtitles","subtitle_id":"90123","language":"ja",
+                "filename":"Bride.Of.Chucky.1998.1080p.ja",
+                "matches":["title"]
+            }]}).encode())
+        fake_cfg=types.ModuleType("config")
+        fake_cfg.get_settings=lambda: SimpleNamespace(api_key="TEST_KEY")
+        output=io.StringIO()
+        jobs=[{"id":"movie-id","query":{"title":"Bride of Chucky",
+               "year":1998,"language":"ja","imdb_id":"tt0144120"}}]
+        with mock.patch.dict(sys.modules,{"config":fake_cfg}), \
+             mock.patch("urllib.request.urlopen",side_effect=respond), \
+             mock.patch("time.sleep"), \
+             mock.patch.object(sys,"stdin",io.StringIO(json.dumps(jobs))), \
+             mock.patch.object(sys,"stdout",output):
+            exec(search.CONTAINER_WORKER,{"__name__":"__main__"})
+        result=json.loads(output.getvalue())
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["query_variant"],"imdb_then_movie_title_year")
+        self.assertEqual(result["requests_made"],2)
+        self.assertEqual(result["initial_total"],50)
+        self.assertEqual(result["total"],51)
+        self.assertEqual(len(result["results"]),51)
         self.assertEqual(len(calls),2)
         self.assertNotIn("imdb_id",calls[1])
-        self.assertEqual(calls[1]["file_path"],"")
-        self.assertEqual(result["results"][0]["language"],"ja")
-        ordinary,calls=exercise(False)
-        # Library-wide, not a special manually-selected episode path:
-        self.assertEqual(ordinary["query_variant"],"title_only_fallback")
-        self.assertEqual(ordinary["total"],1)
-        self.assertEqual(len(calls),2)
+        self.assertEqual(search.candidate_grade(
+            {"kind":"Movie","title":"Bride of Chucky","year":1998},
+            next(x for x in result["results"] if x["subtitle_id"]=="90123")),
+            "plausible")
+        self.assertEqual(search.candidate_grade(
+            {"kind":"Movie","title":"Bride of Chucky","year":1998},
+            result["results"][0]),"reject")
+
+    def test_movie_with_no_imdb_uses_year_narrowed_query_only(self):
+        import io, json, sys, types
+        from types import SimpleNamespace
+        from tools import ja_first_search_pilot as search
+        calls=[]
+        def respond(request, timeout):
+            if request.data is None:
+                return io.BytesIO(json.dumps({"providers":[
+                    {"name":"opensubtitles","enabled":True,"initialized":True,"gate":"ok"}
+                ]}).encode())
+            q=json.loads(request.data)
+            calls.append(q)
+            return io.BytesIO(b'{"total":0,"results":[]}')
+        fake_cfg=types.ModuleType("config")
+        fake_cfg.get_settings=lambda: SimpleNamespace(api_key="TEST_KEY")
+        output=io.StringIO()
+        jobs=[{"id":"mad","query":{"title":"Mad God","year":2021,"language":"ja"}}]
+        with mock.patch.dict(sys.modules,{"config":fake_cfg}), \
+             mock.patch("urllib.request.urlopen",side_effect=respond), \
+             mock.patch("time.sleep"), \
+             mock.patch.object(sys,"stdin",io.StringIO(json.dumps(jobs))), \
+             mock.patch.object(sys,"stdout",output):
+            exec(search.CONTAINER_WORKER,{"__name__":"__main__"})
+        result=json.loads(output.getvalue())
+        self.assertEqual(result["query_variant"],"movie_title_year")
+        self.assertEqual(result["requests_made"],1)
+        self.assertEqual(calls[0]["title"],"Mad God 2021")
+
+    def test_exact_title_movie_id_does_not_waste_second_search(self):
+        import io, json, sys, types
+        from types import SimpleNamespace
+        from tools import ja_first_search_pilot as search
+        calls=[]
+        def respond(request, timeout):
+            if request.data is None:
+                return io.BytesIO(json.dumps({"providers":[
+                    {"name":"opensubtitles","enabled":True,"initialized":True,"gate":"ok"}
+                ]}).encode())
+            calls.append(json.loads(request.data))
+            return io.BytesIO(json.dumps({"total":1,"results":[{
+                "provider":"opensubtitles","subtitle_id":"3399","language":"ja",
+                "filename":"Late.Night.with.the.Devil.2023.ja",
+                "matches":["title"]}]}).encode())
+        fake_cfg=types.ModuleType("config")
+        fake_cfg.get_settings=lambda: SimpleNamespace(api_key="TEST_KEY")
+        output=io.StringIO()
+        jobs=[{"id":"late","query":{"title":"Late Night with the Devil",
+                  "year":2024,"language":"ja","imdb_id":"tt4263482"}}]
+        with mock.patch.dict(sys.modules,{"config":fake_cfg}), \
+             mock.patch("urllib.request.urlopen",side_effect=respond), \
+             mock.patch("time.sleep"), \
+             mock.patch.object(sys,"stdin",io.StringIO(json.dumps(jobs))), \
+             mock.patch.object(sys,"stdout",output):
+            exec(search.CONTAINER_WORKER,{"__name__":"__main__"})
+        result=json.loads(output.getvalue())
+        self.assertEqual(result["requests_made"],1)
+        self.assertEqual(result["query_variant"],"original")
+        self.assertEqual(len(calls),1)
 
     def test_worker_defers_without_provider_search_when_budget_blocked(self):
         import io
