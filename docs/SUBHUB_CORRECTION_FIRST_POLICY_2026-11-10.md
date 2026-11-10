@@ -1,36 +1,16 @@
-# Bruiser SubHub: owner-canonical correction-first policy (2026-11-10)
+# SubHub canonical correction-first policy (2026-11-10)
 
-**This decision supersedes any older project document or comments suggesting "strict intake", arbitrary rejection thresholds, throughput optimization, or mandatory custom software.** The objective is to watch movies/television with Japanese subtitles on the existing Jellyfin library. Household utility beats feature breadth, code volume, or startup-style metrics.
+**Supersedes conflicting prior project directions.** The job is Japanese subtitles for household Jellyfin viewing, not making or selling software. See [GOAL](../GOAL.md), [current state](CURRENT_STATE.md).
 
-## Operating rules
+1. **Permissive sourcing:** Keep credible Japanese, ambiguous candidates, saved bytes and provider provenance. Investigate alternate cuts, show names and episode numbering. A provider miss or rejected first match is not proof that usable Japanese doesn't exist.
+2. **Native-language references are helpful, never mandatory for Japanese.** For a selected item, inspect its embedded/original-language text and sidecars; if missing, search for an edition-matched native-language reference when useful and sensible against quota. Cache and reuse it for identity, synchronization and potential future translation. An English subtitle search is **not** a precondition to Japanese search, repair or publication. Distinguish absence of a reference from absence of Japanese. EN->JA translation, unlike Japanese sourcing, does require a verified source transcript.
+3. **Repair first:** Reuse installed ffsubsync/Sublarr repair and subtitle editing tools. Consider offset, framerate, variable drift, cuts, scene additions and wrong edition. Compare candidates against actual dialogue in opening/middle/ending. Cross-language cue counts/start matching are only hints; a stricter score is not an actual correction.
+4. **Separate states:** Candidate discovered, identity uncertain, timing repair needed, text review needed, verified, published, or withdrawn after review are different outcomes. Never erase old candidates because of a later empty search. Don't label a completed zero-publish job a successful subtitle.
+5. **Evidence-based reversible publication:** Preserve original subtitle bytes and verified identity. Preview corrections; publish new sidecars create-only where practicable, never silently overwrite editorial Japanese or alter media. Owner-confirmed playback matters. After thorough repair/identity review, a provably unusable published subtitle may be removed from active viewing only with backup, explicit record and rollback. Uncertain means review, not ejection.
+6. **AI is last resort:** Prefer sourced human Japanese. After reasonable recovery exhaustion, use the existing guarded/checkpointed PLaMo pipeline with verified source dialogue. Do not restart model sweeps or send ambiguous candidates straight to AI.
+7. **Tool selection:** Investigate and configure capable off-the-shelf tools first. The custom dashboard is the owner's best *current experience* but not a chosen permanent architecture. No unproven forced migration, unnecessary replacement, duplicated queue or polished nonfunctional UI.
+8. **Status honesty:** GitHub commit != host install != real source result != verified playback. Report which is which.
 
-1. **Permissive sourcing and preservation:** Query configured sources, retain plausible *and* ambiguous Japanese results, downloaded candidates, original subtitle bytes, and source evidence. A zero-result response, missing metadata, or unsuccessful automated match is not proof that subtitles are unavailable. Investigate alternate provider titles, seasons, episode orders, release variants, and retained downloaded candidates before concluding sourcing is exhausted.
-2. **Spend time fixing, not rejecting:** Attempt justified offset, variable-drift, release-timebase and scene-cut corrections; compare multiple subtitle candidates; review manually when needed. Extra per-episode compute/review time is acceptable. Correct errors in old published subtitles as well as newly found ones.
-3. **Distinguish availability from readiness:** A candidate may be **FOUND / NEEDS IDENTITY REVIEW / NEEDS TIMING REPAIR / NEEDS TEXT REVIEW / VERIFIED / PUBLISHED / WITHDRAWN AFTER REVIEW**. Do not collapse all non-published candidates into "missing subtitles". Never erase candidate history after a later empty search.
-4. **Evidence-based, reversible publication:** Identify the correct movie or episode, check Japanese content, inspect beginning/middle/end timing, and verify corrections with independent evidence wherever possible. Maintain a recoverable original and rollback path. **Previously accepted/published subtitles can be rejected and ejected from active Jellyfin playback if a thorough identity, dialogue, timing and repairability investigation demonstrates that they are unusable.** Exhaust reasonable repair or replacement first; never delete the only copy. After an evidence-backed rejection, quarantine/withdraw the published sidecar with an explicit, logged, reversible operation; do not leave a known-bad subtitle active merely because it passed an earlier gate. When evidence is insufficient, mark for review rather than assuming good or bad.
-5. **Reuse existing tools:** Sublarr and Jellyfin are the primary substrate. Avoid building a second orchestration stack or show-specific controls unless a demonstrated gap cannot be solved with installed tools.
-6. **AI is a last-resort source**, not the next step after one failed provider request. Inspect/repair Japanese subtitles first. Compare PLaMo's already-finished output with human-authored Japanese for concision, tone, names, idioms and timing.
+## Active acceptance case
 
-## Implemented audit pilot (GitHub only; not yet run on host)
-
-- [Read-only published-subtitle timing audit](../tools/subhub_published_timing_audit.py) handles **existing** Japanese sidecars, selects an explicit video or list of episodes, and compares locally available embedded English/English sidecar cue times across cold open, early remainder, middle, and ending.
-- Reuses [existing timing helper](../tools/ja_first_stage_timing_audit.py) with shorter regional comparison windows. The new tool emits directional offsets and **review signals**, not accepted/rejected verdicts; bilingual cue splitting can distort timestamp matches. Built-in `--self-test` uses constant-offset, variable cold-open-offset and inconclusive fixtures.
-- **Do not silently withdraw, re-time or overwrite** already-published subtitles based solely on an automated cue-timing statistic. Withdrawal is an accepted **eventual outcome**, but only after thorough investigation and documented, reversible remediation/rejection.
-- Initial live acceptance cases: S01E04 and S01E05; compare results and watch actual dialogue before extending to other episodes or enabling any modification.
-
-## Active validation
-
-- **Known timing concern:** *It's Always Sunny in Philadelphia* S01E04, "Charlie Has Cancer"—Japanese dialogue is several seconds late in parts of the cold open but closer mid-episode. A constant shift is **not** assumed to fix it.
-- **Control case:** S01E05, "Gun Fever"—spot checks closer to English timing, but neither this nor runtime similarity guarantees full sync.
-- **Provenance hold:** Five staged S02/S03 Japanese subtitle files exist, but their current search-history entries lack original candidate IDs. Preserve files; independently verify episode identity and recover evidence before final publication.
-- **Translation review backlog:** Four completed PLaMo IASIP Japanese subtitle outputs; review against known-good sourced Japanese after timing work.
-
-## Implementation / acceptance order
-
-1. Run a **read-only** timing comparison for already-published S01E04 and S01E05 with per-section evidence. Report missing/uncertain reference honestly. Never alter existing files during this phase.
-2. Validate the audit's positive and negative behavior on host examples. A misaligned cold open should be distinguishable from a plausible control; otherwise improve the method before drawing conclusions.
-3. Add candidate **repair previews**, preferably reusing installed synchronization tools. Require before/after evidence for corrections; never blindly reshift all published subtitles.
-4. Extend audits to other episodes and movies, including existing published sidecars. Make work selectable and resumable, with outcomes good/corrected/review-needed; only then consider a library-wide repair pass.
-5. Resolve stranded provenance candidates and review AI translations without changing the source-first priority.
-
-**States must report reality:** code committed to GitHub != installed, a diagnostic candidate != verified, and runtime closeness != synchronization confirmation.
+IASIP S01E04 (owner-observed cold-open timing fault) and S01E05 (comparison). Both already have embedded English. November 10 read-only four-region timing audits returned inconclusive. **Next: a non-destructive sync/repair preview and dialogue/playback comparison using existing engines, not more cue-start threshold tuning.** No unattended changes to published subtitle files until the method is validated. Details: [CURRENT_STATE.md](CURRENT_STATE.md).

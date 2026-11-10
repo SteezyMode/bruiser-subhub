@@ -46,7 +46,7 @@ def run_one(video, title, year, *, apply=False, runner=subprocess.run):
     if not notices:
         if any("SOURCE_MISS" in line for line in lines):
             return {"state":"missing_ja","video":str(video),
-                    "message":"No matching Japanese subtitle; English translation is next"}
+                    "message":"No approved Japanese subtitle in this search. Review saved candidates or try other sources before considering translation; English is not required for Japanese sourcing."}
         if any("NO_APPROVED_CANDIDATE" in line for line in lines):
             return {"state":"held","video":str(video),
                     "message":"Japanese subtitles found but timing/content needs repair"}
