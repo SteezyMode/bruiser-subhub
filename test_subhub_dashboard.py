@@ -466,16 +466,18 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(result["manual_batch_history"]["state"], "interrupted")
         self.assertTrue(result["source_active"])
 
-    def test_library_wide_dashboard_start_is_disabled(self):
-        with patch.object(dashboard, "unit_active", return_value=False):
-            with patch.object(dashboard.subprocess, "run") as runner:
-                with self.assertRaisesRegex(RuntimeError,
-                                            "library_wide_sourcing_disabled"):
-                    dashboard.source_controls("start-auto")
-                with self.assertRaisesRegex(RuntimeError,
-                                            "library_wide_sourcing_disabled"):
-                    dashboard.source_controls("start-manual")
-                runner.assert_not_called()
+    def test_library_wide_dashboard_starts_only_existing_source_only_service(self):
+        with patch.object(dashboard, "unit_active", return_value=False), \
+             patch.object(dashboard, "translation_busy", return_value=False), \
+             patch.object(dashboard.subprocess, "run",
+                          return_value=dashboard.subprocess.CompletedProcess([],0,stdout="")) as runner:
+            self.assertEqual(dashboard.source_controls("start-auto")["action"],"start-auto")
+            argv=runner.call_args.args[0]
+            self.assertEqual(argv,["systemctl","--user","start","--no-block",
+                                  dashboard.SCHEDULED_UNIT])
+            with self.assertRaisesRegex(RuntimeError,"legacy_manual_worker_disabled"):
+                dashboard.source_controls("start-manual")
+            self.assertEqual(runner.call_count,1)
 
 
     def test_control_availability_prevents_duplicate_workers(self):
@@ -494,12 +496,12 @@ class HTTPTests(unittest.TestCase):
                     dashboard.source_controls("start-auto")
                 runner.assert_not_called()
 
-    def test_library_wide_starts_always_rejected_even_with_other_workers(self):
+    def test_library_wide_source_start_blocks_other_workers(self):
         with patch.object(dashboard, "unit_active",
                           side_effect=[False, False, True]), \
              patch.object(dashboard.subprocess, "run") as runner:
             with self.assertRaisesRegex(RuntimeError,
-                                        "library_wide_sourcing_disabled"):
+                                        "season_source_active"):
                 dashboard.source_controls("start-auto")
             runner.assert_not_called()
 
@@ -588,7 +590,9 @@ class HTTPTests(unittest.TestCase):
             self.assertIn('id="'+identifier+'"',source)
         self.assertIn("X-Subhub-Token",source)
         self.assertIn("series:selectedSeries,picks",source)
-        self.assertNotIn("/api/control/start-manual",source)
+        self.assertIn("/api/control/start-auto",source)
+        self.assertIn('id="source-library"',source)
+        self.assertNotIn("library_wide_sourcing_disabled_use_selected_season",source)
         self.assertIn("Review ",source)
 
     def test_owner_http_and_no_remote_listener(self):
