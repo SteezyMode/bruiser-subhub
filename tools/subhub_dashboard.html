@@ -67,6 +67,16 @@ details>summary{cursor:pointer}
  <div class="row"><span id="run-status" class="small muted">Checking workers…</span><button class="quiet" id="refresh">Refresh</button></div>
 </header>
 
+<section class="panel" id="library-sourcing">
+ <h2>Entire library · Japanese sourcing</h2>
+ <p class="small muted">Search all eligible movies and TV episodes, recover old misses with title-based queries, stage candidates, repair timing and publish without overwriting. Runs in provider-limited batches. No PLaMo.</p>
+ <div class="row">
+  <button id="source-library" class="primary" type="button" disabled>Find Japanese subtitles throughout library</button>
+  <button id="stop-library" type="button" class="quiet" hidden>Stop current library pass</button>
+ </div>
+ <p id="library-source-note" class="small muted">Existing daily sourcing timer can continue the remaining queue after each bounded pass. Use Refresh to see the latest status.</p>
+</section>
+
 <section class="panel">
  <h2>Find a movie or TV series</h2>
  <form id="lookup" class="row">
@@ -88,9 +98,9 @@ details>summary{cursor:pointer}
  <div class="status-strip" id="coverage-totals" aria-live="polite">Choose seasons to inspect subtitle coverage.</div>
  <div class="episode-controls">
   <button id="source-selected" class="primary" type="button" disabled>1. Find Japanese subtitles / fix timing</button>
-  <button id="translate-selected" type="button" disabled>2. Send all remaining to PLaMo</button>
+  <button id="translate-selected" type="button" disabled>Last resort: translate checked episodes</button>
  </div>
- <p id="action-note" class="small muted">Source available Japanese subtitles first. When the job finishes, translate whatever is still missing. Expand episodes only if you want to choose individually.</p>
+ <p id="action-note" class="small muted">Sourcing is the default. PLaMo is manual and reserved for individually checked episodes after source options have been exhausted.</p>
  <div class="row">
   <button id="toggle-episodes" type="button" class="quiet" disabled>Review remaining episodes</button>
   <button id="clear-episodes" type="button" class="quiet" hidden>Clear checked episodes</button>
@@ -245,16 +255,16 @@ function renderCoverage(){
     "Choose one or several seasons to inspect coverage.";
   const src=picksFor("source"), ai=picksFor("translate");
   $("source-selected").disabled=busy||!src.length||latest.workersBusy;
-  $("translate-selected").disabled=busy||!ai.length||latest.workersBusy||!latest.aiAvailable;
+  $("translate-selected").disabled=busy||!checked.size||!ai.length||latest.workersBusy||!latest.aiAvailable;
   $("source-selected").textContent="1. Find Japanese / fix timing ("+src.length+")";
-  $("translate-selected").textContent=(checked.size?"2. Send checked to PLaMo (":"2. Send all remaining to PLaMo (")+ai.length+")";
+  $("translate-selected").textContent="Last resort: checked PLaMo ("+ai.length+")";
   $("toggle-episodes").disabled=!n.total;
   $("action-note").textContent=checked.size?
     "Only your "+checked.size+" checked episode(s) are included. Clear checks to work on all remaining.":
     src.length?
-    "Start with Japanese sourcing and timing repair. Then send the episodes still missing Japanese to PLaMo. Both actions stay within the selected seasons.":
+    "Search Japanese sources and repair timing. Only individually reviewed and checked episodes should use the separate PLaMo last resort.":
     ai.length?
-    "No more source work is queued. Send remaining eligible episodes to PLaMo; those without usable English subtitles will be held and identified.":
+    "No queued Japanese source work; inspect saved candidates or broaden sourcing before considering PLaMo.":
     "No available source or translation action. Open episode details for the specific blocker.";
   if(expanded)renderEpisodes();
 }
@@ -496,6 +506,11 @@ async function refreshStatus(){
        "PLaMo: "+batch.series+" "+batch.current:
        escapeText(d.current_item||d.phase_label||"No current job");
     $("source-state").textContent=scoped?"Selected episodes":source?"Running":"Idle";
+    $("source-library").disabled=busy||!((d.controls||{}).start_auto)||d.workersBusy;
+    $("stop-library").hidden=!((d.controls||{}).stop_auto);
+    $("library-source-note").textContent=source&&!scoped?
+      "Library-wide Japanese sourcing is running. Source job progress and saved results are retained; no PLaMo runs.":
+      "Each pass respects provider limits and search history; enabled daily sourcing continues across the entire library.";
     $("plamo-state").textContent=ai?"Running":d.aiAvailable?"Ready":"Handoff not installed";
     $("quota").textContent=(d.source_job||{}).provider_limited?"Provider limit reached":"Allowance unverified";
     $("job-progress").textContent=escapeText(d.phase_label||"No active work");
@@ -538,6 +553,18 @@ $("toggle-episodes").addEventListener("click",()=>{
 });
 $("show-covered").addEventListener("change",e=>{showCovered=e.target.checked;if(expanded)renderEpisodes();});
 $("clear-episodes").addEventListener("click",()=>{checked.clear();renderCoverage();});
+async function librarySourceAction(stop){
+  if(busy)return;
+  if(!stop&&!confirm("Start library-wide JAPANESE source discovery and timing repair for all eligible movies and episodes? Provider quotas are respected; no PLaMo or media replacement."))return;
+  busy=true;
+  try{
+    const result=await ownerPost(stop?"/api/control/stop-auto":"/api/control/start-auto",{});
+    toast(stop?"Requested stop of current library pass.":"Started library-wide Japanese-only sourcing.");
+  }catch(err){toast("Library sourcing: "+err.message);}
+  finally{busy=false;await refreshStatus();}
+}
+$("source-library").addEventListener("click",()=>librarySourceAction(false));
+$("stop-library").addEventListener("click",()=>librarySourceAction(true));
 $("source-selected").addEventListener("click",()=>bulkAction("source"));
 $("translate-selected").addEventListener("click",()=>bulkAction("translate"));
 $("movie-start").addEventListener("click",()=>movieAction(false));
