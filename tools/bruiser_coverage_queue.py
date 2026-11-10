@@ -173,9 +173,14 @@ def japanese_source_plan(row, searches, staged, now=None):
         if outcome == "review":
             return "review_saved_ja", "confirm_identity_before_download"
         if outcome == "none" and searched > (now or time.time()) - 30 * 86400:
-            if is_true(row.get("english_text")):
-                return "validate_english_for_ja_fallback", "japanese_search_cooldown_english_available"
-            return "recover_english_for_ja_fallback", "japanese_search_cooldown_no_english_text"
+            # A single provider-search miss is NOT Japanese-source exhaustion.
+            # It may mean no enabled providers, results lost to filters,
+            # missing edition/numbering variants, or unsupported downloads.
+            # Keep sourcing open; the existing saved-search cooldown still
+            # prevents an ordinary cycle from repeating the same API call.
+            # Translation requires a separate *explicit* owner-reviewed
+            # source-exhaustion decision, never this automatic transition.
+            return "search_ja", "saved_miss_expand_providers_and_recover_candidates"
     return "search_ja", "source_japanese_before_local_translation"
 
 
