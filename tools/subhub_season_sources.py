@@ -408,6 +408,19 @@ def find_japanese(ids, search, budget, *, recheck=False, approved_reviews=None, 
                               flush=True)
                         break
                     raise RuntimeError("native_provider_search_failed")
+                if result.get("deferred"):
+                    # No usable OpenSubtitles/SubDL call: this is NOT "none".
+                    # Stop spending requests; later eligible runs can retry.
+                    search.save_attempt(
+                        db, job, "deferred", result.get("total"),
+                        strategy_version=result.get("strategy_version"),
+                        query_variant=result.get("query_variant"),
+                        provider_gates=result.get("provider_gates"))
+                    counts["deferred"] += 1
+                    print("SEASON_JA_DEFERRED", label,
+                          str(result.get("provider_reason") or "provider_gate_unavailable")[:180],
+                          flush=True)
+                    break
                 options = result.get("results") or []
                 if result.get("query_variant") == "title_only_fallback":
                     print("SEASON_JA_TITLE_FALLBACK",label,
@@ -424,7 +437,8 @@ def find_japanese(ids, search, budget, *, recheck=False, approved_reviews=None, 
                           "review" if review else "none")
                 search.save_attempt(db,job,status,result.get("total"),rated,
                                     strategy_version=result.get("strategy_version"),
-                                    query_variant=result.get("query_variant"))
+                                    query_variant=result.get("query_variant"),
+                                    provider_gates=result.get("provider_gates"))
                 print("SEASON_JA_CANDIDATES",label,
                       "provider_total",result.get("total"),
                       "plausible",plausible,"review",review,
