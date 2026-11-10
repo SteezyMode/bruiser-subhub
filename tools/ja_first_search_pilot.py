@@ -48,11 +48,42 @@ headers = {"Content-Type": "application/json"}
 if key:
     headers["X-Api-Key"] = key
 url = "http://127.0.0.1:5765/api/v1/providers/search"
+health_url = "http://127.0.0.1:5765/api/v1/providers/health"
+# These general-purpose JA providers must be available for an authoritative
+# 'no match'; unrelated/anime-only sources cannot establish a negative.
+core = {"opensubtitles", "subdl"}
+
+class SourceProvidersDeferred(Exception):
+    pass
+
+def provider_gates():
+    try:
+        with urlopen(Request(health_url, headers=headers), timeout=15) as res:
+            providers = json.load(res).get("providers")
+        if not isinstance(providers, list):
+            return {"provider_health": "unavailable"}
+        gates = {
+            p["name"]: ("not_initialized" if not p.get("initialized")
+                        else str(p.get("gate") or "unknown"))
+            for p in providers if isinstance(p, dict)
+            and p.get("name") in core and p.get("enabled")
+        }
+        return gates or {"ja_source_providers": "not_enabled"}
+    except Exception:
+        return {"provider_health": "unavailable"}
+
+def require_sources():
+    gates = provider_gates()
+    if any(value != "ok" for value in gates.values()):
+        raise SourceProvidersDeferred(str(gates))
+    return gates
+
 for i, job in enumerate(jobs):
     if i:
         time.sleep(3.3)
     payload = job["query"]
     try:
+        gates = require_sources()
         req = Request(url, data=json.dumps(payload).encode(), headers=headers, method="POST")
         with urlopen(req, timeout=90) as res:
             data = json.load(res)
@@ -68,6 +99,7 @@ for i, job in enumerate(jobs):
                       type(payload.get("episode")) is int))
         if (has_title and (payload.get("imdb_id") or payload.get("file_path"))
             and original_total == 0 and not data.get("results")):
+            gates = require_sources()  # The first request might consume the last slot.
             title_payload = dict(payload)
             title_payload.pop("imdb_id", None)
             title_payload["file_path"] = ""
@@ -77,6 +109,8 @@ for i, job in enumerate(jobs):
             with urlopen(req, timeout=90) as res:
                 data = json.load(res)
             query_variant = "title_only_fallback"
+        if not data.get("results"):
+            gates = require_sources()  # A later budget closure means inconclusive.
         results = []
         for r in data.get("results", [])[:50]:
             if not isinstance(r, dict):
@@ -86,8 +120,13 @@ for i, job in enumerate(jobs):
                 "language", "score", "matches", "format", "forced", "kind"
             )})
         out = {"id": job["id"], "ok": True, "total": data.get("total"),
-               "initial_total": original_total, "strategy_version": 2,
-               "query_variant": query_variant, "results": results}
+               "initial_total": original_total, "strategy_version": 3,
+               "query_variant": query_variant, "provider_gates": gates,
+               "results": results}
+    except SourceProvidersDeferred as exc:
+        out = {"id": job["id"], "ok": True, "deferred": True, "total": 0,
+               "strategy_version": 3, "query_variant": "provider_gate_deferred",
+               "provider_reason": str(exc), "results": []}
     except Exception as exc:
         out = {"id": job["id"], "ok": False, "error": type(exc).__name__}
     print(json.dumps(out, ensure_ascii=False), flush=True)
@@ -300,7 +339,7 @@ def pick(rows, db, budget):
             done.add(str(jid))
         elif outcome == "error" and when >= now-86400:
             done.add(str(jid))
-        elif outcome not in ("in_progress","error") and when >= now-30*86400:
+        elif outcome not in ("in_progress","error","deferred") and when >= now-30*86400:
             # Revisit legacy zero-result entries ONCE with the improved
             # search strategy, not every day. Existing positive candidates
             # are left untouched; their staging queue already owns them.
@@ -351,7 +390,7 @@ def pick(rows, db, budget):
                            "query": query})
     return chosen
 
-def save_attempt(db, job, outcome, total=None, rated=None, *, strategy_version=None, query_variant=None):
+def save_attempt(db, job, outcome, total=None, rated=None, *, strategy_version=None, query_variant=None, provider_gates=None):
     """Retain Japanese discoveries across later misses and failed searches.
 
     Provider rejects remain review-only; only positively verified candidates
@@ -361,8 +400,8 @@ def save_attempt(db, job, outcome, total=None, rated=None, *, strategy_version=N
     previous = db.execute(
         "SELECT kind,title,outcome,results_json FROM searches WHERE jellyfin_id=?",
         (job["id"],)).fetchone()
-    if (previous and outcome in ("in_progress", "error")
-            and previous[2] not in ("in_progress", "error")):
+    if (previous and outcome in ("in_progress", "error", "deferred")
+            and previous[2] not in ("in_progress", "error", "deferred", "none")):
         # Never replace completed evidence with an empty/error attempt,
         # but allow a new initial in_progress record to become error.
         return
@@ -405,6 +444,7 @@ def save_attempt(db, job, outcome, total=None, rated=None, *, strategy_version=N
              "strategy_version":(strategy_version if isinstance(strategy_version,int)
                                  else prior.get("strategy_version",0)),
              "query_variant":query_variant or prior.get("query_variant","unknown"),
+             "provider_gates":provider_gates if isinstance(provider_gates,dict) else prior.get("provider_gates",{}),
              "searched_providers":sorted({str(item.get("provider"))
                  for item in candidates+rejected_candidates if item.get("provider")})}
     db.execute("""INSERT INTO searches (
@@ -553,6 +593,14 @@ def main():
                 print(f"[{i}/{len(chosen)}] ERROR: {type(exc).__name__} (retry after 1 day)",
                       flush=True)
                 continue
+            if response.get("deferred"):
+                save_attempt(db, job, "deferred", response.get("total"),
+                             strategy_version=response.get("strategy_version"),
+                             query_variant=response.get("query_variant"))
+                summary["deferred"] += 1
+                print(f"[{i}/{len(chosen)}] DEFERRED: {response.get('provider_reason')} "
+                      "(remaining items not queried)", flush=True)
+                break
             options = response.get("results") or []
             rated = [(candidate_grade(row, r), r)
                      for r in options if isinstance(r, dict)]
@@ -561,7 +609,8 @@ def main():
             outcome = "plausible" if plausible else ("review" if review else "none")
             save_attempt(db, job, outcome, response.get("total"), rated,
                          strategy_version=response.get("strategy_version"),
-                         query_variant=response.get("query_variant"))
+                         query_variant=response.get("query_variant"),
+                         provider_gates=response.get("provider_gates"))
             summary[outcome] += 1
             print(f"[{i}/{len(chosen)}] {outcome.upper()}: plausible={len(plausible)} "
                   f"review={len(review)} provider_total={response.get('total')}"
