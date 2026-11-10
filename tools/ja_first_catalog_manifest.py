@@ -225,9 +225,11 @@ def classify(item, series, mounts, sidecache):
         ids = provider_ids(item)
         data["imdb_id"] = ids.get("imdb", "")
         data["tmdb_id"] = ids.get("tmdb", "")
+        # IMDb helps discovery, but missing IMDb must not hide a film from
+        # title+year Japanese subtitle searches. Publication still checks
+        # candidate file identity, year, and existing media tracks.
         if not IMDB.fullmatch(data["imdb_id"]):
-            data["status"] = "review_no_movie_imdb"
-            return data
+            data["imdb_id"] = ""
     elif kind == "Episode":
         data["season"] = item.get("ParentIndexNumber")
         data["episode"] = item.get("IndexNumber")
@@ -277,9 +279,12 @@ def classify(item, series, mounts, sidecache):
     if info_state != "known":
         data["status"] = "review_missing_media_streams"
     elif audio_lang in UNKNOWN_AUDIO:
-        # A present audio stream with no language tag is NOT evidence of EN
-        # audio. Never spend JA search quota on a potentially Japanese show.
-        data["status"] = "review_audio_language_unverified"
+        # Unknown audio tags are not missing episode identity. Safe to
+        # DISCOVER subtitle candidates without inferring spoken language.
+        # Audio unknown stays explicit; embedded JA and exact-file sidecars
+        # have already been checked. No existing media is replaced.
+        data["audio_review_required"] = True
+        data["status"] = "ready_ja_search"
     else:
         data["status"] = "ready_ja_search"
     return data
