@@ -31,7 +31,10 @@ SRC_NEW_ONE = '''        req = Request(url, data=json.dumps(payload).encode(), h
             data = json.load(res)
         original_total = data.get("total")
         query_variant = "original"
-        # Selected-episode rechecks only; do not broaden scheduled searches.
+        # Manual, selected-episode recheck only. OpenSubtitles can return zero
+        # for an upload not linked to the IMDb ID / video hash even when a
+        # series-title + SxxExx search finds an exact release. Do not use this
+        # fallback in scheduled/default provider searches.
         if (job.get("retry_by_title") is True and
             payload.get("series_title") and
             type(payload.get("season")) is int and
@@ -41,7 +44,7 @@ SRC_NEW_ONE = '''        req = Request(url, data=json.dumps(payload).encode(), h
             title_payload = dict(payload)
             title_payload.pop("imdb_id", None)
             title_payload["file_path"] = ""
-            time.sleep(3.3)
+            time.sleep(3.3)  # Sublarr limit 20 / minute
             req = Request(url, data=json.dumps(title_payload).encode(),
                           headers=headers, method="POST")
             with urlopen(req, timeout=90) as res:
