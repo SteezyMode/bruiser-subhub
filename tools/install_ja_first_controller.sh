@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # Install/refresh the bounded Japanese-first controller on the OptiPlex host.
 # Does NOT enable a timer or start translation. Uses a fixed source commit.
+# CAUTION: this is a full controller reinstall and may overwrite local changes.
+# For existing OptiPlex alass activation use guarded install_alass_into_subhub.sh.
 set -euo pipefail
 
-PIN="853e6f3d74e86883aaab17f9edd3bb6c6154f0a8"
+PIN="00664f7aed9bf1a2af4e8a5980b1c4fd8f5555c3"
 BASE="https://raw.githubusercontent.com/SteezyMode/bruiser-subhub/$PIN/tools"
 DEST="$HOME/bruiser-pilot/subhub-control"
 
@@ -26,6 +28,7 @@ NAMES=(
   ja_first_publish_staged.py
   ja_first_publish_shifted.py
   ja_first_publish_queue.py
+  ja_first_alass.py
   ja_first_ffsubsync.py
   ja_first_obvious_quality.py
   bruiser_ja_movie_rescue.py
