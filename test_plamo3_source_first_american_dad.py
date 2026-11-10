@@ -122,8 +122,9 @@ class SourceFirstEpisodeTests(TestCase):
             self.assertEqual(query["episode"],13)
             self.assertEqual(query["language"],"ja")
             self.assertNotIn("imdb_id",query)
-            # A provider title lookup must not bypass verified primary audio.
-            self.assertIsNone(ja_search.query_for(dict(eligible,audio_language="")))
+            # Search is non-destructive even when original audio lacks tags;
+            # original Japanese audio still blocks redundant JA sourcing.
+            self.assertIsNotNone(ja_search.query_for(dict(eligible,audio_language="")))
             self.assertIsNone(ja_search.query_for(dict(eligible,audio_language="jpn")))
             self.assertEqual(row["status"],"review_missing_series_identity")
 
