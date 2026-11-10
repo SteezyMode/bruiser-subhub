@@ -730,8 +730,11 @@ def source_controls(action):
     manual=unit_active(BATCH_UNIT)
     scheduled=unit_active(SCHEDULED_UNIT)
     script=Path.home()/".local/bin/bruiser-subs"
-    if action in ("start-auto", "start-manual"):
-        raise RuntimeError("library_wide_sourcing_disabled_use_selected_season")
+    # The established autofill service is source-only and already scans
+    # the entire Jellyfin inventory in resumable provider-limited batches.
+    # Do not route this through legacy manual controllers with AI fallbacks.
+    if action=="start-manual":
+        raise RuntimeError("legacy_manual_worker_disabled_use_source_only_service")
     if action in ("start-auto", "start-manual") and not (manual or scheduled):
         if translation_busy():
             raise RuntimeError("translation_active_cannot_start_source_worker")
@@ -780,11 +783,11 @@ def control_availability():
     if can_start:
         can_start=not translation_busy()
     return {"available":True,
-            "start_auto":False,
+            "start_auto":can_start,
             "stop_auto":scheduled,
             "start_manual":False,
             "stop_manual":manual,
-            "reason":"Select a series and season; library-wide starts disabled"}
+            "reason":"Library-wide Japanese-only sourcing, provider quotas enforced"}
 
 
 
