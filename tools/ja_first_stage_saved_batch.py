@@ -337,8 +337,9 @@ def identity_ok(row, result):
     name = str(result.get("filename") or "")
     release = str(result.get("release_info") or "")
     if row.get("kind") == "Movie":
-        if not IMDB.fullmatch(str(row.get("imdb_id") or "")):
-            return False
+        # Title/year is enough to stage a reviewable candidate; an absent
+        # IMDb ID does not mean subtitle files are impossible to match.
+        # Keep strict same-title + year checks below, then timing/QA/no-clobber.
         year = str(row.get("year") or "")
         title = tokens(row.get("title"))
         if not re.fullmatch(r"\d{4}", year) or not title:
