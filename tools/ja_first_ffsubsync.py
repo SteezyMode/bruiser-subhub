@@ -23,7 +23,7 @@ from bruiser_ja_movie_rescue import health
 
 CONTAINER = "sublarr-pilot"
 MAX_SHIFT_SECONDS = 30.0
-MAX_SHIFT_SPREAD_SECONDS = 1.5  # Reject progressive drift; a large global offset is different.
+MAX_SHIFT_SPREAD_SECONDS = 5.0  # Allow modest release/frame-rate drift; extreme (12s+) held; alass preferred.
 NO_CHANGE_THRESHOLD_SECONDS = 0.4
 # Conservative local repair of short overlapping Japanese subtitle cues.
 # No subtitle text or cue START timestamps are ever altered by this pass.
