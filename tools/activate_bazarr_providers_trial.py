@@ -146,6 +146,31 @@ def terminal_credentials(existing, from_sublarr):
         fail("Sublarr SubDL credential could not be decrypted")
     return osuser, ospass, subdl
 
+def provider_log_diagnostics(key):
+    # Report only error categories, not raw logs: providers sometimes log URLs,
+    # headers, or account information. Never echo raw exception messages here.
+    try:
+        log_response = api("/api/system/logs", key)
+        log_items = log_response.get("data", []) if isinstance(log_response, dict) else []
+        patterns = (
+            ("auth-failure", r"unauthori[sz]ed|invalid.?credential|invalid.?key|authentication.?error|\b401\b|\b403\b"),
+            ("throttled", r"too.many.requests|rate.?limit|throttl|\b429\b|quota"),
+            ("provider-error", r"provider.?error|subdl.*error|opensubtitles.*error|error.*subdl|error.*opensubtitles"),
+            ("network-error", r"timeout|connection.?error|ssl.error|proxy.error"),
+        )
+        flags = []
+        for event in log_items[:120]:
+            msg = " ".join(str(event.get(k) or "") for k in ("message", "exception"))
+            if not re.search(r"subdl|opensubtitles|provider", msg, re.I):
+                continue
+            for label, pattern in patterns:
+                if re.search(pattern, msg, re.I):
+                    flags.append(label)
+        print("PROVIDER LOG DIAGNOSTICS:", ", ".join(sorted(set(flags))) if flags else "none classified (not proof of success)")
+    except SystemExit:
+        print("PROVIDER LOG DIAGNOSTICS: unavailable")
+
+
 def main():
     inspect_trial()
     key = bazarr_key()
@@ -219,6 +244,7 @@ def main():
             print(f"PROVIDER STATUS: {item['name']} status={state or 'unknown'} retry={retry or 'unknown'}")
     if "opensubtitlescom" not in chosen:
         print("OPEN SUBTITLES: account login absent; skipping a redundant SubDL-only search")
+        provider_log_diagnostics(key)
         print("DONE: periodic searches disabled; no new subtitle search or download")
         return
     print("SEARCH: single manual query for S02E01 with enabled providers; NO subtitle download")
@@ -247,28 +273,7 @@ def main():
         line = str(release).replace("\n", " ")[:110]
         print(f"  {i:02d}. {item.get('provider','?')} / {item.get('language','?')} "
               f"score={item.get('score','?')}  {line}")
-    # Report only error categories, not raw logs: providers sometimes log URLs,
-    # headers, or account information. Never echo raw exception messages here.
-    try:
-        log_response = api("/api/system/logs", key)
-        log_items = log_response.get("data", []) if isinstance(log_response, dict) else []
-        patterns = (
-            ("auth-failure", r"unauthori[sz]ed|invalid.?credential|invalid.?key|authentication.?error|\b401\b|\b403\b"),
-            ("throttled", r"too.many.requests|rate.?limit|throttl|\b429\b|quota"),
-            ("provider-error", r"provider.?error|subdl.*error|opensubtitles.*error|error.*subdl|error.*opensubtitles"),
-            ("network-error", r"timeout|connection.?error|ssl.error|proxy.error"),
-        )
-        flags = []
-        for event in log_items[:120]:
-            msg = " ".join(str(event.get(k) or "") for k in ("message", "exception"))
-            if not re.search(r"subdl|opensubtitles|provider", msg, re.I):
-                continue
-            for label, pattern in patterns:
-                if re.search(pattern, msg, re.I):
-                    flags.append(label)
-        print("PROVIDER LOG DIAGNOSTICS:", ", ".join(sorted(set(flags))) if flags else "none classified (not proof of success)")
-    except SystemExit:
-        print("PROVIDER LOG DIAGNOSTICS: unavailable")
+    provider_log_diagnostics(key)
     print("DONE: search only; provider candidates are not downloaded or published")
     print("NEXT: choose real Japanese candidate; Bazarr/alass hook will process a manual download")
 
