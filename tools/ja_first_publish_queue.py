@@ -3,6 +3,9 @@
 
 Processes host-staged OpenSubtitles candidates as ONE item per Jellyfin ID.
 Selects either:
+  * Preferred standalone alass correction for splits and framerate differences,
+    with existing source identity/health validation and create-only publication.
+  * Existing ffsubsync fallback for candidates alass cannot safely prepare.
   * Direct publication through existing ja_first_publish_staged.preflight,
     requiring a trusted embedded subtitle and matching cue starts.
   * Constant-offset correction through ja_first_publish_shifted.preparation,
@@ -35,6 +38,7 @@ from urllib.parse import quote
 import ja_first_publish_staged as direct
 import ja_first_publish_shifted as shifted
 import ja_first_ffsubsync as ff
+import ja_first_alass as alass
 import ja_first_priority as priorities
 
 MAX_ROWS = 3000
@@ -171,6 +175,8 @@ def existing_verdict(jid, candidates):
             return "published_corrected", row
         if ff.provenance_matches(jid, sid, recorded_hash, existing_hash):
             return "published_ffsubsync", row
+        if alass.provenance_matches(jid, sid, recorded_hash, existing_hash):
+            return "published_alass", row
     raise RuntimeError("existing_japanese_subtitle_not_matching_saved_provenance")
 
 
@@ -208,8 +214,23 @@ def choose(jid, candidates):
     published_state, row = existing_verdict(jid, candidates)
     if published_state != "absent":
         return published_state, row, None
-    # First use audio-derived ffsubsync to test every candidate selected
-    # for possible publication, including titles without embedded English.
+    # Prefer the existing standalone alass engine: unlike the older
+    # ffsubsync route it preserves split / frame-rate corrections instead of
+    # rejecting all nonuniform shifts. All source, QA, and no-overwrite gates
+    # remain inherited from the existing SubHub publisher.
+    if alass.available():
+        for sid, _ in candidates[:3]:
+            try:
+                ready = alass.prepare(jid, sid)
+                print("  ALASS:", sid, json.dumps(ready["assessment"]), flush=True)
+                return "ready_alass", row, ready
+            except (ValueError, OSError, RuntimeError, KeyError, sqlite3.Error,
+                    subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+                print("  ALASS HELD:", sid, type(exc).__name__,
+                      str(exc)[:95], flush=True)
+    else:
+        print("  ALASS: binary not installed on host; using existing ffsubsync", flush=True)
+    # Fall back to audio-derived ffsubsync for the same candidates.
     for sid, _ in candidates[:3]:
         try:
             ready = ff.prepare(jid, sid)
@@ -233,6 +254,11 @@ def choose(jid, candidates):
 
 def publish_selected(jid, kind, chosen):
     """Recalculate all gates immediately before the only permitted write."""
+    if kind == "ready_alass":
+        alass.preserve(chosen)
+        direct.publish(chosen["row"], chosen["video"],
+                       chosen["target"], chosen["chosen"])
+        return
     if kind == "ready_ffsubsync":
         ff.preserve(chosen)
         direct.publish(chosen["row"], chosen["video"],
@@ -269,6 +295,8 @@ def self_test():
     assert callable(shifted.preparation)
     assert callable(ff.prepare)
     assert callable(ff.preserve)
+    assert callable(alass.prepare)
+    assert callable(alass.preserve)
     assert callable(direct.publish)
     print("SELF-TEST PASSED: grouped candidates, trusted thresholds and native publication hooks; no writes",
           flush=True)
