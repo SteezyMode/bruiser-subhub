@@ -67,7 +67,11 @@ def queue_position(row, action, tasks):
                         "recover_english_for_ja_fallback"}
         return (rank, priority(row)) if queued_action in source_actions else None
     if action == "stage":
-        if queued_action in ("download_saved_ja", "search_ja"):
+        # A newly recovered subtitle should stage in this SAME run even if
+        # the old queue still labels the title as an English fallback.
+        if queued_action in ("download_saved_ja", "search_ja",
+                             "validate_english_for_ja_fallback",
+                             "recover_english_for_ja_fallback"):
             return (rank if queued_action == "download_saved_ja"
                     else 200, priority(row))
         return None
