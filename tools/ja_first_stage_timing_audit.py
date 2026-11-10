@@ -102,16 +102,17 @@ def cue_starts(raw: bytes):
     return []
 
 
-def alignment(reference, candidate):
+def alignment(reference, candidate, *, min_cues=MIN_CUES):
     """Find constant cue offset, or return an explicitly inconclusive verdict.
 
     A 0.1s difference histogram proposes candidate offsets. Each candidate
     is then verified with a 0.35s nearest-neighbor tolerance. Reports only,
     never rewrites either subtitle. This is deliberately conservative for
-    differing-language cue segmentation.
+    differing-language cue segmentation. Short regional audits can supply a
+    smaller min_cues; that signal never by itself authorizes publication.
     """
-    if not (MIN_CUES <= len(reference) <= MAX_CUES
-            and MIN_CUES <= len(candidate) <= MAX_CUES):
+    if not (min_cues <= len(reference) <= MAX_CUES
+            and min_cues <= len(candidate) <= MAX_CUES):
         return {"status": "unverified_insufficient_alignment_data"}
 
     votes = Counter()
