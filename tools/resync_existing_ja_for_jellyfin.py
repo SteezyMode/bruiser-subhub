@@ -2,7 +2,7 @@
 """Create selectable Japanese sync PREVIEWS for IASIP S01E04 in Jellyfin.
 
 Uses EXISTING Sublarr container's ffsubsync: one video-embedded-English reference
-and one independent audio-speech reference. No accounts, provider searches,
+a piecewise correction for scene/edition breaks, and one independent audio-speech\nreference. No accounts, provider searches,
 translation, installs, or video changes. Keeps original JA sidecar intact.
 Only the --preview-in-jellyfin flag creates new (never overwriting) preview
 sidecars in the EXISTING season directory. Outputs and provenance are otherwise
@@ -49,6 +49,7 @@ with tempfile.TemporaryDirectory(prefix="bruiser-ja-repair-") as d:
     ref.write_bytes(english)
     attempts=(
       ("reference",["ffsubsync",str(ref),"-i",str(inp),"-o",str(tmp/"reference.srt")]),
+      ("piecewise",["ffsubsync",str(ref),"-i",str(inp),"-o",str(tmp/"piecewise.srt"),"--split-penalty","10"]),
       ("audio",["ffsubsync",str(video),"-i",str(inp),"-o",str(tmp/"audio.srt"),"--vad","webrtc"])
     )
     for label,cmd in attempts:
@@ -233,8 +234,8 @@ def main():
     print(f"REFERENCE: existing embedded English stream #{idx}; no downloads")
     results=align(video,original_bytes,en)
     outputs=[]
-    names={"reference":"BruiserSyncReference","audio":"BruiserSyncAudio"}
-    for mode in ("reference","audio"):
+    names={"reference":"BruiserSyncReference","piecewise":"BruiserSyncPiecewise","audio":"BruiserSyncAudio"}
+    for mode in ("reference","piecewise","audio"):
         record=results.get(mode,{})
         if record.get("status")!="ok":
             print(f"ENGINE {mode}: {record.get('status','missing')}")
@@ -275,7 +276,7 @@ def main():
             write_create_only(target,raw)
             print(f"JELLYFIN PREVIEW ADDED [{mode}]: {target.name}")
         print("ACTION: refresh S01E04 metadata in Jellyfin if tracks do not appear;")
-        print("compare BruiserSyncReference/BruiserSyncAudio in opening, middle, ending.")
+        print("compare BruiserSyncPiecewise/Reference/Audio at opening, middle, ending.")
         print("ORIGINAL remains intact and selectable. No preview marked default.")
     else:
         print("PRIVATE PREVIEWS READY (no media-side changes):",PRIVATE)
