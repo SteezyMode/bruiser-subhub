@@ -4,7 +4,7 @@
 
 ## Decision
 
-**No architecture winner has been proven yet.** The owner's current custom dashboard is more usable *in practice* than their installed Sublarr interface, but both fall short. Keep running functionality undisturbed. Independently test whether configuring/upgrading Sublarr, using its sync/editor/provider components, using Bazarr with its Sonarr/Radarr dependencies, or retaining a slim custom dashboard achieves the actual subtitle goal with least upkeep. Do not assert either custom or off-the-shelf wins without protected host results. No new dashboard redesign while source/repair is the blocker.
+**No architecture winner has been proven yet. Bazarr is an active, high-priority candidate alongside properly configured Sublarr and the existing dashboard.** The owner's current custom dashboard is more usable *in practice* than their installed Sublarr interface, but both fall short. Keep running functionality undisturbed. Independently test whether configuring/upgrading Sublarr, using its sync/editor/provider components, using Bazarr with its Sonarr/Radarr dependencies, or retaining a slim custom dashboard achieves the actual subtitle goal with least upkeep. Do not assert either custom or off-the-shelf wins without protected host results. No new dashboard redesign while source/repair is the blocker.
 
 **Native-language reference policy:** inspect existing embedded/sidecar text first; proactively seek/capture an exact-release reference *for items being processed* where useful. Japanese sourcing and correction remain independent; missing English is **not** a missing-Japanese failure. Only EN->JA last-resort translation needs verified English source dialogue. Reuse cached references and don't squander provider quotas on a full-library prefetch.
 
@@ -32,7 +32,7 @@
 
 - Check installed Sublarr library, standalone roots, wanted/language profile, actual providers, search quotas, ASS vs SRT scoring, sync engines, editor and version. No account secrets in logs or GitHub. Its own docs show standalone Wanted, Sync Compare and multi-engine sync, but **availability on installed 1.18.0 is not assumed**.
 - Test a newer pinned Sublarr against a *copy* of config and a scratch writable media directory, with duplicate scheduler disabled; keep production /config and media mounts intact. Compare the same real movie and episodes with the custom flow on identity, Japanese candidate yield, correction, safety, UI control and result in Jellyfin.
-- Bazarr is not an immediate drop-in here because it normally relies on Sonarr/Radarr. Don't add a second library manager without concrete benefit.
+- **Bazarr is a serious alternative, not ruled out by Sonarr/Radarr.** The latter can import existing organized TV/movie libraries without configuring downloads. Test Bazarr + Sonarr first on a *scratch copy* of selected TV media, then Radarr for a movie if the TV workflow succeeds. Disable indexers/download clients, automatic subtitle upgrades, cleanup and mutating tasks; preserve the real library read-only during trials. Measure JA provider yield (OpenSubtitles/SubDL), manual search, timing correction, existing-subtitle safety, state reliability and work needed. The setup cost of two additional maintained applications must be weighed against the much larger custom stack.
 - Keep only the best actual combination; retire duplicate code/jobs after proven replacement and rollback.
 
 ## Backlog, strictly in order

@@ -6,7 +6,7 @@
 
 **P1 — use what we've already downloaded.** Recover five held Japanese candidates with missing provenance, preserving originals and episode identity. Review four existing PLaMo tracks rather than starting fresh model work.
 
-**P2 — independently validate our tooling choices.** Audit actual Sublarr configuration/version against its documented standalone Wanted, provider search, Sync Compare, and editor. In a backed-up isolated trial, see whether it beats the current custom experience. Bazarr requires an assessment of its Sonarr/Radarr dependency. Retire custom pieces only after proven working replacement; don't build more duplicate pieces.
+**P2 — independently validate our tooling choices, with Bazarr a full contender.** Audit actual Sublarr configuration/version against its documented standalone Wanted, provider search, Sync Compare, and editor. In a backed-up isolated trial, see whether it beats the current custom experience. **Bazarr + Sonarr/Radarr must be tested on a scratch copy:** Sonarr/Radarr can import existing libraries with no download automation, while Bazarr provides JA provider search, missing-subtitle management, ffsubsync and manual workflows. Compare actual results against Sublarr and the dashboard; no sunk-cost preference. Retire custom pieces only after proven working replacement; don't build more duplicate pieces.
 
 **P3 — make the best workflow routine.** Per selected title: inspect existing native-language/English references, acquire one proactively when helpful, reuse/seek Japanese separately, recover/sync/verify and publish reversibly. English absence is not a Japanese-source failure; translate only when genuine sourcing and repair are reasonably exhausted and the dialogue source is verified.
 
