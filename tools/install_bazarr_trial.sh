@@ -33,8 +33,13 @@ for tag in S02E01 S03E03 S04E03 S05E13 S06E07; do
   folder="$SRC/Season $season"
   [[ -d "$folder" && ! -L "$folder" ]] || fail "Expected existing Season $season missing"
   mapfile -d '' -t found < <(find "$folder" -maxdepth 1 -type f \
-    \( -iname "*$tag*.mkv" -o -iname "*$tag*.mp4" \) -print0)
-  [[ "${#found[@]}" -eq 1 ]] || fail "Expected one video for $tag; found ${#found[@]}"
+    \( -iname "*$tag*.mkv" -o -iname "*$tag*.mp4" -o -iname "*$tag*.avi" \
+       -o -iname "*$tag*.m4v" -o -iname "*$tag*.webm" \) -print0)
+  if [[ "${#found[@]}" -ne 1 ]]; then
+    printf 'Candidate video files in %s:\n' "$folder" >&2
+    find "$folder" -maxdepth 1 -type f -iname "*$tag*" -printf '  %f\n' >&2
+    fail "Expected one video for $tag; found ${#found[@]}"
+  fi
   [[ ! -L "${found[0]}" ]] || fail "Source for $tag is a symlink"
   files+=("${found[0]}")
   tags+=("$tag")
