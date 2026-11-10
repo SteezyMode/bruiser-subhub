@@ -5,7 +5,7 @@ Reads existing Sublarr provider credentials locally where available, prompts on
 /dev/tty for missing credentials, disables scheduled searches, then searches
 ONE episode (S02E01). No production mounts, downloads or subtitle publication.
 Never prints or commits passwords, API keys, or authentication responses.
-Run interactively on the OptiPlex host (see repo instructions).
+Run as a local downloaded Python file on the OptiPlex over SSH -tt.\nDo NOT pipe the script into python3 -; that consumes standard input for prompts.
 """
 from __future__ import annotations
 
@@ -209,7 +209,18 @@ def main():
     if int(after.get("general", {}).get("wanted_search_frequency", 0)) != 876000:
         fail("Scheduler changed unexpectedly")
     print("PROVIDERS ENABLED:", ", ".join(chosen))
-    print("SEARCH: single manual query for S02E01; NO subtitle download")
+    status = api("/api/providers", key)
+    provider_status = status.get("data", []) if isinstance(status, dict) else []
+    for item in provider_status:
+        if item.get("name") in chosen:
+            state = re.sub(r"[^A-Za-z0-9 _.-]", "", str(item.get("status", "")))[:60]
+            retry = re.sub(r"[^A-Za-z0-9 _.:/-]", "", str(item.get("retry", "")))[:40]
+            print(f"PROVIDER STATUS: {item['name']} status={state or 'unknown'} retry={retry or 'unknown'}")
+    if "opensubtitlescom" not in chosen:
+        print("OPEN SUBTITLES: account login absent; skipping a redundant SubDL-only search")
+        print("DONE: periodic searches disabled; no new subtitle search or download")
+        return
+    print("SEARCH: single manual query for S02E01 with enabled providers; NO subtitle download")
     shows = api("/api/series", key)
     rows = shows.get("data", []) if isinstance(shows, dict) else []
     matching = [s for s in rows if s.get("tvdbId") == 75805
@@ -235,6 +246,28 @@ def main():
         line = str(release).replace("\n", " ")[:110]
         print(f"  {i:02d}. {item.get('provider','?')} / {item.get('language','?')} "
               f"score={item.get('score','?')}  {line}")
+    # Report only error categories, not raw logs: providers sometimes log URLs,
+    # headers, or account information. Never echo raw exception messages here.
+    try:
+        log_response = api("/api/system/logs", key)
+        log_items = log_response.get("data", []) if isinstance(log_response, dict) else []
+        patterns = (
+            ("auth-failure", r"unauthori[sz]ed|invalid.?credential|invalid.?key|authentication.?error|\\b401\\b|\\b403\\b"),
+            ("throttled", r"too.many.requests|rate.?limit|throttl|\\b429\\b|quota"),
+            ("provider-error", r"provider.?error|subdl.*error|opensubtitles.*error|error.*subdl|error.*opensubtitles"),
+            ("network-error", r"timeout|connection.?error|ssl.error|proxy.error"),
+        )
+        flags = []
+        for event in log_items[:120]:
+            msg = " ".join(str(event.get(k) or "") for k in ("message", "exception"))
+            if not re.search(r"subdl|opensubtitles|provider", msg, re.I):
+                continue
+            for label, pattern in patterns:
+                if re.search(pattern, msg, re.I):
+                    flags.append(label)
+        print("PROVIDER LOG DIAGNOSTICS:", ", ".join(sorted(set(flags))) if flags else "none classified (not proof of success)")
+    except SystemExit:
+        print("PROVIDER LOG DIAGNOSTICS: unavailable")
     print("DONE: search only; provider candidates are not downloaded or published")
     print("NEXT: choose real Japanese candidate; Bazarr/alass hook will process a manual download")
 
