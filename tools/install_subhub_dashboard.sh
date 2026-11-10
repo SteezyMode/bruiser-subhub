@@ -15,7 +15,7 @@ trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/tools"
 touch "$WORK/tools/__init__.py"
 
-for name in subhub_dashboard_server.py subhub_dashboard.html ja_first_source_tracker.py subhub_translation_batch.py subhub_season_sources.py bruiser_coverage_queue.py ja_first_search_pilot.py ja_first_priority.py; do
+for name in subhub_dashboard_server.py subhub_dashboard.html ja_first_source_tracker.py subhub_translation_batch.py subhub_season_sources.py bruiser_coverage_queue.py ja_first_search_pilot.py ja_first_priority.py ja_first_autofill.py; do
   curl -fsSL --retry 3 --connect-timeout 10 --max-time 90 \
     "$BASE/tools/$name" -o "$WORK/tools/$name"
 done
