@@ -33,6 +33,7 @@ SOURCE_FILES=(
     "ja_first_stage_saved_batch.py",
     "ja_first_publish_queue.py",
     "ja_first_alass.py",
+    "ja_first_ffsubsync.py",
     "ja_first_autofill.py",
 )
 DASH_FILES=(
