@@ -967,7 +967,7 @@ def season_sources_status():
                         "SEASON_JA_SEARCH_PLANNED", "SEASON_JA_RESULT ", "SEASON_JA_CANDIDATES ",
                         "SEASON_JA_STAGE ", "SEASON_JA_STAGE_PLANNED",
                         "SEASON_JA_PUBLISH ", "SEASON_JA_PUBLISH_PLANNED",
-                        "SEASON_JA_DONE", "SEASON_JA_HELD",
+                        "SEASON_JA_DONE", "SEASON_JA_HELD", "SEASON_JA_DEFERRED",
                         "SEASON_JA_BLOCKED", "PROVIDER_LIMIT_REACHED"))][-12:]
     except (OSError,subprocess.TimeoutExpired):
         pass
