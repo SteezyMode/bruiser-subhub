@@ -32,7 +32,7 @@ JA = {"ja", "jp", "jpn", "japanese"}
 UNKNOWN_AUDIO = {"", "und", "unknown", "mul", "zxx", "none"}
 STATES = {"pending", "held", "candidate_found", "ready_for_translation"}
 VALID_TARGETS = {"en", "ja"}
-PREFERRED_SHOWS = {"thexfiles", "xfiles", "itsalwayssunnyinphiladelphia"}
+# No special-case priorities for named series; all eligible media can source JA.
 
 
 def stamp():
@@ -149,9 +149,6 @@ def real_published_sidecar(row):
 
 def preference(row):
     """Soft ordering only; no 75/25 movie or TV quota."""
-    name = re.sub(r"[^a-z0-9]+", "", str(row.get("series") or "").casefold())
-    if name in PREFERRED_SHOWS:
-        return 0
     if row.get("kind") == "Movie":
         folder = str(row.get("video_path") or "").rsplit("/", 1)[0]
         if re.search(r"(?i)(?<![a-z])horror(?![a-z])", folder):
