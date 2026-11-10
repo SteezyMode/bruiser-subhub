@@ -144,8 +144,8 @@ class CoverageQueueTests(unittest.TestCase):
                     queue.flag_timing(db,"jid-one","ja","delay")
 
     def test_soft_preference_no_type_quota(self):
-        self.assertLess(queue.preference(media(series="The X-Files")),
-                        queue.preference(media()))
+        self.assertEqual(queue.preference(media(series="The X-Files")),
+                         queue.preference(media(series="Another Show")))
         self.assertLess(queue.preference(media(kind="Movie",
             video_path="/media/Movies/Horror/Example.mkv")),
             queue.preference(media(kind="Movie",
