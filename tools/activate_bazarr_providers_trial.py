@@ -5,7 +5,8 @@ Reads existing Sublarr provider credentials locally where available, prompts on
 /dev/tty for missing credentials, disables scheduled searches, then searches
 ONE episode (S02E01). No production mounts, downloads or subtitle publication.
 Never prints or commits passwords, API keys, or authentication responses.
-Run as a local downloaded Python file on the OptiPlex over SSH -tt.\nDo NOT pipe the script into python3 -; that consumes standard input for prompts.
+Run as a local downloaded Python file on the OptiPlex over SSH -tt.
+Do NOT pipe the script into python3 -; that consumes standard input for prompts.
 """
 from __future__ import annotations
 
@@ -252,8 +253,8 @@ def main():
         log_response = api("/api/system/logs", key)
         log_items = log_response.get("data", []) if isinstance(log_response, dict) else []
         patterns = (
-            ("auth-failure", r"unauthori[sz]ed|invalid.?credential|invalid.?key|authentication.?error|\\b401\\b|\\b403\\b"),
-            ("throttled", r"too.many.requests|rate.?limit|throttl|\\b429\\b|quota"),
+            ("auth-failure", r"unauthori[sz]ed|invalid.?credential|invalid.?key|authentication.?error|\b401\b|\b403\b"),
+            ("throttled", r"too.many.requests|rate.?limit|throttl|\b429\b|quota"),
             ("provider-error", r"provider.?error|subdl.*error|opensubtitles.*error|error.*subdl|error.*opensubtitles"),
             ("network-error", r"timeout|connection.?error|ssl.error|proxy.error"),
         )
