@@ -195,6 +195,58 @@ class ScopeTests(unittest.TestCase):
                 self.assertEqual(json.loads(payload)["provider_gates"],
                                  {"opensubtitles":"budget_exhausted"})
 
+    def test_saved_movie_year_discrepancy_recovery_is_local_idempotent_and_review_only(self):
+        import json
+        from tools import ja_first_search_pilot as search
+        from tools import ja_first_autofill as autofill
+
+        root=Path(self.tmp.name)/"source-history"
+        root.mkdir(mode=0o700)
+        file=root/"japanese-search.sqlite3"
+        identity={"kind":"Movie","jellyfin_id":"a"*32,
+                  "title":"Late Night with the Devil","year":2024}
+        manifest=root/"ja-intake-20261110T000000Z.json"
+        manifest.write_text(json.dumps({"items":[identity]}),encoding="utf-8")
+        manifest.chmod(0o600)
+        correct={"provider":"opensubtitles","subtitle_id":"12345",
+                 "language":"ja","filename":"Late.Night.with.the.Devil.2023.ja.srt",
+                 "matches":["title"]}
+        wrong={"provider":"opensubtitles","subtitle_id":"98765",
+               "language":"ja","filename":"Late.Night.with.the.Demons.2023.ja.srt",
+               "matches":[]}
+        job={"id":identity["jellyfin_id"],"row":identity}
+        with mock.patch.object(search,"DB",file), \
+             mock.patch.object(search,"ROOT",root), \
+             mock.patch.object(autofill,"ROOT",root):
+            with search.open_db() as db:
+                search.save_attempt(db,job,"none",2,
+                                    [("reject",correct),("reject",wrong)])
+                original=db.execute(
+                    "SELECT searched_at FROM searches WHERE jellyfin_id=?",
+                    (identity["jellyfin_id"],)).fetchone()[0]
+
+            search.recover_saved_reviews(apply=False)
+            with sqlite3.connect(file) as db:
+                self.assertEqual(db.execute(
+                    "SELECT outcome FROM searches").fetchone()[0],"none")
+
+            search.recover_saved_reviews(apply=True)
+            search.recover_saved_reviews(apply=True) # no duplicate candidates
+            with sqlite3.connect(file) as db:
+                row=db.execute(
+                    "SELECT searched_at,outcome,candidate_count,plausible_count,results_json "
+                    "FROM searches WHERE jellyfin_id=?",
+                    (identity["jellyfin_id"],)).fetchone()
+            self.assertEqual(row[:4],(original,"review",1,0))
+            data=json.loads(row[4])
+            self.assertEqual(data["candidates"][0]["subtitle_id"],"12345")
+            self.assertEqual(data["candidates"][0]["grade"],"review")
+            self.assertEqual([x["subtitle_id"] for x in data["rejected_candidates"]],
+                             ["98765"])
+            backups=list(root.glob("japanese-search.before-review-recovery-*.sqlite3"))
+            self.assertEqual(len(backups),1)
+            self.assertEqual(backups[0].stat().st_mode & 0o077,0)
+
     def test_scope_only_pending_source_first_same_season(self):
         p=selected.scope("It's Always Sunny in Philadelphia",1,path=self.path)
         self.assertEqual(set(p["ids"]),{f"{n:032x}" for n in (2,3,4)})
