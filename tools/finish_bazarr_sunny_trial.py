@@ -108,7 +108,7 @@ def main():
     if not any(x.get("sonarrSeriesId") == sid for x in data):
         fail("Sunny not yet indexed in Bazarr; check live Sonarr connection")
 
-    episodes = call(BAZARR, "/api/episodes?seriesid=" + str(sid), bk)
+    episodes = call(BAZARR, "/api/episodes?seriesid%5B%5D=" + str(sid), bk)
     episode_data = episodes.get("data", []) if isinstance(episodes, dict) else []
     matches = {f"S{e.get('season',0):02d}E{e.get('episode',0):02d}"
                for e in episode_data if e.get("path")}
