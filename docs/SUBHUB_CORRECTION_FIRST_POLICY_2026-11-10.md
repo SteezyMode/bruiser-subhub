@@ -11,6 +11,13 @@
 5. **Reuse existing tools:** Sublarr and Jellyfin are the primary substrate. Avoid building a second orchestration stack or show-specific controls unless a demonstrated gap cannot be solved with installed tools.
 6. **AI is a last-resort source**, not the next step after one failed provider request. Inspect/repair Japanese subtitles first. Compare PLaMo's already-finished output with human-authored Japanese for concision, tone, names, idioms and timing.
 
+## Implemented audit pilot (GitHub only; not yet run on host)
+
+- [Read-only published-subtitle timing audit](../tools/subhub_published_timing_audit.py) handles **existing** Japanese sidecars, selects an explicit video or list of episodes, and compares locally available embedded English/English sidecar cue times across cold open, early remainder, middle, and ending.
+- Reuses [existing timing helper](../tools/ja_first_stage_timing_audit.py) with shorter regional comparison windows. The new tool emits directional offsets and **review signals**, not accepted/rejected verdicts; bilingual cue splitting can distort timestamp matches. Built-in `--self-test` uses constant-offset, variable cold-open-offset and inconclusive fixtures.
+- **Do not silently withdraw, re-time or overwrite** already-published subtitles based solely on an automated cue-timing statistic. Withdrawal is an accepted **eventual outcome**, but only after thorough investigation and documented, reversible remediation/rejection.
+- Initial live acceptance cases: S01E04 and S01E05; compare results and watch actual dialogue before extending to other episodes or enabling any modification.
+
 ## Active validation
 
 - **Known timing concern:** *It's Always Sunny in Philadelphia* S01E04, "Charlie Has Cancer"—Japanese dialogue is several seconds late in parts of the cold open but closer mid-episode. A constant shift is **not** assumed to fix it.
