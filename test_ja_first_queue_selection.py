@@ -68,6 +68,25 @@ class CoverageSelectionTests(unittest.TestCase):
                 selected=search.pick(rows,db,3)
         self.assertEqual([x["id"] for x in selected],["c"])
 
+    def test_v3_negative_search_is_rechecked_once_but_v4_is_not(self):
+        import json
+        import time
+        rows=[item("v3","Movie"),item("v4","Movie"),item("good","Movie")]
+        ranks=queue_rows(rows)
+        with sqlite3.connect(":memory:") as db:
+            db.execute("CREATE TABLE searches("
+                       "jellyfin_id TEXT,outcome TEXT,searched_at INTEGER,"
+                       "results_json TEXT)")
+            now=int(time.time())
+            for jid,kind,version in [
+                ("v3","none",3),("v4","none",4),("good","plausible",3)]:
+                db.execute("INSERT INTO searches VALUES(?,?,?,?)",(
+                    jid,kind,now,json.dumps({"strategy_version":version})))
+            with patch.object(priorities,"active_coverage_queue",return_value=ranks), \
+                 patch.object(search,"query_for",return_value={"title":"test"}):
+                chosen=search.pick(rows,db,10)
+        self.assertEqual([x["id"] for x in chosen],["v3"])
+
     def test_staging_prioritizes_saved_candidate_not_media_type(self):
         rows=[item("mov","Movie"),item("ep","Episode")]
         ranks=queue_rows(rows,"download_saved_ja")
