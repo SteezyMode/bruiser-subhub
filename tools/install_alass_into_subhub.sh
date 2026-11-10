@@ -16,6 +16,19 @@ for f in ja_first_publish_queue.py ja_first_ffsubsync.py ja_first_publish_staged
 done
 [[ -x "$ALASS" && -f "$ALASS" && ! -L "$ALASS" ]] ||
   fail "Known-working standalone alass binary missing"
+
+# The existing queue may have unpublished host-local changes. Never replace
+# a queue we have not identified; preserve those changes for an additive patch.
+PYTHONDONTWRITEBYTECODE=1 python3 - "$DEST/ja_first_publish_queue.py" <<'PY'
+import hashlib,sys
+from pathlib import Path
+body=Path(sys.argv[1]).read_bytes()
+blob=hashlib.sha1(b"blob "+str(len(body)).encode()+b"\0"+body).hexdigest()
+expected="f95c40cb83a58705e9dcceaba404471cb53dda08"
+if blob!=expected:
+    raise SystemExit("ALASS INTEGRATION HELD: deployed queue differs from inspected baseline; protect host-local changes (blob="+blob[:12]+")")
+print("LIVE QUEUE: matches inspected version; safe additive replacement")
+PY
 [[ "$(uname -m)" == "x86_64" ]] || fail "Unexpected architecture"
 [[ ! -e "$DEST/ja_first_alass.py" && ! -L "$DEST/ja_first_alass.py" ]] ||
   fail "Existing alass module present; review rather than overwrite"
