@@ -411,8 +411,11 @@ def find_japanese(ids, search, budget, *, recheck=False, approved_reviews=None, 
                 if result.get("deferred"):
                     # No usable OpenSubtitles/SubDL call: this is NOT "none".
                     # Stop spending requests; later eligible runs can retry.
+                    partial = [(search.candidate_grade(row, r), r)
+                               for r in result.get("results") or []
+                               if isinstance(r, dict)]
                     search.save_attempt(
-                        db, job, "deferred", result.get("total"),
+                        db, job, "deferred", result.get("total"), partial,
                         strategy_version=result.get("strategy_version"),
                         query_variant=result.get("query_variant"),
                         provider_gates=result.get("provider_gates"))
@@ -422,10 +425,12 @@ def find_japanese(ids, search, budget, *, recheck=False, approved_reviews=None, 
                           flush=True)
                     break
                 options = result.get("results") or []
-                if result.get("query_variant") == "title_only_fallback":
-                    print("SEASON_JA_TITLE_FALLBACK",label,
+                if result.get("query_variant") != "original":
+                    print("SEASON_JA_QUERY_STRATEGY",label,
+                          "strategy",result.get("query_variant"),
                           "initial_total",result.get("initial_total"),
-                          "title_total",result.get("total"),flush=True)
+                          "combined_total",result.get("total"),
+                          "requests",result.get("requests_made"),flush=True)
                 # Keep ALL provider results, even identity rejects, as
                 # review-only evidence. The source helper owns durable history.
                 rated = [(search.candidate_grade(row,r),r)
