@@ -60,7 +60,12 @@ def queue_position(row, action, tasks):
     if str(row.get("host_path") or "") != path:
         return None
     if action == "search":
-        return (rank, priority(row)) if queued_action == "search_ja" else None
+        # Older queue snapshots incorrectly marked one zero-result search as
+        # an English->Japanese translation fallback. This was NOT exhausted
+        # sourcing. Restore discoverability immediately without a queue reset.
+        source_actions={"search_ja","validate_english_for_ja_fallback",
+                        "recover_english_for_ja_fallback"}
+        return (rank, priority(row)) if queued_action in source_actions else None
     if action == "stage":
         if queued_action in ("download_saved_ja", "search_ja"):
             return (rank if queued_action == "download_saved_ja"
