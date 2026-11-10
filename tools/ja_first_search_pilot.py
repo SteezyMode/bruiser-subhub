@@ -801,7 +801,10 @@ def main():
                       flush=True)
                 continue
             if response.get("deferred"):
-                save_attempt(db, job, "deferred", response.get("total"),
+                partial = [(candidate_grade(row, r), r)
+                           for r in response.get("results") or []
+                           if isinstance(r, dict)]
+                save_attempt(db, job, "deferred", response.get("total"), partial,
                              strategy_version=response.get("strategy_version"),
                              query_variant=response.get("query_variant"),
                              provider_gates=response.get("provider_gates"))
@@ -822,7 +825,7 @@ def main():
             summary[outcome] += 1
             print(f"[{i}/{len(chosen)}] {outcome.upper()}: plausible={len(plausible)} "
                   f"review={len(review)} provider_total={response.get('total')}"
-                  f" strategy={response.get('query_variant')}",
+                  f" strategy={response.get('query_variant')} requests={response.get('requests_made')}",
                   flush=True)
             if plausible:
                 best = sorted(plausible, key=lambda r: -(r.get("score") or 0))[0]
