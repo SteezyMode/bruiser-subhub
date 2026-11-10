@@ -179,6 +179,75 @@ def provider_log_diagnostics(key):
         print("PROVIDER LOG DIAGNOSTICS: unavailable")
 
 
+def diagnose_only():
+    """Read existing Bazarr state/logs; never invoke a provider search."""
+    from collections import Counter
+    from datetime import datetime, timedelta
+    inspect_trial()
+    key = bazarr_key()
+    cfg = api("/api/system/settings", key)
+    general = cfg.get("general", {})
+    print("CONFIG: providers =", ", ".join(general.get("enabled_providers", [])) or "none")
+    print("CONFIG: scheduled searching =", "Never" if int(
+        general.get("wanted_search_frequency", 0)) == 876000 else "NOT Never")
+    print("CONFIG: subtitle upgrades =", "enabled" if general.get("upgrade_subs") else "disabled")
+    status = api("/api/providers", key)
+    for provider in status.get("data", []):
+        name = provider.get("name", "")
+        if name not in {"subdl", "opensubtitlescom"}:
+            continue
+        state = re.sub(r"[^A-Za-z0-9 _.-]", "", str(provider.get("status", "?")))[:55]
+        retry = re.sub(r"[^A-Za-z0-9 _.:/-]", "", str(provider.get("retry", "?")))[:40]
+        print(f"PROVIDER: {name}, status={state}, retry={retry}")
+    entries = api("/api/system/logs", key).get("data", [])
+    # Logs are already newest first. Use the *server's* time and report source
+    # timestamps so previous search failures cannot be mistaken for this one.
+    cutoff = datetime.now() - timedelta(hours=3)
+    patterns = (
+        ("HTTP401", r"(?<!\d)401(?!\d)"),
+        ("HTTP403", r"(?<!\d)403(?!\d)"),
+        ("HTTP429", r"(?<!\d)429(?!\d)"),
+        ("HTTP5xx", r"(?<!\d)5\d\d(?!\d)"),
+        ("authentication", r"authenticat|unauthori[sz]ed|invalid.?credential|invalid.?token|invalid.?login|login.failed"),
+        ("rate-limit", r"throttl|rate.?limit|too.many.requests|download.limit|quota|api.?limit"),
+        ("connection", r"timeout|connection.?error|socket.error|ssl.?error|proxy.error|network.?error"),
+        ("provider-error", r"providererror|provider.?error|failed.to.list|error.trying.to.get.subtitle"),
+        ("no-matches", r"no subtitles|0 subtitles|nothing found|no results|not found"),
+    )
+    found = []
+    for e in entries[:650]:
+        stamp = str(e.get("timestamp") or "")
+        try:
+            event_time = datetime.strptime(stamp[:19], "%Y-%m-%d %H:%M:%S")
+            if event_time < cutoff:
+                continue
+        except ValueError:
+            continue
+        msg = str(e.get("message") or "") + " " + str(e.get("exception") or "")
+        if not re.search(r"subdl|opensubtitles|provider|subliminal|subtitle", msg, re.I):
+            continue
+        provider = ("opensubtitlescom" if re.search(r"opensubtitles", msg, re.I)
+                    else "subdl" if re.search(r"\bsubdl\b", msg, re.I)
+                    else "unspecified")
+        categories = [label for label, rx in patterns if re.search(rx, msg, re.I)]
+        level = re.sub(r"[^A-Z]", "", str(e.get("type") or "").upper())[:9]
+        if not categories and level not in {"WARNING", "ERROR", "CRITICAL"}:
+            continue
+        # Never print actual log messages/exceptions; they may contain URLs,
+        # tokens or credentials.
+        found.append((stamp[:19], provider, level, ",".join(categories) or "other"))
+    print("LOG WINDOW: last 3 hours, server local time")
+    if found:
+        for stamp, provider, level, cats in found[:24]:
+            print(f"  {stamp} | {provider} | {level} | {cats}")
+        count = Counter((p,cat) for _, p, _, cats in found for cat in cats.split(","))
+        print("CATEGORY COUNTS:", "; ".join(
+            f"{p}:{cat}={n}" for (p,cat), n in sorted(count.items())))
+    else:
+        print("No classified provider/subtitle errors in the last 3 hours")
+    print("READ-ONLY: no provider searches, downloads, or config changes")
+
+
 def main():
     # Drain the SSH pipe before running any subprocess. In particular,
     # docker exec -i previously consumed credentials before this function.
@@ -292,4 +361,7 @@ def main():
     print("NEXT: choose real Japanese candidate; Bazarr/alass hook will process a manual download")
 
 if __name__ == "__main__":
-    main()
+    if "--diagnose-only" in sys.argv:
+        diagnose_only()
+    else:
+        main()
