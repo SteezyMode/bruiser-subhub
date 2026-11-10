@@ -27,6 +27,7 @@ jobs:
       - run: bash -n tools/resume_plamo8b_american_dad_overnight.sh
       - run: bash -n tools/install_american_dad_held_recovery.sh
       - run: bash -n tools/install_subhub_dashboard.sh
+      - run: bash -n tools/install_bazarr_trial.sh
       - name: Check dashboard JavaScript syntax
         run: |
           python - <<'PY'
