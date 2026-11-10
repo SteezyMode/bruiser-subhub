@@ -34,7 +34,7 @@ SVC = UNIT + ".service"
 USER_UNITS = Path.home() / ".config/systemd/user"
 PINNED = (
     "ja_first_cycle.py", "ja_first_catalog_manifest.py",
-    "ja_first_publish_queue.py", "ja_first_ffsubsync.py",
+    "ja_first_publish_queue.py", "ja_first_alass.py", "ja_first_ffsubsync.py",
     "ja_first_obvious_quality.py",
 )
 CONFIG_KEYS = (
