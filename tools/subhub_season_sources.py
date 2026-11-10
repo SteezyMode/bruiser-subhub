@@ -390,7 +390,7 @@ def find_japanese(ids, search, budget, *, recheck=False, approved_reviews=None, 
                      "sublarr-pilot", "python3", "-c", search.CONTAINER_WORKER],
                     input=json.dumps([{"id":job["id"],"query":job["query"],
                                        "retry_by_title":bool(recheck)}]),
-                    capture_output=True, text=True, timeout=110, check=False)
+                    capture_output=True, text=True, timeout=225, check=False)
                 if run.returncode:
                     raise RuntimeError("native_container_search_failed")
                 messages = [json.loads(line) for line in run.stdout.splitlines()
