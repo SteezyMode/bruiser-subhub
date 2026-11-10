@@ -35,13 +35,18 @@ class CoverageQueueTests(unittest.TestCase):
             "jid-one":("review",0,2000000000)},now=2000000020)[0][1],
                          "review_saved_ja")
 
-    def test_gpu_fallback_exists_after_source_failure(self):
+    def test_one_provider_miss_is_not_translation_authorization(self):
         plan=queue.tasks_for(media(),searches={
             "jid-one":("none",0,2000000000)},now=2000000100)
-        self.assertEqual(plan[0][1],"validate_english_for_ja_fallback")
+        self.assertEqual(plan[0][1],"search_ja")
+        self.assertIn("expand_providers",plan[0][2])
         self.assertEqual(queue.tasks_for(media(english_text=False),searches={
             "jid-one":("none",0,2000000000)},now=2000000100)[0][1],
-                         "recover_english_for_ja_fallback")
+                         "search_ja")
+        # A stale miss remains eligible for a fresh provider search, not AI.
+        self.assertEqual(queue.tasks_for(media(),searches={
+            "jid-one":("none",0,2000000000)},now=2000000000+40*86400)[0][1],
+                         "search_ja")
 
     def test_japanese_audio_requires_english_not_japanese(self):
         items=queue.tasks_for(media(audio_language="jpn",
