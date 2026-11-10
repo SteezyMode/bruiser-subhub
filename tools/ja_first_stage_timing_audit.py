@@ -364,6 +364,75 @@ def select(jid, sid, host, digest, status, metrics_json, inventory):
     return row, content
 
 
+
+def section_timing(reference, japanese, runtime):
+    """Independent opening/middle/ending cue-offset hypotheses; READ ONLY.
+
+    Cross-language cues may merge or split dialogue. Even a high matching
+    fraction is NOT independent proof of synchronization, publication, or
+    grounds to withdraw an already-published file.
+    """
+    window = min(180, max(120, runtime * 0.12))
+    mid = runtime / 2
+    windows = (("opening", 0, window),
+               ("middle", max(0, mid-window/2), min(runtime, mid+window/2)),
+               ("ending", max(0, runtime-window), runtime))
+    reports = {}
+    offsets = []
+    for name, first, last in windows:
+        en = [t for t in reference if first <= t < last]
+        ja = [t for t in japanese if first-12 <= t < last+12]
+        result = alignment(en, ja, min_cues=12)
+        reports[name] = {"english_cues": len(en), "japanese_cues": len(ja), **result}
+        if (result.get("status") in {"fit", "shift_needed"} and
+                result.get("matching_start_fraction", 0) >= 0.60):
+            offsets.append(result["best_offset_seconds"])
+    spread = round(max(offsets)-min(offsets), 2) if len(offsets) >= 2 else None
+    status = ("possible_variable_offset_review" if spread is not None and spread > 1.5
+              else "inconclusive_section_evidence" if spread is None
+              else "offsets_consistent_not_verified")
+    return {"status": status, "offset_spread_seconds": spread, "sections": reports,
+            "caution": "Requires dialogue-level and playback checks before repair or ejection"}
+
+
+def inspect_published_video(video_path):
+    """Explicit, read-only check of an existing video and its .ja.srt sidecar."""
+    video = safe_media_path(video_path)
+    sidecar = video.with_suffix(".ja.srt")
+    if sidecar.is_symlink() or not sidecar.is_file():
+        return {"video": video.name, "status": "no_matching_ja_srt_sidecar"}
+    if not 0 < sidecar.stat().st_size <= MAX_BYTES:
+        return {"video": video.name, "status": "invalid_sidecar_size"}
+    japanese = cue_starts(sidecar.read_bytes())
+    if len(japanese) < MIN_CUES:
+        return {"video": video.name, "status": "unreadable_or_short_japanese_sidecar"}
+    streams, error = ffprobe_streams(video)
+    ref = embedded_reference(video, streams) if streams else None
+    if ref is None:
+        ref = english_sidecar_reference(video)
+    if ref is None:
+        return {"video": video.name, "status": "unverified_no_reference",
+                "japanese_cues": len(japanese), "ffprobe_error": error}
+    english, context = ref
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "default=noprint_wrappers=1:nokey=1", str(video)],
+        capture_output=True, text=True, timeout=35, check=False)
+    try:
+        if probe.returncode:
+            raise ValueError("ffprobe failed")
+        runtime = float(probe.stdout.strip())
+    except ValueError:
+        return {"video": video.name, "status": "unverified_video_runtime"}
+    if not 300 <= runtime <= 21600:
+        return {"video": video.name, "status": "unverified_video_runtime"}
+    return {"video": video.name, "subtitle": sidecar.name,
+            "japanese_cues": len(japanese), "reference_cues": len(english),
+            "runtime_seconds": round(runtime, 2), **context,
+            "sections": section_timing(english, japanese, runtime),
+            "decision": "DIAGNOSTIC_ONLY_NO_CHANGES"}
+
+
 def self_test():
     srt = (
         b"1\n00:00:01,100 --> 00:00:02,400\nTest\n\n"
@@ -383,6 +452,13 @@ def self_test():
     assert fit["status"] == "fit" and fit["matching_start_fraction"] > 0.99, fit
     assert shifted["status"] == "shift_needed", shifted
     assert abs(shifted["best_offset_seconds"] - 5.0) <= 0.2, shifted
+    ref = [i * 3.9 + (i*i % 11) * .071 for i in range(1, 360)]
+    drift = [t + (3 if t < 150 else .5 if 560 < t < 740
+                  else -1 if t > 1250 else 0) for t in ref]
+    report = section_timing(ref, drift, 1440)
+    assert report["status"] == "possible_variable_offset_review", report
+    constant = section_timing(ref, [t + .75 for t in ref], 1440)
+    assert constant["status"] == "offsets_consistent_not_verified", constant
     assert STAGE_NAME.fullmatch("a" * 32 + ".opensubtitles.11947715.ja.srt")
     print("SELF-TEST PASSED: SRT/VTT/ASS parsers and timing alignment; no file or network access")
 
@@ -390,10 +466,23 @@ def self_test():
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--video", action="append", default=[],
+                        help="Read-only timing comparison for this existing video; repeatable")
     parser.add_argument("--limit", type=int, default=2, help="1..5 staged files")
     args = parser.parse_args()
     if args.self_test:
         self_test()
+        return
+    if args.video:
+        if len(args.video) > 8:
+            parser.error("maximum eight explicit videos per diagnostic")
+        for video in args.video:
+            try:
+                print("PUBLISHED_TIMING:", json.dumps(
+                    inspect_published_video(video), ensure_ascii=False), flush=True)
+            except (ValueError, OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
+                print("PUBLISHED_TIMING_HELD:", type(exc).__name__, str(exc)[:160], flush=True)
+        print("READ_ONLY_DIAGNOSTIC_DONE; NO SUBTITLE CHANGES OR PROVIDER REQUESTS")
         return
     if not 1 <= args.limit <= 5:
         parser.error("--limit must be 1..5")
