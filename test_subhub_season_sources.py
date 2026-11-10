@@ -77,6 +77,61 @@ class ScopeTests(unittest.TestCase):
                     "SELECT outcome FROM searches WHERE jellyfin_id=?",
                     (first["id"],)).fetchone()[0],"error")
 
+    def test_manual_metadata_fallback_recovers_title_only_subtitles(self):
+        # Execute the exact small container worker offline using mocked API replies.
+        # An IMDb/hash search can return zero even when title+episode has a JA file.
+        import io
+        import json
+        import sys
+        import types
+        from tools import ja_first_search_pilot as search
+        from types import SimpleNamespace
+
+        original_query = {
+            "series_title": "It's Always Sunny in Philadelphia",
+            "season": 7, "episode": 2, "language": "ja",
+            "imdb_id": "tt0472954", "file_path": "/mnt/tv/S07E02.mkv"
+        }
+
+        def exercise(allow_fallback):
+            calls = []
+            def respond(request, timeout):
+                q = json.loads(request.data)
+                calls.append(q)
+                if q.get("imdb_id") or q.get("file_path"):
+                    return io.BytesIO(b'{"total":0,"results":[]}')
+                return io.BytesIO(json.dumps({"total":1,"results":[{
+                    "provider":"opensubtitles","subtitle_id":"123456",
+                    "language":"ja",
+                    "filename":"Its.Always.Sunny.in.Philadelphia.S07E02.WEB-DL.DSNP.ja",
+                    "matches":["series","season","episode"]
+                }]}).encode())
+            job = [{"id":"episode-id","query":original_query,
+                    "retry_by_title":allow_fallback}]
+            fake_cfg = types.ModuleType("config")
+            fake_cfg.get_settings = lambda: SimpleNamespace(api_key="TEST_KEY")
+            output = io.StringIO()
+            with mock.patch.dict(sys.modules, {"config":fake_cfg}), \\
+                 mock.patch("urllib.request.urlopen",side_effect=respond), \\
+                 mock.patch("time.sleep"), \\
+                 mock.patch.object(sys,"stdin",io.StringIO(json.dumps(job))), \\
+                 mock.patch.object(sys,"stdout",output):
+                exec(search.CONTAINER_WORKER,{"__name__":"__main__"})
+            return json.loads(output.getvalue()),calls
+
+        result,calls=exercise(True)
+        self.assertEqual(result["query_variant"],"title_only_fallback")
+        self.assertEqual(result["initial_total"],0)
+        self.assertEqual(result["total"],1)
+        self.assertEqual(len(calls),2)
+        self.assertNotIn("imdb_id",calls[1])
+        self.assertEqual(calls[1]["file_path"],"")
+        self.assertEqual(result["results"][0]["language"],"ja")
+        no_retry,calls=exercise(False)
+        self.assertEqual(no_retry["query_variant"],"original")
+        self.assertEqual(no_retry["total"],0)
+        self.assertEqual(len(calls),1)
+
     def test_scope_only_pending_source_first_same_season(self):
         p=selected.scope("It's Always Sunny in Philadelphia",1,path=self.path)
         self.assertEqual(set(p["ids"]),{f"{n:032x}" for n in (2,3,4)})
