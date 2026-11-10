@@ -289,8 +289,13 @@ def pick(rows, db, budget):
     """Sort catalog metadata in memory; touch ONLY a few shortlisted files."""
     now = int(time.time())
     done=set()
+    # Read legacy search DBs too; absence of strategy metadata simply means
+    # a no-result entry needs one recheck, not a database migration failure.
+    columns={str(col[1]) for col in db.execute("PRAGMA table_info(searches)")}
+    projection=("results_json" if "results_json" in columns
+                else "NULL AS results_json")
     for jid,outcome,when,raw in db.execute(
-        "SELECT jellyfin_id,outcome,searched_at,results_json FROM searches"):
+        "SELECT jellyfin_id,outcome,searched_at,"+projection+" FROM searches"):
         if outcome == "in_progress" and when >= now-6*3600:
             done.add(str(jid))
         elif outcome == "error" and when >= now-86400:
