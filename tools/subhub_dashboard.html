@@ -253,7 +253,7 @@ function renderCoverage(){
     (n.total-n.covered)+" remaining · "+
     coverage.size+"/"+selectedSeasons.size+" seasons loaded":
     "Choose one or several seasons to inspect coverage.";
-  const src=picksFor("source"), ai=picksFor("translate");
+  const src=picksFor("source"), ai=checked.size?picksFor("translate"):[];
   $("source-selected").disabled=busy||!src.length||latest.workersBusy;
   $("translate-selected").disabled=busy||!checked.size||!ai.length||latest.workersBusy||!latest.aiAvailable;
   $("source-selected").textContent="1. Find Japanese / fix timing ("+src.length+")";
