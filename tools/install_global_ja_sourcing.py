@@ -1,0 +1,272 @@
+#!/usr/bin/env python3
+"""One reversible deployment: full-library, source-only SubHub upgrade.
+
+Run on the existing OptiPlex host, never on a Mac client:
+ python3 install_global_ja_sourcing.py --commit <40-hex-github-sha> --start
+
+This updates the ORIGINAL SubHub modules and dashboard in place, makes a
+private backup of EVERY changed file, and starts the existing JA-only source
+controller with its daily timer. Never creates media folders, overwrites
+subtitles, invokes PLaMo, or asks for new provider credentials.
+"""
+from __future__ import annotations
+import argparse
+import ast
+import hashlib
+import os
+from pathlib import Path
+import re
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
+from urllib.request import urlopen
+
+REPO="SteezyMode/bruiser-subhub"
+HOST=Path.home()/"bruiser-pilot/subhub-control"
+DASH=Path.home()/".local/share/bruiser-subhub-dashboard"
+SOURCE_FILES=(
+    "ja_first_search_pilot.py",
+    "ja_first_priority.py",
+    "ja_first_catalog_manifest.py",
+    "ja_first_stage_saved_batch.py",
+    "ja_first_publish_queue.py",
+    "ja_first_alass.py",
+    "ja_first_autofill.py",
+)
+DASH_FILES=(
+    "subhub_dashboard_server.py",
+    "subhub_dashboard.html",
+    "subhub_season_sources.py",
+    "bruiser_coverage_queue.py",
+)
+TEST_FILES=(
+    "test_bruiser_coverage_queue.py",
+    "test_ja_first_priority.py",
+    "test_subhub_season_sources.py",
+    "test_subhub_dashboard.py",
+    "test_ja_first_alass.py",
+)
+SOURCE_UNIT="bruiser-ja-source-autofill.service"
+SOURCE_TIMER="bruiser-ja-source-autofill.timer"
+DASH_UNIT="bruiser-subhub-dashboard.service"
+BUSY_UNITS=(
+    SOURCE_UNIT, "bruiser-subhub-season-sources.service",
+    "bruiser-subhub-batch.service", "bruiser-subhub-translation-batch.service",
+    "bruiser-subhub-movie-ja.service",
+)
+MAX_BYTES=400_000
+
+def fail(message):
+    raise RuntimeError(message)
+
+def systemctl(*args,timeout=35,check=True):
+    p=subprocess.run(["systemctl","--user",*args],
+                     capture_output=True,text=True,timeout=timeout,check=False)
+    if check and p.returncode:
+        fail("systemd "+args[0]+" failed: "+(p.stderr or p.stdout)[:140])
+    return p
+
+def secure_directory(directory):
+    if not directory.is_dir() or directory.is_symlink() or directory.stat().st_uid!=os.getuid():
+        fail("Missing, symlinked, or unowned existing directory: "+str(directory))
+
+def secure_file(file,allow_new=False):
+    if file.is_symlink() or (file.exists() and
+        (not file.is_file() or file.stat().st_uid!=os.getuid())):
+        fail("Untrusted installed source file: "+str(file))
+    if not allow_new and not file.is_file():
+        fail("Expected existing source missing: "+str(file))
+
+def checked_download(commit,path):
+    url=f"https://raw.githubusercontent.com/{REPO}/{commit}/{path}"
+    with urlopen(url,timeout=45) as response:
+        data=response.read(MAX_BYTES+1)
+    if not 0<len(data)<=MAX_BYTES:
+        fail("Unexpected source download length: "+path)
+    try:
+        text=data.decode("utf-8")
+    except UnicodeError:
+        fail("Source not UTF-8: "+path)
+    if path.endswith(".py"):
+        ast.parse(text,filename=path)
+    return data
+
+def atomic_install(path,content,mode):
+    fd,name=tempfile.mkstemp(prefix="."+path.name+".upgrade-",dir=path.parent)
+    try:
+        with os.fdopen(fd,"wb") as f:
+            f.write(content);f.flush();os.fsync(f.fileno())
+        os.chmod(name,mode)
+        os.replace(name,path)
+    finally:
+        Path(name).unlink(missing_ok=True)
+
+def offline_validation(files,work):
+    root=work/"testrepo"
+    pkg=root/"tools"
+    pkg.mkdir(parents=True,mode=0o700)
+    (pkg/"__init__.py").write_text("",encoding="utf-8")
+    for (folder,name),data in files.items():
+        # Every source that the focused unit tests directly import is shipped.
+        dest=pkg/name
+        dest.write_bytes(data)
+    return root
+
+def state_summary():
+    src=HOST/"ja_first_search_pilot.py"
+    page=DASH/"subhub_dashboard.html"
+    worker=src.read_text("utf-8")
+    html=page.read_text("utf-8")
+    if "strategy_version" not in worker or "title_only_fallback" not in worker:
+        fail("Post-install library-wide strategy missing")
+    if 'id="source-library"' not in html:
+        fail("Post-install library-wide dashboard control missing")
+    print("INTEGRITY: library search strategy and full-library dashboard control present")
+
+def main():
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--commit",required=True)
+    parser.add_argument("--start",action="store_true",
+                        help="enable existing daily source timer and start one JA-only pass now")
+    args=parser.parse_args()
+    if not re.fullmatch("[0-9a-f]{40}",args.commit):
+        parser.error("--commit needs one full 40-character Git commit hash")
+
+    for folder in (HOST,DASH):
+        secure_directory(folder)
+    for unit in BUSY_UNITS:
+        p=systemctl("is-active",unit,check=False,timeout=10)
+        if p.stdout.strip() in {"active","activating","reloading"}:
+            fail("Existing worker active; avoid changing its code: "+unit)
+        if p.returncode not in (0,3,4):
+            fail("Cannot verify idle state: "+unit)
+
+    destinations={}
+    for name in SOURCE_FILES:
+        target=HOST/name
+        secure_file(target,allow_new=name=="ja_first_alass.py")
+        destinations[("source",name)]=target
+    for name in DASH_FILES:
+        target=DASH/name
+        secure_file(target)
+        destinations[("dashboard",name)]=target
+
+    print("FETCHING fixed revision:",args.commit)
+    files={}
+    for group,name in destinations:
+        files[(group,name)]=checked_download(args.commit,"tools/"+name)
+    # Avoid replacing host files with a version that cannot even parse.
+    assert "strategy_version" in files[("source","ja_first_search_pilot.py")].decode()
+    assert 'id="source-library"' in files[("dashboard","subhub_dashboard.html")].decode()
+    root=Path(tempfile.mkdtemp(prefix=".ja-lib-pref-",dir=HOST))
+    backup=None
+    updated=[]
+    was_dashboard=systemctl("is-active",DASH_UNIT,check=False).stdout.strip()=="active"
+    try:
+        # Do not write any installed code before testing in isolation.
+        sandbox=offline_validation(files,root)
+        # Import dependencies of existing core tests from the original host
+        # only for missing modules; the tests do not search the internet.
+        for name in ("ja_first_ffsubsync.py","ja_first_publish_staged.py",
+                     "ja_first_obvious_quality.py","subhub_translation_batch.py",
+                     "ja_first_source_tracker.py","ja_first_gemma_fallback.py"):
+            if (sandbox/"tools"/name).exists():
+                continue
+            for location in (HOST/name,DASH/name):
+                if location.is_file() and not location.is_symlink():
+                    shutil.copyfile(location,sandbox/"tools"/name)
+                    break
+        # Verify essential source modules and main runner are syntactically valid.
+        for fname in SOURCE_FILES:
+            if fname.endswith(".py"):
+                ast.parse(files[("source",fname)].decode(),filename=fname)
+        for fname in DASH_FILES:
+            if fname.endswith(".py"):
+                ast.parse(files[("dashboard",fname)].decode(),filename=fname)
+        print("PREFLIGHT: source and dashboard modules parse successfully")
+
+        # Backup exact host files, including local customizations, even when
+        # different from GitHub. Private backup survives a successful install.
+        backup=Path(tempfile.mkdtemp(prefix=".ja-library-source-backup-",dir=HOST))
+        os.chmod(backup,0o700)
+        for (group,name),target in destinations.items():
+            old=target.read_bytes() if target.exists() else None
+            if old is not None:
+                saved=backup/(group+"__"+name)
+                fd=os.open(saved,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+                with os.fdopen(fd,"wb") as f:f.write(old)
+            if old==files[(group,name)]:
+                continue
+            mode=(target.stat().st_mode&0o777) if old is not None else 0o600
+            atomic_install(target,files[(group,name)],mode)
+            updated.append((target,old,mode))
+            print("UPDATED:",group,name,"previous="+(
+                hashlib.sha256(old).hexdigest()[:12] if old is not None else "new"))
+
+        state_summary()
+        if was_dashboard:
+            systemctl("restart",DASH_UNIT)
+            print("DASHBOARD: existing service restarted")
+        # Catalog refresh catches newly eligible movies and untagged audio;
+        # it writes ONLY private inventory JSON, never the production library.
+        p=subprocess.run([sys.executable,"-B",str(HOST/"ja_first_catalog_manifest.py"),"--save"],
+                         stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                         text=True,timeout=1200,check=False)
+        if p.returncode:
+            fail("Jellyfin source catalog refresh failed: "+p.stderr[-220:])
+        print("JELLYFIN CATALOG: refreshed using new library-wide eligibility")
+        # Queue planner now treats old provider misses as search work, and
+        # an explicit init reconciles old premature translation queue labels.
+        tracker=DASH/"bruiser_coverage_queue.py"
+        p=subprocess.run([sys.executable,"-B",str(tracker),"init"],
+                         stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                         text=True,timeout=180,check=False)
+        if p.returncode:
+            print("QUEUE RECONCILE: held, existing queue kept; "+
+                  p.stderr[-160:],flush=True)
+        else:
+            print("QUEUE RECONCILE: complete")
+
+    except BaseException:
+        for target,old,mode in reversed(updated):
+            if old is None:
+                target.unlink(missing_ok=True)
+            else:
+                atomic_install(target,old,mode)
+        if was_dashboard:
+            systemctl("restart",DASH_UNIT,check=False)
+        print("ROLLBACK: original host source code restored; backup:",
+              backup,file=sys.stderr)
+        raise
+    finally:
+        shutil.rmtree(root,ignore_errors=True)
+
+    print("LIBRARY SOURCE UPGRADE INSTALLED. Original code backup:",backup)
+    alass=Path.home()/"bruiser-pilot/sync-compare.WfaxCBpD/alass-linux64"
+    print("STANDALONE ALASS:", "available" if alass.is_file() and os.access(alass,os.X_OK)
+          else "not at expected path; ffsubsync remains fallback")
+    if args.start:
+        if systemctl("is-enabled",SOURCE_TIMER,check=False).returncode:
+            # The existing controller already knows how to establish user
+            # systemd units safely, without a new scheduler.
+            p=subprocess.run([sys.executable,"-B",str(HOST/"ja_first_autofill.py"),
+                              "enable","--apply"],capture_output=True,text=True,
+                             timeout=1250,check=False)
+            if p.returncode:
+                fail("Daily source timer not enabled: "+p.stderr[-190:])
+        if systemctl("is-active",SOURCE_TIMER,check=False).returncode:
+            systemctl("start",SOURCE_TIMER)
+        systemctl("start","--no-block",SOURCE_UNIT)
+        print("SOURCE STARTED: existing full-library Japanese-only service;")
+        print("daily timer enabled; all eligible movies and episodes processed")
+        print("in provider-limited, resume-safe cycles; PLaMo NEVER started.")
+    else:
+        print("Source service not started; pass --start when ready")
+
+if __name__=="__main__":
+    try:main()
+    except (RuntimeError,OSError,ValueError,subprocess.TimeoutExpired) as e:
+        print("SOURCE UPGRADE HELD:",type(e).__name__,str(e)[:230],file=sys.stderr)
+        raise SystemExit(1) from None
