@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Finish ONLY isolated Bazarr/Sonarr Sunny trial catalog and Japanese profile.
+"""Finish isolated Bazarr/Sonarr Sunny trial catalog and Japanese profile.
 
 API-based, idempotent, no provider searches/downloads or production-library changes.
 The two trial apps must have been bootstrapped already.
@@ -17,7 +17,9 @@ from pathlib import Path
 ROOT = Path.home() / "bruiser-pilot/bazarr-trial"
 SONARR = "http://100.121.156.34:18989"
 BAZARR = "http://100.121.156.34:16767"
-TAGS = {"S02E01", "S03E03", "S04E03", "S05E13", "S06E07"}
+TAGS = {"S02E01", "S03E03", "S04E03", "S06E07"}
+# S05E13 exists in the copied test files but is not in TVDB official season 5 (12 episodes).
+# Preserve it untouched, and do not assign it to an invented Sonarr episode.
 PROFILE = "Japanese (Sunny trial)"
 
 def fail(message):
@@ -78,8 +80,9 @@ def main():
         if m:
             found.add(m.group(0).upper())
     print(f"SONARR: indexed {len(files)} episode files, matching IDs {sorted(found)}")
+    print("S05E13: skipped for this test because TVDB official S05 has only 12 episodes; source copy untouched")
     if found != TAGS:
-        fail(f"Sonarr has not identified all five test files yet (missing {sorted(TAGS-found)})")
+        fail(f"Sonarr test inventory differs from the four recognized episodes (missing {sorted(TAGS-found)}; extras {sorted(found-TAGS)})")
 
     cfg = call(BAZARR, "/api/system/settings", bk)
     if not cfg.get("general", {}).get("use_sonarr"):
@@ -114,7 +117,7 @@ def main():
                for e in episode_data if e.get("path")}
     print(f"BAZARR: sees {len(episode_data)} episode records; indexed media {sorted(matches&TAGS)}")
     if matches & TAGS != TAGS:
-        fail(f"Bazarr has not indexed every test episode: missing {sorted(TAGS-matches)}")
+        fail(f"Bazarr has not indexed the four Sonarr-recognized episodes: missing {sorted(TAGS-matches)}")
 
     profiles = call(BAZARR, "/api/system/languages/profiles", bk)
     if not isinstance(profiles, list):
