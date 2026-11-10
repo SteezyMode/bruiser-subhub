@@ -545,6 +545,116 @@ def offline_report(limit=10):
     print("Identity plausibility is NOT approval to download or publish.", flush=True)
 
 
+
+def recover_saved_reviews(*, apply=False):
+    """Reclassify saved Japanese movie evidence; NEVER contact providers.
+
+    Exact-title subtitles differing by one calendar year (festival premiere
+    vs theatrical release) are review-only. The original search timestamp is
+    retained; a local re-grade is NOT a new provider search.
+    """
+    if (not ROOT.is_dir() or ROOT.is_symlink() or ROOT.stat().st_mode & 0o077
+            or not DB.is_file() or DB.is_symlink() or DB.stat().st_mode & 0o077
+            or DB.stat().st_uid != os.getuid()):
+        raise RuntimeError("unsafe_private_search_history")
+    manifests = sorted(ROOT.glob("ja-intake-*.json"))
+    if not manifests:
+        raise RuntimeError("no_saved_jellyfin_manifest")
+    manifest = manifests[-1]
+    if (not manifest.is_file() or manifest.is_symlink()
+            or manifest.stat().st_mode & 0o077
+            or manifest.stat().st_uid != os.getuid()):
+        raise RuntimeError("unsafe_saved_jellyfin_manifest")
+    catalog = json.loads(manifest.read_text(encoding="utf-8"))
+    identities = {
+        str(x.get("jellyfin_id")):x for x in catalog.get("items", [])
+        if isinstance(x, dict) and x.get("kind") == "Movie"
+    }
+    lock_fd = None
+    if apply:
+        # The live source controller and selected-show jobs share this lock.
+        try:
+            from . import ja_first_autofill as autofill
+        except ImportError:
+            import ja_first_autofill as autofill
+        lock_fd = autofill.lock()
+
+    try:
+        mode = "rw" if apply else "ro"
+        with sqlite3.connect("file:" + str(DB) + "?mode=" + mode,
+                             uri=True, timeout=30) as db:
+            rows = db.execute("""
+                SELECT jellyfin_id, title, outcome, candidate_count,
+                       plausible_count, results_json
+                FROM searches WHERE kind='Movie' AND outcome!='in_progress'
+            """).fetchall()
+            pending = []
+            for jid, title, outcome, count, plausible, raw in rows:
+                identity = identities.get(str(jid))
+                if not identity or identity.get("title") != title:
+                    continue
+                try:
+                    data = json.loads(raw)
+                except (ValueError, TypeError):
+                    continue
+                if not isinstance(data, dict):
+                    continue
+                candidates = list(data.get("candidates") or [])
+                rejected = list(data.get("rejected_candidates") or [])
+                if not all(isinstance(c,dict) for c in candidates + rejected):
+                    continue
+                remaining = []
+                recovered = []
+                for candidate in rejected:
+                    if (len(candidates) + len(recovered) < 120 and
+                            candidate_grade(identity, candidate) == "review"):
+                        recovered.append(dict(candidate,grade="review",
+                                              review_reason="title_year_disagreement"))
+                    else:
+                        remaining.append(candidate)
+                if not recovered:
+                    continue
+                data["candidates"] = candidates + recovered
+                data["rejected_candidates"] = remaining
+                data["rejected_count"] = len(remaining)
+                # Any retained match remains review-only; no publication decision.
+                new_outcome = "plausible" if int(plausible) > 0 else "review"
+                pending.append((new_outcome, len(data["candidates"]),
+                                json.dumps(data,ensure_ascii=False), str(jid), raw,
+                                title, identity.get("year"), len(recovered)))
+            print("=== SAVED JAPANESE MOVIE REVIEW RECOVERY ===")
+            print("Checked:", len(rows), "| Titles recoverable:", len(pending),
+                  "| Candidates:", sum(x[-1] for x in pending))
+            for item in pending[:20]:
+                print("REVIEW:", item[-3], "library year", item[-2],
+                      "| retained candidates", item[-1])
+            if apply and pending:
+                stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+                backup = ROOT / ("japanese-search.before-review-recovery-" + stamp + ".sqlite3")
+                fd = os.open(backup, os.O_CREAT | os.O_EXCL | os.O_WRONLY |
+                             getattr(os,"O_NOFOLLOW",0), 0o600)
+                os.close(fd)
+                with sqlite3.connect(backup) as saved:
+                    db.backup(saved)
+                with db:
+                    for updated in pending:
+                        outcome, count, body, jid, before = updated[:5]
+                        cursor = db.execute("""
+                            UPDATE searches SET outcome=?, candidate_count=?,
+                                results_json=?
+                            WHERE jellyfin_id=? AND results_json=?
+                        """,(outcome,count,body,jid,before))
+                        if cursor.rowcount != 1:
+                            raise RuntimeError("saved_search_changed_during_recovery")
+                print("BACKUP:", backup)
+                print("RECOVERED: review-only candidates; original searched_at preserved")
+            else:
+                print("READ ONLY: no provider requests, no DB writes, no downloads.")
+    finally:
+        if lock_fd is not None:
+            os.close(lock_fd)
+
+
 MAX_SEARCHES_PER_RUN = 600
 
 
@@ -553,12 +663,21 @@ def main():
     ap.add_argument("--budget", type=int, default=12, help="1..600 provider-search requests")
     ap.add_argument("--self-test", action="store_true")
     ap.add_argument("--report", action="store_true", help="print stored results; no provider searches")
+    ap.add_argument("--recover-saved", action="store_true",
+                    help="audit recoverable one-year movie subtitle matches; no provider requests")
+    ap.add_argument("--apply", action="store_true",
+                    help="with --recover-saved, backup and save review-only candidates")
     args = ap.parse_args()
+    if args.apply and not args.recover_saved:
+        ap.error("--apply requires --recover-saved")
     if args.self_test:
         checks()
         return
     if args.report:
         offline_report()
+        return
+    if args.recover_saved:
+        recover_saved_reviews(apply=args.apply)
         return
     if not 1 <= args.budget <= MAX_SEARCHES_PER_RUN:
         ap.error("--budget must be 1..600")
