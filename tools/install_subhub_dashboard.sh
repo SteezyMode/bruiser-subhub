@@ -44,7 +44,7 @@ assert 'id="episode-details"' in html and 'Review remaining episodes' in html, "
 assert '/api/translation/start' in server and 'selected_multi_plan' in server
 assert '/api/source-season/start' in server and 'selected_scope' in server
 assert 'id="source-selected"' in html and 'id="translate-selected"' in html
-assert 'library_wide_sourcing_disabled_use_selected_season' in server
+assert 'source_controls' in server and 'start_auto' in server
 print("SUBHUB_DASHBOARD_PREFLIGHT_OK", flush=True)
 PY
 (
