@@ -203,10 +203,15 @@ def tasks_for(row, searches=None, staged=None, now=None):
     # The coverage category (e.g. neither) describes available subtitle tracks,
     # NOT the original audio language. It cannot authorize JA provider search.
     if audio in UNKNOWN_AUDIO:
-        if has_en and has_ja:
+        if has_ja:
             return []
-        return [("review", "review_uncertain",
-                 "primary_audio_language_unverified", 100)]
+        # The audio language needs review, but metadata uncertainty is not
+        # a reason to forbid non-destructive subtitle discovery. Record BOTH
+        # jobs; candidate identity, tracks and publish safety remain separate.
+        action, why=japanese_source_plan(row,searches,staged,now)
+        return [("ja",action,"audio_unverified_"+why,80+preference(row)),
+                ("review","review_uncertain",
+                 "primary_audio_language_unverified",100)]
     rank = preference(row)
     result = []
     if audio in JA:
