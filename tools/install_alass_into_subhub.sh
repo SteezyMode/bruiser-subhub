@@ -5,7 +5,7 @@ set -euo pipefail
 umask 077
 
 DEST="$HOME/bruiser-pilot/subhub-control"
-PIN="2d0489917a36fd3c91164b66969a068afcfe1ec4"
+PIN="90930940f3b600c19ce84097566586ea72f7d0b3"
 BASE="https://raw.githubusercontent.com/SteezyMode/bruiser-subhub/$PIN/tools"
 ALASS="$HOME/bruiser-pilot/sync-compare.WfaxCBpD/alass-linux64"
 fail() { printf 'ALASS INTEGRATION HELD: %s\n' "$*" >&2; exit 1; }
