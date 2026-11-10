@@ -96,6 +96,13 @@ class ScopeTests(unittest.TestCase):
         def exercise(allow_fallback):
             calls = []
             def respond(request, timeout):
+                if request.data is None:
+                    return io.BytesIO(json.dumps({"providers":[
+                        {"name":"opensubtitles","enabled":True,
+                         "initialized":True,"gate":"ok"},
+                        {"name":"subdl","enabled":True,
+                         "initialized":True,"gate":"ok"}
+                    ]}).encode())
                 q = json.loads(request.data)
                 calls.append(q)
                 if q.get("imdb_id") or q.get("file_path"):
@@ -132,6 +139,61 @@ class ScopeTests(unittest.TestCase):
         self.assertEqual(ordinary["query_variant"],"title_only_fallback")
         self.assertEqual(ordinary["total"],1)
         self.assertEqual(len(calls),2)
+
+    def test_worker_defers_without_provider_search_when_budget_blocked(self):
+        import io
+        import json
+        import sys
+        import types
+        from types import SimpleNamespace
+        from tools import ja_first_search_pilot as search
+
+        calls = []
+        def respond(request, timeout):
+            calls.append(request)
+            if request.data is not None:
+                raise AssertionError("provider search must not run while budget-blocked")
+            return io.BytesIO(json.dumps({"providers":[
+                {"name":"opensubtitles","enabled":True,
+                 "initialized":True,"gate":"budget_exhausted"},
+                {"name":"subdl","enabled":True,
+                 "initialized":True,"gate":"budget_exhausted"}
+            ]}).encode())
+
+        job = [{"id":"held","query":{"series_title":"Example Show",
+                "season":2,"episode":3,"language":"ja"}}]
+        fake_cfg = types.ModuleType("config")
+        fake_cfg.get_settings = lambda: SimpleNamespace(api_key="TEST_KEY")
+        output = io.StringIO()
+        with mock.patch.dict(sys.modules, {"config":fake_cfg}), \
+             mock.patch("urllib.request.urlopen",side_effect=respond), \
+             mock.patch.object(sys,"stdin",io.StringIO(json.dumps(job))), \
+             mock.patch.object(sys,"stdout",output):
+            exec(search.CONTAINER_WORKER,{"__name__":"__main__"})
+        status = json.loads(output.getvalue())
+        self.assertTrue(status["ok"])
+        self.assertTrue(status["deferred"])
+        self.assertIn("budget_exhausted",status["provider_reason"])
+        self.assertEqual(len(calls),1)
+
+    def test_budget_deferral_replaces_prior_empty_search_not_saved_matches(self):
+        import json
+        from tools import ja_first_search_pilot as search
+        file=Path(self.tmp.name)/"budget-test.sqlite3"
+        job={"id":"first","row":{"kind":"Episode","title":"Example S02E03"}}
+        with mock.patch.object(search,"DB",file):
+            with search.open_db() as db:
+                search.save_attempt(db,job,"none",0,[],strategy_version=2)
+                search.save_attempt(db,job,"in_progress")
+                search.save_attempt(db,job,"deferred",0,[],strategy_version=3,
+                                    query_variant="provider_gate_deferred",
+                                    provider_gates={"opensubtitles":"budget_exhausted"})
+                outcome,payload=db.execute(
+                    "SELECT outcome,results_json FROM searches WHERE jellyfin_id='first'"
+                ).fetchone()
+                self.assertEqual(outcome,"deferred")
+                self.assertEqual(json.loads(payload)["provider_gates"],
+                                 {"opensubtitles":"budget_exhausted"})
 
     def test_scope_only_pending_source_first_same_season(self):
         p=selected.scope("It's Always Sunny in Philadelphia",1,path=self.path)
