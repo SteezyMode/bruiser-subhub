@@ -94,7 +94,7 @@ class StatusTests(unittest.TestCase):
             self.assertIn('id="'+name+'"',html)
         self.assertEqual(html.count('type="text"'),1)
         self.assertIn("Review remaining episodes",html)
-        self.assertIn("Send all remaining to PLaMo",html)
+        self.assertIn("Last resort: translate checked episodes",html)
         for name in ("batch-overview","batch-count","batch-remaining",
                      "batch-details","batch-fill"):
             self.assertIn('id="'+name+'"',html)
@@ -104,7 +104,7 @@ class StatusTests(unittest.TestCase):
     def test_episode_review_stays_open_and_has_real_actions(self):
         html=dashboard.HTML.read_text(encoding="utf-8")
         for phrase in ("openSeasons","openReviews","card.open=openSeasons.has",
-                       "Send all remaining to PLaMo",
+                       "Last resort: translate checked episodes",
                        "Translate this episode with PLaMo","Find Japanese / fix timing",
                        'bulkAction("source",','bulkAction("translate",'):
             self.assertIn(phrase,html)
@@ -499,6 +499,7 @@ class HTTPTests(unittest.TestCase):
     def test_library_wide_source_start_blocks_other_workers(self):
         with patch.object(dashboard, "unit_active",
                           side_effect=[False, False, True]), \
+             patch.object(dashboard, "translation_busy", return_value=False), \
              patch.object(dashboard.subprocess, "run") as runner:
             with self.assertRaisesRegex(RuntimeError,
                                         "season_source_active"):
