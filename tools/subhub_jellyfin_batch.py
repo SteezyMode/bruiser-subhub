@@ -6,7 +6,7 @@ ffsubsync publisher. NO direct Jellyfin subtitle POST, no translation, no
 overwrite. Runs as its own systemd user service, not in the browser.
 
 --series TITLE (optionally --season N and/or --pick SxxExxx) or --movie-id ID.
-Per-run cap (default 20 remote searches, max 40) and restartable private JSON
+Per-run cap (default 20 remote searches, max 200) and restartable private JSON
 progress. A paced/failed provider PAUSES the job, never silently declares a
 missing subtitle or consumes the rest of the catalog.
 """
