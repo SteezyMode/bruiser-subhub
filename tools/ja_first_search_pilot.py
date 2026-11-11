@@ -762,6 +762,7 @@ MAX_SEARCHES_PER_RUN = 600
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--budget", type=int, default=12, help="1..600 provider-search requests")
+    ap.add_argument("--jellyfin-id",default="",help="search one real catalog item by its external title/season/episode identity")
     ap.add_argument("--self-test", action="store_true")
     ap.add_argument("--report", action="store_true", help="print stored results; no provider searches")
     ap.add_argument("--recover-saved", action="store_true",
@@ -787,10 +788,24 @@ def main():
         raise RuntimeError("No saved Japanese-first intake manifest")
     manifest = manifests[-1]
     data = private_manifest(manifest)
+    if args.jellyfin_id and not re.fullmatch(r"[a-f0-9]{32}",args.jellyfin_id):
+        ap.error("--jellyfin-id must be an exact Jellyfin item ID")
     print("=== JAPANESE SEARCH PILOT (LIVE PROGRESS) ===", flush=True)
     print("Selecting candidates from manifest (in-memory first)...", flush=True)
     with open_db() as db:
-        chosen = pick(data["items"], db, args.budget)
+        if args.jellyfin_id:
+            matches=[r for r in data["items"] if isinstance(r,dict)
+                     and r.get("jellyfin_id")==args.jellyfin_id
+                     and r.get("kind") in ("Movie","Episode")]
+            if len(matches)!=1:
+                raise RuntimeError("explicit_source_item_missing_or_ambiguous")
+            row=matches[0]
+            query=query_for(row)
+            if query is None:
+                raise RuntimeError("explicit_item_not_source_ready")
+            chosen=[{"id":args.jellyfin_id,"row":row,"query":query}]
+        else:
+            chosen = pick(data["items"], db, args.budget)
         print("Inventory:", manifest.name, flush=True)
         print("Search requests planned:", len(chosen), "| budget:", args.budget, flush=True)
         print("Movie / Episode:", dict(Counter(j["row"]["kind"] for j in chosen)),
