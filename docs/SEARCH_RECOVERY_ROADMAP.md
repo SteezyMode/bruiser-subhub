@@ -7,6 +7,17 @@
 >
 > **Owner's current explicit order:** (1) fix reliable Japanese subtitle search and publication end-to-end; (2) all jobs need real dashboard progress, and manual batches must be possible; (3) Jellyfin-style movie poster grid with genre browsing/multi-selection; (4) eventually incremental source-on-add. No enterprise/startup framing. Do not build attractive controls that fail to deliver Japanese subtitles.
 
+## 2026-11-11 P0-C PUBLISHED — one complete real-world source-to-sidecar success
+
+**Owner-run OptiPlex apply verified. This supersedes prior “not published” and “ready only” entries below.**
+
+- Episode: *It's Always Sunny in Philadelphia* S07E02, *The Gang Goes to the Jersey Shore*; Jellyfin ID `76f7bdc090eb5db4f0287610859f386d`; source Jellyfin remote GET → subbuzz/OpenSubtitles.com. 402 Japanese SRT cues, 25,989 bytes.
+- Existing private-stage ID: `9494097471374`. User executed `ja_first_publish_queue.py --jellyfin-id 76f7bdc090eb5db4f0287610859f386d --max-titles 1 --limit 1 --apply` using installed commit `360638244a3cd3b15e114ac6f8c53daa12317757`.
+- `ALASS HELD: alass_dialogue_changed` (safety gate retained). FFSUBSYNC `mode=original`, `shift_range_seconds=[0.12,0.12]`, 402 cues, no overlap repairs. Gross QA pass, no warnings (**not a translation-quality grade**).
+- **PUBLISHED, create-only:** `/mnt/2TB/Plex Expansion/Television/Episodic/It's Always Sunny in Philadelphia/Season 07/It's Always Sunny in Philadelphia - S07E02 - The Gang Goes to the Jersey Shore.ja.srt`. SHA256 `afaf762847bc25646704180536fa186805181822cd0959c381026669ffb5fcf2`. Publisher returned `BRUISER_PUBLISH_ITEM: {"jellyfin_id":"76f7bdc090eb5db4f0287610859f386d","proof":"ready_ffsubsync","result":"published"}`, `QUEUE SUMMARY: {"ready_ffsubsync":1,"published_new":1}`. Existing video and tracks unchanged. **No new provider queries/downloads in publication.**
+- **Still unverified:** Whether Jellyfin displays/selects this sidecar in playback, and opening/middle/end dialogue timing/quality. Do not assert playback-verified yet; owner can test in Jellyfin browser.
+- **Generalization remains P0:** This proves ONE item from library metadata → discovery → source download → private stage → integrity checks → FFSUBSYNC fallback → no-clobber sidecar. It does **not** repair the 44/44 v4 Sublarr source misses or make bulk Jellyfin searches automatic. Next implement budget-aware **general-purpose queue** calling the proven Jellyfin adapter for selected/all eligible catalog items with accurate per-title states and dashboard progress. Preserve provider quotas and avoid existing Japanese sidecars; test a small heterogeneous set before all-library automation. Prioritize actual usable Japanese results, NOT one-show improvements.
+
 ## 2026-11-11 P0-C HOST VERIFIED: private stage succeeds, publisher dry-run fallback ready
 
 **Owner executed the pinned reversible installer, private stage and ONE exact-item publisher dry-run. Actual host evidence (supersedes the older "CODE ONLY" status below):**
