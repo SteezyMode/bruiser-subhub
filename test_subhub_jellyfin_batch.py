@@ -57,6 +57,18 @@ class GenericJellyfinBatch(unittest.TestCase):
         with self.assertRaises(ValueError):
             batch.choose(self.rows,movie_ids=["f"*32,"f"*32])
 
+    def test_subdl_stage_can_select_exact_episode_without_publishing(self):
+        from tools import ja_first_stage_subdl as subdl
+        row=tv("a"*32,8,6,series="Example Show")
+        candidate={"provider":"subdl","language":"ja","subtitle_id":"1234-5678",
+                   "filename":"Example.Show.S08E06.ja.zip",
+                   "matches":["season","episode"]}
+        self.assertTrue(subdl.identity_ok(row,candidate))
+        self.assertFalse(subdl.identity_ok(row,dict(candidate,
+                          filename="Example.Show.S08E07.ja.zip")))
+        sid,digest=subdl.numeric_id(candidate["subtitle_id"])
+        self.assertTrue(sid.isdigit() and len(digest)==64)
+
     def test_live_source_worker_exposes_milestones_before_completion(self):
         code=("import sys,time;"
               "print('MEDIA: video ready',flush=True);"
