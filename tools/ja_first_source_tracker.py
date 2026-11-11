@@ -78,6 +78,7 @@ def parse(events):
     entries = latest_run(events)
     state = {
         "has_run": bool(entries),
+        "scope": "all",
         "started": entries[0][0] if entries else 0,
         "last_event": entries[-1][0] if entries else 0,
         "phase": "Waiting for first source cycle",
@@ -104,7 +105,11 @@ def parse(events):
     for _, message in entries:
         for line in message.splitlines():
             line = line.strip()
-            if line.startswith("RUNNING_SOURCES_ONLY_CYCLE"):
+            if line.startswith("SOURCE SCOPE:"):
+                scope=line.partition(":")[2].strip()
+                if scope in ("all","horror-drama-folders"):
+                    state["scope"]=scope
+            elif line.startswith("RUNNING_SOURCES_ONLY_CYCLE"):
                 m = RE_LIMITS.search(line)
                 if m:
                     state["search_limit"], state["stage_limit"], state["publish_limit"] = (
@@ -139,7 +144,8 @@ def parse(events):
             elif (m := RE_SEARCH_DEFERRED.search(line)):
                 state["search_deferred"] += 1
                 state["search_stopped_early"] = True
-                state["search_stop_reason"] = "Provider budget or availability deferred"
+                state["search_stop_reason"] = ("Provider search deferred at item "+m.group(1)+
+                         " (allowance or health gate); check Sublarr Providers")
                 state["provider_limited"] = True
                 notable.append("Provider search deferred: not a confirmed subtitle miss")
             elif (m := RE_STAGE_PLAN.search(line)):
@@ -261,6 +267,7 @@ def render(state, now=None):
     output = [
         "BRUISER SUBHUB  |  JAPANESE SOURCED-SUBTITLE MONITOR",
         "=" * 68,
+        "Scope: "+str(state.get("scope","all")),
         f"Service: {service}/{state.get('sub_state', 'unknown')}  |  "
         f"Phase: {state['phase']}",
     ]
