@@ -144,8 +144,9 @@ class HandoffTests(unittest.TestCase):
                 self.assertEqual(len(rows),2)
                 self.assertEqual(rows[0]["jellyfin_id"],"fid_A")
                 ai.validate_row(rows[0])
-                with self.assertRaisesRegex(RuntimeError,"japanese_sourcing_not_exhausted"):
-                    ai.validate_row(rows[1])
+                # Source-exhausted EN-recovery tasks now search for a verified
+                # English source when the owner selects translation.
+                ai.validate_row(rows[1])
                 self.assertEqual(ai.eligible(db,"fid_A")[0]["series"],"")
 
     def test_owner_review_fallback_requires_saved_evidence_and_exact_episode(self):
@@ -463,8 +464,10 @@ class HandoffTests(unittest.TestCase):
             video=Path(folder)/"movie.mkv"
             video.write_bytes(b"not-a-video (preflight fixture only)")
             with self.assertRaisesRegex(RuntimeError,"english_text_source_not_available"):
-                ai.saved_media(video,"fid",info,Daily,
-                               None,None,None,lambda p:Path(p))
+                with patch.object(ai,"acquire_exact_english",
+                                  side_effect=RuntimeError("english_text_source_not_available")):
+                    ai.saved_media(video,"fid",info,Daily,
+                                   None,None,None,lambda p:Path(p))
 
     def test_orphan_english_source_after_crash_is_reprepared(self):
         from types import SimpleNamespace
