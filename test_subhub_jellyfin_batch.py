@@ -279,6 +279,59 @@ class DashboardJellyfinControls(unittest.TestCase):
         self.assertEqual(result["max_searches_this_run"],20)
         self.assertEqual(calls[1][calls[1].index("--max-searches")+1],"20")
 
+    def test_read_only_progress_folder_prevents_launch_before_systemd(self):
+        calls=[]
+        def run(command,**kwargs):
+            calls.append(command)
+            return SimpleNamespace(returncode=0,stdout='{"eligible": 78}',stderr="")
+        with patch.object(dashboard,"unit_active",return_value=False), \
+             patch.object(dashboard,"translation_busy",return_value=False), \
+             patch.object(dashboard,"JELLYFIN_SOURCE_EXEC",Path(__file__)), \
+             patch.object(dashboard,"write_jellyfin_launch",
+                          side_effect=OSError(30,"Read-only file system")), \
+             patch.object(dashboard.subprocess,"run",side_effect=run):
+            with self.assertRaises(OSError):
+                dashboard.start_jellyfin_source({"series":"Example Show"})
+        # One read-only offline preview, ZERO systemd-run calls.
+        self.assertEqual(len(calls),1)
+        self.assertNotIn("systemd-run",calls[0])
+
+    def test_failed_systemd_start_keeps_explicit_failure_receipt(self):
+        calls=[]
+        def run(command,**kwargs):
+            calls.append(command)
+            if len(calls)==1:
+                return SimpleNamespace(returncode=0,stdout='{"eligible": 78}',stderr="")
+            return SimpleNamespace(returncode=1,stdout="",stderr="unit refused")
+        with patch.object(dashboard,"unit_active",return_value=False), \
+             patch.object(dashboard,"translation_busy",return_value=False), \
+             patch.object(dashboard,"JELLYFIN_SOURCE_EXEC",Path(__file__)), \
+             patch.object(dashboard.subprocess,"run",side_effect=run):
+            with self.assertRaisesRegex(RuntimeError,"Jellyfin_source_start_failed"):
+                dashboard.start_jellyfin_source({"series":"Example Show"})
+        self.assertEqual(len(calls),2)
+        receipt=json.loads(dashboard.JELLYFIN_SOURCE_LAUNCH.read_text())
+        self.assertEqual(receipt["state"],"launch_failed")
+        self.assertEqual(len(receipt["job_id"]),16)
+        with patch.object(dashboard,"unit_active",return_value=False), \
+             patch.object(dashboard,"JELLYFIN_SOURCE_STATE",
+                          self.root/"missing.json"):
+            status=dashboard.jellyfin_source_status()
+        self.assertEqual(status["state"],"launch_failed")
+        self.assertIn("unit refused",status["current"])
+
+    def test_existing_dashboard_unit_preserves_home_read_only_except_receipts(self):
+        root=Path(__file__).parent/"tools"
+        unit=(root/"install_subhub_dashboard.sh").read_text()
+        installer=(root/"install_global_ja_sourcing.py").read_text()
+        for config in (unit,installer):
+            self.assertIn("ReadWritePaths=%h/bruiser-pilot/ja-first-inventory",
+                          config)
+        self.assertIn("ProtectHome=read-only",unit)
+        self.assertIn("ProtectSystem=strict",unit)
+        self.assertIn("DASH_OVERRIDE",installer)
+        self.assertIn("systemctl(\"daemon-reload\")",installer)
+
     def test_status_is_exact_receipt_not_inferred_from_disabled_button(self):
         with tempfile.TemporaryDirectory() as d:
             folder=Path(d);os.chmod(folder,0o700)
