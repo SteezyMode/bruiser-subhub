@@ -654,7 +654,7 @@ def record_native_download_attempt(stdout, report, *, path=None):
         ledger.finish(event,"downloaded",byte_count=int(received[0]),path=path)
         return True
     error=str(report.get("error_type") or "")+" "+str(report.get("error") or "")
-    if re.search(r"(?i)(?:\b(?:429|406|quota)\b|rate[_ -]?limit|"
+    if re.search(r"(?i)(?:429|406|\bquota\b|rate[_ -]?limit|"
                  r"budget[_ -]?exhaust|download[_ -]?limit)",error):
         ledger.finish(event,"quota_blocked",error_kind="provider_limit",path=path)
     else:
