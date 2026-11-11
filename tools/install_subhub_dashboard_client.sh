@@ -42,6 +42,24 @@ if ! curl -fsS --max-time 2 http://127.0.0.1:17876/healthz 2>/dev/null |
       -o ServerAliveCountMax=3 \
       -L 127.0.0.1:17876:127.0.0.1:17876 "$TARGET"
 fi
+# The dashboard's "Open Sublarr" link uses a SECOND loopback-only tunnel.
+# The app is inside Docker on the host, not necessarily published on port 5765.
+# Resolve its container IP remotely rather than assuming :5765 on the host.
+if ! curl -fsS --max-time 2 http://127.0.0.1:15765/ 2>/dev/null |
+      grep -qi 'sublarr'; then
+  SUBLARR_IP="$(ssh -o BatchMode=yes -o ConnectTimeout=12 "$TARGET" \
+      "docker inspect -f '{{range .NetworkSettings.Networks}}{{println .IPAddress}}{{end}}' sublarr-pilot" 2>/dev/null |
+      head -n 1)" || SUBLARR_IP=""
+  if [[ "$SUBLARR_IP" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+    ssh -f -N -o BatchMode=yes -o ExitOnForwardFailure=yes \
+        -o ConnectTimeout=12 -o ServerAliveInterval=30 \
+        -o ServerAliveCountMax=3 \
+        -L "127.0.0.1:15765:${SUBLARR_IP}:5765" "$TARGET" ||
+      echo "Sublarr tunnel not started; check localhost:15765 and Docker state" >&2
+  else
+    echo "Sublarr container address unavailable; SubHub itself can still open" >&2
+  fi
+fi
 for attempt in {1..15}; do
   if curl -fsS --max-time 2 http://127.0.0.1:17876/healthz 2>/dev/null |
       grep -Eq '"mode"[[:space:]]*:[[:space:]]*"owner_controls"'; then
@@ -65,5 +83,5 @@ mv -f "$LAUNCH.new" "$LAUNCH"
 chmod 644 "$DESKTOP.new"
 mv -f "$DESKTOP.new" "$DESKTOP"
 echo "SUBHUB_REMOTE_SHORTCUT_INSTALLED $DESKTOP"
-echo "One click opens the remote dashboard via SSH tunnel if SSH keys work."
+echo "One click opens SubHub and prepares its Open Sublarr link using private SSH tunnels."
 echo "Troubleshoot in terminal: $LAUNCH $HOST"
