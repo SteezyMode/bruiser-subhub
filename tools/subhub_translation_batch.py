@@ -248,10 +248,28 @@ def season_report(series, season, *, path=None):
     items = []
     for number, candidates in sorted(versions.items()):
         if len(candidates) != 1:
-            items.append({"episode":number,"title":str(candidates[0]["title"]),
-                          "status":"review","reason":"duplicate_episode_versions",
-                          "can_source":False,"can_translate":False,
-                          "next_action":"REVIEW · Duplicate episode files"})
+            # The queue may include multiple releases, old moved copies, or
+            # multiple active task joins for one file. Never silently select
+            # one edition for translation or conceal already-covered copies.
+            by_path = {}
+            for candidate in candidates:
+                by_path.setdefault(str(candidate["path"]), candidate)
+            editions=list(by_path.values())
+            found=sum(bool(_already_covered(row)) for row in editions)
+            all_covered=bool(editions) and found==len(editions)
+            items.append({
+                "episode":number,"title":str(editions[0]["title"]),
+                "status":"covered" if all_covered else "review",
+                "reason":"duplicate_episode_versions",
+                "can_source":False,"can_translate":False,
+                "version_count":len(editions),"versions_with_japanese":found,
+                "next_action":(
+                    "READY · Japanese subtitles present on both versions"
+                    if all_covered and len(editions)==2 else
+                    "READY · Japanese subtitles present on all versions"
+                    if all_covered else
+                    f"REVIEW · Japanese on {found}/{len(editions)} editions; choose version")
+            })
             continue
         row = candidates[0]
         action, state = str(row["action"] or ""), str(row["state"] or "")
