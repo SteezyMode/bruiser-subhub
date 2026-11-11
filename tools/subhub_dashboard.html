@@ -524,7 +524,9 @@ function renderJellyfinJob(d){
   const scope=p.selector||{};
   const name=scope.series||"Selected Jellyfin movies";
   $("jellyfin-job-title").textContent=name+" · Japanese sourcing";
-  $("jellyfin-job-state").textContent=p.active?"Running":p.state||"Preparing";
+  $("jellyfin-job-state").textContent=
+    p.active?(p.state==="no_progress"?"No progress yet":"Running"):
+    p.state||"Preparing";
   $("jellyfin-job-fill").style.width=percent+"%";
   $("jellyfin-job-meter").setAttribute("aria-valuenow",String(percent));
   $("jellyfin-job-meter").setAttribute("aria-valuetext",
@@ -535,9 +537,14 @@ function renderJellyfinJob(d){
     (p.no_match||0)+" no match · "+(p.held||0)+" held · "+
     (p.deferred||0)+" deferred · "+(p.searches_this_run||0)+
     " / "+(p.search_cap||20)+" provider searches allowed this pass";
+  const phaseAge=Math.max(0,Number(p.phase_age_seconds)||0);
+  const phaseAgeText=p.progress_available?" · "+phaseAge+"s in this stage":"";
+  const staleNotice=p.active&&p.progress_available&&phaseAge>120?
+    " · No new checkpoint in "+phaseAge+"s; worker may be slow or stalled":"";
   $("jellyfin-job-current").textContent=p.current?
-    (p.active?"Now: ":"Status: ")+escapeText(p.current)+" · "+escapeText(p.phase||""):
-    "Phase: "+escapeText(p.phase||"waiting");
+    (p.active?"Now: ":"Status: ")+escapeText(p.current)+
+      " · "+escapeText(p.phase||"")+phaseAgeText+staleNotice:
+    "Phase: "+escapeText(p.phase||"waiting")+phaseAgeText+staleNotice;
   $("jellyfin-job-holds").textContent=(p.holds||[]).length?
     "Held episodes: "+p.holds.map(x=>x.item+" — "+x.reason.replaceAll("_"," ")).join(" | "):
     "";
@@ -598,11 +605,14 @@ async function refreshStatus(){
     const jellyfin=!!(d.jellyfin_source||{}).active;
     const source=!!d.source_active||!!(d.season_sources||{}).active||jellyfin;
     const ai=!!(d.season_translation||{}).active||legacy||Number(t.active_jobs||0)>0;
-    d.workersBusy=source||ai||!!(d.movie_source||{}).active;
+    const jobState=(d.jellyfin_source||{}).state||"";
+    const jobStarting=jobState==="starting"||jobState==="no_progress";
+    d.workersBusy=source||ai||jobStarting||!!(d.movie_source||{}).active;
     renderJellyfinJob(d);
     d.aiAvailable=!!(d.season_translation||{}).available;
     const scoped=!!(d.season_sources||{}).active;
     $("run-status").textContent=jellyfin?"Jellyfin source batch active":
+      jobStarting?"Jellyfin source batch starting":
       scoped?"Selected sourcing active":ai?"PLaMo active":source?"Source worker active":"Idle";
     const batch=(d.season_translation||{}).progress||{};
     $("batch-overview").hidden=!batch.known;
