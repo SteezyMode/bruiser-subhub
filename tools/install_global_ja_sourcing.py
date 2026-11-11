@@ -28,6 +28,7 @@ from urllib.request import urlopen
 REPO="SteezyMode/bruiser-subhub"
 HOST=Path.home()/"bruiser-pilot/subhub-control"
 DASH=Path.home()/".local/share/bruiser-subhub-dashboard"
+AI=Path.home()/"bruiser-pilot/plamo3-ab"
 SOURCE_FILES=(
     "ja_first_search_pilot.py",
     "ja_first_movie_scope.py",
@@ -50,6 +51,7 @@ SOURCE_FILES=(
     "subhub_jellyfin_batch.py",
     "ja_first_autofill.py",
 )
+AI_FILES=("subhub_plamo_handoff.py",)
 DASH_FILES=(
     "subhub_dashboard_server.py",
     "subhub_dashboard.html",
@@ -172,7 +174,7 @@ def main():
     if not re.fullmatch("[0-9a-f]{40}",args.commit):
         parser.error("--commit needs one full 40-character Git commit hash")
 
-    for folder in (HOST,DASH,DASH_JOB_ROOT,DASH_UNIT_DIR):
+    for folder in (HOST,DASH,AI,DASH_JOB_ROOT,DASH_UNIT_DIR):
         secure_directory(folder)
     if DASH_JOB_ROOT.stat().st_mode & 0o077:
         fail("Private source-job inventory is not owner-only")
@@ -207,6 +209,10 @@ def main():
             "subhub_library_coverage.py","subhub_translation_batch.py",
             "subhub_finish_scope.py"})
         destinations[("dashboard",name)]=target
+    for name in AI_FILES:
+        target=AI/name
+        secure_file(target)
+        destinations[("ai",name)]=target
 
     print("FETCHING fixed revision:",args.commit)
     files={}
@@ -215,6 +221,7 @@ def main():
     # Avoid replacing host files with a version that cannot even parse.
     assert "strategy_version" in files[("source","ja_first_search_pilot.py")].decode()
     assert 'id="source-library"' in files[("dashboard","subhub_dashboard.html")].decode()
+    assert "def indexed_jellyfin_english" in files[("ai","subhub_plamo_handoff.py")].decode()
     root=Path(tempfile.mkdtemp(prefix=".ja-lib-pref-",dir=HOST))
     backup=None
     updated=[]
