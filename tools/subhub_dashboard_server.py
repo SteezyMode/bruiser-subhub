@@ -541,7 +541,7 @@ def scheduled_source_activity(active, max_lines=5000):
         phase=details["phase"] if active else {
             "source_held":"Most recent automatic source cycle failed",
             "source_completed":("Source stages finished; search deferred by provider"
-                                if scheduled.get("search_stopped_early")
+                                if details.get("search_stopped_early")
                                 else "Most recent automatic source cycle completed"),
             "source_interrupted":"Most recent automatic source cycle interrupted",
         }[status]
