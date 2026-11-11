@@ -99,9 +99,9 @@ class DailyDownloadLedger(unittest.TestCase):
     def test_native_worker_get_counts_success_before_qa_failure(self):
         # Provider returned bytes; the downloaded subtitle was rejected later.
         # It still consumes a download and must count in the combined day.
-        stdout=("SUBHUB_DOWNLOAD_REQUEST: opensubtitles\\n"
-                "SUBHUB_DOWNLOAD_RECEIVED: 12345\\n"
-                'STAGE_RESULT_JSON:{"result":"blocked","error":"too_few_subtitle_cues"}\\n')
+        stdout=("SUBHUB_DOWNLOAD_REQUEST: opensubtitles\n"
+                "SUBHUB_DOWNLOAD_RECEIVED: 12345\n"
+                'STAGE_RESULT_JSON:{"result":"blocked","error":"too_few_subtitle_cues"}\n')
         native_stage.record_native_download_attempt(
             stdout,{"result":"blocked","error":"too_few_subtitle_cues"},
             path=self.path)
@@ -111,7 +111,7 @@ class DailyDownloadLedger(unittest.TestCase):
         self.assertEqual(today["failed"],0)
 
     def test_native_quota_block_and_other_failure_are_recorded(self):
-        request="SUBHUB_DOWNLOAD_REQUEST: opensubtitles\\n"
+        request="SUBHUB_DOWNLOAD_REQUEST: opensubtitles\n"
         native_stage.record_native_download_attempt(
             request,{"result":"blocked","error":"HTTP 429 Too Many Requests"},
             path=self.path)
@@ -130,7 +130,7 @@ class DailyDownloadLedger(unittest.TestCase):
 
     def test_native_worker_missing_result_still_accounts_for_get(self):
         native_stage.record_native_download_attempt(
-            "SUBHUB_DOWNLOAD_REQUEST: opensubtitles\\n",{},path=self.path)
+            "SUBHUB_DOWNLOAD_REQUEST: opensubtitles\n",{},path=self.path)
         today=ledger.summary(path=self.path)["today"]
         self.assertEqual(today["attempted"],1)
         self.assertEqual(today["failed"],1)
