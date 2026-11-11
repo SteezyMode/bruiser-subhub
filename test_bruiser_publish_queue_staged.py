@@ -29,6 +29,28 @@ class StagedRecoveryTests(unittest.TestCase):
         self.assertEqual(kept,records[:2])
         self.assertEqual(len(pub.unique_titles(kept,100)),1)
 
+    def test_generic_series_selector_filters_exact_owner_scope(self):
+        records=[
+            ("a"*32,"1","f"*64),("b"*32,"2","e"*64),
+            ("c"*32,"3","d"*64),("d"*32,"4","c"*64),
+        ]
+        rows=[
+            {"kind":"Episode","jellyfin_id":"a"*32,"series_title":"Sunny",
+             "season":9,"status":"ready_ja_search"},
+            {"kind":"Episode","jellyfin_id":"b"*32,"series_title":"Sunny",
+             "season":8,"status":"ready_ja_search"},
+            {"kind":"Episode","jellyfin_id":"c"*32,"series_title":"Other",
+             "season":9,"status":"ready_ja_search"},
+            {"kind":"Episode","jellyfin_id":"d"*32,"series_title":"Sunny",
+             "season":9,"status":"existing_japanese_subtitle"},
+        ]
+        self.assertEqual(pub.select_staged_series(records, rows, "Sunny", 9),
+                         records[:1])
+        self.assertEqual(pub.select_staged_series(records, rows, "Sunny"),
+                         records[:2])
+        self.assertEqual(pub.select_staged_series(records, rows, "Other"),
+                         records[2:3])
+
     def test_missing_queue_blocks_explicit_recovery(self):
         with self.assertRaisesRegex(RuntimeError,"queue_not_installed"):
             pub.queued_staged_titles([],queue_reader=lambda:None)
