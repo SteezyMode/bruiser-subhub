@@ -1,5 +1,7 @@
 # Bruiser SubHub
 
+> **CURRENT P0-D — Nov 11: DASHBOARD FIX COMMITTED, NOT YET INSTALLED.** The working Jellyfin → private stage → FFSUBSYNC/ALASS → create-only publication path now has a reusable **whole-series dashboard action** (up to 200 searches in one scoped job), selected-season/episode actions, real per-item progress, stop/continue and a resumable private status receipt. This is **general-purpose**, not a Sunny-only terminal command. **Next: one guarded installer update, then run from the dashboard.** [Source roadmap](docs/SEARCH_RECOVERY_ROADMAP.md#2026-11-11-p0-d--dashboard-controlled-resumable-jellyfin-native-library-sourcing-code-ready-host-not-yet-deployed) · [issue #90](https://github.com/SteezyMode/bruiser-subhub/issues/90). The movie poster grid and unified progress for other legacy job types remain open.
+
 > **LATEST VERIFIED HOST RESULT — 2026-11-11:** Japanese subtitle **PUBLISHED** for IASIP S07E02, *The Gang Goes to the Jersey Shore*, via Jellyfin/subbuzz → existing private staging → FFSUBSYNC `mode=original` → create-only `.ja.srt`. **402 cues**, SHA256 `afaf762847bc25646704180536fa186805181822cd0959c381026669ffb5fcf2`. Original video/tracks unchanged. **Jellyfin playback and dialogue timing still need review.**
 >
 > **[START HERE: P0 search-recovery roadmap and full attempt log](docs/SEARCH_RECOVERY_ROADMAP.md)** · [Search issue #89](https://github.com/SteezyMode/bruiser-subhub/issues/89) · [Dashboard/queue issue #90](https://github.com/SteezyMode/bruiser-subhub/issues/90).
