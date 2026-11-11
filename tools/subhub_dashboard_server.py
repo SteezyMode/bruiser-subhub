@@ -510,6 +510,7 @@ def scheduled_source_activity(active, max_lines=5000):
           "current_item":"","events":[],"sample_window":"","started":0,
           "last_event":0,"search_completed":0,"search_planned":0,
           "search_found":0,"search_none":0,"search_review":0,"search_errors":0,
+          "search_deferred":0,"search_stopped_early":False,"search_stop_reason":"",
           "stage_attempts":0,"stage_planned":0,"staged":0,"stage_holds":0,
           "publish_title_checked":0,"publish_title_planned":0,"published":0,
           "publish_holds":0}
@@ -539,7 +540,9 @@ def scheduled_source_activity(active, max_lines=5000):
             status="source_completed"
         phase=details["phase"] if active else {
             "source_held":"Most recent automatic source cycle failed",
-            "source_completed":"Most recent automatic source cycle completed",
+            "source_completed":("Source stages finished; search deferred by provider"
+                                if scheduled.get("search_stopped_early")
+                                else "Most recent automatic source cycle completed"),
             "source_interrupted":"Most recent automatic source cycle interrupted",
         }[status]
         current=safe_text(details["current"],150)
@@ -558,6 +561,9 @@ def scheduled_source_activity(active, max_lines=5000):
               "search_none":details["search_none"],
               "search_review":details["search_review"],
               "search_errors":details["search_errors"],
+              "search_deferred":details["search_deferred"],
+              "search_stopped_early":details["search_stopped_early"],
+              "search_stop_reason":details["search_stop_reason"],
               "stage_attempts":details["stage_attempts"],
               "stage_planned":details["stage_planned"],
               "staged":details["staged"],
