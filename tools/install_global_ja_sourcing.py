@@ -127,8 +127,8 @@ def state_summary():
     page=DASH/"subhub_dashboard.html"
     worker=src.read_text("utf-8")
     html=page.read_text("utf-8")
-    if "strategy_version" not in worker or "title_only_fallback" not in worker:
-        fail("Post-install library-wide strategy missing")
+    if "strategy_version" not in worker or "imdb_then_movie_title_year" not in worker:
+        fail("Post-install library-wide v4 strategy missing")
     if 'id="source-library"' not in html:
         fail("Post-install library-wide dashboard control missing")
     print("INTEGRITY: library search strategy and full-library dashboard control present")
