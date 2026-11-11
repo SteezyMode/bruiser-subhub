@@ -7,6 +7,16 @@
 >
 > **Owner's current explicit order:** (1) fix reliable Japanese subtitle search and publication end-to-end; (2) all jobs need real dashboard progress, and manual batches must be possible; (3) Jellyfin-style movie poster grid with genre browsing/multi-selection; (4) eventually incremental source-on-add. No enterprise/startup framing. Do not build attractive controls that fail to deliver Japanese subtitles.
 
+## Nov 11 dashboard denominator fix — "32" versus "23" missing Sunny episodes
+
+Owner reports "32 missing" in one view but "23" upon expanding **Review missing Japanese**, alongside disabled **Last resort: PLaMo (0)**. **Verified dashboard behavior:** the Review button ONLY toggles episode detail visibility; it does NOT rescan or recalculate. `tools/subhub_dashboard.html::counts()` sums `coverage` map for **currently selected and successfully fetched seasons**, sourced from `subhub_translation_batch.season_report()` backed by the saved coverage queue plus file-sidecar checks. Earlier 32 came from a DIFFERENT source snapshot/selection; never assert equivalence or a canonical total without a same-time inventory reconciliation. The translation button shows zero when no episodes are checked, **even if many are missing**; its eligibility is separately restricted by source-first queue state and actual English availability.
+
+**GitHub UI fix** at commit `a3d3b9ec85cecefd104d350aba19a62e5ca904a0`:
+- Label numerator and denominator **selected seasons only**, explicitly show loaded/selected season count and caution stale queue; show breakdown by review, sourcing and English-needed, and total PLaMo eligible episodes.
+- Label translation action `Translate checked with PLaMo (N selected / M eligible)`, preventing "0" from being mistaken for zero missing episodes.
+- Add **Recheck selected episode coverage**; refreshes selected season reports and exact-video JA sidecar flags without provider calls and without falsely pretending a Jellyfin library rescan.
+- Do not deploy GitHub changes while 600-search source job is active. Verify true cross-source count (fresh Jellyfin catalog + all seasons saved matrix) and only then prioritize remaining translations.
+
 ## Next feature proposal — optional timed PLaMo translation window (user request Nov 11)
 
 **Not enabled or scheduled yet.** Simple SubHub Settings control: **Auto-translate (Off by default)**, **Start time** (local JST, e.g. 05:00), **Duration** (e.g. 120 minutes). This is a user-configurable daily start+duration, not approval to start translating the whole library or to require the user to review each routine hold.
