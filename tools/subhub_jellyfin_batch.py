@@ -43,7 +43,7 @@ EP = re.compile(r"S(\d{2})E(\d{2,3})\Z", re.I)
 MAX_ITEMS = 500
 MAX_SEARCHES = 200
 COOLDOWN_SEC = 20 * 3600
-SEARCH_STRATEGY = "jellyfin-all-providers-plus-sublarr-title-episode-v2"
+SEARCH_STRATEGY = "jellyfin-all-providers-plus-sublarr-title-episode-v3-identity"
 STOP = False
 
 
