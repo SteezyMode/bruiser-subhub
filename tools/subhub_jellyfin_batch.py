@@ -264,20 +264,15 @@ def execute(rows,doc,*,limit,runner=call,writer=write_state):
         item["attempted_at"]=int(time.time())
         event(doc,"search_download",label)
         writer(doc)
-        if row["kind"]=="Episode":
-            choice=["--episode",str(row["series_title"])+
-                   f' S{row["season"]:02d}E{row["episode"]:02d}']
-        else:
-            choice=["--movie",str(row["title"])]
         cmd=[sys.executable,"-B",str(SOURCE_DIR/"ja_first_stage_jellyfin.py"),
-             *choice,"--provider","subbuzz","--apply"]
+             "--jellyfin-id",item["id"],"--provider","subbuzz","--apply"]
         try:
             code,out,err=runner(cmd,timeout=320)
         except subprocess.TimeoutExpired:
             code,out,err=124,"","timed_out"
         verdict=classify_stage(code,out,err)
-        if ("JELLYFIN_JA_MATCHING_CANDIDATES:" in out or
-                "JELLYFIN_JA_BYTES:" in out):
+        if ("JELLYFIN_JA_SEARCH_REQUEST:" in out or
+                "JELLYFIN_JA_MATCHING_CANDIDATES:" in out):
             doc["searches_this_run"]+=1
         # The operation can still have spent a request if it errored after
         # remote SEARCH started but before it printed matching candidates.
