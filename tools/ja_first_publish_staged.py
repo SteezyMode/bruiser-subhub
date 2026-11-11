@@ -108,10 +108,27 @@ def read_staging(jid, sid):
     metrics = json.loads(metrics_text)
     if metrics.get("format") != "srt" or metrics.get("bytes") != len(data):
         raise RuntimeError("staging_format_or_size_mismatch")
+    recorded_provider = str(metrics.get("provider") or "")
+    actual_provider = "jellyfin" if ".jellyfin." in staged.name else "opensubtitles"
+    if recorded_provider != actual_provider:
+        raise RuntimeError("staging_provenance_provider_mismatch")
     return staged, data, metrics
+
+def source_label(jid, sid):
+    """Preserve real upstream provenance in aligned filenames (not a fake OS ID)."""
+    staged, _, _ = read_staging(jid, sid)
+    return "jellyfin" if ".jellyfin." in staged.name else "opensubtitles"
 
 
 def verify_search_identity(row, jid, sid):
+    staged, _, metrics = read_staging(jid, sid)
+    if metrics["provider"] == "jellyfin":
+        # Jellyfin's own authoritative item-scoped search is independently
+        # documented at acquisition. Avoid modifying the original Sublarr
+        # history or lying about which subtitle provider supplied the bytes.
+        from ja_first_stage_jellyfin import validate_staged_provenance
+        validate_staged_provenance(row, jid, sid, metrics)
+        return
     uri = db_uri(SEARCH_DB)
     with sqlite3.connect(uri, uri=True, timeout=10) as db:
         records = db.execute(
