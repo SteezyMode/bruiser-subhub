@@ -409,6 +409,22 @@ def acquire_exact_english(video, jid, kind, source):
           " timing=unverified_pending_ffsubsync",flush=True)
 
 
+def indexed_jellyfin_english(video, jid):
+    """Retrieve an already-indexed English stream for this exact video.
+
+    This is read-only: no provider search or download, and no sidecar write.
+    Reuse the same strict Jellyfin ID/path and track validator used by the JA
+    intensive recovery worker. The audio alignment gate still runs below.
+    """
+    from importlib import import_module
+    try:
+        reader=import_module("ja_first_alass")
+    except ImportError:
+        print("SUBHUB_AI_ENGLISH_INDEXED unavailable_reader",flush=True)
+        return None
+    return reader._intensive_jellyfin_english(video,jid)
+
+
 def synchronize_external_english(video, original, source, sync):
     """Try ffsubsync, then existing ALASS; accept corrected *timing* only.
 
@@ -464,18 +480,28 @@ def saved_media(video, jid, info, daily, source, small, sync, safe_media_path,
         if not allow_unlabeled_audio:
             raise RuntimeError("english_audio_not_verified")
         verify_owner_unlabeled_audio(video)
+    indexed_raw=None
     if info["embedded_en"] is None and daily.english_srt(video) is None:
-        print("SUBHUB_AI_ENGLISH_MISSING source_search_for_exact_video",flush=True)
-        acquire_exact_english(video,jid,kind,source)
-        # Jellyfin may finish writing its downloaded sidecar shortly after
-        # the API accepts it. Poll briefly instead of misclassifying success
-        # as a missing English source; never repeat the provider request.
-        for _ in range(12):
-            if daily.english_srt(video) is not None:
-                break
-            time.sleep(1)
-        if daily.english_srt(video) is None:
-            raise RuntimeError("english_download_not_available_as_sidecar")
+        # Jellyfin may already hold a saved EN subtitle in its own metadata
+        # rather than beside the video. Do not waste a second provider credit.
+        indexed_raw=indexed_jellyfin_english(video,jid)
+        if indexed_raw is None:
+            print("SUBHUB_AI_ENGLISH_MISSING source_search_for_exact_video",flush=True)
+            acquire_exact_english(video,jid,kind,source)
+            # The RemoteSearch POST may store the subtitle in Jellyfin
+            # metadata instead of the media folder. Both are valid sources;
+            # neither is trusted for timing until exact-video audio sync.
+            for attempt in range(12):
+                if daily.english_srt(video) is not None:
+                    break
+                indexed_raw=indexed_jellyfin_english(video,jid)
+                if indexed_raw is not None:
+                    break
+                if attempt<11:
+                    time.sleep(1)
+            if daily.english_srt(video) is None and indexed_raw is None:
+                raise RuntimeError(
+                    "english_download_not_available_as_sidecar_or_indexed_stream")
     if info["embedded_en"] is not None:
         result = subprocess.run(
             ["ffmpeg","-nostdin","-hide_banner","-loglevel","error",
@@ -490,11 +516,19 @@ def saved_media(video, jid, info, daily, source, small, sync, safe_media_path,
         timing = {"mode":"same_file_embedded"}
     else:
         candidate = daily.english_srt(video)
-        if (candidate is None or candidate.is_symlink() or
-                not candidate.is_file() or candidate.stat().st_size > 2_000_000):
-            raise RuntimeError("external_english_source_unsafe")
-        raw = candidate.read_bytes()
-        provenance = "external_audio_synced"
+        if candidate is not None:
+            if (candidate.is_symlink() or not candidate.is_file() or
+                    candidate.stat().st_size > 2_000_000):
+                raise RuntimeError("external_english_source_unsafe")
+            raw = candidate.read_bytes()
+            provenance = "external_audio_synced"
+        elif indexed_raw is not None:
+            raw = indexed_raw
+            provenance = "jellyfin_indexed_audio_synced"
+            print("SUBHUB_AI_ENGLISH_INDEXED recovered_without_sidecar",
+                  flush=True)
+        else:
+            raise RuntimeError("english_text_source_not_available")
         normalized = normalize_external_english(raw, sync)
         aligned,timing=synchronize_external_english(
             video,normalized,source,sync)
