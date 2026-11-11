@@ -418,7 +418,8 @@ def find_japanese(ids, search, budget, *, recheck=False, approved_reviews=None, 
                         db, job, "deferred", result.get("total"), partial,
                         strategy_version=result.get("strategy_version"),
                         query_variant=result.get("query_variant"),
-                        provider_gates=result.get("provider_gates"))
+                        provider_gates=result.get("provider_gates"),
+                        incomplete_providers=result.get("incomplete_providers"))
                     counts["deferred"] += 1
                     print("SEASON_JA_DEFERRED", label,
                           str(result.get("provider_reason") or "provider_gate_unavailable")[:180],
@@ -439,15 +440,19 @@ def find_japanese(ids, search, budget, *, recheck=False, approved_reviews=None, 
                 review = sum(grade=="review" for grade,_ in rated)
                 rejected = sum(grade=="reject" for grade,_ in rated)
                 status = ("plausible" if plausible else
-                          "review" if review else "none")
+                          "review" if review else
+                          "partial" if result.get("partial") else "none")
                 search.save_attempt(db,job,status,result.get("total"),rated,
                                     strategy_version=result.get("strategy_version"),
                                     query_variant=result.get("query_variant"),
-                                    provider_gates=result.get("provider_gates"))
+                                    provider_gates=result.get("provider_gates"),
+                                    incomplete_providers=result.get("incomplete_providers"))
                 print("SEASON_JA_CANDIDATES",label,
                       "provider_total",result.get("total"),
                       "plausible",plausible,"review",review,
-                      "rejected_for_review",rejected,flush=True)
+                      "rejected_for_review",rejected,
+                      "incomplete_providers",result.get("incomplete_providers") or [],
+                      flush=True)
                 counts[status] += 1
                 print("SEASON_JA_RESULT",label,status,
                       "plausible",plausible,"review",review,flush=True)
