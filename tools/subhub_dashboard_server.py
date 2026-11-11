@@ -1241,7 +1241,15 @@ def finish_scope_status():
             "missing_before":int_value(before.get("missing")),
             "covered_before":int_value(before.get("covered")),
             "remaining":int_value(doc.get("remaining",
-                after.get("missing",before.get("missing"))))}
+                after.get("missing",before.get("missing")))),
+            "intensive_progress":{
+                "seasons_done":int_value(doc.get("intensive_seasons_done")),
+                "seasons_total":int_value(doc.get("intensive_seasons_total")),
+                "trials":int_value(doc.get("intensive_trials")),
+                "titles_checked":int_value(doc.get("intensive_titles_checked")),
+                "published":int_value(doc.get("intensive_published")),
+                "current":safe_text(doc.get("intensive_current"),120)}
+                if active and doc.get("phase")=="intensive_recovery" else None}
     if active and doc.get("phase")=="source":
         try:
             result["source_progress"]=finish_source_progress(doc)
