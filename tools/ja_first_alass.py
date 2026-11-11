@@ -207,8 +207,8 @@ def _intensive_external_english(video):
                     path.suffix.casefold()!=".srt" or
                     not path.name.casefold().startswith(prefix)):
                 continue
-            tokens=set(re.split(
-                r"[.\\s_\\[\\]()-]+",
+            tokens=set(re.split(r"[.\s_\[\]()-]+",
+                path.name[len(video.stem)+1:].casefold()))
                 path.name[len(video.stem)+1:].casefold()))
             if (not tokens.intersection({"en","eng","english"}) or
                     tokens.intersection({"ja","jp","jpn","japanese","forced"})):
