@@ -205,7 +205,7 @@ def main():
     chosen.add_argument("--episode",metavar="SERIES SxxExxx")
     chosen.add_argument("--jellyfin-id",metavar="32-HEX-ID",
                         help="exact existing catalog identity, preferred for batch jobs")
-    ap.add_argument("--provider",default="subbuzz",help="Jellyfin provider label")
+    ap.add_argument("--provider",default="any",help="Jellyfin provider label or any (all available)")
     ap.add_argument("--apply",action="store_true",help="ONE search + one GET + create-only private stage; no publication")
     opts=ap.parse_args()
     if opts.jellyfin_id:
@@ -240,38 +240,51 @@ def main():
     candidates=probe.request_candidates(row,auth,opener)
     matching=[x for x in candidates
               if probe.relevant(row,x)
-              and str(x.get("ProviderName") or "").casefold()==opts.provider.casefold()
+              and (opts.provider=="any" or
+                   str(x.get("ProviderName") or "").casefold()==opts.provider.casefold())
               and str(x.get("Format") or "").casefold()=="srt"]
     print("JELLYFIN_JA_MATCHING_CANDIDATES:",len(matching),
           "| provider:",opts.provider,flush=True)
     if not matching:
-        print("HELD: no exactly matching Japanese SRT from requested provider.")
+        print("HELD: no exactly matching Japanese SRT from installed Jellyfin providers.")
         return
-    candidate=matching[0]
-    sid,digest=numeric_stage_id(candidate["Id"])
-    # Count ACTUAL remote subtitle GETs in the owner-private ledger,
-    # independently of whether the downloaded Japanese text passes QA.
-    source_name=ledger.jellyfin_provider(candidate)
-    route=("jellyfin_subbuzz" if str(candidate.get("ProviderName") or "")
-           .casefold()=="subbuzz" else "jellyfin_native")
-    attempt=ledger.begin(source_name,route)
-    try:
-        raw,content_type=probe.get_remote_bytes(candidate,auth,opener)
-    except Exception as exc:
-        code=int(exc.code) if isinstance(exc,HTTPError) else None
-        outcome="quota_blocked" if code in (406,429) else "failed"
-        ledger.finish(attempt,outcome,error_kind=(
-            f"HTTP_{code}" if code else type(exc).__name__))
-        raise
-    ledger.finish(attempt,"downloaded",byte_count=len(raw))
-    summary=probe.characterize(raw,content_type)
-    print("JELLYFIN_JA_BYTES:",json.dumps(summary),flush=True)
-    metrics=stage_metadata(row,candidate,sid,digest,raw,runtime,
-                           publisher.validate_srt(raw,runtime))
-    with stage.stage_db() as database:
-        outcome=preserve(row,candidate,raw,metrics,database)
-    print("JELLYFIN_PRIVATE_STAGE:",json.dumps(outcome,sort_keys=True),flush=True)
-    print("NO MEDIA CHANGES. ALASS and publisher NOT launched.")
+    # Do not let a broken first candidate hide another healthy provider.
+    # Bound provider downloads to three candidates per selected episode.
+    failures=[]
+    for candidate in matching[:3]:
+        try:
+            sid,digest=numeric_stage_id(candidate["Id"])
+            source_name=ledger.jellyfin_provider(candidate)
+            route=("jellyfin_subbuzz" if str(candidate.get("ProviderName") or "")
+                   .casefold()=="subbuzz" else "jellyfin_native")
+            attempt=ledger.begin(source_name,route)
+            try:
+                raw,content_type=probe.get_remote_bytes(candidate,auth,opener)
+            except Exception as exc:
+                code=int(exc.code) if isinstance(exc,HTTPError) else None
+                outcome="quota_blocked" if code in (406,429) else "failed"
+                ledger.finish(attempt,outcome,error_kind=(
+                    f"HTTP_{code}" if code else type(exc).__name__))
+                if code in (406,429):
+                    raise
+                failures.append(f"HTTP_{code}" if code else type(exc).__name__)
+                continue
+            ledger.finish(attempt,"downloaded",byte_count=len(raw))
+            summary=probe.characterize(raw,content_type)
+            print("JELLYFIN_JA_BYTES:",json.dumps(summary),flush=True)
+            metrics=stage_metadata(row,candidate,sid,digest,raw,runtime,
+                                   publisher.validate_srt(raw,runtime))
+            with stage.stage_db() as database:
+                outcome=preserve(row,candidate,raw,metrics,database)
+            print("JELLYFIN_PRIVATE_STAGE:",json.dumps(outcome,sort_keys=True),flush=True)
+            print("NO MEDIA CHANGES. ALASS and publisher NOT launched.")
+            return
+        except HTTPError:
+            raise
+        except (OSError,RuntimeError,ValueError) as exc:
+            failures.append(type(exc).__name__)
+    raise RuntimeError("jellyfin_candidates_unusable:"+",".join(failures[:3]))
+
 
 
 if __name__=="__main__":
