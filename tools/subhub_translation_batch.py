@@ -383,9 +383,9 @@ def unresolved_plan(series, *, path=None, limit=200):
                 if len(ready)<limit:
                     ready.append({"season":season,"episode":item["episode"],
                                   "title":item["title"],
-                                  "needs_english":not item.get("english_indexed",False),
+                                  "needs_english":item["status"]=="needs_english" or not item.get("english_indexed",False),
                                   "failed_japanese_timing":qa_failed})
-                if not item.get("english_indexed",False):
+                if item["status"]=="needs_english" or not item.get("english_indexed",False):
                     english_needed+=1
             else:
                 blocked+=1
