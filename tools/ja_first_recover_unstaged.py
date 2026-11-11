@@ -93,6 +93,9 @@ def main():
         return
     # Use the EXISTING dashboard launcher, preserving real Active Work status,
     # provider rate caps, and one selector-scoped receipt. No bespoke worker.
+    DASH = Path.home() / ".local/share/bruiser-subhub-dashboard"
+    if str(DASH) not in sys.path:
+        sys.path.insert(0,str(DASH))
     import subhub_dashboard_server as dashboard
     doc={"series":args.series,
          "picks":[{"season":r["season"],"episode":r["episode"]}
