@@ -1124,7 +1124,15 @@ def start_season_translation(doc):
         raise ValueError("invalid_batch_request")
     selected_episodes = None
     multi_picks = None
-    if set(doc) == {"series", "picks"}:
+    if set(doc) == {"series","unresolved"} and doc["unresolved"] is True:
+        series=doc["series"]
+        season_batch.validate(series,1,1,1)
+        plan=season_batch.unresolved_plan(series,limit=200)
+        multi_picks=[{"season":x["season"],"episode":x["episode"]}
+                     for x in plan["picks"]]
+        if not multi_picks:
+            raise RuntimeError("no_source_exhausted_episodes_ready_for_plamo")
+    elif set(doc) == {"series", "picks"}:
         series = doc["series"]
         multi_picks = doc["picks"]
         season_batch.validate(series, 1, 40, 1)
@@ -1617,6 +1625,17 @@ class Handler(BaseHTTPRequestHandler):
                     ensure_ascii=False).encode("utf-8"))
             except (OSError, RuntimeError, sqlite3.Error):
                 self.write(503, b'{"error":"queue_unavailable"}')
+        elif target == "/api/translation/unresolved":
+            try:
+                params=parse_qs(urlsplit(self.path).query)
+                if (len(urlsplit(self.path).query)>280
+                        or set(params)!={"series"} or len(params["series"])!=1):
+                    raise ValueError("invalid_unresolved_preview_request")
+                value=season_batch.unresolved_plan(params["series"][0],limit=200)
+                self.write(200,json.dumps(value,ensure_ascii=False).encode("utf-8"))
+            except (ValueError,RuntimeError,OSError,sqlite3.Error) as exc:
+                self.write(400,json.dumps(
+                    {"error":safe_text(str(exc),130)}).encode("utf-8"))
         elif target == "/api/translation/plan":
             try:
                 params = parse_qs(urlsplit(self.path).query)
