@@ -8,6 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from tools import subhub_download_ledger as ledger
+from tools import ja_first_stage_saved_batch as native_stage
 from tools import subhub_dashboard_server as dashboard
 
 
@@ -94,6 +95,45 @@ class DailyDownloadLedger(unittest.TestCase):
         self.assertEqual(result["providers"]["opensubtitles"]["downloaded"],1)
         self.assertIsNone(result["quota_limit"])
         self.assertEqual(len(result["recent_days"]),7)
+
+    def test_native_worker_get_counts_success_before_qa_failure(self):
+        # Provider returned bytes; the downloaded subtitle was rejected later.
+        # It still consumes a download and must count in the combined day.
+        stdout=("SUBHUB_DOWNLOAD_REQUEST: opensubtitles\\n"
+                "SUBHUB_DOWNLOAD_RECEIVED: 12345\\n"
+                'STAGE_RESULT_JSON:{"result":"blocked","error":"too_few_subtitle_cues"}\\n')
+        native_stage.record_native_download_attempt(
+            stdout,{"result":"blocked","error":"too_few_subtitle_cues"},
+            path=self.path)
+        today=ledger.summary(path=self.path)["today"]
+        self.assertEqual(today["attempted"],1)
+        self.assertEqual(today["downloaded"],1)
+        self.assertEqual(today["failed"],0)
+
+    def test_native_quota_block_and_other_failure_are_recorded(self):
+        request="SUBHUB_DOWNLOAD_REQUEST: opensubtitles\\n"
+        native_stage.record_native_download_attempt(
+            request,{"result":"blocked","error":"HTTP 429 Too Many Requests"},
+            path=self.path)
+        native_stage.record_native_download_attempt(
+            request,{"result":"blocked","error_type":"ConnectionError"},
+            path=self.path)
+        # Cache hit did not issue a remote request; do not count it.
+        native_stage.record_native_download_attempt(
+            'STAGE_RESULT_JSON:{"result":"already_staged"}',
+            {"result":"already_staged"},path=self.path)
+        today=ledger.summary(path=self.path)["today"]
+        self.assertEqual(today["attempted"],2)
+        self.assertEqual(today["downloaded"],0)
+        self.assertEqual(today["quota_blocked"],1)
+        self.assertEqual(today["failed"],1)
+
+    def test_native_worker_missing_result_still_accounts_for_get(self):
+        native_stage.record_native_download_attempt(
+            "SUBHUB_DOWNLOAD_REQUEST: opensubtitles\\n",{},path=self.path)
+        today=ledger.summary(path=self.path)["today"]
+        self.assertEqual(today["attempted"],1)
+        self.assertEqual(today["failed"],1)
 
     def test_dashboard_has_daily_combined_quota_visible(self):
         html=(Path(__file__).parent/"tools/subhub_dashboard.html").read_text()
