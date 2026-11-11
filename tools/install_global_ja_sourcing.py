@@ -60,6 +60,16 @@ TEST_FILES=(
 SOURCE_UNIT="bruiser-ja-source-autofill.service"
 SOURCE_TIMER="bruiser-ja-source-autofill.timer"
 DASH_UNIT="bruiser-subhub-dashboard.service"
+# The dashboard itself is read-only under systemd. Only its existing private
+# source inventory requires writes, for accepted job receipts and progress.
+DASH_JOB_ROOT=Path.home()/"bruiser-pilot/ja-first-inventory"
+DASH_UNIT_DIR=Path.home()/".config/systemd/user"
+DASH_OVERRIDE_DIR=DASH_UNIT_DIR/"bruiser-subhub-dashboard.service.d"
+DASH_OVERRIDE=DASH_OVERRIDE_DIR/"20-ja-inventory-writes.conf"
+DASH_OVERRIDE_BYTES=(
+    b"[Service]\n"
+    b"# Keep ProtectSystem=strict and ProtectHome=read-only; permit only receipts\n"
+    b"ReadWritePaths=%h/bruiser-pilot/ja-first-inventory\n")
 BUSY_UNITS=(
     SOURCE_UNIT, "bruiser-subhub-season-sources.service",
     "bruiser-subhub-batch.service", "bruiser-subhub-translation-batch.service",
@@ -151,8 +161,14 @@ def main():
     if not re.fullmatch("[0-9a-f]{40}",args.commit):
         parser.error("--commit needs one full 40-character Git commit hash")
 
-    for folder in (HOST,DASH):
+    for folder in (HOST,DASH,DASH_JOB_ROOT,DASH_UNIT_DIR):
         secure_directory(folder)
+    if DASH_JOB_ROOT.stat().st_mode & 0o077:
+        fail("Private source-job inventory is not owner-only")
+    secure_file(DASH_UNIT_DIR/DASH_UNIT)
+    if DASH_OVERRIDE_DIR.exists():
+        secure_directory(DASH_OVERRIDE_DIR)
+    secure_file(DASH_OVERRIDE,allow_new=True)
     for unit in BUSY_UNITS:
         p=systemctl("is-active",unit,check=False,timeout=10)
         if p.stdout.strip() in {"active","activating","reloading"}:
@@ -186,6 +202,7 @@ def main():
     root=Path(tempfile.mkdtemp(prefix=".ja-lib-pref-",dir=HOST))
     backup=None
     updated=[]
+    new_override_dir=False
     was_dashboard=systemctl("is-active",DASH_UNIT,check=False).stdout.strip()=="active"
     try:
         # Do not write any installed code before testing in isolation.
@@ -228,6 +245,23 @@ def main():
             print("UPDATED:",group,name,"previous="+(
                 hashlib.sha256(old).hexdigest()[:12] if old is not None else "new"))
 
+        # The existing standalone dashboard unit protects the entire home
+        # directory read-only. Grant ONLY its private inventory receipt
+        # directory write access: no change to media, source code or mounts.
+        if not DASH_OVERRIDE_DIR.exists():
+            DASH_OVERRIDE_DIR.mkdir(mode=0o700)
+            new_override_dir=True
+        secure_directory(DASH_OVERRIDE_DIR)
+        old=DASH_OVERRIDE.read_bytes() if DASH_OVERRIDE.exists() else None
+        if old is not None:
+            saved=backup/"systemd__20-ja-inventory-writes.conf"
+            fd=os.open(saved,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+            with os.fdopen(fd,"wb") as output:output.write(old)
+        if old!=DASH_OVERRIDE_BYTES:
+            atomic_install(DASH_OVERRIDE,DASH_OVERRIDE_BYTES,0o600)
+            updated.append((DASH_OVERRIDE,old,0o600))
+            print("DASHBOARD SANDBOX: private job receipt directory writable only")
+        systemctl("daemon-reload")
         state_summary()
         if was_dashboard:
             systemctl("restart",DASH_UNIT)
@@ -259,6 +293,10 @@ def main():
                 target.unlink(missing_ok=True)
             else:
                 atomic_install(target,old,mode)
+        if new_override_dir:
+            try:DASH_OVERRIDE_DIR.rmdir()
+            except OSError:pass
+        systemctl("daemon-reload",check=False)
         if was_dashboard:
             systemctl("restart",DASH_UNIT,check=False)
         print("ROLLBACK: original host source code restored; backup:",
