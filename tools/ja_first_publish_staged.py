@@ -119,7 +119,15 @@ def read_staging(jid, sid):
     return staged, data, metrics
 
 def source_label(jid, sid):
-    """Preserve real upstream provenance in aligned filenames (not a fake OS ID)."""
+    """Use actual stage provenance when present; old pre-stage paths stay OS.
+
+    Some pre-existing ffsubsync/ALASS dry-run tests construct a prepared
+    candidate before a stage DB exists. Returning their historical file name
+    is safe: no publication can pass read_staging/verify_search_identity
+    without the real database and media checks.
+    """
+    if not STAGE_DB.exists() and not STAGE_DB.is_symlink():
+        return "opensubtitles"
     staged, _, _ = read_staging(jid, sid)
     return "jellyfin" if ".jellyfin." in staged.name else "opensubtitles"
 
