@@ -57,7 +57,7 @@ def journal_report():
         return {"error":"no_recent_source_cycle_in_journal"}
     lines=lines[markers[-1]:]
     recent=[(int(m.group(1)),m.group(3)) for line in lines
-        if (m:=re.search(r"\[(\d+)/(\d+)\] (PLAUSIBLE|NONE|REVIEW|ERROR|DEFERRED):",line))]
+        if (m:=re.search(r"\[(\d+)/(\d+)\] (PLAUSIBLE|NONE|REVIEW|PARTIAL|ERROR|DEFERRED):",line))]
     return {"plan":next((s[:175] for s in lines if "Search requests planned:" in s),""),
         "search_outcomes":dict(Counter(kind for _,kind in recent)),
         "last_search_index":recent[-1][0] if recent else 0,
