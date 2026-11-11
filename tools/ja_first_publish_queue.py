@@ -313,7 +313,11 @@ def main():
                         help="create at most --limit new Japanese subtitle sidecars")
     parser.add_argument("--queue-staged-only", action="store_true",
                         help="only titles with pending staged-JA work in Bruiser coverage queue")
+    parser.add_argument("--jellyfin-id", default="",
+                        help="restrict work to ONE exact catalog item, not other staged titles")
     args = parser.parse_args()
+    if args.jellyfin_id and not direct.EXPECTED_ID_PATTERN.fullmatch(args.jellyfin_id):
+        parser.error("--jellyfin-id must be one exact 32-hex Jellyfin media ID")
     if args.self_test:
         self_test()
         return
@@ -321,6 +325,10 @@ def main():
             and 1 <= args.max_titles <= MAX_TITLES):
         parser.error("limit must be 1..200, max-titles 1..1000")
     records = stages()
+    if args.jellyfin_id:
+        records = [record for record in records if record[0] == args.jellyfin_id]
+        print("EXACT_JELLYFIN_ITEM_FILTER:",args.jellyfin_id,
+              "matching_stage_rows:",len(records),flush=True)
     if args.queue_staged_only:
         records = queued_staged_titles(records)
         print("BRUISER_PENDING_STAGED_TITLES:",
