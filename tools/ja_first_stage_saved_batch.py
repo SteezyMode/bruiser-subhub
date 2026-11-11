@@ -300,7 +300,7 @@ def read_saved_searches():
     with sqlite3.connect(uri, uri=True, timeout=15) as db:
         return db.execute(
             """SELECT jellyfin_id,results_json FROM searches
-               WHERE outcome IN ('plausible','review','none')"""
+               WHERE outcome IN ('plausible','review','none','partial')"""
         ).fetchall()
 
 
