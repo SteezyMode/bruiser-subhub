@@ -6,6 +6,8 @@ import contextlib
 import io
 import json
 import os
+import shutil
+import subprocess
 from pathlib import Path
 import sys
 import tempfile
@@ -226,6 +228,19 @@ class DashboardJellyfinControls(unittest.TestCase):
             self.assertEqual(data["pending"],1)
             self.assertEqual(data["published"],1)
             self.assertEqual(data["state"],"paused")
+
+    def test_dashboard_javascript_parses_where_node_available(self):
+        node=shutil.which("node")
+        if not node:
+            self.skipTest("Node.js syntax checker unavailable")
+        html=(Path(__file__).parent/"tools/subhub_dashboard.html").read_text()
+        script=html.split("<script>",1)[1].split("</script>",1)[0]
+        with tempfile.TemporaryDirectory() as d:
+            file=Path(d)/"dashboard.js"
+            file.write_text(script,encoding="utf-8")
+            proc=subprocess.run([node,"--check",str(file)],
+                                capture_output=True,text=True,timeout=20)
+        self.assertEqual(proc.returncode,0,proc.stderr[:500])
 
     def test_dashboard_has_real_whole_series_and_progress_controls(self):
         html=(Path(__file__).parent/"tools/subhub_dashboard.html").read_text()
