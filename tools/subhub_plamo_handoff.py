@@ -467,6 +467,13 @@ def saved_media(video, jid, info, daily, source, small, sync, safe_media_path,
     if info["embedded_en"] is None and daily.english_srt(video) is None:
         print("SUBHUB_AI_ENGLISH_MISSING source_search_for_exact_video",flush=True)
         acquire_exact_english(video,jid,kind,source)
+        # Jellyfin may finish writing its downloaded sidecar shortly after
+        # the API accepts it. Poll briefly instead of misclassifying success
+        # as a missing English source; never repeat the provider request.
+        for _ in range(12):
+            if daily.english_srt(video) is not None:
+                break
+            time.sleep(1)
         if daily.english_srt(video) is None:
             raise RuntimeError("english_download_not_available_as_sidecar")
     if info["embedded_en"] is not None:
