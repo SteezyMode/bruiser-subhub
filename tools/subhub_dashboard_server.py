@@ -783,8 +783,8 @@ def search_movie_files(title, *, roots=MOVIE_ROOTS):
         if (status!="present" and
                 prior.get("jellyfin_inventory_status")=="existing_japanese_subtitle"):
             status="present"
-            reason="Jellyfin inventory reports Japanese subtitle (as of "+
-                   prior.get("jellyfin_inventory_generated","")+")"
+            reason=("Jellyfin inventory reports Japanese subtitle (as of "
+                    +prior.get("jellyfin_inventory_generated","")+")")
         movie.update(japanese_status=status,japanese_detail=reason)
     return matches
 
