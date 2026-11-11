@@ -1,6 +1,7 @@
 """Offline, no-GPU tests of the queue-owned PLaMo subtitle handoff."""
 from pathlib import Path
 import json
+import hashlib
 import os
 import sqlite3
 import tempfile
