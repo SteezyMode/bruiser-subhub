@@ -15,7 +15,7 @@ trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/tools"
 touch "$WORK/tools/__init__.py"
 
-for name in subhub_dashboard_server.py subhub_dashboard.html ja_first_source_tracker.py subhub_translation_batch.py subhub_season_sources.py bruiser_coverage_queue.py ja_first_search_pilot.py ja_first_priority.py ja_first_autofill.py; do
+for name in subhub_dashboard_server.py subhub_dashboard.html ja_first_source_tracker.py subhub_translation_batch.py subhub_finish_scope.py subhub_season_sources.py bruiser_coverage_queue.py ja_first_search_pilot.py ja_first_priority.py ja_first_autofill.py; do
   curl -fsSL --retry 3 --connect-timeout 10 --max-time 90 \
     "$BASE/tools/$name" -o "$WORK/tools/$name"
 done
@@ -33,6 +33,7 @@ html = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
 ast.parse(server)
 ast.parse(pathlib.Path(sys.argv[1]).with_name('ja_first_source_tracker.py').read_text(encoding='utf-8'))
 ast.parse(pathlib.Path(sys.argv[1]).with_name('subhub_translation_batch.py').read_text(encoding='utf-8'))
+ast.parse(pathlib.Path(sys.argv[1]).with_name('subhub_finish_scope.py').read_text(encoding='utf-8'))
 ast.parse(pathlib.Path(sys.argv[1]).with_name('subhub_season_sources.py').read_text(encoding='utf-8'))
 ast.parse(pathlib.Path(sys.argv[1]).with_name('bruiser_coverage_queue.py').read_text(encoding='utf-8'))
 ast.parse(pathlib.Path(sys.argv[1]).with_name('ja_first_search_pilot.py').read_text(encoding='utf-8'))
@@ -60,7 +61,7 @@ if [[ ! -d "$SOURCE_DEST" || -L "$SOURCE_DEST" || -L "$SOURCE_DEST/ja_first_sear
   echo "Existing shared Japanese source directory is unavailable or unsafe" >&2
   exit 1
 fi
-for unit in bruiser-ja-source-autofill.service bruiser-subhub-season-sources.service bruiser-subhub-batch.service; do
+for unit in bruiser-ja-source-autofill.service bruiser-subhub-season-sources.service bruiser-subhub-batch.service bruiser-subhub-finish-scope.service; do
   state="$(systemctl --user show --property=ActiveState --value "$unit")"
   case "$state" in
     inactive|failed) ;;
@@ -73,7 +74,7 @@ BIN="$HOME/.local/share/applications"
 UNITDIR="$HOME/.config/systemd/user"
 UNIT="$UNITDIR/bruiser-subhub-dashboard.service"
 SHORTCUT="$BIN/bruiser-subhub-dashboard.desktop"
-for item in "$DEST" "$DEST/subhub_dashboard_server.py" "$DEST/subhub_dashboard.html" "$DEST/ja_first_source_tracker.py" "$DEST/subhub_translation_batch.py" "$DEST/subhub_season_sources.py" "$DEST/bruiser_coverage_queue.py" \
+for item in "$DEST" "$DEST/subhub_dashboard_server.py" "$DEST/subhub_dashboard.html" "$DEST/ja_first_source_tracker.py" "$DEST/subhub_translation_batch.py" "$DEST/subhub_finish_scope.py" "$DEST/subhub_season_sources.py" "$DEST/bruiser_coverage_queue.py" \
             "$UNITDIR" "$UNIT" "$BIN" "$SHORTCUT"; do
   if [[ -L "$item" ]]; then
     echo "Unsafe symlink at $item" >&2
@@ -94,12 +95,14 @@ install -m 600 "$WORK/tools/subhub_dashboard_server.py" "$DEST/subhub_dashboard_
 install -m 600 "$WORK/tools/subhub_dashboard.html" "$DEST/subhub_dashboard.html.new"
 install -m 600 "$WORK/tools/ja_first_source_tracker.py" "$DEST/ja_first_source_tracker.py.new"
 install -m 600 "$WORK/tools/subhub_translation_batch.py" "$DEST/subhub_translation_batch.py.new"
+install -m 600 "$WORK/tools/subhub_finish_scope.py" "$DEST/subhub_finish_scope.py.new"
 install -m 600 "$WORK/tools/subhub_season_sources.py" "$DEST/subhub_season_sources.py.new"
 install -m 600 "$WORK/tools/bruiser_coverage_queue.py" "$DEST/bruiser_coverage_queue.py.new"
 mv -f "$DEST/subhub_dashboard_server.py.new" "$DEST/subhub_dashboard_server.py"
 mv -f "$DEST/subhub_dashboard.html.new" "$DEST/subhub_dashboard.html"
 mv -f "$DEST/ja_first_source_tracker.py.new" "$DEST/ja_first_source_tracker.py"
 mv -f "$DEST/subhub_translation_batch.py.new" "$DEST/subhub_translation_batch.py"
+mv -f "$DEST/subhub_finish_scope.py.new" "$DEST/subhub_finish_scope.py"
 mv -f "$DEST/subhub_season_sources.py.new" "$DEST/subhub_season_sources.py"
 mv -f "$DEST/bruiser_coverage_queue.py.new" "$DEST/bruiser_coverage_queue.py"
 
