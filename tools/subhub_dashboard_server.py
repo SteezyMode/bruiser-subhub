@@ -1139,15 +1139,22 @@ def jellyfin_source_status():
             if type(eligible) is not int or not 1<=eligible<=500:
                 eligible=0
             age=max(0,int(time.time())-int(launch.get("accepted_at") or 0))
-            is_starting=active or age<8
+            is_starting=age<15 and active
+            is_working_without_receipt=active and not is_starting
             failure=(_jellyfin_early_error(launch["accepted_at"])
-                     if not is_starting else "")
-            reason=("Accepted by systemd; waiting for first worker checkpoint"
+                     if not active and age>=8 else "")
+            reason=("Waiting for first progress checkpoint"
                     if is_starting else
+                    f"Worker active for {age}s, but has not recorded progress" 
+                    if is_working_without_receipt else
+                    "Waiting for worker process to start"
+                    if age<8 else
                     failure or "Job stopped before recording progress; check service log")
             return {**base,"known":True,"progress_available":False,
-                    "state":"starting" if is_starting else "failed_before_progress",
-                    "phase":"initializing" if is_starting else "startup_failed",
+                    "state":("starting" if is_starting or (not active and age<8)
+                             else "no_progress" if is_working_without_receipt
+                             else "failed_before_progress"),
+                    "phase":"initializing" if active or age<8 else "startup_failed",
                     "selector":launch.get("selector",{}),
                     "total":eligible,"finished":0,"pending":eligible,
                     "published":0,"already_covered":0,"no_match":0,
@@ -1196,6 +1203,10 @@ def jellyfin_source_status():
                 "searches_this_run":int_value(doc.get("searches_this_run")),
                 "search_cap":int_value(doc.get("search_cap") or 20),
                 "downloads_this_run":int_value(doc.get("downloads_this_run")),
+                "phase_age_seconds":max(0,int(time.time())-
+                    int_value(doc.get("updated_at"))),
+                "job_age_seconds":max(0,int(time.time())-
+                    int_value(doc.get("started_at"))),
                 "events":[{"phase":safe_text(x.get("phase"),40),
                            "item":safe_text(x.get("item"),115),
                            "detail":safe_text(x.get("detail"),135)}
