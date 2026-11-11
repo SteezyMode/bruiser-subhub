@@ -94,7 +94,7 @@ def write_state(payload):
         Path(temp).unlink(missing_ok=True)
 
 
-def command(args, label):
+def command(args, label, on_line=None):
     if not args[0].is_file() or args[0].is_symlink():
         raise RuntimeError(label+"_worker_not_installed")
     print("FINISH_STEP",label,flush=True)
@@ -104,6 +104,8 @@ def command(args, label):
         assert p.stdout is not None
         for line in p.stdout:
             print(line,end="",flush=True)
+            if on_line is not None:
+                on_line(line)
         return p.wait()
 
 
@@ -135,12 +137,37 @@ def run(series, seasons=()):
     # routes. Retry ONLY staged, still-unpublished candidates with expensive
     # ALASS cross-reference checks. One failed season/episode cannot derail
     # another. No provider quotas or new subtitle downloads are used here.
-    receipt.update(phase="intensive_recovery")
+    receipt.update(phase="intensive_recovery",
+                   intensive_seasons_done=0,
+                   intensive_seasons_total=len(before["seasons"]),
+                   intensive_trials=0,intensive_titles_checked=0,
+                   intensive_published=0,intensive_current="")
     write_state(receipt)
-    for sn in before["seasons"]:
+    for index,sn in enumerate(before["seasons"]):
+        receipt["intensive_current"]="Season "+str(sn)
+        write_state(receipt)
+        def progress(line):
+            if line.startswith("MEDIA:"):
+                receipt["intensive_current"]="Season "+str(sn)+" · "+line[6:].strip()[:32]
+            elif line.startswith("ALASS_INTENSIVE_TRIAL"):
+                receipt["intensive_trials"]+=1
+            elif line.startswith("BRUISER_PUBLISH_ITEM:"):
+                receipt["intensive_titles_checked"]+=1
+                try:
+                    item=json.loads(line.split(":",1)[1])
+                    if item.get("result")=="published":
+                        receipt["intensive_published"]+=1
+                except (ValueError,TypeError):
+                    pass
+            else:
+                return
+            write_state(receipt)
         rc=command([INTENSIVE,"--series",series,"--season",str(sn),
                     "--max-titles","100","--limit","100",
-                    "--intensive-only","--apply"],"intensive_recovery_S"+str(sn))
+                    "--intensive-only","--apply"],"intensive_recovery_S"+str(sn),
+                   on_line=progress)
+        receipt["intensive_seasons_done"]=index+1
+        write_state(receipt)
         if rc:
             print("FINISH_INTENSIVE_HELD season",sn,"rc",rc,flush=True)
     after_source=plan(series,before["seasons"])
