@@ -143,5 +143,61 @@ class AlassTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError,"no_independent_reference"):
                     alass.intensive_align(directory/"video.mkv",raw,runner=runner)
 
+
+    def test_direct_exact_stem_english_reference_without_legacy_import(self):
+        raw,_=fixture(lambda i:0)
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d)
+            video=root/"Episode S08E06.mkv"
+            video.touch()
+            good=root/"Episode S08E06.en.srt"
+            good.write_bytes(raw)
+            (root/"Other Episode.en.srt").write_bytes(raw)
+            (root/"Episode S08E06.ja.srt").write_bytes(raw)
+            link=root/"Episode S08E06.eng.srt"
+            link.symlink_to(good)
+            self.assertEqual(alass._intensive_external_english(video),raw)
+            good.unlink()
+            self.assertIsNone(alass._intensive_external_english(video))
+
+    def test_no_independent_reference_skips_unverifiable_audio_trails(self):
+        raw,_=fixture(lambda i:0)
+        with tempfile.TemporaryDirectory() as d:
+            folder=Path(d)
+            calls=[]
+            def runner(*a,**k):
+                calls.append(a)
+                raise AssertionError("ALASS must not run without an English reference")
+            with patch.object(alass,"available",return_value=True), \
+                 patch.object(alass.gate,"STAGED",folder), \
+                 patch.object(alass.gate,"subprocess_duration",return_value=1100), \
+                 patch.object(alass.gate,"validate_srt",return_value={"cues":180}), \
+                 patch.object(alass,"_embedded_english",return_value=None), \
+                 patch.object(alass,"_intensive_external_english",return_value=None):
+                with self.assertRaisesRegex(RuntimeError,"missing_english_reference"):
+                    alass.intensive_align(folder/"video.mkv",raw,runner=runner)
+            self.assertEqual(calls,[])
+
+    def test_constant_offset_supports_singular_alass_flag(self):
+        raw,aligned=fixture(lambda i:-2)
+        with tempfile.TemporaryDirectory() as d:
+            folder=Path(d)
+            flags=[]
+            def runner(cmd,**kwargs):
+                flags.append(cmd[-1])
+                if cmd[-1]=="--no-splits":
+                    return subprocess.CompletedProcess(cmd,2,b"",b"invalid option")
+                Path(cmd[3]).write_bytes(aligned)
+                return subprocess.CompletedProcess(cmd,0,b"",b"")
+            with patch.object(alass,"available",return_value=True), \
+                 patch.object(alass.gate,"STAGED",folder), \
+                 patch.object(alass.gate,"subprocess_duration",return_value=1100), \
+                 patch.object(alass.gate,"validate_srt",return_value={"cues":180}), \
+                 patch.object(alass,"_embedded_english",return_value=None), \
+                 patch.object(alass,"_intensive_external_english",return_value=b"en test"):
+                chosen,_=alass.intensive_align(folder/"video.mkv",raw,runner=runner)
+            self.assertEqual(chosen,aligned)
+            self.assertIn("--no-split",flags)
+
 if __name__=="__main__":
     unittest.main()
