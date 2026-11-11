@@ -409,6 +409,49 @@ def acquire_exact_english(video, jid, kind, source):
           " timing=unverified_pending_ffsubsync",flush=True)
 
 
+def synchronize_external_english(video, original, source, sync):
+    """Try ffsubsync, then existing ALASS; accept corrected *timing* only.
+
+    Neither engine can change source dialogue. The video is authoritative;
+    ALASS is strictly a fallback and keeps its normal 120-second maximum
+    absolute displacement with in-video timestamp checks.
+    """
+    try:
+        return source.validate_timing_source(video,original,"external",sync)
+    except (RuntimeError,OSError,subprocess.TimeoutExpired) as first:
+        print("SUBHUB_AI_EN_SYNC ffsubsync_rejected trying_existing_alass",
+              type(first).__name__,flush=True)
+    try:
+        from importlib import import_module
+        alass=import_module("ja_first_alass")
+        if not alass.available():
+            raise RuntimeError("installed_alass_not_available")
+        p=subprocess.run(["ffprobe","-v","error",
+                          "-show_entries","format=duration",
+                          "-of","default=noprint_wrappers=1:nokey=1",str(video)],
+                         capture_output=True,text=True,timeout=35,check=False)
+        if p.returncode:
+            raise RuntimeError("cannot_verify_media_duration_for_alass")
+        duration=float(p.stdout.strip())
+        if not 600<=duration<=4*3600:
+            raise RuntimeError("invalid_media_duration_for_alass")
+        corrected,reference=alass.align(video,original)
+        corrected=sync.keep_source_dialogue(original,corrected)
+        assessment=alass.assess(original,corrected,duration)
+        # The ALASS alignment came from this exact video/audio, but
+        # corrected timestamps and dialogue remain independently checked.
+        print("SUBHUB_AI_EN_SYNC accepted_alass"
+              " reference="+reference+" shift_min="+str(assessment["shift_min_s"])+
+              " shift_max="+str(assessment["shift_max_s"]),flush=True)
+        return corrected,{"mode":"audio_aligned_alass",
+                          "reference":reference,
+                          "metrics":assessment}
+    except (RuntimeError,OSError,ValueError,TypeError,subprocess.TimeoutExpired,
+            ImportError) as exc:
+        raise RuntimeError("english_audio_alignment_failed_ffsubsync_and_alass:"+
+                           type(exc).__name__) from None
+
+
 def saved_media(video, jid, info, daily, source, small, sync, safe_media_path,
                 *, kind="Episode", allow_unlabeled_audio=False):
     """Exact-file EN only; hold bad external sync, missing EN, unexpected audio."""
@@ -446,8 +489,8 @@ def saved_media(video, jid, info, daily, source, small, sync, safe_media_path,
         raw = candidate.read_bytes()
         provenance = "external_audio_synced"
         normalized = normalize_external_english(raw, sync)
-        aligned,timing=source.validate_timing_source(
-            video,normalized,"external",sync)
+        aligned,timing=synchronize_external_english(
+            video,normalized,source,sync)
     cues = small.parse_srt(aligned.decode("utf-8-sig"),limit=1501)
     if not 150 <= len(cues) <= 1500:
         raise RuntimeError("source_cue_count_outside_safe_initial_pilot_bounds")
