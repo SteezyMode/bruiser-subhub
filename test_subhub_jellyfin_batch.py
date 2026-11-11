@@ -200,7 +200,7 @@ class GenericJellyfinBatch(unittest.TestCase):
             if len(attempts)<=3:
                 return (1,"JELLYFIN_JA_SEARCH_REQUEST: item",
                         "HTTP Error 500: Internal Server Error")
-            return (0,"JELLYFIN_JA_SEARCH_REQUEST: item\\n"
+            return (0,"JELLYFIN_JA_SEARCH_REQUEST: item\n"
                       "HELD: no exactly matching Japanese SRT","")
         with patch.object(batch.time,"sleep"):
             batch.execute(rows,state,limit=20,runner=runner,writer=lambda doc:None)
@@ -399,6 +399,28 @@ class DashboardJellyfinControls(unittest.TestCase):
             self.assertEqual(data["pending"],1)
             self.assertEqual(data["published"],1)
             self.assertEqual(data["state"],"paused")
+
+    def test_dashboard_reports_one_pass_meter_and_all_exception_titles(self):
+        with tempfile.TemporaryDirectory() as d:
+            folder=Path(d);os.chmod(folder,0o700)
+            path=folder/"job.json"
+            rows=[tv("a"*32,1,1),tv("b"*32,1,2),tv("c"*32,1,3)]
+            state=batch.fresh_state(rows,batch.selector(series="Example Show"))
+            state["items"][0]["status"]="published"
+            batch.mark_processed(state,state["items"][0])
+            state["items"][1]["status"]="held"
+            state["items"][1]["reason"]="provider_http_500"
+            batch.mark_processed(state,state["items"][1])
+            batch.write_state(state,path)
+            with patch.object(dashboard,"JELLYFIN_SOURCE_STATE",path), \
+                 patch.object(dashboard,"JELLYFIN_SOURCE_EXEC",Path(__file__)), \
+                 patch.object(dashboard,"unit_active",return_value=False):
+                report=dashboard.jellyfin_source_status()
+            self.assertEqual((report["pass_processed"],report["pass_total"]),(2,3))
+            self.assertEqual(report["pending"],1)
+            self.assertEqual(report["exceptions"],[
+                {"item":"S01E02 Episode 2","status":"held",
+                 "reason":"provider_http_500"}])
 
     def test_accepted_job_shows_before_any_progress_is_written(self):
         receipt={"schema":"jellyfin-source-launch-v1",
