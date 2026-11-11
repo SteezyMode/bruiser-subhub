@@ -439,6 +439,17 @@ def recover_via_sublarr(row, *, remaining_searches, checkpoint):
                 return state,downloaded,source.lower()
         return "unavailable",downloaded,""
 
+    # A previously downloaded, verified Japanese stage must get a publishing
+    # attempt even if acquisition deliberately skips downloading it again.
+    # Without this, read_staged() excludes the candidate and the queue
+    # permanently strands its subtitle before ALASS/ffsubsync.
+    checkpoint("sublarr_saved_publish","Retrying already-staged Japanese with ALASS/ffsubsync")
+    cached_rc,cached_out,cached_err=step(publish,850)
+    cached_expected='"jellyfin_id": "'+jid+'"'
+    if (cached_rc==0 and cached_expected in cached_out and
+            '"result": "published"' in cached_out):
+        return "published","saved_stage_recovered",0,0
+
     # Saved results first. Do not spend more searches finding titles already
     # found by Sublarr in an earlier library pass.
     state,downloads,provider=try_both()
