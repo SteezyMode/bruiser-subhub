@@ -133,9 +133,12 @@ details>summary{cursor:pointer}
 <section class="panel" id="movie-panel" hidden>
  <div class="split"><h2>Movie file</h2><button type="button" id="close-movie" class="quiet">Close movie</button></div>
  <p id="movie-file" class="small muted"></p>
+ <p id="movie-ja-status" class="notice" aria-live="polite">Checking Japanese subtitle coverage…</p>
+ <p id="movie-search-state" class="small muted"></p>
  <div class="row">
   <label>Release year <input id="movie-year" type="number" min="1880" max="2100" style="width:92px"></label>
   <button id="movie-start" class="primary" type="button">Find Japanese subtitles</button>
+  <button id="movie-plamo" type="button" hidden>Queue movie for PLaMo (find and sync English first)</button>
   <button id="movie-stop" type="button" hidden>Stop movie job</button>
  </div>
  <p id="movie-feedback" class="small muted">Select the correct edition. Timing must pass validation before publication.</p>
@@ -239,7 +242,18 @@ async function lookup(event){
   try{
     const data=await getJson("/api/movies/search?title="+encodeURIComponent(text));
     const movies=Array.isArray(data.movies)?data.movies:[];
-    for(const movie of movies)resultButton(movie.filename,"Movie file",()=>openMovie(movie));
+    for(const movie of movies){
+      const descriptor=movie.japanese_status==="present"?
+        "JAPANESE SUBTITLES PRESENT":
+        movie.japanese_status==="unknown"?
+        "Japanese coverage unverified":
+        movie.fallback_ready&&movie.search_attempted?
+        "Japanese search attempted · PLaMo option available":
+        movie.search_attempted?
+        "Japanese searched: "+movie.search_outcome+" · no Japanese track":
+        "No Japanese detected · not yet searched";
+      resultButton(movie.filename,"Movie · "+descriptor,()=>openMovie(movie));
+    }
     $("search-feedback").textContent=(matches.length+movies.length)+" results; select a matching title.";
   }catch(err){$("search-feedback").textContent="TV results available; movie search: "+err.message;}
 }
@@ -484,10 +498,40 @@ function openMovie(movie){
   selectedMovie=movie;selectedSeries="";
   $("tv-panel").hidden=true;$("movie-panel").hidden=false;
   $("movie-file").textContent=movie.path;
+  const present=movie.japanese_status==="present";
+  const unknown=movie.japanese_status==="unknown";
+  $("movie-ja-status").textContent=present?
+    "JAPANESE SUBTITLES ALREADY PRESENT · "+movie.japanese_detail:
+    unknown?"Japanese subtitle coverage could not be verified · "+movie.japanese_detail:
+    "No Japanese subtitles detected for this video";
+  $("movie-search-state").textContent=movie.search_attempted?
+    "Previous Japanese search: "+movie.search_outcome+
+    (movie.fallback_ready?" · Source-first fallback task ready":""):
+    "No saved Japanese provider search for this file yet";
+  $("movie-start").disabled=present||unknown;
+  $("movie-plamo").hidden=!movie.fallback_ready||!movie.search_attempted||present||unknown;
+  $("movie-plamo").disabled=busy||!latest.aiAvailable||!!latest.workersBusy;
   const year=movie.path.match(/(?:19|20)\d{2}/);
   $("movie-year").value=year?year[0]:"";
-  $("movie-feedback").textContent="Use the correct file/edition. No movie is removed or replaced.";
+  $("movie-feedback").textContent=present?
+    "Already covered. Existing Japanese subtitles are never overwritten automatically.":
+    "Source-first. English downloads for PLaMo must be exact-video verified, synchronized, and pass QA.";
   window.scrollTo({top:$("movie-panel").offsetTop-18,behavior:"smooth"});
+}
+async function movieTranslate(){
+  const movie=selectedMovie;
+  if(busy||!movie||movie.japanese_status!=="missing"||
+      !movie.fallback_ready||!movie.search_attempted||!movie.jellyfin_id)return;
+  if(!confirm("Queue PLaMo for this movie? Search exact-video English if missing, "+
+     "repair timing before translation, then publish Japanese only if QA passes. "+
+     "No other movie is included."))return;
+  busy=true;
+  try{
+    const result=await ownerPost("/api/translation/movie/start",
+        {video:movie.path,jellyfin_id:movie.jellyfin_id});
+    $("movie-feedback").textContent="Queued one movie for English sourcing, synchronization and PLaMo.";
+  }catch(err){$("movie-feedback").textContent="PLaMo not started: "+err.message;}
+  finally{busy=false;await refreshStatus();}
 }
 async function movieAction(stop){
   if(!stop&&!selectedMovie)return;
@@ -823,6 +867,7 @@ $("source-selected").addEventListener("click",()=>bulkAction("source"));
 $("translate-selected").addEventListener("click",()=>bulkAction("translate"));
 $("movie-start").addEventListener("click",()=>movieAction(false));
 $("movie-stop").addEventListener("click",()=>movieAction(true));
+$("movie-plamo").addEventListener("click",movieTranslate);
 $("stop-sourcing").addEventListener("click",()=>stopJob("/api/source-season/stop"));
 $("stop-translation").addEventListener("click",()=>stopJob("/api/translation/stop"));
 loadCatalog();refreshStatus();setInterval(refreshStatus,5000);
