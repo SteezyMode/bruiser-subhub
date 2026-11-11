@@ -10,6 +10,18 @@ finally:
     sys.path.pop(0)
 
 class TargetSelectionTests(unittest.TestCase):
+    def test_never_repeat_complete_empty_lookup_without_new_strategy(self):
+        self.assertFalse(recover.needs_source_retry(
+            "none",{"strategy_version":5,"provider_total":0}))
+        self.assertTrue(recover.needs_source_retry(
+            "none",{"strategy_version":3,"provider_total":0}))
+        self.assertTrue(recover.needs_source_retry(
+            "none",{"strategy_version":5,
+                    "incomplete_providers":["subdl"]}))
+        self.assertTrue(recover.needs_source_retry(
+            "plausible",{"strategy_version":5,
+                        "candidates":[{"provider":"opensubtitles"}]}))
+
     def test_exact_series_without_stages_only(self):
         def row(jid, season, ep, status="ready_ja_search", series="Sample Series"):
             return {"kind":"Episode","jellyfin_id":jid,
