@@ -1045,22 +1045,102 @@ def start_season_sources(doc):
             "series":series,"seasons":chosen.get("seasons", [season] if picks is None else [])}
 
 
+def _private_jellyfin_json(path):
+    """Read only a known private state/launch file, never arbitrary paths."""
+    if (path.is_symlink() or not path.is_file() or
+            path.stat().st_mode & 0o077 or path.stat().st_size > 500_000):
+        return None
+    value=json.loads(path.read_text(encoding="utf-8"))
+    return value if isinstance(value,dict) else None
+
+
+def write_jellyfin_launch(receipt, path=None):
+    """Persist owner-accepted job independently of worker startup; no media writes."""
+    path=path or JELLYFIN_SOURCE_LAUNCH
+    parent=path.parent
+    if (not parent.is_dir() or parent.is_symlink() or
+            parent.stat().st_mode & 0o077 or path.is_symlink()):
+        raise RuntimeError("Jellyfin_source_launch_directory_not_private")
+    data=json.dumps(receipt,ensure_ascii=False,sort_keys=True).encode("utf-8")
+    if len(data)>1600:
+        raise ValueError("invalid_launch_receipt_size")
+    fd,tmp=tempfile.mkstemp(prefix=".jellyfin-source-launch-",dir=parent)
+    try:
+        with os.fdopen(fd,"wb") as handle:
+            os.fchmod(handle.fileno(),0o600)
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp,path)
+    finally:
+        Path(tmp).unlink(missing_ok=True)
+
+
+def _jellyfin_early_error(started_at):
+    """Only the matching new service's own errors; no subtitle/provider request."""
+    try:
+        log=subprocess.run(
+            ["journalctl","--user","-u",JELLYFIN_SOURCE_UNIT,
+             "--since","@"+str(max(0,int(started_at)-1)),
+             "-n","40","--no-pager","-o","cat"],
+            capture_output=True,text=True,check=False,
+            stdin=subprocess.DEVNULL,timeout=3)
+        if log.returncode:
+            return ""
+        failures=[safe_text(x,155) for x in log.stdout.splitlines()
+                  if x.startswith("JELLYFIN_BATCH_HELD ")]
+        return failures[-1] if failures else ""
+    except (OSError,subprocess.TimeoutExpired,ValueError):
+        return ""
+
+
 def jellyfin_source_status():
-    """Exact per-item progress written by the actual systemd background worker."""
+    """Never hide an accepted job merely because it died before writing progress."""
     active=unit_active(JELLYFIN_SOURCE_UNIT)
     base={"active":active,"available":JELLYFIN_SOURCE_EXEC.is_file() and
           not JELLYFIN_SOURCE_EXEC.is_symlink(),"known":False}
-    path=JELLYFIN_SOURCE_STATE
     try:
-        if (path.is_symlink() or not path.is_file() or
-                path.stat().st_mode&0o077 or path.stat().st_size>500_000):
-            return base
-        doc=json.loads(path.read_text(encoding="utf-8"))
-        if doc.get("schema")!="jellyfin-source-batch-v1":
+        launch=_private_jellyfin_json(JELLYFIN_SOURCE_LAUNCH)
+        if launch and launch.get("schema")!="jellyfin-source-launch-v1":
+            launch=None
+        doc=_private_jellyfin_json(JELLYFIN_SOURCE_STATE)
+        if doc and doc.get("schema")!="jellyfin-source-batch-v1":
+            doc=None
+        # Old job receipts must NOT show as progress for a newly accepted job.
+        if launch and (not doc or doc.get("job_id")!=launch.get("job_id")):
+            eligible=launch.get("eligible",0)
+            if type(eligible) is not int or not 1<=eligible<=500:
+                eligible=0
+            age=max(0,int(time.time())-int(launch.get("accepted_at") or 0))
+            is_starting=active or age<8
+            failure=(_jellyfin_early_error(launch["accepted_at"])
+                     if not is_starting else "")
+            reason=("Accepted by systemd; waiting for first worker checkpoint"
+                    if is_starting else
+                    failure or "Job stopped before recording progress; check service log")
+            return {**base,"known":True,"progress_available":False,
+                    "state":"starting" if is_starting else "failed_before_progress",
+                    "phase":"initializing" if is_starting else "startup_failed",
+                    "selector":launch.get("selector",{}),
+                    "total":eligible,"finished":0,"pending":eligible,
+                    "published":0,"already_covered":0,"no_match":0,
+                    "held":0,"deferred":0,"searches_this_run":0,
+                    "search_cap":launch.get("search_cap",20),
+                    "downloads_this_run":0,"current":reason,
+                    "events":[{"phase":"startup","item":"",
+                               "detail":reason}]}
+        if not doc:
+            if active:
+                return {**base,"known":True,"progress_available":False,
+                        "state":"starting","phase":"initializing",
+                        "current":"Worker active; waiting for first progress record",
+                        "total":0,"finished":0,"pending":0}
             return base
         items=doc.get("items",[])
         if not isinstance(items,list) or len(items)>500:
-            return base
+            return {**base,"known":True,"progress_available":False,
+                    "state":"progress_unavailable",
+                    "current":"Job state could not be validated"}
         counts=Counter(str(item.get("status")) for item in items if
                        isinstance(item,dict))
         total=len(items)
@@ -1071,8 +1151,8 @@ def jellyfin_source_status():
             state="running"
         elif state=="running":
             state="interrupted"
-        return {**base,"known":True,"state":state,
-                "phase":safe_text(doc.get("phase"),45),
+        return {**base,"known":True,"progress_available":True,
+                "state":state,"phase":safe_text(doc.get("phase"),45),
                 "current":safe_text(doc.get("current"),155),
                 "selector":doc.get("selector",{}),
                 "total":total,"finished":min(finished,total),
@@ -1090,7 +1170,12 @@ def jellyfin_source_status():
                           for x in doc.get("events",[])[-8:]
                           if isinstance(x,dict)]}
     except (OSError,ValueError,TypeError,KeyError,json.JSONDecodeError):
-        return base
+        # A real active service should never disappear from Active Work
+        # because a state file is missing, partial, or unreadable.
+        return {**base,"known":active,"progress_available":False,
+                "state":"progress_unavailable",
+                "current":"Unable to read worker progress; check source service log"}
+
 
 
 def jellyfin_source_arguments(doc):
