@@ -1,5 +1,7 @@
 # Bruiser SubHub
 
+> **Latest P0-B runtime result (Nov 11):** The owner's single IASIP S07E02 subbuzz probe found the exact Japanese candidate but **remote subtitle-byte GET failed** with an `HTTPError` whose numeric status was hidden by the old script. **No subtitle retrieved or published.** The next step is the **read-only Jellyfin journal**, not repeated provider calls. Subbuzz is a *multi-provider aggregator* (may duplicate OpenSubtitles/SubDL), not automatically an independent subtitle catalog. [Failure record and command](docs/SEARCH_RECOVERY_ROADMAP.md#2026-11-11-p0-b-live-retrieval-attempt--search-succeeded-bytes-not-retrieved).
+
 > **CURRENT WORK — 2026-11-11 | SEARCH RELIABILITY P0, JOB PROGRESS & BATCHES P1**
 >
 > **[START HERE: Search Recovery Roadmap & Next-Chat Handoff](docs/SEARCH_RECOVERY_ROADMAP.md)**
