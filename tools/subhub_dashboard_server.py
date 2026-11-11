@@ -1214,6 +1214,7 @@ def jellyfin_source_status():
                     "phase":"initializing" if active or age<8 else "startup_failed",
                     "selector":launch.get("selector",{}),
                     "total":eligible,"finished":0,"pending":eligible,
+                    "pass_total":eligible,"pass_processed":0,
                     "published":0,"already_covered":0,"no_match":0,
                     "held":0,"deferred":0,"searches_this_run":0,
                     "search_cap":launch.get("search_cap",20),
@@ -1248,15 +1249,18 @@ def jellyfin_source_status():
                 "selector":doc.get("selector",{}),
                 "total":total,"finished":min(finished,total),
                 "pending":counts["queued"]+counts["running"],
+                "pass_total":doc.get("pass_total"),
+                "pass_processed":doc.get("pass_processed"),
                 "published":counts["published"],
                 "already_covered":counts["covered"],
                 "no_match":counts["no_match"],"held":counts["held"],
                 "deferred":counts["deferred"],
-                "holds":[{"item":safe_text(item.get("label"),125),
-                          "reason":safe_text(item.get("reason") or
-                                            "details_not_recorded",110)}
-                         for item in items if isinstance(item,dict) and
-                         item.get("status")=="held"][:12],
+                "exceptions":[{"item":safe_text(item.get("label"),125),
+                               "status":item.get("status"),
+                               "reason":safe_text(item.get("reason") or
+                                                  "review_required",110)}
+                              for item in items if isinstance(item,dict) and
+                              item.get("status") in ("held","no_match","deferred")],
                 "searches_this_run":int_value(doc.get("searches_this_run")),
                 "search_cap":int_value(doc.get("search_cap") or 20),
                 "downloads_this_run":int_value(doc.get("downloads_this_run")),
@@ -1427,7 +1431,8 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 body = json.dumps(status_payload(), ensure_ascii=False).encode("utf-8")
                 self.write(200, body)
-            except (OSError, ValueError, RuntimeError, TypeError, json.JSONDecodeError):
+            except (OSError, ValueError, RuntimeError, TypeError, KeyError,
+                    sqlite3.Error, json.JSONDecodeError):
                 self.write(503, b'{"error":"status_unavailable"}')
         elif target == "/api/movies/search":
             try:
