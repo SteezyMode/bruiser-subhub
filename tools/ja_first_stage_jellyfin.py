@@ -200,12 +200,25 @@ def main():
     chosen=ap.add_mutually_exclusive_group(required=True)
     chosen.add_argument("--movie",metavar="EXACT TITLE")
     chosen.add_argument("--episode",metavar="SERIES SxxExxx")
+    chosen.add_argument("--jellyfin-id",metavar="32-HEX-ID",
+                        help="exact existing catalog identity, preferred for batch jobs")
     ap.add_argument("--provider",default="subbuzz",help="Jellyfin provider label")
     ap.add_argument("--apply",action="store_true",help="ONE search + one GET + create-only private stage; no publication")
     opts=ap.parse_args()
-    row=benchmark.select(benchmark.load_latest_manifest(),
-                         [opts.movie] if opts.movie else [],
-                         [opts.episode] if opts.episode else [],1)[0]
+    if opts.jellyfin_id:
+        if not benchmark.ITEM_ID.fullmatch(opts.jellyfin_id):
+            raise ValueError("invalid_Jellyfin_ID")
+        matches=[entry for entry in benchmark.load_latest_manifest()
+                 if isinstance(entry,dict) and
+                 entry.get("jellyfin_id")==opts.jellyfin_id and
+                 entry.get("kind") in ("Movie","Episode")]
+        if len(matches)!=1:
+            raise ValueError("Jellyfin_item_not_unique_in_catalog")
+        row=matches[0]
+    else:
+        row=benchmark.select(benchmark.load_latest_manifest(),
+                             [opts.movie] if opts.movie else [],
+                             [opts.episode] if opts.episode else [],1)[0]
     title=(str(row.get("title")) if row["kind"]=="Movie" else
            f'{row["series_title"]} S{row["season"]:02d}E{row["episode"]:02d}')
     if row.get("status")!="ready_ja_search":
@@ -220,6 +233,7 @@ def main():
         return
     auth=catalog.load_auth()
     opener=probe.build_opener(probe.NoRedirect())
+    print("JELLYFIN_JA_SEARCH_REQUEST:",row["jellyfin_id"],flush=True)
     candidates=probe.request_candidates(row,auth,opener)
     matching=[x for x in candidates
               if probe.relevant(row,x)
