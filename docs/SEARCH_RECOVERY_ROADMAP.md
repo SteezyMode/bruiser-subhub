@@ -7,6 +7,25 @@
 >
 > **Owner's current explicit order:** (1) fix reliable Japanese subtitle search and publication end-to-end; (2) all jobs need real dashboard progress, and manual batches must be possible; (3) Jellyfin-style movie poster grid with genre browsing/multi-selection; (4) eventually incremental source-on-add. No enterprise/startup framing. Do not build attractive controls that fail to deliver Japanese subtitles.
 
+## 2026-11-11 LIVE MULTI-PROVIDER PASS + DASHBOARD UX NOTES — owner screenshots
+
+**This is live host evidence and supersedes stale 'install pending' notices in older sections.** Owner installed commit `12c1691708830d3009345e197fe698ca7c29e238` on OptiPlex with successful dashboard status check; owner API accepted full-series pass with **65 eligible episodes**. Existing Jellyfin coverage showed **112/179 Japanese-covered, therefore 67 truly missing Japanese** at start. The 65 is *job attempts*, not coverage; 2 more missing lie outside eligible job scope and eventually need queue/inventory reconciliation. No reason to claim new publications merely from download counts.
+
+**Subsequent screenshots:** Running pass advanced **8/65 → 11/65**. Observed daily ledger rose **6 downloaded/52 attempted → 11 downloaded/61 attempted**; these totals are **daily cumulative instrumented provider downloads/attempts**, NOT this pass's completed episodes, not 11 newly sourced episodes, and not 11 published subtitles. The contemporaneous exception list showed at least 9 held/no-match items; it can contain earlier holds and does not establish source-availability failure. Correct interpretation: the multi-provider workflow is making real download progress, but **newly published/usable subtitle yield is unverified**. Never tell the owner the pipeline failed just because the exception list is long, nor declare success based on download counter alone.
+
+**Dashboard usability, after source/publish correctness is established (NOT a reason to interrupt current job):**
+
+1. **One dominant number: episodes that still lack Japanese subtitles** across the selected series/library, from refreshed Jellyfin coverage. In this snapshot **67 missing**. This is the user's only headline success metric. After publications, refresh coverage so this number actually falls.
+2. Under it, **one pass progress meter: X/Y episodes attempted in this pass**, regardless of outcome. Label exactly `11/65 attempted this pass`. Keep attempts separate from actual coverage.
+3. **Three subordinate, explicitly scoped outcomes for *this pass***: `published (new JA sidecars)`, `downloaded (files obtained, not necessarily published)`, `held/no match (need recovery)`. Use accurate counts from actual job receipts; never merge lifetime, daily, historical or current-pass totals. Current UI shows daily 11 downloads but no clear batch new-publications number; fix that.
+4. Keep provider budgets/usage accessible but subordinate under a collapsible **Provider activity** section, labeled **'today, instrumented only'** with per-provider used/remaining/reset if actually known; do not imply 61 attempts = 61 billable downloads, or fabricate quota allowance.
+5. Place only **short exceptions summary** under progress (`N set aside`, expandable by episode/reason); no scrolling wall of mixed old/new exceptions taking over Active Work. Preserve a review/action path for all exceptions, and identify historical vs current pass.
+6. Show current episode and **real phase** (`searching → downloading → synchronizing → publishing`) and outcomes; remove misleading vague `Starting`/generic `Idle` when service has checkpoint state. Always show whether work is active and don't leave competing start buttons apparently usable.
+7. Auto-refresh coverage **after actual publication**, not merely job completion, and reconcile the two out-of-scope items. Ensure per-show view and eventual new-media automation share the same UI semantics. No show-specific hacks.
+8. Avoid dashboard redesign work until the current batch finishes and actual Japanese publication yield is recorded. These are roadmap notes only; current background job should continue undisturbed.
+
+**Current engineering status:** Code supporting broader Jellyfin + Sublarr (OpenSubtitles/SubDL) search is deployed at the pinned host commit above. Additional code commits after host deployment are **not** automatically live on OptiPlex. Do not claim a GitHub-only tweak has changed the running process. Keep the user's immediate goal as usable Japanese subtitles, not growing test/probe metrics.
+
 ## 2026-11-11 P0-D CRITICAL DASHBOARD EROFS FIX — tested code, host installation pending
 
 **Owner's latest live screenshot:** *It's Always Sunny in Philadelphia* 18/18 seasons, **104 of 179** episodes have JA subtitles, **75 missing**. Clicking `Retry missing Japanese · entire series` displayed:
