@@ -1168,6 +1168,55 @@ def season_batch_status():
 
 
 
+def finish_source_progress(receipt):
+    """Read the active scope's real child checkpoint, not an old GUI launch.
+
+    A finish worker runs the existing source engine as a subprocess, so
+    bruiser-subhub-jellyfin-source.service is correctly inactive. Its JSON
+    checkpoint still advances every episode and every ~10 seconds.
+    """
+    source=_private_jellyfin_json(JELLYFIN_SOURCE_STATE)
+    if not source or source.get("schema")!="jellyfin-source-batch-v1":
+        return None
+    series=receipt.get("series")
+    seasons=receipt.get("seasons")
+    expected={"series":series,"seasons":seasons,"picks":[]}
+    if source.get("selector")!=expected:
+        return None
+    try:
+        # Reject yesterday's source pass with the same series/season selection.
+        # Both timestamps are set when each actual worker begins, in UTC.
+        from datetime import datetime
+        launch=datetime.fromisoformat(receipt["updated_utc"]).timestamp()
+        started=float(source.get("started_at") or 0)
+        if started < launch-3:
+            return None
+    except (KeyError,ValueError,TypeError,OverflowError):
+        return None
+    items=source.get("items")
+    if not isinstance(items,list) or len(items)>500:
+        return None
+    counts=Counter(str(x.get("status")) for x in items if isinstance(x,dict))
+    total=int_value(source.get("pass_total"))
+    processed=int_value(source.get("pass_processed"))
+    # Work counters and publication outcomes are deliberately distinct.
+    return {
+        "processed":min(max(0,processed),max(0,total)),
+        "total":max(0,total),
+        "phase":safe_text(source.get("phase"),56),
+        "current":safe_text(source.get("current"),145),
+        "searches":int_value(source.get("searches_this_run")),
+        "downloads":int_value(source.get("downloads_this_run")),
+        "published":counts["published"],
+        "covered":counts["covered"],
+        "held":counts["held"],
+        "deferred":counts["deferred"],
+        "no_match":counts["no_match"],
+        "age_seconds":max(0,int(time.time())-int_value(source.get("updated_at"))),
+        "worker_state":safe_text(source.get("state"),32),
+    }
+
+
 def finish_scope_status():
     active=unit_active(FINISH_UNIT)
     available=FINISH_EXEC.is_file() and not FINISH_EXEC.is_symlink()
@@ -1175,17 +1224,17 @@ def finish_scope_status():
         doc=_private_jellyfin_json(finish_scope.STATE)
         if doc and doc.get("schema")!="subhub-finish-scope-v1":
             doc=None
-    except (OSError,ValueError,TypeError,RuntimeError):
+    except (OSError,ValueError,TypeError,RuntimeError,json.JSONDecodeError):
         doc=None
     if not doc:
         return {"active":active,"available":available,
                 "state":"starting" if active else "idle"}
     state=str(doc.get("state") or "unknown")
-    if state=="running" and not active:
+    if state in ("starting","running") and not active:
         state="interrupted"
     before=doc.get("before") or {}
     after=doc.get("after") or {}
-    return {"active":active,"available":available,"state":state,
+    result={"active":active,"available":available,"state":state,
             "phase":safe_text(doc.get("phase"),42),
             "series":safe_text(doc.get("series"),160),
             "seasons":doc.get("seasons",[]),
@@ -1193,6 +1242,12 @@ def finish_scope_status():
             "covered_before":int_value(before.get("covered")),
             "remaining":int_value(doc.get("remaining",
                 after.get("missing",before.get("missing"))))}
+    if active and doc.get("phase")=="source":
+        try:
+            result["source_progress"]=finish_source_progress(doc)
+        except (OSError,ValueError,TypeError,RuntimeError,json.JSONDecodeError):
+            result["source_progress"]=None
+    return result
 
 
 def start_finish_scope(doc):
