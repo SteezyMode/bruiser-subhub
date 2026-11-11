@@ -171,7 +171,7 @@ def align(video,raw):
 def artifact(jid,sid):
     if not gate.EXPECTED_ID_PATTERN.fullmatch(jid) or not str(sid).isdigit():
         raise RuntimeError("invalid_alass_provenance_identity")
-    return gate.STAGED/"timing-adjusted"/(jid+".opensubtitles."+str(sid)+".ja.alass.srt")
+    return gate.STAGED/"timing-adjusted"/(jid+"."+gate.source_label(jid,str(sid))+"."+str(sid)+".ja.alass.srt")
 
 def provenance_matches(jid,sid,source_hash,published_hash):
     """Authenticate a previously published alass output after library refresh."""
