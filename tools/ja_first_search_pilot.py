@@ -164,10 +164,11 @@ for i, job in enumerate(jobs):
     replies = []
     variant = "original"
     try:
+        series_imdb_id = payload.get("imdb_id") if is_episode else None
         if is_episode:
-            # Sublarr 1.18's /providers/search sends the series IMDb ID as
-            # OpenSubtitles' *episode* imdb_id, not parent_imdb_id. Prefer the
-            # series-name + S/E search which the installed API handles correctly.
+            # Sublarr 1.18 sends series IMDb as an episode IMDb to
+            # OpenSubtitles. Do the reliable title+S/E variant first, then
+            # the external-ID+S/E variant when the first has no strong hit.
             payload.pop("imdb_id", None)
             payload["file_path"] = ""
             variant = "series_title_episode"
@@ -182,6 +183,18 @@ for i, job in enumerate(jobs):
         first, gates = request_search(payload)
         replies.append(first)
         original = first.get("total")
+        if is_episode and series_imdb_id:
+            exact=any(
+                isinstance(hit,dict)
+                and {"season","episode"}.issubset(set(hit.get("matches") or []))
+                and str(hit.get("language") or "").casefold() in ("ja","jpn")
+                for hit in first.get("results") or [])
+            if not exact:
+                id_query=dict(payload,imdb_id=series_imdb_id)
+                time.sleep(3.3)
+                with_id, gates=request_search(id_query)
+                replies.append(with_id)
+                variant="title_episode_then_series_imdb_episode"
         if (not is_episode and payload.get("imdb_id")
                 and payload.get("title") and payload.get("year")
                 and not credible_movie_hit(first, payload["title"], payload["year"])):
@@ -205,7 +218,7 @@ for i, job in enumerate(jobs):
             "id": job["id"], "ok": True,
             "total": sum(int(x.get("total") or 0) for x in replies),
             "initial_total": original,
-            "strategy_version": 4, "query_variant": variant,
+            "strategy_version": 5, "query_variant": variant,
             "provider_gates": gates, "results": results,
             "partial": bool(missing),
             "incomplete_providers": missing,
@@ -219,7 +232,7 @@ for i, job in enumerate(jobs):
             "id": job["id"], "ok": True,
             "deferred": not bool(replies), "partial": bool(replies),
             "total": sum(int(x.get("total") or 0) for x in replies),
-            "initial_total": original, "strategy_version": 4,
+            "initial_total": original, "strategy_version": 5,
             "query_variant": "provider_gate_deferred" if not replies else variant,
             "provider_reason": str(exc), "provider_gates": exc.gates,
             "incomplete_providers": blocked_providers(exc.gates),
