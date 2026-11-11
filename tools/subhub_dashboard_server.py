@@ -43,12 +43,12 @@ except ImportError:
     import subhub_translation_batch as season_batch
 try:
     from . import subhub_season_sources as season_sources
+except ImportError:
+    import subhub_season_sources as season_sources
 try:
     from . import subhub_finish_scope as finish_scope
 except ImportError:
     import subhub_finish_scope as finish_scope
-except ImportError:
-    import subhub_season_sources as season_sources
 
 try:
     from . import subhub_library_coverage as global_coverage
