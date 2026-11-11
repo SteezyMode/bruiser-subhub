@@ -68,9 +68,9 @@ class SeasonBatchTests(unittest.TestCase):
         report=batch.season_report("It's Always Sunny in Philadelphia",1,path=self.dbpath)
         self.assertEqual(report["total"],8)
         self.assertEqual(report["covered"],1)
-        self.assertEqual(report["ready"],5)
+        self.assertEqual(report["ready"],6)
         self.assertEqual([x["episode"] for x in report["items"] if x["can_translate"]],
-                         [2,4,6,7,8])
+                         [2,4,5,6,7,8])
         self.assertTrue(next(x for x in report["items"] if x["episode"]==3)["can_source"])
         p=batch.selected_multi_plan("It's Always Sunny in Philadelphia",
             [{"season":1,"episode":2},{"season":1,"episode":6}],
@@ -87,6 +87,21 @@ class SeasonBatchTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             batch.selected_multi_plan("It's Always Sunny in Philadelphia",
                 [{"season":20,"episode":1}],path=self.dbpath)
+
+    def test_unresolved_batch_is_derived_from_saved_queue_and_skips_source_repair(self):
+        plan=batch.unresolved_plan(
+            "It's Always Sunny in Philadelphia",path=self.dbpath)
+        self.assertEqual(plan["total_missing"],7)
+        self.assertEqual(plan["eligible_total"],6)
+        self.assertEqual(plan["selected"],6)
+        self.assertEqual(plan["needs_english"],1)
+        self.assertEqual(plan["awaiting_japanese_recovery"],1)
+        self.assertEqual([(x["season"],x["episode"]) for x in plan["picks"]],
+                         [(1,2),(1,4),(1,5),(1,6),(1,7),(1,8)])
+        self.assertTrue(any(x["needs_english"] for x in plan["picks"]))
+        with self.assertRaises(ValueError):
+            batch.unresolved_plan("It's Always Sunny in Philadelphia",
+                                  path=self.dbpath,limit=0)
 
     def test_reviewed_source_can_be_sent_explicitly_to_plamo(self):
         # No provider call: a real previous source-search result is mandatory.
