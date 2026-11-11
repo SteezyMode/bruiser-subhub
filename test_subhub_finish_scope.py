@@ -54,5 +54,26 @@ class ScopeCompletionTests(unittest.TestCase):
             self.assertEqual(saved.call_args.args[0]["state"],"held")
 
 
+
+    def test_failed_intensive_candidate_does_not_stop_plamo_or_completion(self):
+        base={"series":"Sunny","seasons":[9],"total":10,"covered":7,
+              "missing":3,"source_first":3,"plamo_ready":0,
+              "duplicate_versions":0,"picks":[]}
+        after=dict(base,plamo_ready=1,source_first=2,
+                   picks=[{"season":9,"episode":4}])
+        with mock.patch.object(finish,"plan",side_effect=[base,after,after]), \
+             mock.patch.object(finish,"write_state") as saved, \
+             mock.patch.object(finish,"command",side_effect=[0,1,0]) as invoke:
+            self.assertEqual(finish.run("Sunny",[9]),0)
+        self.assertEqual(invoke.call_count,3)
+        args=[x.args[0] for x in invoke.call_args_list]
+        self.assertIn("subhub_jellyfin_batch.py",str(args[0][0]))
+        self.assertIn("ja_first_publish_queue.py",str(args[1][0]))
+        self.assertIn("--intensive-only",args[1])
+        self.assertIn("--apply",args[1])
+        self.assertEqual(args[1][args[1].index("--season")+1],"9")
+        self.assertIn("subhub_translation_batch.py",str(args[2][0]))
+        self.assertEqual(saved.call_args.args[0]["state"],"partial")
+
 if __name__=="__main__":
     unittest.main()
