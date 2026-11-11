@@ -7,6 +7,36 @@
 >
 > **Owner's current explicit order:** (1) fix reliable Japanese subtitle search and publication end-to-end; (2) all jobs need real dashboard progress, and manual batches must be possible; (3) Jellyfin-style movie poster grid with genre browsing/multi-selection; (4) eventually incremental source-on-add. No enterprise/startup framing. Do not build attractive controls that fail to deliver Japanese subtitles.
 
+## 2026-11-11 P0-B LIVE retrieval attempt — search succeeded; bytes NOT retrieved
+
+**Actual owner-run host output (one episode, subbuzz):**
+
+```text
+ITEM: It's Always Sunny in Philadelphia S07E02
+SAVED SUBHUB: version 2, none, provider hits 0
+JELLYFIN_REMOTE_RESULTS: 2
+  Open Subtitles, Its.Always.Sunny.in.Philadelphia.S07E02.WEB-DL.DSNP,
+     language ja, exact_item_name=true, selected_provider=false, srt
+  subbuzz, Its.Always.Sunny.in.Philadelphia.S07E02.WEB-DL.DSNP.ja,
+     language jpn, exact_item_name=true, selected_provider=true, srt
+REMOTE_BYTES_HELD: HTTPError
+```
+
+**What we know:** `GET /Items/{id}/RemoteSearch/Subtitles/ja` succeeded; exact episode/title match selected; **subbuzz GET of bytes failed**. No remote subtitle bytes obtained, staged, synced, published or played in Jellyfin. No media files changed. The pilot caught `urllib.error.HTTPError` but **printed only its type**, hiding the actual HTTP code. We **cannot yet classify** as 401/403 authorization, 404 route/ID issue, 429 provider cap, or 500 plugin error. **Do not repeatedly call providers to guess.** Start with Jellyfin's *existing* journal from that time. A narrow `safe_failure()` patch in `tools/probe_jellyfin_remote_subtitle.py` now prints the HTTP numeric code only, without error body, provider URL or auth, if a later bounded rerun is justified; regression test added.
+
+**New upstream subbuzz source finding:** [josdion/subbuzz](https://github.com/josdion/subbuzz) is **one Jellyfin plugin aggregating multiple underlying catalogs** including OpenSubtitles and SubDL. Its visible `ProviderName="subbuzz"` is not proof of an independent subtitle source. SubBuzz uses nested provider-prefixed `Id` values and dispatches `GetSubtitles` to the relevant underlying provider. The two IASIP results could point to the same subtitle. **Do not count them as independent coverage or assume subbuzz adds free search/download allowance.** Check the actual installed plugin and the journal before making further integration promises.
+
+**Read-only OptiPlex journal command, no provider queries:**
+
+```bash
+ssh optiplex@100.121.156.34 \
+  'journalctl -u jellyfin --since "3 hours ago" --no-pager -o cat |
+   grep -Ei -C 4 "subbuzz|GetRemoteSubtitles|SubtitleController|subtitle.*(error|fail)|Exception|rate.limit" |
+   tail -110'
+```
+
+Review/redact any accidentally printed provider credentials before posting the output. If logs have rotated or omit the error, the next controlled attempt should use the patched probe and print only `HTTP_XXX`, not a new full-library search. With the precise status and/or stack trace, repair only the actual cause, then validate a **single** in-memory retrieval before touching private staging.
+
 ## 2026-11-11 LIVE benchmark outcome — Jellyfin existing provider path
 
 **Owner executed** `tools/benchmark_subtitle_search_paths.py --execute` against three actual Jellyfin items on OptiPlex; **no subtitles downloaded/published and no library files altered**. This is the first real alternate-path measurement; don't revert to the earlier `not run` statement further below.
