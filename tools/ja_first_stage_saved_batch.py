@@ -740,7 +740,10 @@ def self_test():
     assert identity_ok(episode, american_dad)
     assert not identity_ok(episode, dict(american_dad,
                                         filename="American.Dad.S22E02.ja"))
-    assert not identity_ok(episode, dict(american_dad, matches=["season", "episode"]))
+    # Explicit series title and S/E in filename remain valid evidence even
+    # when provider metadata omits the series flag.
+    assert identity_ok(episode, dict(american_dad, matches=["season", "episode"]))
+    assert not identity_ok(episode, dict(american_dad, filename="Unrelated.Show.S22E01.ja"))
     assert stage_name({"jellyfin_id": "a"*32}, fargo, "srt").endswith(
         ".opensubtitles.8690333.ja.srt")
     assert has_embedded_english_reference([{
