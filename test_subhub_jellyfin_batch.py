@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import time
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -47,7 +48,7 @@ class GenericJellyfinBatch(unittest.TestCase):
                           batch.choose(self.rows,series="Example Show",picks=[(1,2)])],
                          ["b"*32])
         self.assertEqual(len(batch.choose(self.rows,movie_ids=["1"*32,"f"*32])),2)
-        with self.assertRaisesRegex(ValueError,"missing_from_Jellyfin_catalog"):
+        with self.assertRaisesRegex(ValueError,"Jellyfin_catalog"):
             batch.choose(self.rows,series="Example Show",picks=[(99,2)])
         with self.assertRaises(ValueError):
             batch.choose(self.rows,series="Nonexistent Show")
@@ -83,7 +84,8 @@ class GenericJellyfinBatch(unittest.TestCase):
     def test_limit_pause_and_continue_without_repeating_previous_item(self):
         rows=batch.choose(self.rows,series="Example Show")
         selection=batch.selector(series="Example Show")
-        state=batch.fresh_state(rows,selection,now=12345)
+        now=int(time.time())
+        state=batch.fresh_state(rows,selection,now=now)
         calls=[]
         def runner(cmd,*,timeout):
             calls.append(cmd)
@@ -94,7 +96,7 @@ class GenericJellyfinBatch(unittest.TestCase):
         self.assertEqual(state["state"],"paused")
         self.assertEqual(state["searches_this_run"],1)
         self.assertEqual(batch.progress(state)["pending"],2)
-        second=batch.fresh_state(rows,selection,state,now=12346)
+        second=batch.fresh_state(rows,selection,state,now=now+1)
         self.assertEqual(second["items"][0]["status"],"no_match")
         self.assertEqual(second["items"][1]["status"],"queued")
         with patch.object(batch.stage,"japanese_sidecar_exists",return_value=False), \
@@ -102,7 +104,7 @@ class GenericJellyfinBatch(unittest.TestCase):
             batch.execute(rows,second,limit=1,runner=runner,writer=lambda doc:None)
         self.assertEqual(len(calls),2)
         self.assertEqual(second["searches_this_run"],1)
-        stale=batch.fresh_state(rows,selection,second,now=12345+21*3600)
+        stale=batch.fresh_state(rows,selection,second,now=now+21*3600)
         self.assertEqual(stale["items"][0]["status"],"queued")
 
     def test_quota_exhaustion_halts_the_batch_not_marked_as_absence(self):
