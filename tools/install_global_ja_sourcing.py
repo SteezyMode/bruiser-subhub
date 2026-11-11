@@ -30,6 +30,8 @@ HOST=Path.home()/"bruiser-pilot/subhub-control"
 DASH=Path.home()/".local/share/bruiser-subhub-dashboard"
 SOURCE_FILES=(
     "ja_first_search_pilot.py",
+    "ja_first_movie_scope.py",
+    "ja_first_cycle.py",
     "ja_first_priority.py",
     "ja_first_catalog_manifest.py",
     "ja_first_stage_saved_batch.py",
@@ -51,6 +53,7 @@ SOURCE_FILES=(
 DASH_FILES=(
     "subhub_dashboard_server.py",
     "subhub_dashboard.html",
+    "ja_first_source_tracker.py",
     "subhub_season_sources.py",
     "bruiser_coverage_queue.py",
 )
@@ -184,6 +187,7 @@ def main():
     for name in SOURCE_FILES:
         target=HOST/name
         secure_file(target,allow_new=name in {
+            "ja_first_movie_scope.py",
             "ja_first_alass.py",
             "benchmark_subtitle_search_paths.py",
             "probe_jellyfin_remote_subtitle.py",
