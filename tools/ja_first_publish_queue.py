@@ -242,7 +242,15 @@ def choose(jid, candidates, *, intensive_only=False):
     if intensive_only:
         if not alass.available():
             raise RuntimeError("intensive_alass_unavailable")
-        for sid, _ in candidates[:3]:
+        # Identical staged Japanese bytes from multiple providers need only
+        # one timing trial. Keep the source IDs, skip duplicate computation.
+        tried_hashes=set()
+        for sid, digest in candidates[:3]:
+            if digest in tried_hashes:
+                print("  ALASS INTENSIVE SKIP:",sid,
+                      "identical_saved_subtitle",flush=True)
+                continue
+            tried_hashes.add(digest)
             try:
                 ready=alass.intensive_prepare(jid,sid)
                 print("  ALASS INTENSIVE:", sid,
