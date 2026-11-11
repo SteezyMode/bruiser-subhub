@@ -123,10 +123,14 @@ class GenericJellyfinBatch(unittest.TestCase):
     def test_existing_subtitle_skips_without_provider_request(self):
         rows=batch.choose(self.rows,series="Example Show",picks=[(1,1)])
         state=batch.fresh_state(rows,batch.selector(series="Example Show",picks=[(1,1)]))
-        with patch.object(batch.stage,"japanese_sidecar_exists",return_value=True):
-            batch.execute(rows,state,limit=20,
-                          runner=lambda *a,**k:self.fail("provider request"),
-                          writer=lambda doc:None)
+        with tempfile.TemporaryDirectory() as folder:
+            media=Path(folder)/"video.mkv"
+            media.write_bytes(b"offline-fixture")
+            rows[0]["host_path"]=str(media)
+            with patch.object(batch.stage,"japanese_sidecar_exists",return_value=True):
+                batch.execute(rows,state,limit=20,
+                              runner=lambda *a,**k:self.fail("provider request"),
+                              writer=lambda doc:None)
         self.assertEqual(state["state"],"completed")
         self.assertEqual(batch.progress(state)["already_covered"],1)
         self.assertEqual(state["searches_this_run"],0)
