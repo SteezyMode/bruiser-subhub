@@ -58,6 +58,8 @@ JELLYFIN_SOURCE_STATE = (Path.home() /
                          "bruiser-pilot/ja-first-inventory/jellyfin-source-batch.json")
 JELLYFIN_SOURCE_LAUNCH = (Path.home() /
                           "bruiser-pilot/ja-first-inventory/jellyfin-source-launch.json")
+DOWNLOAD_LEDGER_DB = (Path.home() /
+                      "bruiser-pilot/ja-first-inventory/subhub-provider-download-ledger.sqlite3")
 MOVIE_ROOTS = (
     Path("/mnt/2TB/Plex Expansion/Movies"),
     Path("/mnt/BigDisk/Video/Movies"),
@@ -726,7 +728,7 @@ def stop_movie_source():
 
 def download_ledger_status():
     """Read only actual instrumented download requests; never guess quotas."""
-    path=Path.home()/"bruiser-pilot/ja-first-inventory"/"subhub-provider-download-ledger.sqlite3"
+    path=DOWNLOAD_LEDGER_DB
     empty={"available":False,"today_downloaded":0,"today_attempted":0,
            "today_quota_blocked":0,"today_failed":0,"today_pending":0,
            "providers":{},"recent_days":[],"quota_limit":None,
