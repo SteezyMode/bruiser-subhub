@@ -40,7 +40,7 @@ STATE = Path.home() / "bruiser-pilot/ja-first-inventory/jellyfin-source-batch.js
 JID = re.compile(r"[0-9a-f]{32}\Z", re.I)
 EP = re.compile(r"S(\d{2})E(\d{2,3})\Z", re.I)
 MAX_ITEMS = 500
-MAX_SEARCHES = 40
+MAX_SEARCHES = 200
 COOLDOWN_SEC = 20 * 3600
 STOP = False
 
@@ -343,7 +343,7 @@ def main(argv=None):
                         help="perform real provider requests, staging and guarded publication")
     args=parser.parse_args(argv)
     if not 1<=args.max_searches<=MAX_SEARCHES:
-        parser.error("max 40 provider searches per pass")
+        parser.error("max 200 provider searches per pass")
     if args.movie_id and (args.season or args.pick):
         parser.error("season/pick requires --series")
     picks=[]
