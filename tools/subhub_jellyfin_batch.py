@@ -470,6 +470,7 @@ def execute(rows,doc,*,limit,runner=call,writer=write_job_state):
     """One budget-limited real-media pass. Never equate no-match with coverage."""
     rows_by_id={row["jellyfin_id"]:row for row in rows}
     writer(doc)
+    jellyfin_http500_run=0
     for item in doc["items"]:
         if STOP:
             event(doc,"interrupted","","Owner stopped job")
@@ -504,13 +505,24 @@ def execute(rows,doc,*,limit,runner=call,writer=write_job_state):
         def checkpoint(phase,detail):
             event(doc,phase,label,detail)
             writer(doc)
-        try:
-            if runner is call:
-                code,out,err=runner(cmd,timeout=320,progress=checkpoint)
-            else:
-                code,out,err=runner(cmd,timeout=320)
-        except subprocess.TimeoutExpired:
-            code,out,err=124,"","timed_out"
+        if runner is call and jellyfin_http500_run>=3:
+            # The ID-scoped Jellyfin endpoint is clearly in trouble. Stop
+            # hammering it for every other episode; Sublarr still gets tried.
+            code,out,err=1,"","RuntimeError: jellyfin_id_route_unavailable"
+            checkpoint("jellyfin_route_skipped",
+                       "Jellyfin remote search returned repeated 500s; using Sublarr instead")
+        else:
+            try:
+                if runner is call:
+                    code,out,err=runner(cmd,timeout=320,progress=checkpoint)
+                else:
+                    code,out,err=runner(cmd,timeout=320)
+            except subprocess.TimeoutExpired:
+                code,out,err=124,"","timed_out"
+            if safe_failure_reason(out,err)=="provider_http_500":
+                jellyfin_http500_run+=1
+            elif code==0:
+                jellyfin_http500_run=0
         verdict=classify_stage(code,out,err)
         if ("JELLYFIN_JA_SEARCH_REQUEST:" in out or
                 "JELLYFIN_JA_MATCHING_CANDIDATES:" in out):
