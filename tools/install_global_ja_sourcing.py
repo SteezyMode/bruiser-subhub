@@ -287,6 +287,19 @@ def main():
             if not job_writable:
                 fail("Dashboard restarted but its job receipts are still read-only")
             print("DASHBOARD SANDBOX: live private-job write probe PASS")
+            # Healthz alone missed a real /api/status KeyError on the host.
+            # Require the actual progress endpoint to answer before accepting
+            # an install; rollback if dashboard status is still broken.
+            try:
+                with urlopen("http://127.0.0.1:17876/api/status",timeout=22) as response:
+                    status=json.loads(response.read(1_000_001))
+                if (not isinstance(status,dict) or
+                        "jellyfin_source" not in status or
+                        "download_usage" not in status):
+                    fail("Dashboard progress API returned invalid status")
+            except (OSError,ValueError) as exc:
+                fail("Dashboard progress API failed: "+type(exc).__name__)
+            print("DASHBOARD STATUS: actual /api/status endpoint PASS")
         if args.install_only:
             print("INSTALL ONLY: catalog, queue, timers and source workers unchanged")
         else:
