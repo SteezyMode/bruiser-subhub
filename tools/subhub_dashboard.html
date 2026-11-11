@@ -262,8 +262,8 @@ async function lookup(event){
         "JAPANESE SUBTITLES PRESENT":
         movie.japanese_status==="unknown"?
         "Japanese coverage unverified":
-        movie.fallback_ready&&movie.search_attempted?
-        "Japanese search attempted · PLaMo option available":
+        movie.fallback_ready&&["none","review","plausible"].includes(movie.search_outcome)?
+        "Japanese search completed · PLaMo available":
         movie.search_attempted?
         "Japanese searched: "+movie.search_outcome+" · no Japanese track":
         "No Japanese detected · not yet searched";
@@ -575,7 +575,8 @@ function openMovie(movie){
     (movie.fallback_ready?" · Source-first fallback task ready":""):
     "No saved Japanese provider search for this file yet";
   $("movie-start").disabled=present||unknown;
-  $("movie-plamo").hidden=!movie.fallback_ready||!movie.search_attempted||present||unknown;
+  $("movie-plamo").hidden=!movie.fallback_ready||
+    !["none","review","plausible"].includes(movie.search_outcome)||present||unknown;
   $("movie-plamo").disabled=busy||!latest.aiAvailable||!!latest.workersBusy;
   const year=movie.path.match(/(?:19|20)\d{2}/);
   $("movie-year").value=year?year[0]:"";
@@ -861,7 +862,9 @@ async function refreshStatus(){
         "Only Horror and Drama/Suspense movie folders on both drives are being searched and published. ":
         "Library-wide Japanese sourcing is running. ")+
        "Search history and results are retained; no PLaMo runs.":
-      "Each pass respects provider limits and search history; enabled daily sourcing continues across the entire library.";
+      (setting==="horror-drama-folders"?
+       "Future source runs target Horror and Drama/Suspense movies on both drives; saved searches stay skipped until eligible for retry.":
+       "Future source runs target all eligible library media; saved searches remain skipped until eligible for retry.");
     $("plamo-state").textContent=ai?"Running":d.aiAvailable?"Ready":"Handoff not installed";
     $("quota").textContent=(d.source_job||{}).provider_limited||
       (d.download_usage||{}).today_quota_blocked?"Provider denied downloads today":
@@ -871,8 +874,10 @@ async function refreshStatus(){
     $("stop-translation").hidden=!(d.season_translation||{}).active;
     $("movie-stop").hidden=!(d.movie_source||{}).active;
     drawJobs(d);
-    if(lastWorkers&&!d.workersBusy&&selectedSeries&&selectedSeasons.size){
-      await Promise.all([...selectedSeasons].map(loadSeason));
+    if(lastWorkers&&!d.workersBusy&&selectedSeries){
+      if(selectedSeasons.size)
+        await Promise.all([...selectedSeasons].map(loadSeason));
+      await refreshUnresolved();
     }
     lastWorkers=d.workersBusy;
     renderCoverage();
@@ -885,7 +890,11 @@ async function stopJob(path){
 }
 $("lookup").addEventListener("submit",lookup);
 $("refresh").addEventListener("click",async()=>{await loadCatalog();await refreshStatus();
-  if(selectedSeries)await Promise.all([...selectedSeasons].map(loadSeason));renderCoverage();});
+  if(selectedSeries){
+    await Promise.all([...selectedSeasons].map(loadSeason));
+    await refreshUnresolved();
+  }
+  renderCoverage();});
 $("clear-series").addEventListener("click",()=>{$("tv-panel").hidden=true;selectedSeries="";coverage.clear();selectedSeasons.clear();checked.clear();});
 $("close-movie").addEventListener("click",()=>{$("movie-panel").hidden=true;selectedMovie=null;});
 $("select-seasons").addEventListener("click",async()=>{
