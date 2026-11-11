@@ -1079,6 +1079,7 @@ def jellyfin_source_status():
                 "no_match":counts["no_match"],"held":counts["held"],
                 "deferred":counts["deferred"],
                 "searches_this_run":int_value(doc.get("searches_this_run")),
+                "search_cap":int_value(doc.get("search_cap") or 20),
                 "downloads_this_run":int_value(doc.get("downloads_this_run")),
                 "events":[{"phase":safe_text(x.get("phase"),40),
                            "item":safe_text(x.get("item"),115),
@@ -1135,7 +1136,12 @@ def start_jellyfin_source(doc):
     if not JELLYFIN_SOURCE_EXEC.is_file() or JELLYFIN_SOURCE_EXEC.is_symlink():
         raise RuntimeError("Jellyfin_source_worker_not_installed")
     args=jellyfin_source_arguments(doc)
-    preview=subprocess.run([sys.executable,"-B",str(JELLYFIN_SOURCE_EXEC),*args],
+    # Whole-series retry is an EXPLICIT large-scope action; selected seasons
+    # and episodes keep a conservative 20-search budget. Both stop immediately
+    # on provider quota refusal, and every result is tracked.
+    search_cap=200 if set(doc)=={"series"} else 20
+    preview=subprocess.run([sys.executable,"-B",str(JELLYFIN_SOURCE_EXEC),
+                            *args,"--max-searches",str(search_cap)],
                            capture_output=True,text=True,stdin=subprocess.DEVNULL,
                            timeout=60,check=False)
     if preview.returncode:
@@ -1150,13 +1156,14 @@ def start_jellyfin_source(doc):
         raise ValueError("No missing Japanese titles in the selected scope")
     cmd=["systemd-run","--user","--unit=bruiser-subhub-jellyfin-source",
          "--collect","--property=KillMode=control-group","--",
-         sys.executable,"-B","-u",str(JELLYFIN_SOURCE_EXEC),*args,"--run"]
+         sys.executable,"-B","-u",str(JELLYFIN_SOURCE_EXEC),
+         *args,"--max-searches",str(search_cap),"--run"]
     p=subprocess.run(cmd,capture_output=True,text=True,
                      stdin=subprocess.DEVNULL,timeout=20,check=False)
     if p.returncode:
         raise RuntimeError("Jellyfin_source_start_failed: "+
                            safe_text(p.stderr or p.stdout,155))
-    return {"ok":True,"eligible":eligible,"max_searches_this_run":20,
+    return {"ok":True,"eligible":eligible,"max_searches_this_run":search_cap,
             "note":"Background source job started; monitor in Active work"}
 
 
