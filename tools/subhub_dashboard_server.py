@@ -1042,6 +1042,135 @@ def start_season_sources(doc):
             "series":series,"seasons":chosen.get("seasons", [season] if picks is None else [])}
 
 
+def jellyfin_source_status():
+    """Exact per-item progress written by the actual systemd background worker."""
+    active=unit_active(JELLYFIN_SOURCE_UNIT)
+    base={"active":active,"available":JELLYFIN_SOURCE_EXEC.is_file() and
+          not JELLYFIN_SOURCE_EXEC.is_symlink(),"known":False}
+    path=JELLYFIN_SOURCE_STATE
+    try:
+        if (path.is_symlink() or not path.is_file() or
+                path.stat().st_mode&0o077 or path.stat().st_size>500_000):
+            return base
+        doc=json.loads(path.read_text(encoding="utf-8"))
+        if doc.get("schema")!="jellyfin-source-batch-v1":
+            return base
+        items=doc.get("items",[])
+        if not isinstance(items,list) or len(items)>500:
+            return base
+        counts=Counter(str(item.get("status")) for item in items if
+                       isinstance(item,dict))
+        total=len(items)
+        finished=sum(value for state,value in counts.items()
+                     if state not in ("queued","running"))
+        state=str(doc.get("state") or "unknown")
+        if active:
+            state="running"
+        elif state=="running":
+            state="interrupted"
+        return {**base,"known":True,"state":state,
+                "phase":safe_text(doc.get("phase"),45),
+                "current":safe_text(doc.get("current"),155),
+                "selector":doc.get("selector",{}),
+                "total":total,"finished":min(finished,total),
+                "pending":counts["queued"]+counts["running"],
+                "published":counts["published"],
+                "already_covered":counts["covered"],
+                "no_match":counts["no_match"],"held":counts["held"],
+                "deferred":counts["deferred"],
+                "searches_this_run":int_value(doc.get("searches_this_run")),
+                "downloads_this_run":int_value(doc.get("downloads_this_run")),
+                "events":[{"phase":safe_text(x.get("phase"),40),
+                           "item":safe_text(x.get("item"),115),
+                           "detail":safe_text(x.get("detail"),135)}
+                          for x in doc.get("events",[])[-8:]
+                          if isinstance(x,dict)]}
+    except (OSError,ValueError,TypeError,KeyError,json.JSONDecodeError):
+        return base
+
+
+def jellyfin_source_arguments(doc):
+    """Server checks scope; worker checks exact Jellyfin catalog identities."""
+    if not isinstance(doc,dict):
+        raise ValueError("invalid_jellyfin_source_request")
+    if set(doc)=={"series"}:
+        series=doc["series"];rest=[]
+    elif set(doc)=={"series","seasons"}:
+        series=doc["series"];numbers=doc["seasons"]
+        if (not isinstance(numbers,list) or not 1<=len(numbers)<=40 or
+                any(type(x) is not int or not 1<=x<=99 for x in numbers) or
+                len(set(numbers))!=len(numbers)):
+            raise ValueError("invalid_seasons")
+        rest=[arg for n in sorted(numbers) for arg in ("--season",str(n))]
+    elif set(doc)=={"series","picks"}:
+        series=doc["series"];picks=doc["picks"]
+        if not isinstance(picks,list) or not 1<=len(picks)<=500:
+            raise ValueError("invalid_jellyfin_episode_selection")
+        numbers=[]
+        for pick in picks:
+            if not isinstance(pick,dict) or set(pick)!={"season","episode"}:
+                raise ValueError("invalid_jellyfin_episode_selection")
+            season,episode=pick["season"],pick["episode"]
+            if (type(season) is not int or type(episode) is not int
+                    or not 1<=season<=99 or not 1<=episode<=999):
+                raise ValueError("invalid_jellyfin_episode_selection")
+            numbers.append((season,episode))
+        if len(set(numbers))!=len(numbers):
+            raise ValueError("duplicate_jellyfin_episode")
+        rest=[arg for sn,en in sorted(numbers)
+              for arg in ("--pick",f"S{sn:02d}E{en:03d}")]
+    else:
+        raise ValueError("invalid_jellyfin_source_selection")
+    if not isinstance(series,str) or not 1<=len(series)<=160 or any(
+            ord(c)<32 for c in series):
+        raise ValueError("invalid_jellyfin_series")
+    return ["--series",series,*rest]
+
+
+def start_jellyfin_source(doc):
+    if (unit_active(BATCH_UNIT) or unit_active(SCHEDULED_UNIT)
+            or unit_active(SEASON_SOURCE_UNIT) or unit_active(JELLYFIN_SOURCE_UNIT)
+            or unit_active(MOVIE_UNIT) or translation_busy()):
+        raise RuntimeError("another_source_or_translation_worker_is_active")
+    if not JELLYFIN_SOURCE_EXEC.is_file() or JELLYFIN_SOURCE_EXEC.is_symlink():
+        raise RuntimeError("Jellyfin_source_worker_not_installed")
+    args=jellyfin_source_arguments(doc)
+    preview=subprocess.run([sys.executable,"-B",str(JELLYFIN_SOURCE_EXEC),*args],
+                           capture_output=True,text=True,stdin=subprocess.DEVNULL,
+                           timeout=60,check=False)
+    if preview.returncode:
+        raise ValueError("Jellyfin source selection invalid: "+
+                         safe_text(preview.stderr or preview.stdout,155))
+    try:
+        plan=json.loads(preview.stdout.strip())
+        eligible=int(plan["eligible"])
+    except (ValueError,KeyError,TypeError):
+        raise RuntimeError("Jellyfin_source_preview_invalid")
+    if eligible<=0:
+        raise ValueError("No missing Japanese titles in the selected scope")
+    cmd=["systemd-run","--user","--unit=bruiser-subhub-jellyfin-source",
+         "--collect","--property=KillMode=control-group","--",
+         sys.executable,"-B","-u",str(JELLYFIN_SOURCE_EXEC),*args,"--run"]
+    p=subprocess.run(cmd,capture_output=True,text=True,
+                     stdin=subprocess.DEVNULL,timeout=20,check=False)
+    if p.returncode:
+        raise RuntimeError("Jellyfin_source_start_failed: "+
+                           safe_text(p.stderr or p.stdout,155))
+    return {"ok":True,"eligible":eligible,"max_searches_this_run":20,
+            "note":"Background source job started; monitor in Active work"}
+
+
+def stop_jellyfin_source():
+    if not unit_active(JELLYFIN_SOURCE_UNIT):
+        raise RuntimeError("no_Jellyfin_source_job_running")
+    p=subprocess.run(["systemctl","--user","stop","--no-block",
+                     JELLYFIN_SOURCE_UNIT],capture_output=True,text=True,
+                     stdin=subprocess.DEVNULL,timeout=15,check=False)
+    if p.returncode:
+        raise RuntimeError("Jellyfin_source_stop_failed")
+    return {"ok":True,"action":"stop-jellyfin-source"}
+
+
 def stop_season_sources():
     if not unit_active(SEASON_SOURCE_UNIT):
         raise RuntimeError("no_season_source_worker_running")
