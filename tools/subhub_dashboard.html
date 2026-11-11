@@ -103,6 +103,11 @@ details>summary{cursor:pointer}
    <div id="jellyfin-job-events" class="small muted" aria-live="polite"></div>
   </details>
  </div>
+ <div id="finish-job" hidden>
+  <div class="split"><strong id="finish-job-title">TV completion</strong><span id="finish-job-status" class="small muted"></span></div>
+  <p id="finish-job-details" class="small muted"></p>
+  <button id="finish-stop" class="quiet" type="button" hidden>Stop completion job</button>
+ </div>
  <div id="batch-overview" hidden>
   <div class="split"><strong id="batch-count">PLaMo batch</strong><span id="batch-remaining" class="small muted"></span></div>
   <div class="meter" role="progressbar" aria-label="PLaMo episodes finished" id="batch-meter" aria-valuemin="0" aria-valuenow="0" aria-valuemax="100"><div class="fill" id="batch-fill"></div></div>
@@ -172,16 +177,23 @@ details>summary{cursor:pointer}
  </div>
  <div class="row"><button id="select-seasons" type="button" class="quiet">Select all seasons</button><button id="clear-seasons" type="button" class="quiet">Clear seasons</button></div>
  <div id="seasons" class="seasons" aria-label="Choose seasons"></div>
- <div class="status-strip" id="coverage-totals" aria-live="polite">Choose seasons to inspect subtitle coverage.</div>
- <div class="row"><button id="refresh-coverage" class="quiet" type="button" disabled>Recheck selected episode coverage</button></div>
- <div class="episode-controls">
-  <button id="source-selected" class="primary" type="button" disabled>Find Japanese for selected seasons / episodes</button>
-  <button id="source-whole-series" type="button">Retry missing Japanese · entire series</button>
-  <button id="translate-selected" type="button" disabled>Last resort: translate checked episodes</button>
-  <button id="translate-unresolved" type="button" disabled>Prepare PLaMo batch from unresolved Japanese searches</button>
+ <div class="status-strip" id="coverage-totals" aria-live="polite">Loading coverage…</div>
+ <div class="row" style="margin-top:12px">
+  <button id="finish-selected" class="primary" type="button" disabled>Finish selected season(s)</button>
+  <button id="finish-all" type="button" disabled>Finish whole series</button>
  </div>
- <p id="unresolved-preview" class="small muted">Select a TV series to see source-exhausted translation candidates.</p>
- <p id="action-note" class="small muted">Search real Jellyfin library items, download, sync and publish only verified Japanese subtitles. Whole series: up to 200 searches in one job; selected seasons: 20 searches per pass. PLaMo remains manual.</p>
+ <p class="small muted">Japanese sourcing and timing repair first; PLaMo only when needed. Published subtitles are skipped. Provider limits or unresolved editions may require another pass.</p>
+ <details class="review"><summary>Manual sourcing and translation controls</summary>
+  <div class="row"><button id="refresh-coverage" class="quiet" type="button" disabled>Recheck selected episode coverage</button></div>
+  <div class="episode-controls">
+   <button id="source-selected" class="primary" type="button" disabled>Find Japanese for selected seasons / episodes</button>
+   <button id="source-whole-series" type="button">Retry missing Japanese · entire series</button>
+   <button id="translate-selected" type="button" disabled>Translate checked episodes with PLaMo</button>
+   <button id="translate-unresolved" type="button" disabled>Translate source-exhausted episodes with PLaMo</button>
+  </div>
+  <p id="unresolved-preview" class="small muted">Loading saved subtitle attempts…</p>
+  <p id="action-note" class="small muted">Use the two finish buttons for normal operation.</p>
+ </details>
  <div class="row">
   <button id="toggle-episodes" type="button" class="quiet" disabled>Review remaining episodes</button>
   <button id="clear-episodes" type="button" class="quiet" hidden>Clear checked episodes</button>
@@ -333,6 +345,29 @@ async function translateUnresolved(){
   }catch(err){showMessage("PLaMo not started: "+err.message,true);}
   finally{busy=false;await refreshStatus();await refreshUnresolved();renderCoverage();}
 }
+async function finishScope(all){
+  if(busy||!selectedSeries)return;
+  const seasons=[...selectedSeasons].sort((a,b)=>a-b);
+  if(!all&&(!seasons.length||seasons.some(s=>!coverage.has(s)))){
+    showMessage("Season coverage is still loading. Try again after all selected seasons load.",true);
+    return;
+  }
+  if(latest.workersBusy){showMessage("Another worker is running. Finish can start after it ends.",true);return;}
+  const scope=all?"the entire series":seasons.length===1?
+    "Season "+seasons[0]:seasons.length+" selected seasons";
+  if(!confirm("Complete "+selectedSeries+" · "+scope+
+    "? Search Japanese and repair timing first, then use PLaMo for proven gaps. "+
+    "Existing Japanese is skipped. Provider limits or unresolved duplicates may leave work for another pass."))return;
+  busy=true;renderCoverage();
+  try{
+    const doc=all?{series:selectedSeries,all:true}:{series:selectedSeries,seasons};
+    const result=await ownerPost("/api/finish/start",doc);
+    showMessage(result.state==="already_covered"?
+      "Already covered: all episodes in this selection have Japanese subtitles.":
+      "Started completion for "+scope+". Active work will show finished results and remaining gaps.");
+  }catch(err){showMessage("Not started: "+err.message,true);}
+  finally{busy=false;await refreshStatus();renderCoverage();}
+}
 function openSeries(entry){
   selectedSeries=entry.series;
   selectedMovie=null;
@@ -400,6 +435,13 @@ function renderCoverage(){
     scopeCount+" loaded/selected seasons. Saved queue and sidecars; may lag Jellyfin.":
     "Select seasons to inspect Japanese subtitle coverage.";
   $("refresh-coverage").disabled=busy||!selectedSeasons.size;
+  $("finish-selected").disabled=busy||!selectedSeasons.size||
+    coverage.size!==selectedSeasons.size||!!latest.workersBusy||
+    !latest.finish_scope?.available;
+  $("finish-all").disabled=busy||!!latest.workersBusy||
+    !latest.finish_scope?.available;
+  $("finish-selected").textContent=selectedSeasons.size===1?
+    "Finish selected season":"Finish selected seasons ("+selectedSeasons.size+")";
   $("source-selected").disabled=busy||!selectedSeasons.size||latest.workersBusy;
   $("source-whole-series").disabled=busy||latest.workersBusy;
   $("translate-selected").disabled=busy||!checkedEligible||latest.workersBusy||!latest.aiAvailable;
@@ -898,6 +940,17 @@ async function refreshStatus(){
   try{
     const d=await getJson("/api/status");
     latest=d;
+    const finish=d.finish_scope||{};
+    $("finish-job").hidden=!finish.active&&!finish.series;
+    if(finish.active||finish.series){
+      $("finish-job-title").textContent=(finish.series||"Selected series")+" · completion";
+      $("finish-job-status").textContent=finish.active?
+        "Running · "+(finish.phase||"starting"):finish.state||"Unknown";
+      $("finish-job-details").textContent=finish.remaining+" Japanese subtitles still missing in scope. "+
+        (finish.state==="completed"?"All selected episodes covered.":
+         finish.state==="partial"?"Unresolved items need another pass or review.":"");
+      $("finish-stop").hidden=!finish.active;
+    }
     renderGlobalCoverage(d);
     renderNextStep(d);
     const setting=d.source_config_scope||"unavailable";
@@ -913,15 +966,17 @@ async function refreshStatus(){
     const t=d.translation||{};
     const legacy=!!(t.american_dad_batch||{}).active;
     const jellyfin=!!(d.jellyfin_source||{}).active;
+    const finishActive=!!(d.finish_scope||{}).active;
     const source=!!d.source_active||!!(d.season_sources||{}).active||jellyfin;
     const ai=!!(d.season_translation||{}).active||legacy||Number(t.active_jobs||0)>0;
     const jobState=(d.jellyfin_source||{}).state||"";
     const jobStarting=jobState==="starting"||jobState==="no_progress";
-    d.workersBusy=source||ai||jobStarting||!!(d.movie_source||{}).active;
+    d.workersBusy=source||ai||finishActive||jobStarting||!!(d.movie_source||{}).active;
     renderJellyfinJob(d);
     d.aiAvailable=!!(d.season_translation||{}).available;
     const scoped=!!(d.season_sources||{}).active;
-    $("run-status").textContent=jellyfin?"Jellyfin source batch active":
+    $("run-status").textContent=finishActive?"Series completion active":
+      jellyfin?"Jellyfin source batch active":
       jobStarting?"Jellyfin source batch starting":
       scoped?"Selected sourcing active":ai?"PLaMo active":source?"Source worker active":
       (d.jellyfin_source||{}).known?
@@ -981,6 +1036,9 @@ async function stopJob(path){
   catch(err){toast("Could not stop job: "+err.message);}
   await refreshStatus();
 }
+$("finish-selected").addEventListener("click",()=>finishScope(false));
+$("finish-all").addEventListener("click",()=>finishScope(true));
+$("finish-stop").addEventListener("click",()=>stopJob("/api/finish/stop"));
 $("lookup").addEventListener("submit",lookup);
 $("refresh").addEventListener("click",async()=>{await loadCatalog();await refreshStatus();
   if(selectedSeries){
