@@ -273,7 +273,7 @@ def safe_failure_reason(stdout,stderr):
     # arbitrary provider messages or full paths in dashboard/job files.
     lines=[line.strip() for line in raw.splitlines()[-8:]]
     for line in reversed(lines):
-        match=re.search(r"(?:RuntimeError|ValueError):\\s*([a-z][a-z0-9_]{3,95})\\s*$",line)
+        match=re.search(r"(?:RuntimeError|ValueError):\s*([a-z][a-z0-9_]{3,95})\s*$",line)
         if match and "_" in match.group(1):
             return match.group(1)
     if "JELLYFIN_JA_BYTES:" in stdout:
