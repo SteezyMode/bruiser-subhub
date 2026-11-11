@@ -51,6 +51,10 @@ SEASON_SOURCE_EXEC = Path(__file__).with_name("subhub_season_sources.py")
 BATCH_EXEC = Path(__file__).with_name("subhub_translation_batch.py")
 MOVIE_EXEC = Path(__file__).with_name("subhub_movie_job.py")
 MOVIE_UNIT = "bruiser-subhub-movie-ja.service"
+JELLYFIN_SOURCE_UNIT = "bruiser-subhub-jellyfin-source.service"
+JELLYFIN_SOURCE_EXEC = Path.home() / "bruiser-pilot/subhub-control/subhub_jellyfin_batch.py"
+JELLYFIN_SOURCE_STATE = (Path.home() /
+                         "bruiser-pilot/ja-first-inventory/jellyfin-source-batch.json")
 MOVIE_ROOTS = (
     Path("/mnt/2TB/Plex Expansion/Movies"),
     Path("/mnt/BigDisk/Video/Movies"),
@@ -728,6 +732,7 @@ def status_payload():
     result["translation"]=translation_snapshot()
     result["season_translation"]=season_batch_status()
     result["season_sources"]=season_sources_status()
+    result["jellyfin_source"]=jellyfin_source_status()
     result["movie_source"]=movie_source_status()
     result["controls"]=control_availability()
     return result
@@ -745,6 +750,8 @@ def source_controls(action):
     if action=="start-manual":
         raise RuntimeError("legacy_manual_worker_disabled_use_source_only_service")
     if action in ("start-auto", "start-manual") and not (manual or scheduled):
+        if unit_active(JELLYFIN_SOURCE_UNIT):
+            raise RuntimeError("Jellyfin source batch already running")
         if translation_busy():
             raise RuntimeError("translation_active_cannot_start_source_worker")
         if unit_active(SEASON_SOURCE_UNIT):
@@ -790,7 +797,7 @@ def control_availability():
     scheduled=unit_active(SCHEDULED_UNIT)
     can_start=not manual and not scheduled and not unit_active(SEASON_SOURCE_UNIT)
     if can_start:
-        can_start=not translation_busy()
+        can_start=not translation_busy() and not unit_active(JELLYFIN_SOURCE_UNIT)
     return {"available":True,
             "start_auto":can_start,
             "stop_auto":scheduled,
@@ -907,7 +914,8 @@ def start_season_translation(doc):
     else:
         raise ValueError("invalid_batch_request")
     if (unit_active(BATCH_UNIT) or unit_active(SCHEDULED_UNIT)
-            or unit_active(SEASON_SOURCE_UNIT) or translation_busy()):
+            or unit_active(SEASON_SOURCE_UNIT) or unit_active(JELLYFIN_SOURCE_UNIT)
+            or translation_busy()):
         raise RuntimeError("another_source_or_translation_worker_is_active")
     if (not BATCH_EXEC.is_file() or BATCH_EXEC.is_symlink()
             or not season_batch.ENGINE.is_file()
@@ -1006,7 +1014,8 @@ def start_season_sources(doc):
     else:
         raise ValueError("invalid_season_source_request")
     if (unit_active(BATCH_UNIT) or unit_active(SCHEDULED_UNIT)
-            or unit_active(SEASON_SOURCE_UNIT) or translation_busy()):
+            or unit_active(SEASON_SOURCE_UNIT) or unit_active(JELLYFIN_SOURCE_UNIT)
+            or translation_busy()):
         raise RuntimeError("another_source_or_translation_worker_is_active")
     if not season_sources_status()["available"]:
         raise RuntimeError("native_source_components_unavailable")
