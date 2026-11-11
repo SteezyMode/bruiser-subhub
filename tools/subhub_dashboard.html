@@ -137,6 +137,15 @@ details>summary{cursor:pointer}
 <section class="panel">
  <div class="split"><h2>Active work</h2><span id="current-work" class="small muted">No current job</span></div>
  <div class="status-strip"><span>Source: <strong id="source-state">—</strong></span><span>PLaMo: <strong id="plamo-state">—</strong></span><span>Provider allowance: <strong id="quota">Unverified</strong></span></div>
+ <div id="daily-downloads" class="review">
+  <div class="split"><strong>Daily subtitle downloads (observed)</strong><span id="download-day" class="small muted">Japan time</span></div>
+  <p id="download-today" class="small">Waiting for recorded downloads</p>
+  <p id="download-providers" class="small muted">Limits and resets not yet verified.</p>
+  <details><summary>Last 7 days · downloaded / attempted / quota blocked</summary>
+   <div id="download-history" class="small muted"></div>
+  </details>
+  <p class="small muted">Counts only instrumented SubHub downloads after installation, not all Jellyfin, Sublarr or manual activity. Provider reset time and true account-wide allowance are still unknown.</p>
+ </div>
  <div id="jellyfin-job" hidden>
   <div class="split"><strong id="jellyfin-job-title">Jellyfin Japanese sourcing</strong><span class="small muted" id="jellyfin-job-state"></span></div>
   <div class="meter" id="jellyfin-job-meter" role="progressbar" aria-label="Jellyfin sourcing episodes completed" aria-valuemin="0" aria-valuenow="0" aria-valuemax="100"><div class="fill" id="jellyfin-job-fill"></div></div>
@@ -515,6 +524,28 @@ function drawJobs(data){
   const aiEvents=(data.season_translation&&data.season_translation.recent)||[];
   $("recent-events").textContent=events.slice(-4).concat(aiEvents.slice(-4)).join(" | ")||"No recent scoped-job events.";
 }
+function renderDownloadUsage(d){
+  const u=d.download_usage||{},today=new Date();
+  $("download-day").textContent="Japan calendar day";
+  if(!u.available){
+    $("download-today").textContent="No recorded SubHub downloads yet";
+    $("download-providers").textContent="Measurement begins once the ledger is installed.";
+    $("download-history").textContent="No history recorded.";
+    return;
+  }
+  $("download-today").textContent=
+    "Combined today: "+u.today_downloaded+" successful downloads · "+
+    u.today_attempted+" attempts · "+u.today_pending+" unresolved · "+
+    u.today_quota_blocked+" quota blocks";
+  const providers=Object.entries(u.providers||{}).sort((a,b)=>a[0].localeCompare(b[0]));
+  $("download-providers").textContent=providers.length?
+    providers.map(([name,c])=>name+": "+c.downloaded+" downloaded / "+
+      c.attempted+" attempted"+(c.quota_blocked?" · "+c.quota_blocked+" blocked":"")).join(" · "):
+    "No SubHub downloads recorded today";
+  $("download-history").textContent=(u.recent_days||[])
+    .map(x=>x.day+": "+x.downloaded+" / "+x.attempted+" / "+x.quota_blocked)
+    .join(" | ");
+}
 function renderJellyfinJob(d){
   const p=d.jellyfin_source||{};
   $("jellyfin-job").hidden=!p.known&&!p.active;
@@ -600,6 +631,7 @@ async function refreshStatus(){
     const d=await getJson("/api/status");
     latest=d;
     renderLibrarySourceProgress(d);
+    renderDownloadUsage(d);
     const t=d.translation||{};
     const legacy=!!(t.american_dad_batch||{}).active;
     const jellyfin=!!(d.jellyfin_source||{}).active;
@@ -639,7 +671,9 @@ async function refreshStatus(){
       "Library-wide Japanese sourcing is running. Source job progress and saved results are retained; no PLaMo runs.":
       "Each pass respects provider limits and search history; enabled daily sourcing continues across the entire library.";
     $("plamo-state").textContent=ai?"Running":d.aiAvailable?"Ready":"Handoff not installed";
-    $("quota").textContent=(d.source_job||{}).provider_limited?"Provider limit reached":"Allowance unverified";
+    $("quota").textContent=(d.source_job||{}).provider_limited||
+      (d.download_usage||{}).today_quota_blocked?"Provider denied downloads today":
+      "Limit unverified";
     $("job-progress").textContent=escapeText(d.phase_label||"No active work");
     $("stop-sourcing").hidden=!scoped;
     $("stop-translation").hidden=!(d.season_translation||{}).active;
