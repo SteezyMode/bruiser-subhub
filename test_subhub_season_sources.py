@@ -114,7 +114,7 @@ class ScopeTests(unittest.TestCase):
             exec(search.CONTAINER_WORKER,{"__name__":"__main__"})
         result=json.loads(output.getvalue())
         self.assertEqual(result["query_variant"],"series_title_episode")
-        self.assertEqual(result["strategy_version"],4)
+        self.assertEqual(result["strategy_version"],5)
         self.assertEqual(result["requests_made"],1)
         self.assertEqual(len(calls),1)
         self.assertEqual(calls[0]["season"],7)
