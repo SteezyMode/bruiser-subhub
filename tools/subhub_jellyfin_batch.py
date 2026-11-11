@@ -43,6 +43,7 @@ EP = re.compile(r"S(\d{2})E(\d{2,3})\Z", re.I)
 MAX_ITEMS = 500
 MAX_SEARCHES = 200
 COOLDOWN_SEC = 20 * 3600
+SEARCH_STRATEGY = "jellyfin-all-providers-plus-sublarr-title-episode-v2"
 STOP = False
 
 
@@ -194,9 +195,12 @@ def fresh_state(rows,chosen,prior=None,now=None):
         prev=old.get(jid,{})
         state=prev.get("status","queued")
         tried=int(prev.get("attempted_at") or 0)
-        # Unavailable Japanese source is not permanent; try again only after
-        # the cooldown. Held QA is not blindly reattempted every click.
-        if state in ("no_match","deferred") and now-tried >= COOLDOWN_SEC:
+        # One-time recovery sweep when the underlying search strategy changes:
+        # old SubBuzz HTTP 500 and single-provider misses never proved absence.
+        if prior and prior.get("search_strategy") != SEARCH_STRATEGY and state in (
+                "held","no_match","deferred"):
+            state="queued"
+        elif state in ("no_match","deferred") and now-tried >= COOLDOWN_SEC:
             state="queued"
         if state in ("running","interrupted","paused"):
             state="queued"
@@ -213,6 +217,7 @@ def fresh_state(rows,chosen,prior=None,now=None):
         previous=list(prior.get("previous",[]))[:5]
     return {
         "schema":"jellyfin-source-batch-v1","selector":chosen,
+        "search_strategy":SEARCH_STRATEGY,
         "state":"queued","phase":"queued","current":"",
         "items":items,"started_at":now,"updated_at":now,
         "searches_this_run":0,"downloads_this_run":0,
@@ -420,7 +425,7 @@ def execute(rows,doc,*,limit,runner=call,writer=write_job_state):
         event(doc,"search_download",label)
         writer(doc)
         cmd=[sys.executable,"-B",str(SOURCE_DIR/"ja_first_stage_jellyfin.py"),
-             "--jellyfin-id",item["id"],"--provider","subbuzz","--apply"]
+             "--jellyfin-id",item["id"],"--provider","any","--apply"]
         def checkpoint(phase,detail):
             event(doc,phase,label,detail)
             writer(doc)
