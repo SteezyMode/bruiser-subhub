@@ -670,6 +670,32 @@ def movie_subtitle_status(path, *, runner=subprocess.run):
         return "unknown", "Embedded subtitles not verified"
 
 
+def movie_jellyfin_inventory(paths):
+    """Read last complete Jellyfin movie subtitle classification, if present."""
+    result={}
+    wanted=set(str(p) for p in paths)
+    manifest=global_coverage.latest_manifest()
+    if manifest is None:
+        return result
+    try:
+        doc=json.loads(manifest.read_text("utf-8"))
+        if doc.get("schema")!=1 or not isinstance(doc.get("items"),list):
+            return result
+        for entry in doc["items"]:
+            if not isinstance(entry,dict) or entry.get("kind")!="Movie":
+                continue
+            path=str(entry.get("host_path") or "")
+            if path in wanted:
+                result[path]={
+                    "jellyfin_inventory_status":str(entry.get("status") or ""),
+                    "jellyfin_inventory_generated":str(doc.get("generated_utc") or ""),
+                    "jellyfin_id":str(entry.get("jellyfin_id") or ""),
+                }
+    except (OSError,ValueError,TypeError):
+        return {}
+    return result
+
+
 def movie_queue_evidence(paths):
     """Existing coverage queue and previous Japanese searches; read-only."""
     found={str(p):{"search_attempted":False,"search_outcome":"never",
@@ -747,9 +773,18 @@ def search_movie_files(title, *, roots=MOVIE_ROOTS):
         if len(matches) >= 30:
             break
     evidence=movie_queue_evidence([m["path"] for m in matches])
+    jellyfin=movie_jellyfin_inventory([m["path"] for m in matches])
     for movie in matches:
         status,reason=movie_subtitle_status(movie["path"])
         movie.update(evidence.get(movie["path"],{}))
+        prior=jellyfin.get(movie["path"],{})
+        if prior.get("jellyfin_id") and not movie.get("jellyfin_id"):
+            movie["jellyfin_id"]=prior["jellyfin_id"]
+        if (status!="present" and
+                prior.get("jellyfin_inventory_status")=="existing_japanese_subtitle"):
+            status="present"
+            reason="Jellyfin inventory reports Japanese subtitle (as of "+
+                   prior.get("jellyfin_inventory_generated","")+")"
         movie.update(japanese_status=status,japanese_detail=reason)
     return matches
 
