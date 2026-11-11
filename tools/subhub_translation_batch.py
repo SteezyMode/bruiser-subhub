@@ -249,7 +249,9 @@ def season_report(series, season, *, path=None):
     for number, candidates in sorted(versions.items()):
         if len(candidates) != 1:
             items.append({"episode":number,"title":str(candidates[0]["title"]),
-                          "status":"review","reason":"duplicate_episode_versions"})
+                          "status":"review","reason":"duplicate_episode_versions",
+                          "can_source":False,"can_translate":False,
+                          "next_action":"REVIEW · Duplicate episode files"})
             continue
         row = candidates[0]
         action, state = str(row["action"] or ""), str(row["state"] or "")
@@ -330,6 +332,25 @@ def season_report(series, season, *, path=None):
                                   "no_japanese_candidate_found_in_last_search")
         if recover_english:
             item["reason"]="japanese_source_exhausted_english_will_be_searched_and_synced"
+        # One explicit next step per episode. Distinguish real Japanese tracks
+        # from candidates, provider searches, and translation readiness.
+        if covered:
+            item["next_action"] = "READY · Japanese subtitles present"
+        elif proof and int(proof.get("plausible_candidates") or 0) > 0:
+            item["next_action"] = "REPAIR · Japanese candidate found; check timing"
+        elif action in ("download_saved_ja", "align_existing_staged_ja",
+                        "review_saved_ja"):
+            item["next_action"] = "REVIEW · Saved Japanese candidate"
+        elif status == "needs_english":
+            item["next_action"] = "GET ENGLISH · Search/sync or transcribe with Whisper"
+        elif searched and proof["outcome"] == "none" and item["can_translate"]:
+            item["next_action"] = "PLAMO OPTION · Last Japanese search had no usable match"
+        elif item["can_source"]:
+            item["next_action"] = "SEARCH · Japanese subtitles"
+        elif item["can_translate"]:
+            item["next_action"] = "PLAMO OPTION · Verify Japanese availability first"
+        else:
+            item["next_action"] = "REVIEW · Media or subtitle status uncertain"
         if item["can_translate"]:
             item["jellyfin_id"] = jid
         items.append(item)
