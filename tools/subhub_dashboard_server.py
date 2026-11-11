@@ -1062,7 +1062,7 @@ def write_jellyfin_launch(receipt, path=None):
             parent.stat().st_mode & 0o077 or path.is_symlink()):
         raise RuntimeError("Jellyfin_source_launch_directory_not_private")
     data=json.dumps(receipt,ensure_ascii=False,sort_keys=True).encode("utf-8")
-    if len(data)>1600:
+    if len(data)>16_000:
         raise ValueError("invalid_launch_receipt_size")
     fd,tmp=tempfile.mkstemp(prefix=".jellyfin-source-launch-",dir=parent)
     try:
@@ -1106,6 +1106,15 @@ def jellyfin_source_status():
         doc=_private_jellyfin_json(JELLYFIN_SOURCE_STATE)
         if doc and doc.get("schema")!="jellyfin-source-batch-v1":
             doc=None
+        # A failed systemd launch must show its own error, not pretend that
+        # the job started or display an unrelated previous receipt.
+        if launch and launch.get("state")=="launch_failed":
+            return {**base,"known":True,"progress_available":False,
+                    "state":"launch_failed","phase":"start_failed",
+                    "selector":launch.get("selector",{}),"total":0,
+                    "finished":0,"pending":0,"published":0,"held":0,
+                    "no_match":0,"current":safe_text(launch.get("error"),155),
+                    "events":[]}
         # Old job receipts must NOT show as progress for a newly accepted job.
         if launch and (not doc or doc.get("job_id")!=launch.get("job_id")):
             eligible=launch.get("eligible",0)
@@ -1248,6 +1257,18 @@ def start_jellyfin_source(doc):
     if eligible<=0:
         raise ValueError("No missing Japanese titles in the selected scope")
     job_id=secrets.token_hex(8)
+    selection={"series":doc["series"],
+               "seasons":sorted(doc.get("seasons",[])),
+               "picks":[[p["season"],p["episode"]] for p in
+                        doc.get("picks",[])]}
+    receipt={
+        "schema":"jellyfin-source-launch-v1","job_id":job_id,
+        "selector":selection,"eligible":eligible,
+        "search_cap":search_cap,"accepted_at":int(time.time())}
+    # IMPORTANT: Check our ability to report a job BEFORE starting it.
+    # Previously systemd-run started searching and the subsequent write
+    # could raise EROFS, incorrectly telling the owner "Not started".
+    write_jellyfin_launch(receipt)
     cmd=["systemd-run","--user","--unit=bruiser-subhub-jellyfin-source",
          "--collect","--property=KillMode=control-group","--",
          sys.executable,"-B","-u",str(JELLYFIN_SOURCE_EXEC),
@@ -1256,16 +1277,11 @@ def start_jellyfin_source(doc):
     p=subprocess.run(cmd,capture_output=True,text=True,
                      stdin=subprocess.DEVNULL,timeout=20,check=False)
     if p.returncode:
-        raise RuntimeError("Jellyfin_source_start_failed: "+
-                           safe_text(p.stderr or p.stdout,155))
-    selection={"series":doc["series"],
-               "seasons":sorted(doc.get("seasons",[])),
-               "picks":[[p["season"],p["episode"]] for p in
-                        doc.get("picks",[])]}
-    write_jellyfin_launch({
-        "schema":"jellyfin-source-launch-v1","job_id":job_id,
-        "selector":selection,"eligible":eligible,
-        "search_cap":search_cap,"accepted_at":int(time.time())})
+        failure="Jellyfin_source_start_failed: "+safe_text(p.stderr or p.stdout,155)
+        receipt["state"]="launch_failed"
+        receipt["error"]=failure
+        write_jellyfin_launch(receipt)
+        raise RuntimeError(failure)
     return {"ok":True,"eligible":eligible,"max_searches_this_run":search_cap,
             "note":"Background source job accepted; real progress appears in Active work"}
 
