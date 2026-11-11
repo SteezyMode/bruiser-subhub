@@ -152,6 +152,16 @@ class GenericJellyfinBatch(unittest.TestCase):
 
 
 class DashboardJellyfinControls(unittest.TestCase):
+    def setUp(self):
+        self.tmp=tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root=Path(self.tmp.name)
+        os.chmod(self.root,0o700)
+        patcher=patch.object(dashboard,"JELLYFIN_SOURCE_LAUNCH",
+                            self.root/"source-launch.json")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_full_series_and_scoped_seasons_validation(self):
         self.assertEqual(dashboard.jellyfin_source_arguments(
             {"series":"It's Always Sunny in Philadelphia"})[:2],
