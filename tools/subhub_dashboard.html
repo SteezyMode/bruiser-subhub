@@ -599,7 +599,9 @@ function renderLibrarySourceProgress(d){
   const active=!!p.active;
   $("library-live").hidden=!known;
   if(!known)return;
-  $("library-live-heading").textContent=active?"Live sourcing pass":"Previous sourcing pass";
+  const scopedFolder=p.scope==="horror-drama-folders";
+  $("library-live-heading").textContent=(active?"Live sourcing pass":"Previous sourcing pass")+
+    (scopedFolder?" · Horror + Drama/Suspense (2TB + 4TB)":" · All eligible media");
   $("library-live-phase").textContent=escapeText(p.phase_label||p.phase||"");
   const bar=(kind,done,planned)=>{
     const current=Math.max(0,Number(done)||0);
@@ -680,7 +682,10 @@ async function refreshStatus(){
     $("source-library").disabled=busy||!((d.controls||{}).start_auto)||d.workersBusy;
     $("stop-library").hidden=!((d.controls||{}).stop_auto);
     $("library-source-note").textContent=source&&!scoped?
-      "Library-wide Japanese sourcing is running. Source job progress and saved results are retained; no PLaMo runs.":
+      ((d.source_job||{}).scope==="horror-drama-folders"?
+        "Only Horror and Drama/Suspense movie folders on both drives are being searched and published. ":
+        "Library-wide Japanese sourcing is running. ")+
+       "Search history and results are retained; no PLaMo runs.":
       "Each pass respects provider limits and search history; enabled daily sourcing continues across the entire library.";
     $("plamo-state").textContent=ai?"Running":d.aiAvailable?"Ready":"Handoff not installed";
     $("quota").textContent=(d.source_job||{}).provider_limited||
@@ -728,7 +733,12 @@ $("show-covered").addEventListener("change",e=>{showCovered=e.target.checked;if(
 $("clear-episodes").addEventListener("click",()=>{checked.clear();renderCoverage();});
 async function librarySourceAction(stop){
   if(busy)return;
-  if(!stop&&!confirm("Start library-wide JAPANESE source discovery and timing repair for all eligible movies and episodes? Provider quotas are respected; no PLaMo or media replacement."))return;
+  if(!stop&&!confirm(
+    (latest&&(latest.source_job||{}).scope==="horror-drama-folders"?
+     "Start Japanese sourcing for existing Horror + Drama/Suspense movie folders on BOTH drives?":
+     "Start Japanese sourcing for all eligible movies and episodes?")+
+    " Saved search history and provider limits are respected; no PLaMo or media replacement."
+  ))return;
   busy=true;
   try{
     const result=await ownerPost(stop?"/api/control/stop-auto":"/api/control/start-auto",{});
