@@ -192,6 +192,19 @@ def classify(item, series, mounts, sidecache):
         "genres": [str(v) for v in (item.get("Genres") or [])[:20]
                    if isinstance(v, str)][:20],
     }
+    # Populate series/season identity before the coverage short circuit.
+    # Previously every already-subtitled TV episode returned with an empty
+    # series_title and missing S/E, obscuring series-wide coverage audits.
+    # This is descriptive metadata only: no change to search eligibility.
+    if kind == "Episode":
+        data["season"] = item.get("ParentIndexNumber")
+        data["episode"] = item.get("IndexNumber")
+        parent = series.get(item.get("SeriesId"))
+        data["series_title"] = (
+            str((parent or {}).get("Name") or "").strip()
+            or str(item.get("SeriesName") or "").strip()
+        )
+
     path = data["host_path"]
     if not path:
         data["status"] = "review_missing_path"
