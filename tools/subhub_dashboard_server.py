@@ -1811,7 +1811,8 @@ class Handler(BaseHTTPRequestHandler):
             "/api/source-season/start","/api/source-season/stop",
             "/api/jellyfin-source/start","/api/jellyfin-source/stop",
             "/api/movie/start","/api/movie/stop",
-            "/api/translation/movie/start"):
+            "/api/translation/movie/start","/api/finish/start",
+            "/api/finish/stop"):
             self.write(405,b'{"error":"controls_not_available_in_v0_1"}')
             return
         origin=self.headers.get("Origin","")
@@ -1831,7 +1832,7 @@ class Handler(BaseHTTPRequestHandler):
                 != "application/json" or not size.isdecimal() or
                  int(size) > (16000 if target in (
                      "/api/translation/start","/api/source-season/start",
-                     "/api/jellyfin-source/start")
+                     "/api/jellyfin-source/start","/api/finish/start")
                      else 1200 if target in ("/api/movie/start",
                                             "/api/translation/movie/start") else 2)):
             self.write(403,b'{"error":"owner_control_access_denied"}')
@@ -1839,7 +1840,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if target in ("/api/translation/start","/api/source-season/start",
                           "/api/movie/start","/api/jellyfin-source/start",
-                          "/api/translation/movie/start"):
+                          "/api/translation/movie/start","/api/finish/start"):
                 if not (2 <= int(size) <= (
                         1200 if target in ("/api/movie/start",
                                            "/api/translation/movie/start") else 16000)):
@@ -1847,6 +1848,8 @@ class Handler(BaseHTTPRequestHandler):
                 request = json.loads(self.rfile.read(int(size)).decode("utf-8"))
                 value = (start_season_translation(request)
                          if target == "/api/translation/start"
+                         else start_finish_scope(request)
+                         if target == "/api/finish/start"
                          else start_movie_translation(request)
                          if target == "/api/translation/movie/start"
                          else start_movie_source(request)
@@ -1865,6 +1868,8 @@ class Handler(BaseHTTPRequestHandler):
                     value = stop_season_sources()
                 elif target == "/api/jellyfin-source/stop":
                     value = stop_jellyfin_source()
+                elif target == "/api/finish/stop":
+                    value = stop_finish_scope()
                 else:
                     value=source_controls(target.rsplit("/",1)[-1])
             self.write(200,json.dumps(value).encode("utf-8"))
