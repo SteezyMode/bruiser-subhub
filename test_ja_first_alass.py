@@ -103,7 +103,7 @@ class AlassTests(unittest.TestCase):
                  patch.object(alass.gate,"validate_srt",return_value={"cues":180}), \
                  patch.object(alass,"_embedded_english",return_value=None), \
                  patch.object(alass,"_intensive_external_english",return_value=None):
-                with self.assertRaisesRegex(RuntimeError,"no_independent_reference"):
+                with self.assertRaisesRegex(RuntimeError,"missing_english_reference"):
                     alass.intensive_align(directory/"video.mkv",raw,runner=runner)
 
     def test_intensive_requires_external_or_embedded_to_agree_with_audio(self):
