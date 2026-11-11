@@ -1,13 +1,24 @@
 # Bruiser SubHub
 
+> **CURRENT WORK — 2026-11-11 | SEARCH RELIABILITY P0, JOB PROGRESS & BATCHES P1**
+>
+> **[START HERE: Search Recovery Roadmap & Next-Chat Handoff](docs/SEARCH_RECOVERY_ROADMAP.md)**
+>
+> The owner has lost substantial time across filled AI chats repeating "fixes" without usable Japanese subtitle yield. This roadmap is **the prominent live technical handoff**, including host-tested evidence, what's committed vs installed, known broken paths, precise priorities, tests, safety rules, and how to continue. **Read before editing code or requesting new provider searches.** Check [P0 search issue #89](https://github.com/SteezyMode/bruiser-subhub/issues/89) and [P1/P2 job progress, batches and movie browse issue #90](https://github.com/SteezyMode/bruiser-subhub/issues/90).
+>
+> **Latest verified host result:** source **v4 installed**, 44/600 searches returned no usable new matches; attempt #45 deferred because SubDL hit `stretch` budget pacing **while OpenSubtitles remained available**. 19 separately saved/staged subtitles published; this does **not** show new search yield. **Do not run another full-library scan until search recall and staging are proven on a bounded real-media cohort.**
+>
+> **Owner requirements, easy to miss:** all jobs need actual persistent progress bars and current-item/remaining/outcome state **inside the dashboard**, never a disabled button as the only indicator; manually select any mix of movies in one batch; a `Comedy` category must actually display the full Jellyfin Comedy library as a **poster grid** even with an empty search field. These are recorded and prioritized, not implemented.
+
 **The entire purpose:** give one household good, natural, correctly timed Japanese subtitles for the movies and TV it already watches in Jellyfin. This is not a startup, a software product, a showcase, or a competition to invent a subtitle manager. A subtitle that actually plays well is success. A commit, benchmark, downloaded candidate or attractive dashboard is not.
 
 ## Read these, in this order
 
 1. [GOAL.md](GOAL.md) — what the owner actually needs.
-2. [docs/CURRENT_STATE.md](docs/CURRENT_STATE.md) — the current evidence, decision, and next real test.
-3. [docs/SUBHUB_CORRECTION_FIRST_POLICY_2026-11-10.md](docs/SUBHUB_CORRECTION_FIRST_POLICY_2026-11-10.md) — sourcing/reference/repair/publication rules.
-4. [AGENTS.md](AGENTS.md) — rules for the next development session.
+2. **[docs/SEARCH_RECOVERY_ROADMAP.md](docs/SEARCH_RECOVERY_ROADMAP.md)** — **current priority, real Nov 11 audit, unresolved search failures, P1 dashboards/batches and P2 poster browser, next-chat handoff**.
+3. [AGENTS.md](AGENTS.md) — mandatory AI/dev session behavior and deployed-vs-committed checks.
+4. [docs/CURRENT_STATE.md](docs/CURRENT_STATE.md) — evolving status and older experiment evidence (read the newest priority banner first).
+5. [docs/SUBHUB_CORRECTION_FIRST_POLICY_2026-11-10.md](docs/SUBHUB_CORRECTION_FIRST_POLICY_2026-11-10.md) — durable sourcing, review and non-destructive publication rules.
 
 Other date-stamped documents, experiments, project handoffs, and GitHub issues are **historical evidence**, not competing current instructions. Do not infer live host state from this repository. Git history retains older versions of this README and instructions.
 
@@ -23,6 +34,9 @@ Other date-stamped documents, experiments, project handoffs, and GitHub issues a
 
 ## Current immediate work
 
-Fix the observable cold-open timing problem in *It's Always Sunny in Philadelphia* S01E04 using a **non-destructive preview** and actual dialogue checks; compare S01E05 as control. Both episodes already have embedded English references. Our November 10 timestamp-only regional audits were inconclusive, so stop creating more statistical gates. See [current state](docs/CURRENT_STATE.md) for next steps and backlog.
+1. **P0 — Fix real subtitle discovery.** Resolve Sublarr's simplified API losing movie year/TV series metadata, provider participation and budget deferral, 50-result truncation, cached evidence loss, and SubDL staging gap. Benchmark a small actual cohort and prove subtitles progress to ALASS, safe publication and Jellyfin playback. [Roadmap and evidence](docs/SEARCH_RECOVERY_ROADMAP.md); [issue #89](https://github.com/SteezyMode/bruiser-subhub/issues/89).
+2. **P1 — Functional dashboard and operator batches.** ALL jobs (movie, selected TV, entire library, translation, stage and publication) need real, persistent per-job progress and outcomes. Arbitrary multiple movies selected across genres must queue together. An inactive button is not a progress indicator. [Issue #90](https://github.com/SteezyMode/bruiser-subhub/issues/90).
+3. **P2 — Browse the actual Jellyfin movie library.** Selecting `Comedy` lists the **whole genre as a poster grid** without any title typed; title search works independently; selections survive paging/category changes. Later, add incremental Japanese sourcing for newly-added Jellyfin IDs after search reliably works.
+4. **Separate timing QA backlog:** IASIP S01E04 ALASS cold-open correction and S01E05 control still require a final published/playback verification where appropriate. Keep the known successful preview and don't supplant it with speculative retiming. See [current state](docs/CURRENT_STATE.md).
 
-Keep dashboard changes subordinate to an actual subtitle workflow failure. The default question is: **what will get us the next verified, watchable Japanese subtitle with the least maintenance?**
+Keep dashboard work tied to actual usable operation, not appearance. The yardstick remains **the next correctly matched, timed, playable Japanese subtitle in Jellyfin**, with visible job progress and minimal maintenance.
