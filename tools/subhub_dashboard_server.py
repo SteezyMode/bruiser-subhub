@@ -1054,6 +1054,24 @@ def _private_jellyfin_json(path):
     return value if isinstance(value,dict) else None
 
 
+def jellyfin_job_receipts_writable():
+    """Actual filesystem-namespace check for the service's narrow write exception.
+
+    A service can read old job state under ProtectHome=read-only yet fail every
+    progress write. Testing access bits alone would miss the read-only mount.
+    """
+    path=JELLYFIN_SOURCE_LAUNCH.parent
+    if not path.is_dir() or path.is_symlink():
+        return False
+    try:
+        fd,name=tempfile.mkstemp(prefix=".subhub-job-health-",dir=path)
+        os.close(fd)
+        Path(name).unlink()
+        return True
+    except OSError:
+        return False
+
+
 def write_jellyfin_launch(receipt, path=None):
     """Persist owner-accepted job independently of worker startup; no media writes."""
     path=path or JELLYFIN_SOURCE_LAUNCH
@@ -1391,7 +1409,10 @@ class Handler(BaseHTTPRequestHandler):
         elif target == "/api/owner-token":
             self.write(200,json.dumps({"token":OWNER_TOKEN}).encode("utf-8"))
         elif target == "/healthz":
-            self.write(200, b'{"status":"ok","mode":"owner_controls"}')
+            self.write(200,json.dumps({
+                "status":"ok","mode":"owner_controls",
+                "job_receipts_writable":jellyfin_job_receipts_writable()
+            }).encode("utf-8"))
         else:
             self.write(404, b'{"error":"not_found"}')
 
