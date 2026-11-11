@@ -43,6 +43,10 @@ except ImportError:
     import subhub_translation_batch as season_batch
 try:
     from . import subhub_season_sources as season_sources
+try:
+    from . import subhub_finish_scope as finish_scope
+except ImportError:
+    import subhub_finish_scope as finish_scope
 except ImportError:
     import subhub_season_sources as season_sources
 
@@ -52,6 +56,8 @@ except ImportError:
     import subhub_library_coverage as global_coverage
 
 TRANSLATION_UNIT = "bruiser-subhub-translation-batch.service"
+FINISH_UNIT = "bruiser-subhub-finish-scope.service"
+FINISH_EXEC = Path(__file__).with_name("subhub_finish_scope.py")
 SEASON_SOURCE_UNIT = "bruiser-subhub-season-sources.service"
 SEASON_SOURCE_EXEC = Path(__file__).with_name("subhub_season_sources.py")
 BATCH_EXEC = Path(__file__).with_name("subhub_translation_batch.py")
@@ -987,6 +993,7 @@ def status_payload():
     result=live_source_snapshot(result,scheduled_source_activity(scheduled))
     result["translation"]=translation_snapshot()
     result["season_translation"]=season_batch_status()
+    result["finish_scope"]=finish_scope_status()
     result["season_sources"]=season_sources_status()
     result["jellyfin_source"]=jellyfin_source_status()
     result["download_usage"]=download_ledger_status()
@@ -1156,6 +1163,90 @@ def season_batch_status():
     }
 
 
+
+def finish_scope_status():
+    active=unit_active(FINISH_UNIT)
+    available=FINISH_EXEC.is_file() and not FINISH_EXEC.is_symlink()
+    try:
+        doc=_private_jellyfin_json(finish_scope.STATE)
+        if doc and doc.get("schema")!="subhub-finish-scope-v1":
+            doc=None
+    except (OSError,ValueError,TypeError,RuntimeError):
+        doc=None
+    if not doc:
+        return {"active":active,"available":available,
+                "state":"starting" if active else "idle"}
+    state=str(doc.get("state") or "unknown")
+    if state=="running" and not active:
+        state="interrupted"
+    before=doc.get("before") or {}
+    after=doc.get("after") or {}
+    return {"active":active,"available":available,"state":state,
+            "phase":safe_text(doc.get("phase"),42),
+            "series":safe_text(doc.get("series"),160),
+            "seasons":doc.get("seasons",[]),
+            "missing_before":int_value(before.get("missing")),
+            "covered_before":int_value(before.get("covered")),
+            "remaining":int_value(doc.get("remaining",
+                after.get("missing",before.get("missing"))))}
+
+
+def start_finish_scope(doc):
+    if not isinstance(doc,dict) or not isinstance(doc.get("series"),str):
+        raise ValueError("invalid_finish_scope")
+    series=doc["series"]
+    if set(doc)=={"series","all"} and doc["all"] is True:
+        selected=[]
+    elif set(doc)=={"series","seasons"} and isinstance(doc["seasons"],list):
+        selected=doc["seasons"]
+        if (not selected or len(selected)>60 or
+                any(type(x) is not int or not 1<=x<=60 for x in selected) or
+                len(set(selected))!=len(selected)):
+            raise ValueError("invalid_finish_seasons")
+    else:
+        raise ValueError("choose_selected_seasons_or_all")
+    if (unit_active(FINISH_UNIT) or unit_active(BATCH_UNIT) or
+            unit_active(SCHEDULED_UNIT) or unit_active(SEASON_SOURCE_UNIT) or
+            unit_active(JELLYFIN_SOURCE_UNIT) or unit_active(MOVIE_UNIT) or
+            translation_busy()):
+        raise RuntimeError("another_source_or_translation_worker_is_active")
+    if not FINISH_EXEC.is_file() or FINISH_EXEC.is_symlink():
+        raise RuntimeError("finish_scope_controller_not_installed")
+    preview=finish_scope.plan(series,selected)
+    if preview["missing"]==0:
+        return {"ok":True,"state":"already_covered","covered":preview["covered"]}
+    if not JELLYFIN_SOURCE_EXEC.is_file() or JELLYFIN_SOURCE_EXEC.is_symlink():
+        raise RuntimeError("japanese_source_worker_not_installed")
+    receipt={"schema":"subhub-finish-scope-v1","state":"starting",
+             "phase":"starting","series":series,"seasons":preview["seasons"],
+             "before":{k:v for k,v in preview.items() if k!="picks"}}
+    finish_scope.write_state(receipt)
+    args=[sys.executable,"-B","-u",str(FINISH_EXEC),"--series",series,"--run"]
+    for sn in selected:
+        args.extend(("--season",str(sn)))
+    command=["systemd-run","--user","--unit=bruiser-subhub-finish-scope",
+             "--collect","--property=KillMode=control-group","--",*args]
+    result=subprocess.run(command,capture_output=True,text=True,
+                          stdin=subprocess.DEVNULL,timeout=20,check=False)
+    if result.returncode:
+        receipt.update(state="launch_failed",phase="start_failed")
+        finish_scope.write_state(receipt)
+        raise RuntimeError("finish_scope_start_failed:"+safe_text(
+            result.stderr or result.stdout,140))
+    return {"ok":True,"accepted":preview["missing"],"covered":preview["covered"],
+            "scope":"whole_series" if not selected else "selected_seasons"}
+
+
+def stop_finish_scope():
+    if not unit_active(FINISH_UNIT):
+        raise RuntimeError("no_finish_scope_worker_running")
+    p=subprocess.run(["systemctl","--user","stop","--no-block",FINISH_UNIT],
+                     capture_output=True,text=True,timeout=15,check=False)
+    if p.returncode:
+        raise RuntimeError("finish_scope_stop_failed")
+    return {"ok":True,"action":"stop-finish-scope"}
+
+
 def start_season_translation(doc):
     """Reject unsafe/conflicting work before passing exact selection to systemd."""
     if not isinstance(doc, dict):
@@ -1184,7 +1275,7 @@ def start_season_translation(doc):
         season_batch.validate(series, season, count, start)
     else:
         raise ValueError("invalid_batch_request")
-    if (unit_active(BATCH_UNIT) or unit_active(SCHEDULED_UNIT)
+    if (unit_active(FINISH_UNIT) or unit_active(BATCH_UNIT) or unit_active(SCHEDULED_UNIT)
             or unit_active(SEASON_SOURCE_UNIT) or unit_active(JELLYFIN_SOURCE_UNIT)
             or translation_busy()):
         raise RuntimeError("another_source_or_translation_worker_is_active")
