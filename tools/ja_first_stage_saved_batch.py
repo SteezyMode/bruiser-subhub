@@ -230,7 +230,11 @@ def run(job):
             release_info=str(job.get("release_info") or "")[:240],
             matches=set(job.get("matches") or []), provider_data={"file_id": int(sid)},
         )
+        # The host ledger records this attempt, including quota refusals.
+        # These fixed signals carry no remote IDs, file paths or credentials.
+        print("SUBHUB_DOWNLOAD_REQUEST: opensubtitles", flush=True)
         raw = provider.download(candidate)  # At most one /download request.
+        print("SUBHUB_DOWNLOAD_RECEIVED:", len(raw), flush=True)
     finally:
         provider.terminate()
     metrics = analyze(raw, runtime, allow_duration_mismatch=True)
@@ -636,6 +640,28 @@ def preserve_from_container(row, candidate, report, *, hold_duration=False):
         shutil.rmtree(tempdir)
 
 
+def record_native_download_attempt(stdout, report, *, path=None):
+    """Count a real native GET even when subsequent subtitle QA rejects it.
+
+    A cached stage never sends REQUEST. Recording is based on the worker's
+    actual download boundary, not a guessed limit or the final stage verdict.
+    """
+    if "SUBHUB_DOWNLOAD_REQUEST: opensubtitles" not in stdout:
+        return False
+    event=ledger.begin("opensubtitles","sublarr_native",path=path)
+    received=re.findall(r"(?m)^SUBHUB_DOWNLOAD_RECEIVED: ([0-9]{1,7})$",stdout)
+    if len(received)==1 and 0<int(received[0])<=2_000_000:
+        ledger.finish(event,"downloaded",byte_count=int(received[0]),path=path)
+        return True
+    error=str(report.get("error_type") or "")+" "+str(report.get("error") or "")
+    if re.search(r"(?i)(?:\\b(?:429|406|quota)\\b|rate[_ -]?limit|"
+                 r"budget[_ -]?exhaust|download[_ -]?limit)",error):
+        ledger.finish(event,"quota_blocked",error_kind="provider_limit",path=path)
+    else:
+        ledger.finish(event,"failed",error_kind="download_no_bytes",path=path)
+    return True
+
+
 def run_one(job, database):
     row, candidate = job["row"], job["candidate"]
     runtime = duration_if_safe(row)
@@ -654,22 +680,18 @@ def run_one(job, database):
                             text=True, capture_output=True, timeout=120)
     lines = [x for x in result.stdout.splitlines()
              if x.startswith("STAGE_RESULT_JSON:")]
+    report = json.loads(lines[-1][len("STAGE_RESULT_JSON:"):]) if lines else {}
+    # Account BEFORE interpreting the final worker outcome: a downloaded file
+    # still consumes allowance if its Japanese text or timing later fails QA.
+    record_native_download_attempt(result.stdout,report)
     if not lines:
         raise RuntimeError("container_staging_result_missing")
-    report = json.loads(lines[-1][len("STAGE_RESULT_JSON:"):])
     if result.returncode or report.get("result") not in (
         "staged_not_published", "already_staged", "held_duration_mismatch"
     ):
         raise RuntimeError("container_staging_blocked:" +
                            str(report.get("error") or report.get("error_type") or "unknown")[:70])
-    # A genuine new Sublarr/OpenSubtitles download has already happened in
-    # the existing container. Count it even if copying or timing later holds.
-    # Cached "already_staged" returns explicitly must NOT spend another count.
-    if report.get("new_download"):
-        total_bytes=int((report.get("metrics") or {}).get("bytes") or 0)
-        if total_bytes>0:
-            ledger.record_completed("opensubtitles","sublarr_native",total_bytes)
-    held = report["result"] == "held_duration_mismatch"
+    held = report["result"] == "held_duration_mismatch
     target, digest = preserve_from_container(
         row, candidate, report, hold_duration=held)
     database.execute("""INSERT INTO staged
