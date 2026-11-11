@@ -114,7 +114,8 @@ class StatusTests(unittest.TestCase):
             self.assertIn('id="'+name+'"',html)
         self.assertEqual(html.count('type="text"'),1)
         self.assertIn("Review remaining episodes",html)
-        self.assertIn("Last resort: translate checked episodes",html)
+        self.assertIn("Translate checked with PLaMo (",
+                       "Translate unresolved with PLaMo",html)
         for name in ("batch-overview","batch-count","batch-remaining",
                      "batch-details","batch-fill"):
             self.assertIn('id="'+name+'"',html)
@@ -129,7 +130,7 @@ class StatusTests(unittest.TestCase):
                        'bulkAction("source",','bulkAction("translate",'):
             self.assertIn(phrase,html)
         self.assertIn("Technical details / source matches",html)
-        self.assertIn('n.covered+" of "+n.total',html)
+        self.assertIn('n.covered+" / "+n.total',html)
         self.assertNotIn("review/metadata holds",html)
         self.assertNotIn('id="action-start-auto"',html)
 
