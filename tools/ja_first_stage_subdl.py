@@ -139,6 +139,10 @@ def stage_one(row,candidate,runtime):
     jid=row["jellyfin_id"]
     remote=str(candidate["subtitle_id"])
     sid,digest=numeric_id(remote)
+    # Never consume a second download allowance for an already staged file.
+    if (jid,sid) in stage.read_staged():
+        print("STAGED_SUBDL:",jid,"source_id:",sid,"cached",flush=True)
+        return
     blob=download(candidate)
     raw,qa,member=archive_srt(blob,row,candidate,runtime)
     stage.STAGED.mkdir(mode=0o700,exist_ok=True)
