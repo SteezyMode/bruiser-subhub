@@ -78,6 +78,7 @@ details>summary{cursor:pointer}
   <button id="source-library" class="primary" type="button" disabled>Find Japanese subtitles throughout library</button>
   <button id="stop-library" type="button" class="quiet" hidden>Stop current library pass</button>
  </div>
+ <p id="library-source-selection" class="small muted">Selected scope: reading owner settings…</p>
  <p id="library-source-note" class="small muted">Each pass is bounded by provider allowance and records saved results.</p>
  <div id="library-live" hidden aria-live="polite">
   <div class="split"><strong id="library-live-heading">Current sourcing pass</strong><span class="small muted" id="library-live-phase">Reading progress…</span></div>
@@ -88,6 +89,7 @@ details>summary{cursor:pointer}
   <div class="split"><span>Publication checks</span><strong id="library-publish-label">—</strong></div>
   <div class="meter" id="library-publish-meter" role="progressbar" aria-label="Japanese subtitle publication checks in this pass" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="fill" id="library-publish-fill"></div></div>
   <p id="library-live-summary" class="small muted"></p>
+ <p id="library-provider-state" class="small muted"></p>
   <p id="library-live-current" class="small muted"></p>
   <p class="small muted">Each bar measures the current bounded pass, not total library coverage. Subsequent passes may have different totals.</p>
  </div>
@@ -622,6 +624,14 @@ function renderLibrarySourceProgress(d){
   }
   bar("library-stage",p.stage_attempts,p.stage_planned);
   bar("library-publish",p.publish_title_checked,p.publish_title_planned);
+  const usage=d.download_usage||{};
+  $("library-provider-state").textContent=p.search_stopped_early?
+    "Provider searches stopped: OpenSubtitles/SubDL unavailable or paced; check Sublarr Providers for individual budgets.":
+    Number(usage.today_quota_blocked||0)>0?
+    "Download provider rejected "+usage.today_quota_blocked+" request(s) today due to quota. Other providers may remain available.":
+    Number(p.search_partial||0)>0?
+    "Provider status: some search requests had unavailable providers; no-result counts may be incomplete.":
+    "Provider status: no quota block observed in this pass (not a guarantee of remaining API allowance).";
   $("library-live-summary").textContent=
     "Matches: "+(p.search_found||0)+" · No match: "+(p.search_none||0)+
     " · Review: "+(p.search_review||0)+
@@ -639,6 +649,14 @@ async function refreshStatus(){
   try{
     const d=await getJson("/api/status");
     latest=d;
+    const setting=d.source_config_scope||"unavailable";
+    $("library-source-selection").textContent=setting==="horror-drama-folders"?
+      "Selected for every run: Horror + Drama/Suspense movie folders on BOTH drives":
+      setting==="all"?"Selected for every run: all eligible library media":
+      "Selected scope unreadable; source service will reject invalid settings";
+    $("source-library").textContent=setting==="horror-drama-folders"?
+      "Find Japanese subtitles · Horror + Drama/Suspense":
+      "Find Japanese subtitles throughout library";
     renderLibrarySourceProgress(d);
     renderDownloadUsage(d);
     const t=d.translation||{};
@@ -734,7 +752,7 @@ $("clear-episodes").addEventListener("click",()=>{checked.clear();renderCoverage
 async function librarySourceAction(stop){
   if(busy)return;
   if(!stop&&!confirm(
-    (latest&&(latest.source_job||{}).scope==="horror-drama-folders"?
+    (latest&&latest.source_config_scope==="horror-drama-folders"?
      "Start Japanese sourcing for existing Horror + Drama/Suspense movie folders on BOTH drives?":
      "Start Japanese sourcing for all eligible movies and episodes?")+
     " Saved search history and provider limits are respected; no PLaMo or media replacement."
