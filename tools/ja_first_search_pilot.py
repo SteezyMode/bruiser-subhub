@@ -74,18 +74,35 @@ def provider_gates():
 
 def require_sources():
     gates = provider_gates()
-    if any(value != "ok" for value in gates.values()):
+    # Do NOT require every provider to be open. Sublarr's long-lived search
+    # coordinator already skips providers that are paced, throttled or disabled.
+    # Blocking an entire library pass when only SubDL is paced loses valid
+    # OpenSubtitles coverage (observed on the Nov 11 OptiPlex run).
+    if not any(value == "ok" for value in gates.values()):
         raise SourceProvidersDeferred(gates)
     return gates
 
 def request_search(payload):
-    gates = require_sources()
+    before = require_sources()
     req = Request(url, data=json.dumps(payload).encode(), headers=headers, method="POST")
     with urlopen(req, timeout=90) as res:
         data = json.load(res)
     if not isinstance(data, dict) or not isinstance(data.get("results"), list):
         raise RuntimeError("invalid_sublarr_search_response")
+    after = provider_gates()
+    # A provider can hit stretch pacing during this request. Be conservative:
+    # we did not receive individual-provider participation receipts, so this
+    # response cannot establish all enabled providers were searched.
+    gates = dict(before)
+    for name, state in after.items():
+        if state != "ok":
+            gates[name] = state
+        elif name not in gates:
+            gates[name] = state
     return data, gates
+
+def blocked_providers(gates):
+    return sorted(name for name, state in gates.items() if state != "ok")
 
 def title_words(value):
     return re.findall(r"[a-z0-9]+", str(value or "").casefold())
@@ -182,24 +199,30 @@ for i, job in enumerate(jobs):
             replies.append(second)
             variant = "imdb_then_movie_title_year"
 
-        if not any(x.get("results") for x in replies):
-            gates = require_sources()  # Could have exhausted the last budget slot.
         results = unique_results(*replies)
+        missing = blocked_providers(gates)
         out = {
             "id": job["id"], "ok": True,
             "total": sum(int(x.get("total") or 0) for x in replies),
             "initial_total": original,
             "strategy_version": 4, "query_variant": variant,
             "provider_gates": gates, "results": results,
+            "partial": bool(missing),
+            "incomplete_providers": missing,
             "requests_made": len(replies),
         }
     except SourceProvidersDeferred as exc:
+        # Preserve results from a successful first call if the last provider
+        # closed before an optional movie fallback. That is a PARTIAL search,
+        # not a total deferral or a fabricated zero-result outcome.
         out = {
-            "id": job["id"], "ok": True, "deferred": True,
+            "id": job["id"], "ok": True,
+            "deferred": not bool(replies), "partial": bool(replies),
             "total": sum(int(x.get("total") or 0) for x in replies),
             "initial_total": original, "strategy_version": 4,
-            "query_variant": "provider_gate_deferred",
+            "query_variant": "provider_gate_deferred" if not replies else variant,
             "provider_reason": str(exc), "provider_gates": exc.gates,
+            "incomplete_providers": blocked_providers(exc.gates),
             "results": unique_results(*replies),
             "requests_made": len(replies),
         }
@@ -478,7 +501,7 @@ def pick(rows, db, budget):
                            "query": query})
     return chosen
 
-def save_attempt(db, job, outcome, total=None, rated=None, *, strategy_version=None, query_variant=None, provider_gates=None):
+def save_attempt(db, job, outcome, total=None, rated=None, *, strategy_version=None, query_variant=None, provider_gates=None, incomplete_providers=None):
     """Retain Japanese discoveries across later misses and failed searches.
 
     Provider rejects remain review-only; only positively verified candidates
@@ -533,6 +556,7 @@ def save_attempt(db, job, outcome, total=None, rated=None, *, strategy_version=N
                                  else prior.get("strategy_version",0)),
              "query_variant":query_variant or prior.get("query_variant","unknown"),
              "provider_gates":provider_gates if isinstance(provider_gates,dict) else prior.get("provider_gates",{}),
+             "incomplete_providers":incomplete_providers if isinstance(incomplete_providers,list) else prior.get("incomplete_providers",[]),
              "searched_providers":sorted({str(item.get("provider"))
                  for item in candidates+rejected_candidates if item.get("provider")})}
     db.execute("""INSERT INTO searches (
@@ -807,7 +831,8 @@ def main():
                 save_attempt(db, job, "deferred", response.get("total"), partial,
                              strategy_version=response.get("strategy_version"),
                              query_variant=response.get("query_variant"),
-                             provider_gates=response.get("provider_gates"))
+                             provider_gates=response.get("provider_gates"),
+                             incomplete_providers=response.get("incomplete_providers"))
                 summary["deferred"] += 1
                 print(f"[{i}/{len(chosen)}] DEFERRED: {response.get('provider_reason')} "
                       "(remaining items not queried)", flush=True)
@@ -817,15 +842,21 @@ def main():
                      for r in options if isinstance(r, dict)]
             plausible = [r for grade, r in rated if grade == "plausible"]
             review = [r for grade, r in rated if grade == "review"]
-            outcome = "plausible" if plausible else ("review" if review else "none")
+            # A zero-candidate result is NOT a complete miss when even one
+            # configured Japanese provider was unavailable or participation
+            # cannot be established. Keep it eligible for later recovery.
+            outcome = ("plausible" if plausible else "review" if review
+                       else "partial" if response.get("partial") else "none")
             save_attempt(db, job, outcome, response.get("total"), rated,
                          strategy_version=response.get("strategy_version"),
                          query_variant=response.get("query_variant"),
-                         provider_gates=response.get("provider_gates"))
+                         provider_gates=response.get("provider_gates"),
+                         incomplete_providers=response.get("incomplete_providers"))
             summary[outcome] += 1
             print(f"[{i}/{len(chosen)}] {outcome.upper()}: plausible={len(plausible)} "
                   f"review={len(review)} provider_total={response.get('total')}"
-                  f" strategy={response.get('query_variant')} requests={response.get('requests_made')}",
+                  f" strategy={response.get('query_variant')} requests={response.get('requests_made')}"
+                  f" incomplete={','.join(response.get('incomplete_providers') or [])}",
                   flush=True)
             if plausible:
                 best = sorted(plausible, key=lambda r: -(r.get("score") or 0))[0]
