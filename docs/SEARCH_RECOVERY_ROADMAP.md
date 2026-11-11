@@ -5,7 +5,23 @@
 > The user has repeatedly lost progress when chats filled up. **Do not restart investigation from scratch, invent a show-specific fix, or claim unit tests prove on-host search yield.**
 > Read [GOAL](../GOAL.md), [AGENTS](../AGENTS.md), [CURRENT_STATE](CURRENT_STATE.md), [issue #89](https://github.com/SteezyMode/bruiser-subhub/issues/89), and [issue #90](https://github.com/SteezyMode/bruiser-subhub/issues/90).
 >
-> **Owner's current explicit order:** (1) fix reliable Japanese subtitle search and publication end-to-end; (2) all jobs need real dashboard progress, and manual batches must be possible; (3) Jellyfin-style movie poster grid with genre browsing/multi-selection; (4) eventually incremental source-on-add. No enterprise/startup framing. Do not build attractive controls that fail to deliver Japanese subtitles.
+> **Owner's current explicit order:** (1) fix reliable Japanese subtitle search and publication end-to-end; (2) all jobs need real dashboard progress, and manual batches must be possible; (3) Jellyfin-style movie poster grid with genre browsing/multi-selection; (4) new content gets autonomous source→sync→PLaMo fallback→publish, while historical backlog stays manually controlled. This is newly specified and NOT deployed. No enterprise/startup framing. Do not build attractive controls that fail to deliver Japanese subtitles.
+
+## NOV 11 OWNER OVERRIDE — New media is FULLY AUTOMATIC; existing backlog is manually prioritized
+
+**This supersedes every older "no automatic PLaMo" / "incremental source only" statement below FOR NEW ARRIVALS ONLY.** Owner has a 13k-class existing library and does not want to select new movies/episodes or approve routine handoffs. Keep old backlog in its separately owner-controlled batches.
+
+**New arrival from EITHER source:** (a) completed, stable video download, including content not yet imported; (b) newly added movie/episode in Jellyfin media folders (including manual copies). Prefer authoritative Jellyfin identity when available, but do not silently ignore completed videos still in Downloads. Reconcile a later move/import so it does not run twice or strand subtitles. Never interpret in-progress torrent/write as ready.
+
+**Mandatory automatic new-media pipeline:** identify actual media/release -> audit existing Japanese embedded/sidecar and audio -> reuse saved suitable Japanese -> broad, quota-respecting JA provider search/recovery -> ALASS/ffsubsync & dialogue/timing QA -> publish create-only if valid -> if genuinely source-exhausted, automatically obtain verified same-release source-language/English text (including usable embedded subtitles), synchronize it to this video BEFORE translation -> run existing PLaMo worker sequentially with thermal guards/checkpoints -> QA translated JA/timing -> create-only publish -> refresh Jellyfin. **No approval click to invoke PLaMo for new arrivals.** If transient provider rate limit, defer/retry rather than falsely declare exhaustion and translate. If source reference is missing/invalid, or QA genuinely fails after automatic recovery, display a distinct actionable exception; never silently publish unreliable captions. Do not auto-overwrite known Japanese tracks or replace media.
+
+**Backlog stays different:** old Jellyfin movies/episodes and unresolved historical tasks are visible in full-library counts and may be prioritized/search-batched manually or with explicitly enabled scheduled budgets; PLaMo of backlog remains owner-controlled. An initial snapshot/baseline is mandatory before enabling new-arrival automation so a catalog rebuild, restart, moved paths, changing IDs, or first scanner run cannot classify thousands of old titles as "new". One shared queue/locks, provider usage, identity/QA logic, state and dashboard receipts. New arrivals get priority without deleting/interrupting live backlog work. Persist the media status across reboot and display phases/progress/outcomes for every new item.
+
+**Acceptance:** a newly downloaded movie and a manually copied TV episode EACH reach a selectable, correctly timed Japanese subtitle in Jellyfin without user clicks, exercising Japanese-source path and one PLaMo-fallback path. A previously indexed backlog title is not automatically translated. A partial download, a provider 429, a duplicate Jellyfin scan, missing source text, and a wrong-release candidate are safely handled. Confirm actual host deployment and Jellyfin playback before calling this implemented.
+
+**Implementation status:** requirement only. No new-arrival full-auto worker has been installed/verified from this GitHub clarification; P0 actual source discovery/release alignment and provider correctness remain blocking dependencies.
+
+---
 
 ## Nov 11 full-library Japanese subtitle coverage and source-to-PLaMo handoff — code committed, NOT installed
 
