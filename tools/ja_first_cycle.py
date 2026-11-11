@@ -207,7 +207,7 @@ def run_step(folder, name, file, args):
                            "_failed_rc_" + str(result.returncode))
 
 
-def cycle(folder, search_budget, stage_budget, publish_limit, fallback_budget, sources_only=False):
+def cycle(folder, search_budget, stage_budget, publish_limit, fallback_budget, sources_only=False, scope="all"):
     if not 1 <= search_budget <= 600:
         raise RuntimeError("search_budget_outside_1_to_600")
     if not 1 <= stage_budget <= 200:
@@ -217,13 +217,16 @@ def cycle(folder, search_budget, stage_budget, publish_limit, fallback_budget, s
     if not 1 <= fallback_budget <= 20:
         raise RuntimeError("fallback_budget_outside_1_to_20")
     required_code(folder)
+    if scope not in ("all", "horror-drama-folders"):
+        raise RuntimeError("unsupported_source_scope")
+    print("SOURCE SCOPE:", scope, flush=True)
     steps = [
         ("DISCOVERY", "ja_first_search_pilot.py",
-         ("--budget", str(search_budget))),
+         ("--budget", str(search_budget), "--scope", scope)),
         ("STAGE CANDIDATES", "ja_first_stage_saved_batch.py",
-         ("--budget", str(stage_budget), "--apply")),
+         ("--budget", str(stage_budget), "--scope", scope, "--apply")),
         ("PUBLISH VERIFIED JA", "ja_first_publish_queue.py",
-         ("--limit", str(publish_limit), "--max-titles", "1000", "--apply")),
+         ("--limit", str(publish_limit), "--max-titles", "1000", "--scope", scope, "--apply")),
     ]
     if not sources_only:
         steps.append(("QUEUE ENGLISH FALLBACK", "ja_first_gemma_fallback.py",
@@ -323,6 +326,7 @@ def main(argv=None):
     parser.add_argument("--stage-budget", type=int, default=2)
     parser.add_argument("--publish-limit", type=int, default=2)
     parser.add_argument("--fallback-budget", type=int, default=8)
+    parser.add_argument("--scope", choices=("all","horror-drama-folders"),default="all")
     parser.add_argument("--sources-only", action="store_true",
                         help="search, stage and sync Japanese only; do not queue AI fallback")
     args = parser.parse_args(argv)
@@ -342,7 +346,7 @@ def main(argv=None):
         parser.error(args.action + " requires --apply")
     if args.action == "cycle":
         cycle(folder, args.search_budget, args.stage_budget,
-              args.publish_limit, args.fallback_budget, args.sources_only)
+              args.publish_limit, args.fallback_budget, args.sources_only, args.scope)
     elif args.action == "start-worker":
         job = start_existing_worker(folder)
         if args.watch and job:
