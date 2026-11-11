@@ -113,7 +113,7 @@ details>summary{cursor:pointer}
   <button id="source-whole-series" type="button">Retry missing Japanese · entire series</button>
   <button id="translate-selected" type="button" disabled>Last resort: translate checked episodes</button>
  </div>
- <p id="action-note" class="small muted">Search real Jellyfin library items, download, sync and publish only verified Japanese subtitles. Up to 20 searches per pass; use Continue for remaining episodes. PLaMo remains manual.</p>
+ <p id="action-note" class="small muted">Search real Jellyfin library items, download, sync and publish only verified Japanese subtitles. Whole series: up to 200 searches in one job; selected seasons: 20 searches per pass. PLaMo remains manual.</p>
  <div class="row">
   <button id="toggle-episodes" type="button" class="quiet" disabled>Review remaining episodes</button>
   <button id="clear-episodes" type="button" class="quiet" hidden>Clear checked episodes</button>
@@ -284,7 +284,7 @@ function renderCoverage(){
   $("toggle-episodes").disabled=!n.total;
   $("action-note").textContent=checked.size?
     "Your "+checked.size+" checked episode(s) will be sourced through Jellyfin. Clear checks to source selected seasons.":
-    "Retry whole series, selected seasons or episodes through Jellyfin. Results and progress persist after closing the browser. Provider caps pause the job for continuation.";
+    "Whole-series retry can process up to 200 missing episodes in one background job. Selected scopes use 20-search passes. Progress survives browser closure.";
   if(expanded)renderEpisodes();
 }
 function statusName(item){
@@ -533,7 +533,7 @@ function renderJellyfinJob(d){
     (p.already_covered||0)+" already covered · "+
     (p.no_match||0)+" no match · "+(p.held||0)+" held · "+
     (p.deferred||0)+" deferred · "+(p.searches_this_run||0)+
-    " provider searches this pass (maximum 20)";
+    " / "+(p.search_cap||20)+" provider searches allowed this pass";
   $("jellyfin-job-current").textContent=p.current?
     "Now: "+escapeText(p.current)+" · "+escapeText(p.phase||""):
     "Phase: "+escapeText(p.phase||"waiting");
@@ -681,8 +681,9 @@ $("stop-library").addEventListener("click",()=>librarySourceAction(true));
 $("source-whole-series").addEventListener("click",async()=>{
   if(busy||!selectedSeries)return;
   if(!confirm("Retry missing Japanese subtitles for ALL episodes of "+selectedSeries+
-    " through the working Jellyfin source path? Up to 20 searches per pass; "+
-    "continue from Active work when the allowance pauses. Existing tracks stay untouched."))return;
+    " through the working Jellyfin source path? Up to 200 searches may be made "+
+    "in this background job, consuming provider allowance. It stops on quota "+
+    "limits or repeated errors. Existing tracks stay untouched."))return;
   busy=true;
   try{
     const result=await ownerPost("/api/jellyfin-source/start",{series:selectedSeries});
