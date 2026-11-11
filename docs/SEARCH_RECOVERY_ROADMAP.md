@@ -7,6 +7,12 @@
 >
 > **Owner's current explicit order:** (1) fix reliable Japanese subtitle search and publication end-to-end; (2) all jobs need real dashboard progress, and manual batches must be possible; (3) Jellyfin-style movie poster grid with genre browsing/multi-selection; (4) eventually incremental source-on-add. No enterprise/startup framing. Do not build attractive controls that fail to deliver Japanese subtitles.
 
+## Deferred media-library correctness: American Dad Season 20 playback mismatch (owner report, Nov 11)
+
+**Known wrong episode playback; investigate after current Japanese-subtitle recovery.** In Jellyfin the owner selects **American Dad S20E05, displayed as "Stretched Thin"**, but playback shows **"Cow I Met Your Moo-ther", expected by owner as S20E07**. Do NOT assume the Jellyfin display title is correct or that the media filename matches the actual contents. American Dad has long-running DVD/broadcast/streaming episode numbering and season-order disagreements, so confirm the exact episode order source before making any correction. This is a **media identity correctness issue**, not a subtitle timing issue, and may affect much more than S20E05.
+
+**Later action (read-only audit first):** enumerate every S20 Jellyfin ID, display title, season/episode indexes, physical path and basename, embedded metadata, and actual content/title identities (compare known episode plots or first scenes where practical); determine whether the video files are misplaced, simply misnamed, cataloged in a different order, or wrongly mapped by Jellyfin. Cross-check adjacent S20E05/S20E07 and the whole season rather than swapping two files blindly. Inventory downstream subtitle names and PLaMo work before any renumbering; preserve existing files, subtitles, stored translations, and Jellyfin watch state. Apply one coherent correction to actual series ordering only after mapping is verified. **Not yet investigated or fixed.** No media or metadata changes authorized at this stage.
+
 ## Nov 11 Season 09 and scattered misses — generic staged-publication bug discovered
 
 **After 141/179 coverage (38 missing), owner reports entire Season 09 still missing JA, with scattered holes elsewhere.** Historical S09E04 and S09E06 have saved Japanese candidate/staging evidence (Nov 10 notes in CURRENT_STATE); Season 09 did not appear in earlier IASIP source-video replacement list (S01–08 and S10–11 were replaced). Do not assume a season-wide media filename mismatch without inspecting the actual host manifest/filename+search+stage DB in ONE read-only grouped audit.
