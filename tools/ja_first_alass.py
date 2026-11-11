@@ -91,6 +91,9 @@ def prepare(jid,sid,*,aligner=None):
         reference_type="test_or_external"
     if not 0<len(aligned)<=MAX_ALIGNED_SIZE:
         raise RuntimeError("invalid_alass_output_size")
+    # Treat ALASS as a timing engine, not a dialogue editor. Formatting-only
+    # differences are repaired using exact source dialogue for each cue.
+    aligned=ff.keep_source_dialogue(raw,aligned)
     # Existing QA confirms Japanese content/coverage did not disappear.
     if gate.validate_srt(aligned,runtime)!=src_metrics:
         raise RuntimeError("alass_subtitle_health_changed")
