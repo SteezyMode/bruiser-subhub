@@ -41,6 +41,7 @@ SOURCE_FILES=(
     "benchmark_subtitle_search_paths.py",
     "probe_jellyfin_remote_subtitle.py",
     "ja_first_stage_jellyfin.py",
+    "subhub_jellyfin_batch.py",
     "ja_first_autofill.py",
 )
 DASH_FILES=(
@@ -63,6 +64,7 @@ BUSY_UNITS=(
     SOURCE_UNIT, "bruiser-subhub-season-sources.service",
     "bruiser-subhub-batch.service", "bruiser-subhub-translation-batch.service",
     "bruiser-subhub-movie-ja.service",
+    "bruiser-subhub-jellyfin-source.service",
 )
 MAX_BYTES=400_000
 
@@ -129,8 +131,10 @@ def state_summary():
     html=page.read_text("utf-8")
     if "strategy_version" not in worker or "imdb_then_movie_title_year" not in worker:
         fail("Post-install library-wide v4 strategy missing")
-    if 'id="source-library"' not in html:
-        fail("Post-install library-wide dashboard control missing")
+    if ('id="source-library"' not in html or
+            'id="source-whole-series"' not in html or
+            'id="jellyfin-job-meter"' not in html):
+        fail("Post-install library-wide and Jellyfin dashboard controls missing")
     print("INTEGRITY: library search strategy and full-library dashboard control present")
 
 def main():
@@ -164,6 +168,7 @@ def main():
             "benchmark_subtitle_search_paths.py",
             "probe_jellyfin_remote_subtitle.py",
             "ja_first_stage_jellyfin.py",
+            "subhub_jellyfin_batch.py",
         })
         destinations[("source",name)]=target
     for name in DASH_FILES:
