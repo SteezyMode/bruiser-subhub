@@ -46,6 +46,11 @@ try:
 except ImportError:
     import subhub_season_sources as season_sources
 
+try:
+    from . import subhub_library_coverage as global_coverage
+except ImportError:
+    import subhub_library_coverage as global_coverage
+
 TRANSLATION_UNIT = "bruiser-subhub-translation-batch.service"
 SEASON_SOURCE_UNIT = "bruiser-subhub-season-sources.service"
 SEASON_SOURCE_EXEC = Path(__file__).with_name("subhub_season_sources.py")
@@ -948,6 +953,11 @@ def status_payload():
     result["jellyfin_source"]=jellyfin_source_status()
     result["download_usage"]=download_ledger_status()
     result["source_config_scope"]=configured_source_scope()
+    try:
+        result["library_japanese_coverage"]=global_coverage.pulse()
+    except (OSError,ValueError,TypeError,RuntimeError,json.JSONDecodeError):
+        result["library_japanese_coverage"]={
+            "available":False,"reason":"inventory_coverage_unavailable"}
     result["movie_source"]=movie_source_status()
     result["controls"]=control_availability()
     return result
