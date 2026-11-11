@@ -622,6 +622,85 @@ def live_source_snapshot(result, scheduled):
     return result
 
 
+def movie_subtitle_status(path, *, runner=subprocess.run):
+    """Inspect exact movie bytes/sidecars; never trust absence in a stale queue."""
+    path=Path(path)
+    prefix=path.stem.casefold()+"."
+    ext={".srt",".ass",".ssa",".vtt"}
+    try:
+        for candidate in path.parent.iterdir():
+            if candidate.is_symlink() or not candidate.is_file():
+                continue
+            if candidate.suffix.casefold() not in ext or not (
+                    candidate.name.casefold().startswith(prefix)):
+                continue
+            ending=candidate.name[len(prefix):-len(candidate.suffix)]
+            tokens=re.findall(r"[a-z0-9]+",ending.casefold())
+            if (any(t in ("ja","jp","jpn","japanese") for t in tokens)
+                    and not any(t in ("forced","signs") for t in tokens)):
+                return "present", "Japanese subtitle sidecar"
+    except OSError:
+        return "unknown", "Cannot inspect movie subtitle files"
+    try:
+        proc=runner([
+            "ffprobe","-v","error",
+            "-show_entries",
+            "stream=codec_type:stream_tags=language:stream_disposition=forced",
+            "-of","json",str(path)
+        ],capture_output=True,timeout=12,check=False)
+        if proc.returncode:
+            return "unknown", "Embedded subtitles not verified"
+        streams=json.loads(proc.stdout).get("streams")
+        if not isinstance(streams,list):
+            return "unknown", "Embedded subtitles not verified"
+        for item in streams:
+            if item.get("codec_type")!="subtitle":
+                continue
+            language=str((item.get("tags") or {}).get("language") or "").lower()
+            forced=(item.get("disposition") or {}).get("forced")
+            if language.split("-")[0] in ("ja","jp","jpn","japanese") and forced not in (1,True):
+                return "present", "Japanese subtitle embedded in video"
+        return "missing", "No Japanese subtitle detected"
+    except (OSError,ValueError,TypeError,subprocess.TimeoutExpired):
+        return "unknown", "Embedded subtitles not verified"
+
+
+def movie_queue_evidence(paths):
+    """Existing coverage queue and previous Japanese searches; read-only."""
+    found={str(p):{"search_attempted":False,"search_outcome":"never",
+                   "jellyfin_id":"","fallback_ready":False} for p in paths}
+    dbfile=Path.home()/"bruiser-pilot/coverage-queue/coverage.sqlite3"
+    searchfile=Path.home()/"bruiser-pilot/ja-first-inventory/japanese-search.sqlite3"
+    if not dbfile.is_file() or dbfile.is_symlink():
+        return found
+    try:
+        with sqlite3.connect("file:"+quote(str(dbfile.resolve()),safe="/")+"?mode=ro",uri=True,timeout=3) as db:
+            for path,jid,action,state in db.execute("""
+                SELECT m.path,m.jellyfin_id,t.action,t.state
+                FROM media m LEFT JOIN tasks t ON t.path=m.path
+                     AND t.target='ja' AND t.active=1
+                WHERE m.kind='Movie'
+            """):
+                if path not in found:
+                    continue
+                record=found[path]
+                record["jellyfin_id"]=str(jid or "")
+                record["fallback_ready"]=bool(
+                    action in ("validate_english_for_ja_fallback",
+                               "recover_english_for_ja_fallback")
+                    and state=="pending")
+        if searchfile.is_file() and not searchfile.is_symlink():
+            with sqlite3.connect("file:"+quote(str(searchfile.resolve()),safe="/")+"?mode=ro",uri=True,timeout=3) as db:
+                byid={v["jellyfin_id"]:v for v in found.values() if v["jellyfin_id"]}
+                for jid,outcome in db.execute("SELECT jellyfin_id,outcome FROM searches"):
+                    if jid in byid:
+                        byid[jid]["search_attempted"]=outcome not in ("in_progress","deferred")
+                        byid[jid]["search_outcome"]=str(outcome or "unknown")[:30]
+    except (OSError,sqlite3.Error,ValueError):
+        pass
+    return found
+
+
 def search_movie_files(title, *, roots=MOVIE_ROOTS):
     """Exact filesystem discovery, independent of stale Jellyfin snapshots.
 
@@ -657,7 +736,16 @@ def search_movie_files(title, *, roots=MOVIE_ROOTS):
                     continue
                 matches.append({"filename": name, "path": str(path)})
                 if len(matches) >= 30:
-                    return matches
+                    break
+            if len(matches) >= 30:
+                break
+        if len(matches) >= 30:
+            break
+    evidence=movie_queue_evidence([m["path"] for m in matches])
+    for movie in matches:
+        status,reason=movie_subtitle_status(movie["path"])
+        movie.update(evidence.get(movie["path"],{}))
+        movie.update(japanese_status=status,japanese_detail=reason)
     return matches
 
 
