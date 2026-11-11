@@ -416,7 +416,7 @@ def recover_via_sublarr(row, *, remaining_searches, checkpoint):
         if "PROVIDER_LIMIT_REACHED:" in out or re.search(
                 r"(?i)(?:HTTP[ _]?429|budget_exhausted|rate.limit)",err):
             return "deferred",0
-        if not re.search(r"(?m)^STAGED:\\s",out):
+        if not re.search(r"(?m)^STAGED:\s",out):
             return "unavailable",0
         checkpoint("sublarr_sync_publish","Repairing timing with ALASS/ffsubsync")
         pc,po,pe=step(publish,850)
