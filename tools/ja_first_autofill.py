@@ -26,6 +26,8 @@ import time
 
 ROOT = Path.home() / "bruiser-pilot/ja-first-inventory"
 NEXT_BUDGET_FILE = ROOT / ".source-next-run-budget.json"
+SCOPE_FILE = ROOT / ".source-scope.json"
+MOVIE_SCOPE = "horror-drama-folders"
 DEFAULT_SEARCH_BUDGET = 600
 CODE = Path.home() / "bruiser-pilot/subhub-control"
 UNIT = "bruiser-ja-source-autofill"
@@ -203,6 +205,46 @@ def check_scheduler_idle(*, request=api):
         raise RuntimeError("native_sublarr_search_currently_active")
 
 
+def selected_source_scope():
+    """The persistent owner choice, applied to ALL three source-only stages."""
+    if not SCOPE_FILE.exists() and not SCOPE_FILE.is_symlink():
+        return "all"
+    if SCOPE_FILE.is_symlink():
+        raise RuntimeError("source_scope_is_symlink")
+    info=SCOPE_FILE.stat(follow_symlinks=False)
+    if (not stat.S_ISREG(info.st_mode) or info.st_uid!=os.getuid()
+            or info.st_mode & 0o077 or info.st_size>500):
+        raise RuntimeError("source_scope_file_not_private")
+    doc=json.loads(SCOPE_FILE.read_text("utf-8"))
+    if not isinstance(doc,dict) or set(doc)!={"scope"} or doc["scope"] not in ("all",MOVIE_SCOPE):
+        raise RuntimeError("source_scope_invalid")
+    return doc["scope"]
+
+
+def configure_source_scope(scope):
+    """Owner-only persistent scope change, with no provider or model calls."""
+    if scope not in ("all",MOVIE_SCOPE):
+        raise RuntimeError("unsupported_source_scope")
+    fd=lock()
+    try:
+        previous=selected_source_scope()
+        data=(json.dumps({"scope":scope},sort_keys=True)+"\n").encode()
+        tmp_fd,tmp=tempfile.mkstemp(prefix=".source-scope-",dir=ROOT)
+        try:
+            with os.fdopen(tmp_fd,"wb") as stream:
+                stream.write(data)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.chmod(tmp,0o600)
+            os.replace(tmp,SCOPE_FILE)
+        finally:
+            Path(tmp).unlink(missing_ok=True)
+        print("SOURCE_SCOPE",previous,"->",scope,
+              "persistent_for_all_future_source_only_cycles",flush=True)
+    finally:
+        os.close(fd)
+
+
 def next_run_budget():
     """Read an explicitly configured, private one-time search budget."""
     if not NEXT_BUDGET_FILE.exists() and not NEXT_BUDGET_FILE.is_symlink():
@@ -264,15 +306,18 @@ def once(*, request=api, action=run):
         check_scheduler_idle(request=request)
         refresh_manifest(action=action)
         search_budget, custom_budget = next_run_budget()
+        scope=selected_source_scope()
         print(f"RUNNING_SOURCES_ONLY_CYCLE search_budget={search_budget} "
               "stage_budget=200 publish_limit=200 "
               "(provider allowance still enforced)", flush=True)
+        print("SOURCE SCOPE:", scope, flush=True)
         # Let output appear in systemd journal or manual terminal; don't
         # require a persistent shell or start any local translation model.
         result=subprocess.run(
             [sys.executable,"-u",str(CODE/"ja_first_cycle.py"),"cycle",
              "--sources-only","--apply","--search-budget",str(search_budget),
-             "--stage-budget","200","--publish-limit","200"],
+             "--stage-budget","200","--publish-limit","200",
+             "--scope",scope],
             stdin=subprocess.DEVNULL, timeout=8*3600, check=False)
         if result.returncode:
             raise RuntimeError("sources_only_cycle_failed:"+str(result.returncode))
@@ -405,6 +450,7 @@ def status(*,request=api,action=run):
         "host_timer":NAME,
         "manifest_age_hours":None if age is None else round(age/3600,1),
         "automation_safety":"source_only_no_ai",
+        "source_scope":selected_source_scope(),
     },sort_keys=True),flush=True)
     try:
         out=action(["systemctl","--user","is-active",NAME],timeout=20).strip()
@@ -415,15 +461,22 @@ def status(*,request=api,action=run):
 
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode",choices=("status","enable","once","next-budget"),nargs="?",
+    parser.add_argument("mode",choices=("status","enable","once","next-budget","scope"),nargs="?",
                         default="status")
     parser.add_argument("--apply",action="store_true")
     parser.add_argument("--search-budget",type=int,default=None)
+    parser.add_argument("--scope",choices=("all",MOVIE_SCOPE),default=None)
     args=parser.parse_args(argv)
     if args.mode=="status":
         return status()
     if not args.apply:
         parser.error("enable, once and next-budget require --apply")
+    if args.mode=="scope":
+        if args.scope is None or args.search_budget is not None:
+            parser.error("scope requires --scope all|horror-drama-folders")
+        return configure_source_scope(args.scope)
+    if args.scope is not None:
+        parser.error("--scope is only valid with scope mode")
     if args.mode=="next-budget":
         if args.search_budget is None:
             parser.error("next-budget requires --search-budget 1..600")
