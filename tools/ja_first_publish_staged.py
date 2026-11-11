@@ -110,7 +110,11 @@ def read_staging(jid, sid):
         raise RuntimeError("staging_format_or_size_mismatch")
     recorded_provider = str(metrics.get("provider") or "")
     actual_provider = "jellyfin" if ".jellyfin." in staged.name else "opensubtitles"
-    if recorded_provider != actual_provider:
+    if (recorded_provider != actual_provider
+            and not (actual_provider == "opensubtitles" and not recorded_provider)):
+        # Legacy OpenSubtitles stage records were saved before a provider
+        # tag was required; do not invalidate previously published receipts.
+        # Newly staged Jellyfin results always require explicit provenance.
         raise RuntimeError("staging_provenance_provider_mismatch")
     return staged, data, metrics
 
