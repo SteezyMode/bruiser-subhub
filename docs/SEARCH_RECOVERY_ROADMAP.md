@@ -21,6 +21,34 @@
 
 **Newly verified API possibility:** Jellyfin supports `GET /Providers/Subtitles/Subtitles/{subtitleId}` returning remote subtitle bytes **without attaching/writing them to the video**. Inspect upstream `Jellyfin.Api/Controllers/SubtitleController.cs` `GetRemoteSubtitles` versus **do NOT use** `POST /Items/{itemId}/RemoteSearch/Subtitles/{subtitleId}`—the latter calls `DownloadSubtitles()` then `TrySaveSubtitle()`, writing directly in media directories and bypassing SubHub's ALASS/non-overwrite QA. A bounded, single-result **in-memory GET probe** is the appropriate next test. GET of remote bytes may consume a provider download allowance. No media-file side effects claimed for the GET endpoint; test on the installed host before integrating into the private stage pipeline.
 
+### P0-B: Single Japanese subtitle byte retrieval without touching Jellyfin media
+
+- **Confirmed upstream API semantics from Jellyfin's own source:** [`SubtitleController.GetRemoteSubtitles`](https://github.com/jellyfin/jellyfin/blob/master/Jellyfin.Api/Controllers/SubtitleController.cs) handles authenticated `GET /Providers/Subtitles/Subtitles/{subtitleId}` by returning the provider's remote subtitle stream as a file; the corresponding `POST /Items/{itemId}/RemoteSearch/Subtitles/{subtitleId}` calls `SubtitleManager.DownloadSubtitles` → `TrySaveSubtitle` and may write into the media directory. **NEVER use the POST in a SubHub pilot**: it bypasses pre-stage ALASS, identity QA and existing no-clobber protection.
+- **Added/committed:** `tools/probe_jellyfin_remote_subtitle.py`, `test_probe_jellyfin_remote_subtitle.py`. Explicit one-media / one-provider `--execute --fetch-one` uses Jellyfin's existing auth and catalog identity, one remote search, conservatively validates exact series/title + episode or exact movie title/year, then at most **one** authenticated GET of remote subtitle bytes into **bounded memory** (2 MB). It prints only candidate metadata, format, timestamp-cue count, Japanese character count and a short hash. It **never saves subtitle bytes, reveals their text or remote IDs, changes DB/files, creates media folders, stages or publishes**. Authentication redirects blocked. User must deliberately opt in: an underlying plugin search and download allowance may be consumed. Defaults to a zero-network preview.
+- **Test evidence:** [GitHub Actions run 42950322756](https://github.com/SteezyMode/bruiser-subhub/actions/runs/42950322756) passed Python 3.11/3.12 with tests for exact IASIP identity despite apostrophe style, wrong episode/title/language rejection, GET-only with credential on loopback, cap/redirect fail-closed and subtitle cue/Japanese evidence.
+- **Host status:** **NO live remote subtitle byte GET performed yet**. Code only. A positive fetch proves the third-party subtitle plugin's remote bytes are retrievable without media writes; it **does NOT** prove release timing, translation quality, safe auto-publication or fully working batch sourcing.
+- **Next integration decision:** once a real in-memory fetch succeeds, implement the **smallest** private staging adapter into the **existing** SubHub stage database and ALASS publisher (not Jellyfin's direct-download POST), retaining Jellyfin provider ID/provenance, real media identity and no-clobber. Keep the unproven metadata/SubDL defect separately open. Avoid repeated provider calls and alternate provider account setup until proven necessary.
+
+**Reproducible one-item host command; optional, total of one remote search + at most one GET:**
+
+```bash
+ssh optiplex@100.121.156.34 'bash -s' <<'REMOTE'
+set -euo pipefail
+PIN="0e3f2875715eba0fcdf802e7f352bef4704bf8aa"
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+for file in benchmark_subtitle_search_paths.py probe_jellyfin_remote_subtitle.py; do
+  curl -fsSL "https://raw.githubusercontent.com/SteezyMode/bruiser-subhub/$PIN/tools/$file" -o "$WORK/$file"
+done
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$WORK:$HOME/bruiser-pilot/subhub-control" \
+  python3 -B "$WORK/probe_jellyfin_remote_subtitle.py" \
+  --episode "It's Always Sunny in Philadelphia S07E02" \
+  --provider subbuzz --execute --fetch-one
+REMOTE
+```
+
+This deliberately tests **subbuzz**, the added Jellyfin provider path, on the previously recognized exact S07E02 release. The command creates only temporary copies of the two scripts under `mktemp` (cleaned at exit), makes **no media modifications** and only prints aggregate/candidate names—not any copyrighted subtitle text. Results may be `REMOTE_BYTES_HELD` if the plugin has no remaining download allowance; record this honestly.
+
 **P0 direction after benchmark:** don't rebuild a provider catalog or assume v4 success. Verify Jellyfin remote retrieval on one exact episode candidate (prefer subbuzz for incremental provider coverage), then consider an adapter that stages bytes **privately**, retaining provider/ID/episode provenance and existing ALASS/QA. Correct Sublarr metadata/query/participation remains unresolved separately; an alternate maintained Jellyfin provider route may reduce the need for bespoke source work if proved successful. Keep OpenSubtitles/SubDL quotas separate across systems.
 
 ## 2026-11-11 continuation — P0-A attempt record (code + comparison, NO host acceptance yet)
