@@ -7,6 +7,25 @@
 >
 > **Owner's current explicit order:** (1) fix reliable Japanese subtitle search and publication end-to-end; (2) all jobs need real dashboard progress, and manual batches must be possible; (3) Jellyfin-style movie poster grid with genre browsing/multi-selection; (4) eventually incremental source-on-add. No enterprise/startup framing. Do not build attractive controls that fail to deliver Japanese subtitles.
 
+## 2026-11-11 P0-D CRITICAL DASHBOARD EROFS FIX — tested code, host installation pending
+
+**Owner's latest live screenshot:** *It's Always Sunny in Philadelphia* 18/18 seasons, **104 of 179** episodes have JA subtitles, **75 missing**. Clicking `Retry missing Japanese · entire series` displayed:
+```text
+Not started: [Errno 30] Read-only file system:
+'/home/optiplex/bruiser-pilot/ja-first-inventory/.jellyfin-source-launch-...'
+```
+**Precisely diagnosed in repo:** `tools/install_subhub_dashboard.sh` created a `bruiser-subhub-dashboard.service` with **`ProtectSystem=strict` and `ProtectHome=read-only`**, yet newer `start_jellyfin_source()` in `tools/subhub_dashboard_server.py` tried to atomically create a private launch receipt in `~/bruiser-pilot/ja-first-inventory`. Earlier dashboard server also invoked `systemd-run` **before** writing that receipt, so it could show “Not started” **even after actually starting a background sourcing job**. **Do not assume the job is idle just because the UI said not started; check service status before any new install or retry.** The numbers 75 missing are from Jellyfin coverage, not necessarily the last saved source-job queue.
+
+**Permanent repairs committed and CI-passing Python 3.11/3.12** (code pin `9f9231d141985cd21179eeabdff528df9a14c0bd`, [run 42963876873](https://github.com/SteezyMode/bruiser-subhub/actions/runs/42963876873)):
+
+- The **existing reversible, busy-worker-guarded code-only installer** `tools/install_global_ja_sourcing.py --install-only` now backs up and installs one systemd drop-in under the **existing** dashboard user unit with precisely `ReadWritePaths=%h/bruiser-pilot/ja-first-inventory`, calls `systemctl --user daemon-reload`, restarts the dashboard only, and verifies a real temporary-file write **inside the service's own mount namespace** via the local `/healthz` endpoint (`job_receipts_writable:true`). On failure it rolls back code/drop-in; no media writes or broad source worker actions. `ProtectSystem=strict` and `ProtectHome=read-only` remain in place; other home/media paths remain read-only.
+- The standalone `tools/install_subhub_dashboard.sh` unit template includes the same narrow exception to prevent reintroducing this bug on fresh installations.
+- `start_jellyfin_source()` now **first** writes the owner-private launch receipt and **only then** invokes `systemd-run`. A read-only folder now prevents the worker from being launched and produces a truthful “Not started”. A failed systemd start produces a visible `launch_failed` receipt instead of silently masking old progress.
+- `/healthz` checks **actual filesystem writability**, not just `os.access` mode bits (which do not detect a read-only sandbox mount).
+- Regression tests verify EROFS prevents launch entirely, systemd start failures remain visible, the sandbox write restriction is limited to the one existing private directory, and the actual health probe works.
+
+**Host remains on the old unit configuration pending install**; the user has not reported running the new install command. When the current source worker is idle, use exactly **one** code-only installer upgrade to pinned commit `9f9231d141985cd21179eeabdff528df9a14c0bd` and require output `DASHBOARD SANDBOX: live private-job write probe PASS`; then refresh dashboard and retry missing Sunny. Do not start a broad library scan or invent new per-show commands. Remaining original 3 generic failures are still unclassified.
+
 ## 2026-11-11 P0-D host follow-up — 78 missing Sunny, 3 held, 75 queued; fixes CI-tested, not yet deployed
 
 **Owner provided actual OptiPlex read-only service status/journal.** This **supersedes the earlier "P0-D not installed" notice below**: owner DID install the original dashboard release and launched three bounded source jobs:
