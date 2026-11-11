@@ -167,8 +167,8 @@ class GenericJellyfinBatch(unittest.TestCase):
         attempts=[]
         def runner(cmd,*,timeout):
             attempts.append(cmd)
-            return 1,"JELLYFIN_JA_SEARCH_REQUEST: item",
-                   "RuntimeError: provider_download_failed"
+            return (1,"JELLYFIN_JA_SEARCH_REQUEST: item",
+                    "RuntimeError: provider_download_failed")
         with patch.object(batch.time,"sleep"):
             batch.execute(rows,state,limit=20,runner=runner,writer=lambda doc:None)
         self.assertEqual(len(attempts),3)
