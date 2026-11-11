@@ -18,6 +18,7 @@ from pathlib import Path
 import re
 import sqlite3
 import subprocess
+import tempfile
 import time
 from urllib.parse import urlsplit, parse_qs
 import sys
@@ -55,6 +56,8 @@ JELLYFIN_SOURCE_UNIT = "bruiser-subhub-jellyfin-source.service"
 JELLYFIN_SOURCE_EXEC = Path.home() / "bruiser-pilot/subhub-control/subhub_jellyfin_batch.py"
 JELLYFIN_SOURCE_STATE = (Path.home() /
                          "bruiser-pilot/ja-first-inventory/jellyfin-source-batch.json")
+JELLYFIN_SOURCE_LAUNCH = (Path.home() /
+                          "bruiser-pilot/ja-first-inventory/jellyfin-source-launch.json")
 MOVIE_ROOTS = (
     Path("/mnt/2TB/Plex Expansion/Movies"),
     Path("/mnt/BigDisk/Video/Movies"),
