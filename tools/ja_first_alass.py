@@ -209,7 +209,6 @@ def _intensive_external_english(video):
                 continue
             tokens=set(re.split(r"[.\s_\[\]()-]+",
                 path.name[len(video.stem)+1:].casefold()))
-                path.name[len(video.stem)+1:].casefold()))
             if (not tokens.intersection({"en","eng","english"}) or
                     tokens.intersection({"ja","jp","jpn","japanese","forced"})):
                 continue
