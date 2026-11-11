@@ -136,14 +136,14 @@ def source_label(jid, sid):
 
 def verify_search_identity(row, jid, sid):
     staged, _, metrics = read_staging(jid, sid)
-    if metrics["provider"] == "jellyfin":
+    if metrics.get("provider", "opensubtitles") == "jellyfin":
         # Jellyfin's own authoritative item-scoped search is independently
         # documented at acquisition. Avoid modifying the original Sublarr
         # history or lying about which subtitle provider supplied the bytes.
         from ja_first_stage_jellyfin import validate_staged_provenance
         validate_staged_provenance(row, jid, sid, metrics)
         return
-    if metrics["provider"] == "subdl":
+    if metrics.get("provider", "opensubtitles") == "subdl":
         from ja_first_stage_subdl import identity_ok as subdl_identity_ok, numeric_id
         if (metrics.get("source_schema")!="sublarr-subdl-v1"
                 or metrics.get("source_jellyfin_id")!=jid
