@@ -7,6 +7,22 @@
 >
 > **Owner's current explicit order:** (1) fix reliable Japanese subtitle search and publication end-to-end; (2) all jobs need real dashboard progress, and manual batches must be possible; (3) Jellyfin-style movie poster grid with genre browsing/multi-selection; (4) eventually incremental source-on-add. No enterprise/startup framing. Do not build attractive controls that fail to deliver Japanese subtitles.
 
+## 2026-11-11 P0-B download **VERIFIED on OptiPlex** — authentication fixed
+
+**Owner's successful rerun** (pinned probe SHA `9512c3cbba8ea90cafc624329f7783112f5a81b6`, single IASIP S07E02):
+```text
+JELLYFIN_REMOTE_RESULTS: 2
+  Open Subtitles: Its.Always.Sunny.in.Philadelphia.S07E02.WEB-DL.DSNP (ja)
+  subbuzz: Its.Always.Sunny.in.Philadelphia.S07E02.WEB-DL.DSNP.ja (jpn)
+REMOTE_BYTES_PROBE: {"bytes":25989,"content_type":"application/x-subrip",
+  "sha256_prefix":"afaf762847bc2564","text_decoded":true,
+  "timed_cues":402,"japanese_characters":3502,
+  "looks_like_timed_japanese":true}
+IN-MEMORY ONLY: no files or DB altered.
+```
+**Proven now:** after owner configured existing OpenSubtitles credentials in subbuzz, its OpenSubtitles.com backend can actually download Japanese SRT bytes through Jellyfin's GET without touching media. **No staged file, ALASS sync, quality approval, publication, or Jellyfin playback has occurred yet.** The password is not stored in this repo. Do not repeat the old login-debugging attempt.
+**Next:** correctly attribute Jellyfin/subbuzz source identity in existing SubHub private staging and ALASS publisher, with create-only publication and regression tests. Existing publisher/staging filenames were originally locked to `opensubtitles.<numeric-id>`; do not rename a subbuzz result to OpenSubtitles or bypass existing trust gates. Start with one owner-chosen media, then generalize. P0 broader v4 search quality remains unsolved.
+
 ## 2026-11-11 owner-confirmed OpenSubtitles identity and provider toggles
 
 - **Owner-confirmed OpenSubtitles username: `ajstarrett`** (the earlier `optiplex` login guess was incorrect). Use the EXISTING account, not a new registration. The account password was provided privately in chat, but **must not be committed to this public repository**; no password/email/reset link/token/API key has been added here. ChatGPT/this repository must not be treated as a reliable secret vault.
