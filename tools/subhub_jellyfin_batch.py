@@ -339,6 +339,7 @@ def main(argv=None):
     parser.add_argument("--season",action="append",type=int,default=[])
     parser.add_argument("--pick",action="append",default=[])
     parser.add_argument("--max-searches",type=int,default=20)
+    parser.add_argument("--job-id",default="",help="dashboard-issued run ID for exact progress correlation")
     parser.add_argument("--run",action="store_true",
                         help="perform real provider requests, staging and guarded publication")
     args=parser.parse_args(argv)
@@ -346,6 +347,8 @@ def main(argv=None):
         parser.error("max 200 provider searches per pass")
     if args.movie_id and (args.season or args.pick):
         parser.error("season/pick requires --series")
+    if args.job_id and not re.fullmatch(r"[a-f0-9]{16}",args.job_id):
+        parser.error("invalid dashboard job ID")
     picks=[]
     for raw in args.pick:
         m=EP.fullmatch(raw)
@@ -373,6 +376,7 @@ def main(argv=None):
         stage.private_root()
         prior=read_state()
         doc=fresh_state(chosen,plan,prior)
+        doc["job_id"]=args.job_id
         doc["search_cap"]=args.max_searches
         print("JELLYFIN_BATCH_BEGIN",json.dumps({
             "selected":len(chosen),"selector":plan,
