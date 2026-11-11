@@ -131,7 +131,8 @@ def _safe_state_root(path):
         raise RuntimeError("private_batch_state_unsafe")
 
 
-def read_state(path=STATE):
+def read_state(path=None):
+    path=path or STATE
     _safe_state_root(path)
     if not path.is_file():
         return None
@@ -163,8 +164,9 @@ def read_scoped_state(selection):
     return old if old and old.get("selector")==selection else None
 
 
-def write_state(doc,path=STATE):
+def write_state(doc,path=None):
     """Atomic 0600 receipt. Browser refreshes never mutate it."""
+    path=path or STATE
     _safe_state_root(path)
     raw=json.dumps(doc,sort_keys=True,ensure_ascii=False).encode("utf-8")
     if len(raw)>500_000:
