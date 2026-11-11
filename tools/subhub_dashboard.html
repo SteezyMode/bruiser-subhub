@@ -131,7 +131,9 @@ details>summary{cursor:pointer}
   <button id="source-selected" class="primary" type="button" disabled>Find Japanese for selected seasons / episodes</button>
   <button id="source-whole-series" type="button">Retry missing Japanese · entire series</button>
   <button id="translate-selected" type="button" disabled>Last resort: translate checked episodes</button>
+  <button id="translate-unresolved" type="button" disabled>Prepare PLaMo batch from unresolved Japanese searches</button>
  </div>
+ <p id="unresolved-preview" class="small muted">Select a TV series to see source-exhausted translation candidates.</p>
  <p id="action-note" class="small muted">Search real Jellyfin library items, download, sync and publish only verified Japanese subtitles. Whole series: up to 200 searches in one job; selected seasons: 20 searches per pass. PLaMo remains manual.</p>
  <div class="row">
   <button id="toggle-episodes" type="button" class="quiet" disabled>Review remaining episodes</button>
@@ -199,6 +201,7 @@ const escapeText = v => String(v == null ? "" : v);
 let catalog=[], selectedSeries="", selectedMovie=null;
 let selectedSeasons=new Set(), coverage=new Map(), checked=new Set();
 let expanded=false, showCovered=false, busy=false, lastWorkers=false, latest={};
+let unresolvedPreview=null;
 const key=(s,e)=>s+":"+e;
 const picksFor = kind => {
   const items=[];
@@ -269,10 +272,56 @@ async function lookup(event){
     $("search-feedback").textContent=(matches.length+movies.length)+" results; select a matching title.";
   }catch(err){$("search-feedback").textContent="TV results available; movie search: "+err.message;}
 }
+async function refreshUnresolved(){
+  const series=selectedSeries;
+  unresolvedPreview=null;
+  $("translate-unresolved").disabled=true;
+  $("unresolved-preview").textContent="Checking saved Japanese search and repair results…";
+  if(!series)return;
+  try{
+    const data=await getJson("/api/translation/unresolved?series="+encodeURIComponent(series));
+    if(series!==selectedSeries)return;
+    unresolvedPreview=data;
+    const eligible=Number(data.eligible_total||0), selected=Number(data.selected||0);
+    $("unresolved-preview").textContent=
+      Number(data.total_missing||0)+" episodes lack Japanese in the saved queue · "+
+      eligible+" source-exhausted for translation"+
+      (selected<eligible?" · next "+selected+" can enter this batch":"")+
+      " · "+Number(data.needs_english||0)+" need English sourcing · "+
+      Number(data.awaiting_japanese_recovery||0)+" still in Japanese recovery. "+
+      "This preview reuses saved source attempts; it does not search providers.";
+    $("translate-unresolved").textContent=
+      "Translate unresolved with PLaMo ("+selected+")";
+    $("translate-unresolved").disabled=!selected||busy||!!latest.workersBusy||!latest.aiAvailable;
+  }catch(err){
+    $("unresolved-preview").textContent="Queue preview unavailable: "+err.message;
+  }
+}
+async function translateUnresolved(){
+  if(busy||!unresolvedPreview||!selectedSeries||
+      !Number(unresolvedPreview.selected)||!!latest.workersBusy||
+      !latest.aiAvailable)return;
+  const previous=unresolvedPreview;
+  if(!confirm("Queue "+previous.selected+" source-exhausted episode(s) from "+
+      selectedSeries+" for PLaMo? English will be searched if missing, "+
+      "and synced to each real video before translation. "+
+      previous.awaiting_japanese_recovery+
+      " other episode(s) remain in Japanese recovery. No mass library translation."))return;
+  busy=true;
+  $("translate-unresolved").disabled=true;
+  try{
+    const response=await ownerPost("/api/translation/start",
+           {series:selectedSeries,unresolved:true});
+    showMessage("PLaMo batch accepted "+response.accepted+
+       " source-exhausted episode(s), with English sourcing and sync required.");
+  }catch(err){showMessage("PLaMo not started: "+err.message,true);}
+  finally{busy=false;await refreshStatus();await refreshUnresolved();renderCoverage();}
+}
 function openSeries(entry){
   selectedSeries=entry.series;
   selectedMovie=null;
   selectedSeasons.clear();coverage.clear();checked.clear();expanded=false;
+  unresolvedPreview=null;
   $("tv-panel").hidden=false;$("movie-panel").hidden=true;
   $("series-heading").textContent=entry.series;
   const host=$("seasons");host.replaceChildren();
@@ -287,7 +336,8 @@ function openSeries(entry){
     label.append(input,document.createTextNode("Season "+n));host.append(label);
   }
   $("episode-details").hidden=true;$("toggle-episodes").textContent="Review remaining episodes";
-  $("feedback").hidden=true;renderCoverage();window.scrollTo({top:$("tv-panel").offsetTop-18,behavior:"smooth"});
+  $("feedback").hidden=true;renderCoverage();refreshUnresolved();
+  window.scrollTo({top:$("tv-panel").offsetTop-18,behavior:"smooth"});
 }
 function pruneChecked(){
   for(const val of Array.from(checked)){
@@ -334,6 +384,10 @@ function renderCoverage(){
   $("translate-selected").disabled=busy||!checkedEligible||latest.workersBusy||!latest.aiAvailable;
   $("source-selected").textContent="Find Japanese · selected "+
     (checked.size?checked.size+" episode(s)":selectedSeasons.size+" season(s)");
+  if(unresolvedPreview){
+    $("translate-unresolved").disabled=busy||!!latest.workersBusy||
+       !latest.aiAvailable||!Number(unresolvedPreview.selected);
+  }
   $("translate-selected").textContent="Translate checked with PLaMo ("+
     checkedEligible+" selected / "+eligible+" eligible)";
   $("toggle-episodes").disabled=!n.total;
@@ -852,6 +906,7 @@ $("refresh-coverage").addEventListener("click",async()=>{
     showMessage("Rechecked "+coverage.size+" selected season(s) against the saved coverage queue and physical Japanese sidecars. This is not a Jellyfin library rescan.");
   }finally{busy=false;renderCoverage();}
 });
+$("translate-unresolved").addEventListener("click",translateUnresolved);
 $("toggle-episodes").addEventListener("click",()=>{
   expanded=!expanded;$("episode-details").hidden=!expanded;
   $("toggle-episodes").textContent=expanded?"Hide episode details":"Review remaining episodes";
