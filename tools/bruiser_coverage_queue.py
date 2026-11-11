@@ -169,6 +169,10 @@ def japanese_source_plan(row, searches, staged, now=None):
             return "download_saved_ja", "reuse_high_confidence_saved_match_then_sync"
         if outcome == "review":
             return "review_saved_ja", "confirm_identity_before_download"
+        if outcome in ("partial","deferred"):
+            # No successful full provider pass occurred; never treat this as
+            # a complete source miss or a reason to transition into AI.
+            return "search_ja", "source_provider_coverage_incomplete_retry_later"
         if outcome == "none" and searched > (now or time.time()) - 30 * 86400:
             # A single provider-search miss is NOT Japanese-source exhaustion.
             # It may mean no enabled providers, results lost to filters,
