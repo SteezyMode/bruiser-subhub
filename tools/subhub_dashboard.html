@@ -518,7 +518,9 @@ function renderLibrarySourceProgress(d){
   bar("library-publish",p.publish_title_checked,p.publish_title_planned);
   $("library-live-summary").textContent=
     "Matches: "+(p.search_found||0)+" · No match: "+(p.search_none||0)+
-    " · Review: "+(p.search_review||0)+" · Errors: "+(p.search_errors||0)+
+    " · Review: "+(p.search_review||0)+
+    " · Partial (provider missing): "+(p.search_partial||0)+
+    " · Errors: "+(p.search_errors||0)+
     " · Deferred: "+(p.search_deferred||0)+
     " · Staged: "+(p.staged||0)+" · Published: "+(p.published||0)+
     " · Held: "+((p.stage_holds||0)+(p.publish_holds||0));
