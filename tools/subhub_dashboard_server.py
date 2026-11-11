@@ -515,6 +515,7 @@ def scheduled_source_activity(active, max_lines=5000):
     Never mix yesterday's manual-batch counters with the active source worker.
     """
     idle={"active":False,"metrics_available":False,"provider_limited":False,
+          "scope":"all",
           "phase":"idle","phase_label":"No automatic source cycle running",
           "current_item":"","events":[],"sample_window":"","started":0,
           "last_event":0,"search_completed":0,"search_planned":0,
@@ -558,6 +559,7 @@ def scheduled_source_activity(active, max_lines=5000):
         }[status]
         current=safe_text(details.get("current",""),150)
         data={**idle,"active":active,"metrics_available":True,
+              "scope":details.get("scope","all"),
               "provider_limited":details.get("provider_limited",False),
               "phase":status,
               "phase_label":safe_text(phase,105),
