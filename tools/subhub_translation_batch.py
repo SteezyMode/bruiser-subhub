@@ -372,12 +372,20 @@ def unresolved_plan(series, *, path=None, limit=200):
             if item["status"]=="covered":
                 continue
             missing+=1
-            if item.get("can_translate") and item["status"] in ("ready","needs_english"):
+            # The owner clicking this batch explicitly authorizes PLaMo
+            # for previous real JA timing-QA failures too. Do not silently
+            # translate arbitrary reviews, unsearched files, or metadata holds.
+            qa_failed = bool(item.get("failed_source_qa") and
+                             item.get("owner_review_fallback") and
+                             item.get("can_translate"))
+            if item.get("can_translate") and (
+                    item["status"] in ("ready","needs_english") or qa_failed):
                 if len(ready)<limit:
                     ready.append({"season":season,"episode":item["episode"],
                                   "title":item["title"],
-                                  "needs_english":item["status"]=="needs_english"})
-                if item["status"]=="needs_english":
+                                  "needs_english":not item.get("english_indexed",False),
+                                  "failed_japanese_timing":qa_failed})
+                if not item.get("english_indexed",False):
                     english_needed+=1
             else:
                 blocked+=1
@@ -388,7 +396,7 @@ def unresolved_plan(series, *, path=None, limit=200):
             "selected":len(ready),"needs_english":english_needed,
             "awaiting_japanese_recovery":pending,"blocked":blocked,
             "limit":limit,"picks":ready,
-            "note":"Based on persisted source-first queue; timing holds remain in recovery."}
+            "note":"Only confirmed source-first fallbacks and real failed Japanese timing QA. Other holds remain in Japanese recovery."}
 
 
 def selected_episode_plan(series, season, episodes, *, path=None):
