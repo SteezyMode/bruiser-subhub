@@ -1,6 +1,11 @@
 # Instructions for work on Bruiser SubHub
 
-**First read** [GOAL.md](GOAL.md), [docs/CURRENT_STATE.md](docs/CURRENT_STATE.md) and [docs/SUBHUB_CORRECTION_FIRST_POLICY_2026-11-10.md](docs/SUBHUB_CORRECTION_FIRST_POLICY_2026-11-10.md). These are the only current cross-project direction documents. Old dated docs and issue titles are evidence, not authority. Earlier versions of this long handoff are recoverable from Git history.
+> **MANDATORY NEXT-CHAT HANDOFF — AS OF 2026-11-11**
+> Before any source-code patch, provider search, claim of a fix, or request for server logs, read **[docs/SEARCH_RECOVERY_ROADMAP.md](docs/SEARCH_RECOVERY_ROADMAP.md)** and **[issue #89 (search)](https://github.com/SteezyMode/bruiser-subhub/issues/89)**. Read **[issue #90 (real progress bars, batch jobs, Jellyfin movie browser)](https://github.com/SteezyMode/bruiser-subhub/issues/90)** before UI/queue work. These exist because previous chats repeatedly lost essential investigation history. **Do not restart from guesses or repeat already failed v1-v4 fixes.**
+>
+> **Latest authoritative owner-run host audit:** installed search v4; latest library cycle = **44 NONE + 1 DEFERRED at index 45/600**; SubDL budget gate was exhausted and OpenSubtitles gate was `ok`; 19 publications from previously retained work, **zero new usable matches from 44 v4 searches**. ALASS installed and publisher integration verified. Committed progress/UI changes after this audit are **not confirmed installed**. No more broad scans until bounded cohort acceptance.
+
+**Read in order:** [GOAL.md](GOAL.md) → **[SEARCH_RECOVERY_ROADMAP.md](docs/SEARCH_RECOVERY_ROADMAP.md)** → [CURRENT_STATE.md](docs/CURRENT_STATE.md) → [correction-first policy](docs/SUBHUB_CORRECTION_FIRST_POLICY_2026-11-10.md). Older dated docs are historical evidence, not an override of fresh owner instructions. Update the canonical roadmap with new evidence and commit/install/test status, not just another chat reply.
 
 ## Non-negotiable decision discipline
 
@@ -21,8 +26,10 @@
 
 ## Execution / safety
 
-- Current first job: IASIP S01E04 mistimed cold open; S01E05 comparison. Both have embedded EN; regional cue audit is inconclusive. Next move is **non-destructive repair preview + dialogue check**, not another threshold or full-library scan.
-- Backlog after that: five staged S02/S03 Japanese candidate provenance holds; four completed PLaMo output comparisons; make saved reference and repair flows generic.
+- **Current first job (owner priority): fix actual Japanese search recall and staging** for the entire Jellyfin library, using the factual Nov 11 v4/44-miss audit and P0 plan in the [roadmap](docs/SEARCH_RECOVERY_ROADMAP.md). Do **not** assume provider `gate: ok` means the specific search used it. Fix the per-provider budget stop, missing metadata, result transport/cache evidence and SubDL staging carefully; test real titles before a new full scan. Don't bypass shared Sublarr quotas in a separate throwaway process.
+- **P1 non-negotiables:** every job must show real, persistent `done/total` progress (or honest indeterminate), phase/current item, outcomes and holds **in the dashboard**, independent of disabled buttons. Support a user-selected mixed-genre **multi-movie batch at will**, not one movie per click. This need not wait for all-library coverage.
+- **P2 discoverability:** selecting a movie genre (e.g. Comedy) must enumerate the **entire actual Jellyfin category in a scrollable poster grid**, without typing a title. Text search must also work without any category. Persist multi-selection across search and category changes. Later only, incrementally source new Jellyfin additions. [Issue #90](https://github.com/SteezyMode/bruiser-subhub/issues/90).
+- **Separate timing QA backlog, not forgotten:** IASIP S01E04 ALASS cold-open preview/playback and S01E05 comparison, five staged S02/S03 Japanese provenance holds, four previously completed PLaMo output comparisons. Preserve successful ALASS evidence; don't retest recklessly. These tasks do not replace current P0 search priority.
 - For any change, inspect **the deployed host** before touching services. Preserve live jobs, existing folder names and sidecars, private config, source/download history and GPU thermal guards. Don't create new folders inside media libraries without identifying the established location.
 - Prioritize one real-media acceptance test and clean rollback over broad refactors. If off-the-shelf tools deliver a better result, retire redundant custom code carefully; do not erase working data.
 - Never upload film dialogue, downloaded subtitles, API credentials, private local paths or personal QA to a public GitHub commit.
