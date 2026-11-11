@@ -130,7 +130,7 @@ class StatusTests(unittest.TestCase):
                        'bulkAction("source",','bulkAction("translate",'):
             self.assertIn(phrase,html)
         self.assertIn("Technical details / source matches",html)
-        self.assertIn('n.covered+" / "+n.total',html)
+        self.assertIn('n.covered+" with Japanese in "',html)
         self.assertNotIn("review/metadata holds",html)
         self.assertNotIn('id="action-start-auto"',html)
 
