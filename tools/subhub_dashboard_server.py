@@ -805,6 +805,52 @@ def start_movie_source(doc):
     return {"ok":True,"video":path.name,"action":"get_japanese_subtitles"}
 
 
+def start_movie_translation(doc):
+    """Owner-selected ONE source-exhausted movie; existing PLaMo engine only."""
+    if not isinstance(doc,dict) or set(doc)!={"video","jellyfin_id"}:
+        raise ValueError("invalid_movie_translation_request")
+    video,jid=doc["video"],doc["jellyfin_id"]
+    if (not isinstance(video,str) or len(video)>1000
+            or not isinstance(jid,str) or not re.fullmatch(r"[a-f0-9]{32}",jid)):
+        raise ValueError("invalid_movie_translation_identity")
+    path=Path(video)
+    if (path.is_symlink() or not path.is_file()
+            or not any(path.is_relative_to(root) for root in MOVIE_ROOTS)):
+        raise RuntimeError("movie_file_not_available_in_approved_library")
+    if movie_subtitle_status(path)[0]!="missing":
+        raise RuntimeError("japanese_already_present_or_coverage_unverified")
+    evidence=movie_queue_evidence([path]).get(str(path),{})
+    if (evidence.get("jellyfin_id")!=jid or not evidence.get("fallback_ready")
+            or evidence.get("search_outcome") not in ("none","review","plausible")):
+        raise RuntimeError("movie_not_in_verified_japanese_fallback_queue")
+    if (unit_active(BATCH_UNIT) or unit_active(SCHEDULED_UNIT)
+            or unit_active(SEASON_SOURCE_UNIT) or unit_active(JELLYFIN_SOURCE_UNIT)
+            or unit_active(MOVIE_UNIT) or translation_busy()):
+        raise RuntimeError("another_source_or_translation_worker_is_active")
+    if not season_batch.ENGINE.is_file() or season_batch.ENGINE.is_symlink():
+        raise RuntimeError("subhub_ai_not_installed")
+    try:
+        from . import subhub_plamo_handoff as handoff
+    except ImportError:
+        import subhub_plamo_handoff as handoff
+    with handoff.safe_db(handoff.QUEUE) as db:
+        rows=handoff.eligible(db,jid,1)
+    if len(rows)!=1 or rows[0]["path"]!=video or rows[0]["kind"]!="Movie":
+        raise RuntimeError("selected_movie_source_queue_changed")
+    handoff.validate_row(rows[0])
+    command=[
+        "systemd-run","--user","--unit=bruiser-subhub-translation-batch",
+        "--collect","--property=KillMode=control-group","--",
+        str(season_batch.ENGINE),"--apply","--jellyfin-id",jid,
+    ]
+    done=subprocess.run(command,capture_output=True,text=True,
+                        stdin=subprocess.DEVNULL,timeout=20,check=False)
+    if done.returncode:
+        raise RuntimeError("movie_translation_start_failed: "+
+                           safe_text(done.stderr or done.stdout,160))
+    return {"ok":True,"accepted":1,"action":"movie_english_sync_then_plamo"}
+
+
 def stop_movie_source():
     if not unit_active(MOVIE_UNIT):
         raise RuntimeError("no_movie_source_job_running")
@@ -1606,7 +1652,8 @@ class Handler(BaseHTTPRequestHandler):
             "/api/translation/start","/api/translation/stop",
             "/api/source-season/start","/api/source-season/stop",
             "/api/jellyfin-source/start","/api/jellyfin-source/stop",
-            "/api/movie/start","/api/movie/stop"):
+            "/api/movie/start","/api/movie/stop",
+            "/api/translation/movie/start"):
             self.write(405,b'{"error":"controls_not_available_in_v0_1"}')
             return
         origin=self.headers.get("Origin","")
@@ -1627,18 +1674,23 @@ class Handler(BaseHTTPRequestHandler):
                  int(size) > (16000 if target in (
                      "/api/translation/start","/api/source-season/start",
                      "/api/jellyfin-source/start")
-                     else 1200 if target=="/api/movie/start" else 2)):
+                     else 1200 if target in ("/api/movie/start",
+                                            "/api/translation/movie/start") else 2)):
             self.write(403,b'{"error":"owner_control_access_denied"}')
             return
         try:
             if target in ("/api/translation/start","/api/source-season/start",
-                          "/api/movie/start","/api/jellyfin-source/start"):
+                          "/api/movie/start","/api/jellyfin-source/start",
+                          "/api/translation/movie/start"):
                 if not (2 <= int(size) <= (
-                        1200 if target=="/api/movie/start" else 16000)):
+                        1200 if target in ("/api/movie/start",
+                                           "/api/translation/movie/start") else 16000)):
                     raise ValueError("invalid_batch_request_size")
                 request = json.loads(self.rfile.read(int(size)).decode("utf-8"))
                 value = (start_season_translation(request)
                          if target == "/api/translation/start"
+                         else start_movie_translation(request)
+                         if target == "/api/translation/movie/start"
                          else start_movie_source(request)
                          if target == "/api/movie/start"
                          else start_jellyfin_source(request)
