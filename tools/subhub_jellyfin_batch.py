@@ -392,64 +392,78 @@ def is_upstream_failure(stdout,reason):
 
 
 def recover_via_sublarr(row, *, remaining_searches, checkpoint):
-    """Use the EXISTING Sublarr OpenSubtitles/SubDL discovery, then its saved
-    candidate stage and the SAME ALASS/ffsubsync publication gate. No AI.
-    A Jellyfin/one-provider 500 never prevents this independent route.
+    """Use Sublarr title/S/E discovery and saved OpenSubtitles/SubDL downloads.
+
+    Existing ALASS/ffsubsync and create-only publication own the final write.
+    A broken Jellyfin provider never means an episode lacks Japanese subtitles.
     """
     jid=str(row["jellyfin_id"])
-    label=item_label(row)
     kind="episode" if row["kind"]=="Episode" else "movie"
     publish=[sys.executable,"-B","-u",
              str(SOURCE_DIR/"ja_first_publish_queue.py"),
              "--jellyfin-id",jid,"--max-titles","1","--limit","1","--apply"]
-    stage_cmd=[sys.executable,"-B","-u",
-               str(SOURCE_DIR/"ja_first_stage_saved_batch.py"),
-               "--jellyfin-id",jid,"--kind",kind,"--budget","1","--apply"]
+    os_stage=[sys.executable,"-B","-u",
+              str(SOURCE_DIR/"ja_first_stage_saved_batch.py"),
+              "--jellyfin-id",jid,"--kind",kind,"--budget","1","--apply"]
+    subdl_stage=[sys.executable,"-B","-u",
+                 str(SOURCE_DIR/"ja_first_stage_subdl.py"),
+                 "--jellyfin-id",jid,"--apply"]
     def step(command, timeout):
         try:
             return call(command,timeout=timeout,progress=checkpoint)
         except subprocess.TimeoutExpired:
             return 124,"","step_timeout"
-    def try_saved():
-        checkpoint("sublarr_candidate_stage","Checking saved Japanese candidates")
-        rc,out,err=step(stage_cmd,180)
+    def try_provider(command,source,receipt):
+        checkpoint("sublarr_candidate_stage","Checking "+source+" saved Japanese candidates")
+        rc,out,err=step(command,180)
         if "PROVIDER_LIMIT_REACHED:" in out or re.search(
                 r"(?i)(?:HTTP[ _]?429|budget_exhausted|rate.limit)",err):
             return "deferred",0
-        if not re.search(r"(?m)^STAGED:\s",out):
+        if receipt not in out:
             return "unavailable",0
+        is_cached="cached" in out
         checkpoint("sublarr_sync_publish","Repairing timing with ALASS/ffsubsync")
         pc,po,pe=step(publish,850)
         expected='"jellyfin_id": "'+jid+'"'
         if pc==0 and expected in po and '"result": "published"' in po:
-            return "published",1
-        return "held",1
+            return "published",0 if is_cached else 1
+        return "held",0 if is_cached else 1
+    def try_both():
+        downloaded=0
+        for source,command,receipt in (
+                ("OpenSubtitles",os_stage,"STAGED:"),
+                ("SubDL",subdl_stage,"STAGED_SUBDL:")):
+            state,n=try_provider(command,source,receipt)
+            downloaded+=n
+            if state in ("published","deferred"):
+                return state,downloaded,source.lower()
+        return "unavailable",downloaded,""
 
-    # First consume saved OpenSubtitles search evidence; zero new searches.
-    state,downloads=try_saved()
-    if state in ("published","deferred"):
-        return state, "sublarr_saved_candidate" if state=="published" else "sublarr_provider_limited",0,downloads
+    # Saved results first. Do not spend more searches finding titles already
+    # found by Sublarr in an earlier library pass.
+    state,downloads,provider=try_both()
+    if state=="published":
+        return state,"saved_"+provider,0,downloads
+    if state=="deferred":
+        return state,provider+"_provider_limited",0,downloads
     if remaining_searches<=0:
         return "deferred","search_budget_reached_before_title_search",0,downloads
-
-    checkpoint("sublarr_search","Searching OpenSubtitles and SubDL by series/title and season/episode")
-    cmd=[sys.executable,"-B","-u",str(SOURCE_DIR/"ja_first_search_pilot.py"),
-         "--jellyfin-id",jid,"--budget","1"]
-    search_rc,search_out,search_err=step(cmd,270)
-    search_used=1
-    if search_rc:
-        return "held","sublarr_title_search_failed",search_used,downloads
-    if "DEFERRED:" in search_out:
-        return "deferred","sublarr_provider_deferred",search_used,downloads
-    # The search results are persisted by the existing search pilot; stage
-    # them with its existing identity and no-overwrite guards, not raw API IDs.
-    stage_state,new_downloads=try_saved()
+    checkpoint("sublarr_search","Searching OpenSubtitles and SubDL by title and season/episode")
+    command=[sys.executable,"-B","-u",str(SOURCE_DIR/"ja_first_search_pilot.py"),
+             "--jellyfin-id",jid,"--budget","1"]
+    rc,out,err=step(command,270)
+    searched=1
+    if rc:
+        return "held","sublarr_title_search_failed",searched,downloads
+    if "DEFERRED:" in out:
+        return "deferred","sublarr_provider_deferred",searched,downloads
+    state,new_downloads,provider=try_both()
     downloads+=new_downloads
-    if stage_state=="published":
-        return "published","sublarr_title_candidate",search_used,downloads
-    if stage_state=="deferred":
-        return "deferred","sublarr_download_limited",search_used,downloads
-    return "held","sublarr_candidates_unavailable_or_timing_hold",search_used,downloads
+    if state=="published":
+        return state,"title_episode_"+provider,searched,downloads
+    if state=="deferred":
+        return state,provider+"_download_limited",searched,downloads
+    return "held","no_verified_japanese_from_available_providers",searched,downloads
 
 
 def execute(rows,doc,*,limit,runner=call,writer=write_job_state):
