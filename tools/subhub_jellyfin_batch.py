@@ -216,8 +216,21 @@ def fresh_state(rows,chosen,prior=None,now=None):
         "state":"queued","phase":"queued","current":"",
         "items":items,"started_at":now,"updated_at":now,
         "searches_this_run":0,"downloads_this_run":0,
+        # The owner-facing meter is for THIS pass, not the saved lifetime queue.
+        "pass_total":sum(x["status"]=="queued" for x in items),
+        "pass_processed":0,
         "events":[],"previous":previous,
     }
+
+
+def mark_processed(doc,item):
+    """Advance the single episode meter once, regardless of outcome."""
+    if item["status"] in ("queued","running"):
+        raise RuntimeError("cannot_count_unfinished_episode")
+    if item.get("processed_this_pass"):
+        raise RuntimeError("episode_already_counted_this_pass")
+    item["processed_this_pass"]=True
+    doc["pass_processed"]+=1
 
 
 def write_job_state(doc):
@@ -377,7 +390,6 @@ def execute(rows,doc,*,limit,runner=call,writer=write_job_state):
     """One budget-limited real-media pass. Never equate no-match with coverage."""
     rows_by_id={row["jellyfin_id"]:row for row in rows}
     writer(doc)
-    upstream_failures_in_row=0
     for item in doc["items"]:
         if STOP:
             event(doc,"interrupted","","Owner stopped job")
@@ -393,11 +405,13 @@ def execute(rows,doc,*,limit,runner=call,writer=write_job_state):
         try:
             if path.is_file() and stage.japanese_sidecar_exists(path):
                 item["status"]="covered"
+                mark_processed(doc,item)
                 event(doc,"skip_covered",label,"Existing Japanese sidecar")
                 writer(doc)
                 continue
         except OSError:
             item["status"]="held";item["reason"]="cannot_inspect_media_directory"
+            mark_processed(doc,item)
             event(doc,"held",label,item["reason"])
             writer(doc)
             continue
@@ -443,43 +457,37 @@ def execute(rows,doc,*,limit,runner=call,writer=write_job_state):
             if (pub_code==0 and expected in pub_out and
                     '"result": "published"' in pub_out):
                 item["status"]="published";item["reason"]="Japanese sidecar created"
-                upstream_failures_in_row=0
             else:
                 item["status"]="held";item["reason"]="publication_qa_or_timing_hold"
                 # This media's QA hold is not a failure of the provider, and
                 # must not prevent the next 75 unrelated episodes being tried.
         elif verdict=="no_match":
             item["status"]="no_match";item["reason"]="No exact Japanese result via current Jellyfin provider"
-            upstream_failures_in_row=0
         elif verdict=="covered":
             item["status"]="covered";item["reason"]="Existing Japanese subtitles"
-            upstream_failures_in_row=0
         elif verdict=="deferred":
             item["status"]="deferred";item["reason"]="provider_rate_limited"
+            mark_processed(doc,item)
             event(doc,"provider_deferred",label)
+            # A verified 429/budget limit pauses further requests; other
+            # episode failures belong in the exception pile, not a global stop.
             doc["state"]="paused";writer(doc);return
         else:
             item["status"]="held"
             item["reason"]=safe_failure_reason(out,err)
-            if is_upstream_failure(out,item["reason"]):
-                upstream_failures_in_row+=1
-            else:
-                upstream_failures_in_row=0
+        mark_processed(doc,item)
         event(doc,item["status"],label,item["reason"])
         writer(doc)
-        # Three consecutive genuine upstream failures likely mean plugin/auth
-        # trouble. Individual video/preflight/QA holds must NOT stop a series.
-        if upstream_failures_in_row>=3:
-            event(doc,"paused_provider_error","",
-                  "Three consecutive provider failures; fix provider before resuming")
-            doc["state"]="paused";writer(doc);return
+        # HTTP 500 and episode QA failures are recorded and skipped. The
+        # existing per-pass request cap and pacing still bound this pass.
         # A small rate gate even for successful searches; upstream Jellyfin
         # provider controls remain authoritative and 429 is a hard stop.
         if doc["searches_this_run"] and doc["searches_this_run"]<limit:
             time.sleep(3)
     doc["state"]="completed" if not progress(doc)["pending"] else "paused"
-    event(doc,doc["state"],"","All eligible selected items visited" if
-          doc["state"]=="completed" else "More work remains")
+    event(doc,doc["state"],"",
+          "Pass finished; review exceptions separately" if
+          doc["state"]=="completed" else "More items remain for another pass")
     writer(doc)
 
 
