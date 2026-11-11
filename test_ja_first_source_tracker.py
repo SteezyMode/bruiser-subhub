@@ -104,6 +104,23 @@ class SourceTrackerTests(unittest.TestCase):
                          "Finished stages; sourcing stopped at provider limit")
         self.assertIn("Search unfinished",monitor.render(state,now=110))
 
+    def test_provider_partial_completion_is_not_exhaustive_no_match(self):
+        state=monitor.parse([
+            e(100,"RUNNING_SOURCES_ONLY_CYCLE search_budget=2 stage_budget=1 publish_limit=1"),
+            e(101,"=== DISCOVERY ==="),
+            e(102,"Search requests planned: 2 | budget: 2"),
+            e(103,"[1/2] PARTIAL: plausible=0 review=0 provider_total=0 incomplete=subdl"),
+            e(104,"[2/2] PARTIAL: plausible=0 review=0 provider_total=2 incomplete=subdl"),
+            e(105,"AUTOFILL_CYCLE_COMPLETE"),
+        ])
+        self.assertEqual(state["search_completed"],2)
+        self.assertEqual(state["search_partial"],2)
+        self.assertEqual(state["search_none"],0)
+        self.assertTrue(state["complete"])
+        self.assertFalse(state["search_stopped_early"])
+        self.assertEqual(state["phase"],
+                         "Finished selected searches; provider coverage incomplete")
+
     def test_unified_publisher_receipts_are_counted_without_double_counting(self):
         events=[
             e(100,"RUNNING_SOURCES_ONLY_CYCLE search_budget=5 stage_budget=5 publish_limit=5"),
