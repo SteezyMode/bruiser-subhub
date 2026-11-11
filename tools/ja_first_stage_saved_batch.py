@@ -435,19 +435,23 @@ def rejected_duration_candidates():
     return rejected
 
 
-def choices(inventory, searches, already, budget, kind):
+def choices(inventory, searches, already, budget, kind, only_id=None):
     queue = priorities.active_coverage_queue()
     already = set(already) | rejected_duration_candidates()
     possible = []
     for jid, text in searches:
+        if only_id and str(jid)!=only_id:
+            continue
         row = inventory.get(str(jid))
         if not row or row.get("status") != "ready_ja_search":
             continue
         if row.get("kind") not in ("Movie", "Episode"):
             continue
         order = priorities.queue_position(row, "stage", queue)
-        if order is None:
+        if order is None and not only_id:
             continue
+        if only_id:
+            order=(0,0)  # Exact item explicitly requested by the owner
         try:
             result = json.loads(text)
         except ValueError:
@@ -759,6 +763,7 @@ def main():
     cli = argparse.ArgumentParser(description=__doc__)
     cli.add_argument("--budget", type=int, default=3,
                      help="maximum staged OpenSubtitles downloads: 1..200")
+    cli.add_argument("--jellyfin-id",default="",help="stage a saved Japanese candidate for one exact item")
     cli.add_argument("--kind", choices=("all", "movie", "episode"),
                      default="all")
     cli.add_argument("--require-embedded-en", action="store_true",
@@ -773,13 +778,16 @@ def main():
         return
     if not 1 <= opts.budget <= 200:
         cli.error("--budget must be 1..200")
+    if opts.jellyfin_id and not re.fullmatch(r"[a-f0-9]{32}",opts.jellyfin_id):
+        cli.error("--jellyfin-id must be an exact Jellyfin ID")
     inventory = read_inventory()
     history = read_saved_searches()
     already = read_staged()
     if opts.require_embedded_en:
         # Search at most 24 manifest-confirmed candidate rows. Never probe
         # thousands of media files for a small acquisition budget.
-        pool = choices(inventory, history, already, 24, opts.kind)
+        pool = choices(inventory, history, already, 24, opts.kind,
+                       only_id=opts.jellyfin_id or None)
         selected = []
         considered = 0
         for option in pool:
@@ -799,7 +807,8 @@ def main():
         print("Reference presence is not a verified synchronization fit.",
               flush=True)
     else:
-        selected = choices(inventory, history, already, opts.budget, opts.kind)
+        selected = choices(inventory, history, already, opts.budget, opts.kind,
+                           only_id=opts.jellyfin_id or None)
     print("=== JAPANESE SUBTITLE STAGING BATCH ===", flush=True)
     print("Available saved search entries:", len(history), flush=True)
     print("Selected:", len(selected), "| budget:", opts.budget, flush=True)
