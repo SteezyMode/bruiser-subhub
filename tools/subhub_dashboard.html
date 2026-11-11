@@ -71,6 +71,18 @@ details>summary{cursor:pointer}
  <div class="row"><span id="run-status" class="small muted">Checking workers…</span><a id="open-sublarr" class="tool-link" href="http://127.0.0.1:15765/" target="_blank" rel="noopener noreferrer" title="Opens Sublarr through the SubHub Mac/Linux SSH shortcut tunnel">Open Sublarr</a><button class="quiet" id="refresh">Refresh</button></div>
 </header>
 
+<section class="panel" id="library-coverage">
+ <h2>Entire library · Japanese subtitle coverage</h2>
+ <div class="status-strip" aria-live="polite">
+  <span>JP subtitles <strong id="ja-total-present">—</strong></span>
+  <span>Missing JP subtitles <strong id="ja-total-missing">—</strong></span>
+  <span>Unverified <strong id="ja-total-unknown">—</strong></span>
+ </div>
+ <div class="meter" role="progressbar" aria-label="Library Japanese subtitle coverage" id="ja-coverage-meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="ja-coverage-fill" class="fill"></div></div>
+ <p id="ja-coverage-scope" class="small muted">Reading saved Jellyfin library inventory…</p>
+ <p id="ja-coverage-updated" class="small muted"></p>
+</section>
+
 <section class="panel" id="library-sourcing">
  <h2>Entire library · Japanese sourcing</h2>
  <p class="small muted">Search all eligible movies and TV episodes, recover old misses with title-based queries, stage candidates, repair timing and publish without overwriting. Runs in provider-limited batches. No PLaMo.</p>
@@ -702,10 +714,44 @@ function renderLibrarySourceProgress(d){
     ". Staging and publication may have continued with previously saved results.":
     "Current: "+escapeText(p.current_item||"Waiting for next item");
 }
+function renderGlobalCoverage(data){
+  const c=data.library_japanese_coverage||{};
+  if(!c.available){
+    for(const id of ["ja-total-present","ja-total-missing","ja-total-unknown"])
+      $(id).textContent="—";
+    $("ja-coverage-scope").textContent="No verified full-library inventory available.";
+    $("ja-coverage-updated").textContent="Coverage totals unavailable until the next Jellyfin inventory scan.";
+    $("ja-coverage-meter").setAttribute("aria-valuenow","0");
+    $("ja-coverage-fill").style.width="0%";
+    return;
+  }
+  $("ja-total-present").textContent=Number(c.present||0).toLocaleString();
+  $("ja-total-missing").textContent=Number(c.missing||0).toLocaleString();
+  $("ja-total-unknown").textContent=Number(c.unverified||0).toLocaleString();
+  const percent=c.total?Math.round(100*(c.present||0)/c.total):0;
+  $("ja-coverage-fill").style.width=percent+"%";
+  $("ja-coverage-meter").setAttribute("aria-valuenow",String(percent));
+  const movies=(c.by_kind||{}).Movie||{};
+  const episodes=(c.by_kind||{}).Episode||{};
+  $("ja-coverage-scope").textContent=
+    "Library: "+Number(c.total||0).toLocaleString()+" Jellyfin movies/episodes · "+
+    "Movies "+Number(movies.present||0)+"/"+Number(movies.total||0)+" have JP subs · "+
+    "Episodes "+Number(episodes.present||0)+"/"+Number(episodes.total||0)+" have JP subs"+
+    (c.japanese_audio_only?" · "+c.japanese_audio_only+
+       " Japanese-audio-only titles":"");
+  const date=c.generated_utc?new Date(c.generated_utc):null;
+  $("ja-coverage-updated").textContent=
+    "Jellyfin inventory: "+(date&&!Number.isNaN(date.valueOf())?
+       date.toLocaleString():"unknown")+
+    " · Newly discovered JP sidecars: "+
+    Number(c.subtitle_sidecars_found_since_snapshot||0)+
+    " · Tracks embedded since this inventory was created need another catalog scan.";
+}
 async function refreshStatus(){
   try{
     const d=await getJson("/api/status");
     latest=d;
+    renderGlobalCoverage(d);
     const setting=d.source_config_scope||"unavailable";
     $("library-source-selection").textContent=setting==="horror-drama-folders"?
       "Selected for every run: Horror + Drama/Suspense movie folders on BOTH drives":
