@@ -106,7 +106,7 @@ def corrected_provenance_file(jid, sid):
     folder = root / "timing-adjusted"
     if not folder.is_dir() or folder.is_symlink() or folder.stat().st_mode & 0o077:
         return None
-    filename = jid + ".opensubtitles." + sid + ".ja.shifted.srt"
+    filename = jid + "." + direct.source_label(jid,sid) + "." + sid + ".ja.shifted.srt"
     return folder / filename
 
 
