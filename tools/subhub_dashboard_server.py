@@ -1242,17 +1242,27 @@ def start_jellyfin_source(doc):
         raise RuntimeError("Jellyfin_source_preview_invalid")
     if eligible<=0:
         raise ValueError("No missing Japanese titles in the selected scope")
+    job_id=secrets.token_hex(8)
     cmd=["systemd-run","--user","--unit=bruiser-subhub-jellyfin-source",
          "--collect","--property=KillMode=control-group","--",
          sys.executable,"-B","-u",str(JELLYFIN_SOURCE_EXEC),
-         *args,"--max-searches",str(search_cap),"--run"]
+         *args,"--max-searches",str(search_cap),
+         "--job-id",job_id,"--run"]
     p=subprocess.run(cmd,capture_output=True,text=True,
                      stdin=subprocess.DEVNULL,timeout=20,check=False)
     if p.returncode:
         raise RuntimeError("Jellyfin_source_start_failed: "+
                            safe_text(p.stderr or p.stdout,155))
+    selection={"series":doc["series"],
+               "seasons":sorted(doc.get("seasons",[])),
+               "picks":[[p["season"],p["episode"]] for p in
+                        doc.get("picks",[])]}
+    write_jellyfin_launch({
+        "schema":"jellyfin-source-launch-v1","job_id":job_id,
+        "selector":selection,"eligible":eligible,
+        "search_cap":search_cap,"accepted_at":int(time.time())})
     return {"ok":True,"eligible":eligible,"max_searches_this_run":search_cap,
-            "note":"Background source job started; monitor in Active work"}
+            "note":"Background source job accepted; real progress appears in Active work"}
 
 
 def stop_jellyfin_source():
