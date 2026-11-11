@@ -692,8 +692,8 @@ def start_movie_source(doc):
                                             for root in MOVIE_ROOTS)):
         raise ValueError("selected_movie_no_longer_available")
     if (unit_active(BATCH_UNIT) or unit_active(SCHEDULED_UNIT)
-            or unit_active(SEASON_SOURCE_UNIT) or unit_active(MOVIE_UNIT)
-            or translation_busy()):
+            or unit_active(SEASON_SOURCE_UNIT) or unit_active(JELLYFIN_SOURCE_UNIT)
+            or unit_active(MOVIE_UNIT) or translation_busy()):
         raise RuntimeError("another_source_or_translation_worker_is_active")
     if not movie_source_status()["available"]:
         raise RuntimeError("movie_source_controller_not_installed")
