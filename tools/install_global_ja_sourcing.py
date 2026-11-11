@@ -54,6 +54,7 @@ DASH_FILES=(
     "subhub_dashboard_server.py",
     "subhub_dashboard.html",
     "subhub_translation_batch.py",
+    "subhub_finish_scope.py",
     "ja_first_source_tracker.py",
     "subhub_library_coverage.py",
     "subhub_season_sources.py",
@@ -84,6 +85,7 @@ BUSY_UNITS=(
     "bruiser-subhub-batch.service", "bruiser-subhub-translation-batch.service",
     "bruiser-subhub-movie-ja.service",
     "bruiser-subhub-jellyfin-source.service",
+    "bruiser-subhub-finish-scope.service",
 )
 MAX_BYTES=400_000
 
@@ -202,7 +204,8 @@ def main():
     for name in DASH_FILES:
         target=DASH/name
         secure_file(target,allow_new=name in {
-            "subhub_library_coverage.py","subhub_translation_batch.py"})
+            "subhub_library_coverage.py","subhub_translation_batch.py",
+            "subhub_finish_scope.py"})
         destinations[("dashboard",name)]=target
 
     print("FETCHING fixed revision:",args.commit)
