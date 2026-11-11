@@ -255,9 +255,15 @@ def execute(rows,doc,*,limit,runner=call,writer=write_state):
         row=rows_by_id[item["id"]]
         label=item["label"]
         path=Path(str(row.get("host_path") or ""))
-        if stage.japanese_sidecar_exists(path):
-            item["status"]="covered"
-            event(doc,"skip_covered",label,"Existing Japanese sidecar")
+        try:
+            if path.is_file() and stage.japanese_sidecar_exists(path):
+                item["status"]="covered"
+                event(doc,"skip_covered",label,"Existing Japanese sidecar")
+                writer(doc)
+                continue
+        except OSError:
+            item["status"]="held";item["reason"]="cannot_inspect_media_directory"
+            event(doc,"held",label,item["reason"])
             writer(doc)
             continue
         item["status"]="running"
