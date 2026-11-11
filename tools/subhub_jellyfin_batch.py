@@ -452,7 +452,10 @@ def recover_via_sublarr(row, *, remaining_searches, checkpoint):
     command=[sys.executable,"-B","-u",str(SOURCE_DIR/"ja_first_search_pilot.py"),
              "--jellyfin-id",jid,"--budget","1"]
     rc,out,err=step(command,270)
-    searched=1
+    # Sublarr may perform a title query AND an IMDb-ID query for a miss.
+    # Count the actual requests, not just the number of episodes attempted.
+    receipts=re.findall(r"\brequests=([12])\b",out)
+    searched=int(receipts[-1]) if receipts else 1
     if rc:
         return "held","sublarr_title_search_failed",searched,downloads
     if "DEFERRED:" in out:
