@@ -231,8 +231,9 @@ def save_derived(best):
     folder.mkdir(mode=0o700, exist_ok=True)
     if folder.is_symlink() or folder.stat().st_mode & 0o077:
         raise RuntimeError("timing_adjustment_folder_unsafe")
-    name = (best["row"]["jellyfin_id"] + ".opensubtitles." + best["sid"]
-            + ".ja.shifted.srt")
+    name = (best["row"]["jellyfin_id"] + "." +
+            gate.source_label(best["row"]["jellyfin_id"],best["sid"]) +
+            "." + best["sid"] + ".ja.shifted.srt")
     output = folder / name
     body = best["adjusted"]
     digest = hashlib.sha256(body).hexdigest()
