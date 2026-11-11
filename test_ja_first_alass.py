@@ -220,14 +220,16 @@ class AlassTests(unittest.TestCase):
             if req.full_url.endswith("Subtitles/3/Stream.srt"):
                 return io.BytesIO(raw)
             raise AssertionError("Unapproved local Jellyfin endpoint")
-        with patch.object(cat,"load_auth",return_value="test-only-auth"):
+        with patch.dict(sys.modules,{"ja_first_catalog_manifest":cat}), \
+             patch.object(cat,"load_auth",return_value="test-only-auth"):
             result=alass._intensive_jellyfin_english(video,jid,opener=opener)
         self.assertEqual(result,raw)
         self.assertEqual(len(calls),2)
         self.assertTrue(all("127.0.0.1:8096" in url for url in calls))
         self.assertTrue(all("RemoteSearch" not in url for url in calls))
         doc["Path"]="/some/other/video.mkv"
-        with patch.object(cat,"load_auth",return_value="test-only-auth"):
+        with patch.dict(sys.modules,{"ja_first_catalog_manifest":cat}), \
+             patch.object(cat,"load_auth",return_value="test-only-auth"):
             self.assertIsNone(alass._intensive_jellyfin_english(video,jid,opener=opener))
         self.assertEqual(len(calls),3)
 
