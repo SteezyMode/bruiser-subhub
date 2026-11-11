@@ -541,6 +541,27 @@ def execute(rows,doc,*,limit,runner=call,writer=write_job_state):
         else:
             item["status"]="held"
             item["reason"]=safe_failure_reason(out,err)
+        # The original ID/one-provider route is NOT the verdict on Japanese
+        # subtitle availability. For any unresolved item, really search the
+        # existing OpenSubtitles/SubDL coordinator by title + S/E, and stage
+        # recoverable saved OpenSubtitles candidates before moving on.
+        if runner is call and item["status"] in ("held","no_match"):
+            fallback_status,reason,searched,downloaded=recover_via_sublarr(
+                row,remaining_searches=max(0,limit-doc["searches_this_run"]),
+                checkpoint=checkpoint)
+            doc["searches_this_run"]+=searched
+            doc["downloads_this_run"]+=downloaded
+            if fallback_status=="published":
+                item["status"]="published"
+                item["reason"]="Japanese sidecar created via "+reason
+            elif fallback_status=="deferred":
+                item["status"]="deferred"
+                item["reason"]=reason
+                mark_processed(doc,item)
+                event(doc,"provider_deferred",label,reason)
+                doc["state"]="paused";writer(doc);return
+            elif reason:
+                item["reason"]=reason
         mark_processed(doc,item)
         event(doc,item["status"],label,item["reason"])
         writer(doc)
