@@ -192,6 +192,8 @@ def parse(events):
                 state["complete"] = True
                 state["phase"] = ("Finished stages; sourcing stopped at provider limit"
                                   if state["search_stopped_early"] else
+                                  "Finished selected searches; provider coverage incomplete"
+                                  if state["search_partial"] else
                                   "Completed (source-only)")
                 state["current"] = ""
             elif line.startswith(("JA_SOURCE_AUTOFILL_HELD", "BRUISER CYCLE HELD",
