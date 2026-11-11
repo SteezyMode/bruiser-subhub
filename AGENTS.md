@@ -1,5 +1,7 @@
 # Instructions for work on Bruiser SubHub
 
+> **Latest P0-B failed runtime result:** Owner ran the S07E02 subbuzz fetch test; remote search returned both JA candidates but the in-memory remote-byte GET returned `HTTPError`, status hidden by original probe. **No bytes/staging/ALASS/publication.** Subbuzz aggregates upstream providers, potentially duplicating OS/SubDL. Next action is *read-only Jellyfin journal inspection*, not blind reruns. [Record & command](docs/SEARCH_RECOVERY_ROADMAP.md#2026-11-11-p0-b-live-retrieval-attempt--search-succeeded-bytes-not-retrieved).
+
 > **MANDATORY NEXT-CHAT HANDOFF — AS OF 2026-11-11**
 > Before any source-code patch, provider search, claim of a fix, or request for server logs, read **[docs/SEARCH_RECOVERY_ROADMAP.md](docs/SEARCH_RECOVERY_ROADMAP.md)** and **[issue #89 (search)](https://github.com/SteezyMode/bruiser-subhub/issues/89)**. Read **[issue #90 (real progress bars, batch jobs, Jellyfin movie browser)](https://github.com/SteezyMode/bruiser-subhub/issues/90)** before UI/queue work. These exist because previous chats repeatedly lost essential investigation history. **Do not restart from guesses or repeat already failed v1-v4 fixes.**
 >
