@@ -47,6 +47,7 @@ hr{border:0;border-top:1px solid var(--line);margin:17px 0}
 .review{margin-top:7px}
 .review summary{cursor:pointer;font-weight:400;color:var(--accent);padding:3px 0}
 .review-list{font-size:12px;color:var(--dim);padding:5px 0}
+#jellyfin-job-holds{white-space:pre-line;max-height:230px;overflow-y:auto;padding-top:8px}
 .status-strip{display:flex;gap:16px;flex-wrap:wrap;font-size:13px;color:var(--dim)}
 .status-strip strong{color:var(--ink)}
 .counter{color:var(--dim);font-size:12px}
@@ -152,8 +153,10 @@ details>summary{cursor:pointer}
   <p class="small muted" id="jellyfin-job-details"></p>
   <p class="small muted" id="jellyfin-job-current"></p>
   <div class="row"><button id="jellyfin-job-continue" class="primary" type="button" hidden>Continue remaining</button><button id="jellyfin-job-stop" type="button" class="quiet" hidden>Stop source job</button></div>
-  <div id="jellyfin-job-events" class="small muted" aria-live="polite"></div>
   <div id="jellyfin-job-holds" class="small muted" aria-live="polite"></div>
+  <details class="review"><summary>Technical activity</summary>
+   <div id="jellyfin-job-events" class="small muted" aria-live="polite"></div>
+  </details>
  </div>
  <div id="batch-overview" hidden>
   <div class="split"><strong id="batch-count">PLaMo batch</strong><span id="batch-remaining" class="small muted"></span></div>
@@ -550,39 +553,40 @@ function renderJellyfinJob(d){
   const p=d.jellyfin_source||{};
   $("jellyfin-job").hidden=!p.known&&!p.active;
   if(!p.known&&!p.active)return;
-  const total=Number(p.total)||0, finished=Number(p.finished)||0;
+  // Count ONLY episodes selected for this run. A failed/no-match episode
+  // advances the same meter as a publication; saved results stay separate.
+  const known=Number.isInteger(p.pass_total)&&Number.isInteger(p.pass_processed);
+  const total=known?p.pass_total:0;
+  const finished=known?Math.min(total,p.pass_processed):0;
   const percent=total?Math.round(100*finished/total):0;
   const scope=p.selector||{};
-  const name=scope.series||"Selected Jellyfin movies";
-  $("jellyfin-job-title").textContent=name+" · Japanese sourcing";
-  $("jellyfin-job-state").textContent=
-    p.active?(p.state==="no_progress"?"No progress yet":"Running"):
-    p.state||"Preparing";
+  $("jellyfin-job-title").textContent=(scope.series||"Selected Jellyfin movies")+
+    " · Japanese subtitle pass";
+  $("jellyfin-job-state").textContent=p.active?"Running":
+    p.state==="completed"?"Pass finished":p.state||"Preparing";
   $("jellyfin-job-fill").style.width=percent+"%";
   $("jellyfin-job-meter").setAttribute("aria-valuenow",String(percent));
   $("jellyfin-job-meter").setAttribute("aria-valuetext",
-    total?finished+" of "+total+" processed":"Preparing selection");
-  $("jellyfin-job-details").textContent=finished+"/"+total+" checked · "+
-    (p.pending||0)+" remaining · "+(p.published||0)+" published · "+
-    (p.already_covered||0)+" already covered · "+
-    (p.no_match||0)+" no match · "+(p.held||0)+" held · "+
-    (p.deferred||0)+" deferred · "+(p.searches_this_run||0)+
-    " / "+(p.search_cap||20)+" provider searches allowed this pass";
+    total?finished+" of "+total+" episodes processed":"Awaiting run totals");
+  $("jellyfin-job-details").textContent=total?
+    finished+" / "+total+" episodes processed this pass":
+    known?"No new episodes selected this pass":"Waiting for per-pass counts";
   const phaseAge=Math.max(0,Number(p.phase_age_seconds)||0);
-  const phaseAgeText=p.progress_available?" · "+phaseAge+"s in this stage":"";
   const staleNotice=p.active&&p.progress_available&&phaseAge>120?
-    " · No new checkpoint in "+phaseAge+"s; worker may be slow or stalled":"";
+    " · No new checkpoint for "+phaseAge+"s":"";
   $("jellyfin-job-current").textContent=p.current?
-    (p.active?"Now: ":"Status: ")+escapeText(p.current)+
-      " · "+escapeText(p.phase||"")+phaseAgeText+staleNotice:
-    "Phase: "+escapeText(p.phase||"waiting")+phaseAgeText+staleNotice;
-  $("jellyfin-job-holds").textContent=(p.holds||[]).length?
-    "Held episodes: "+p.holds.map(x=>x.item+" — "+x.reason.replaceAll("_"," ")).join(" | "):
-    "";
+    (p.active?"Now: ":"Last activity: ")+escapeText(p.current)+staleNotice:
+    (p.active?"Preparing next episode":"");
+  const exceptions=p.exceptions||[];
+  $("jellyfin-job-holds").textContent=exceptions.length?
+    "Set aside for review ("+exceptions.length+"):\n"+
+    exceptions.map(x=>x.item+" — "+
+      (x.reason||x.status||"review needed").replaceAll("_"," ")).join("\n"):
+    "No exceptions recorded";
   $("jellyfin-job-stop").hidden=!p.active;
   $("jellyfin-job-continue").hidden=p.active||!p.pending||!p.known;
   $("jellyfin-job-continue").disabled=busy||latest.workersBusy;
-  $("jellyfin-job-events").textContent=(p.events||[]).slice(-4)
+  $("jellyfin-job-events").textContent=(p.events||[]).slice(-6)
     .map(e=>e.phase+(e.item?" · "+e.item:"")+(e.detail?" · "+e.detail:""))
     .join(" | ");
 }
