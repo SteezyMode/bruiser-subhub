@@ -7,6 +7,24 @@
 >
 > **Owner's current explicit order:** (1) fix reliable Japanese subtitle search and publication end-to-end; (2) all jobs need real dashboard progress, and manual batches must be possible; (3) Jellyfin-style movie poster grid with genre browsing/multi-selection; (4) eventually incremental source-on-add. No enterprise/startup framing. Do not build attractive controls that fail to deliver Japanese subtitles.
 
+## 2026-11-11 P0-C HOST VERIFIED: private stage succeeds, publisher dry-run fallback ready
+
+**Owner executed the pinned reversible installer, private stage and ONE exact-item publisher dry-run. Actual host evidence (supersedes the older "CODE ONLY" status below):**
+
+- Installed pinned commit **`360638244a3cd3b15e114ac6f8c53daa12317757`** on OptiPlex with `install_global_ja_sourcing.py --install-only`. Backed up originals in the host's existing private source directory (`.ja-library-source-backup-_a5fq4eb`). Dashboard restarted; **no catalog refresh, queue reconciliation, scheduled search, or PLaMo job was launched.** Existing ALASS binary available.
+- **Jellyfin/private staging succeeded:** `It's Always Sunny in Philadelphia` S07E02, Jellyfin ID `76f7bdc090eb5db4f0287610859f386d`, subbuzz/OpenSubtitles SRT **25,989 bytes, 402 cues, 3,502 Japanese characters**. Verified video length **1291.29 sec**. One private stage row saved with numeric stage ID **`9494097471374`**, `status=staged_not_published`. No media modifications. Exact-content SHA prefix **`afaf762847bc2564`**.
+- **Exact-item publisher DRY RUN succeeded:** `--jellyfin-id 76f7bdc090eb5db4f0287610859f386d --max-titles 1 --limit 1` selected **one and only one** existing stage. `ALASS HELD: RuntimeError alass_dialogue_changed` (its proposed output did not preserve cue-by-cue dialogue). The **existing FFSUBSYNC fallback** passed content/coverage/QA: `mode=original`, `shift_range_seconds=[0.12,0.12]`, `cues=402`, Japanese fraction 1.0, 0 overlaps repaired; resulted `ready_ffsubsync` in dry run. **No publication**. The ALASS rejection is a safety gate operating correctly, NOT evidence that the downloaded Japanese SRT is bad. Do NOT relax dialogue equality or run another broad search to "fix" this.
+- **Current decision:** for THIS exact item, FFSUBSYNC already approved the **original byte-identical Japanese subtitle** for create-only publication. After owner invokes an explicit `--apply` on this same single-ID publisher command, re-running the same hard gates, check Jellyfin playback at beginning, middle and ending. Publisher may still hold if library/host state changed. Do not misstate `ready_ffsubsync` as a published track.
+- **Next command (explicit one-item publication only, no provider requests):**
+```bash
+ssh optiplex@100.121.156.34 \
+'python3 -B "$HOME/bruiser-pilot/subhub-control/ja_first_publish_queue.py" \
+  --jellyfin-id 76f7bdc090eb5db4f0287610859f386d \
+  --max-titles 1 --limit 1 --apply'
+```
+**Only inspect ALASS after first playback or other evidence of real drift.** Future controlled ALASS diagnostics should count changed cues, classify whitespace-only versus semantic differences and keep source dialogue unmodified. Prefer the tested FFSUBSYNC original result now rather than postponing the first end-to-end Japanese track indefinitely.
+- **Still open P0:** initial v4 search hit rate, metadata loss/50-result truncation, per-provider participation/quotas, SubDL staging, full-library throughput, and dashboard job progress/multi-selection. One successful pilot cannot prove full coverage.
+
 ## 2026-11-11 P0-C — Jellyfin subtitle into existing private SubHub stage (CODE ONLY)
 
 **P0-C is now implemented in GitHub but NOT installed on OptiPlex. No staged Jellyfin candidate, ALASS result, publication or playback is yet verified.** This preserves P0 status honestly.
