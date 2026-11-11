@@ -7,6 +7,27 @@
 >
 > **Owner's current explicit order:** (1) fix reliable Japanese subtitle search and publication end-to-end; (2) all jobs need real dashboard progress, and manual batches must be possible; (3) Jellyfin-style movie poster grid with genre browsing/multi-selection; (4) eventually incremental source-on-add. No enterprise/startup framing. Do not build attractive controls that fail to deliver Japanese subtitles.
 
+## 2026-11-11 P0-B root cause confirmed — subbuzz OpenSubtitles authentication not configured
+
+**Host log inspected by owner after in-memory GET failure**:
+
+```text
+Jellyfin GET /Providers/Subtitles/Subtitles/<redacted provider-specific ID>
+System.Security.Authentication.AuthenticationException:
+  Account username and/or password are not set up
+at subbuzz.Providers.OpenSubtitlesCom.Login(...)
+at subbuzz.Providers.OpenSubtitlesCom.GetDownloadLink(...)
+at subbuzz.Providers.SubBuzz.GetSubtitles(...)
+at Jellyfin.Api.Controllers.SubtitleController.GetRemoteSubtitles(...)
+```
+
+- **Confirmed:** The selected subbuzz result's actual underlying provider was **OpenSubtitles.com**. The OpenSubtitles.com username/password fields in the subbuzz plugin were **not configured**; it can show search results but cannot download until authenticated. This is a **configuration blocker**, not evidence of a missing Japanese subtitle, a bad title match, or a failed ALASS correction.
+- Verified upstream `josdion/subbuzz` code: `Providers/OpenSubtitlesCom.cs` `Login()` throws this exact exception if `OpenSubUserName` or `OpenSubPassword` is missing. Its Jellyfin configuration page has **OpenSubtitles.com Account** username/email and password inputs, plus the separate OpenSubtitles provider toggle. The existing independent Jellyfin OpenSubtitles plugin and separate Sublarr account settings do **not** populate the subbuzz fields automatically.
+- **Prior existing-account recovered privately:** An existing OpenSubtitles registration was confirmed through connected personal mail and past interactions; **do not place account email, username, passwords, API keys, reset links or tokens in this PUBLIC GitHub repository**. No new account needed merely to resolve this issue. The owner can use that already-owned login and recover/reset its password through OpenSubtitles if needed. **Do not suggest creating another OpenSubtitles account by default.**
+- **Next allowed repair:** owner opens Jellyfin Dashboard → Plugins → subbuzz configuration → OpenSubtitles.com Account, configures the **existing** account locally, saves, and only then performs a one-candidate in-memory GET again (budget-aware). Do not send credentials in chat, shell history, GitHub or logs. If plugin configuration already has a valid login for the native OpenSubtitles plugin, that is *separate plugin configuration*; consolidate identities, not code duplication.
+- **Still unverified:** successful remote subtitle bytes retrieval via this backend; private staging to ALASS and no-clobber publication; whether subbuzz's other underlying providers add new candidates. Do not mark P0 solved. Separate unrelated FFprobe errors for *American Horror Story* during Jellyfin scan are not part of this failure.
+- **Diagnostic patch:** `tools/probe_jellyfin_remote_subtitle.py` now reports `HTTP_XXX` (without response body, URL, or credentials); unit tests passed. The actual journal supplied the decisive error without another provider request.
+
 ## 2026-11-11 P0-B LIVE retrieval attempt — search succeeded; bytes NOT retrieved
 
 **Actual owner-run host output (one episode, subbuzz):**
