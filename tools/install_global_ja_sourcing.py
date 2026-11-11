@@ -53,6 +53,7 @@ SOURCE_FILES=(
 DASH_FILES=(
     "subhub_dashboard_server.py",
     "subhub_dashboard.html",
+    "subhub_translation_batch.py",
     "ja_first_source_tracker.py",
     "subhub_library_coverage.py",
     "subhub_season_sources.py",
@@ -200,7 +201,8 @@ def main():
         destinations[("source",name)]=target
     for name in DASH_FILES:
         target=DASH/name
-        secure_file(target)
+        secure_file(target,allow_new=name in {
+            "subhub_library_coverage.py","subhub_translation_batch.py"})
         destinations[("dashboard",name)]=target
 
     print("FETCHING fixed revision:",args.commit)
