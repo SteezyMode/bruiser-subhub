@@ -114,6 +114,7 @@ details>summary{cursor:pointer}
  <div class="row"><button id="select-seasons" type="button" class="quiet">Select all seasons</button><button id="clear-seasons" type="button" class="quiet">Clear seasons</button></div>
  <div id="seasons" class="seasons" aria-label="Choose seasons"></div>
  <div class="status-strip" id="coverage-totals" aria-live="polite">Choose seasons to inspect subtitle coverage.</div>
+ <div class="row"><button id="refresh-coverage" class="quiet" type="button" disabled>Recheck selected episode coverage</button></div>
  <div class="episode-controls">
   <button id="source-selected" class="primary" type="button" disabled>Find Japanese for selected seasons / episodes</button>
   <button id="source-whole-series" type="button">Retry missing Japanese · entire series</button>
@@ -287,22 +288,34 @@ function counts(){
 }
 function renderCoverage(){
   const n=counts();
+  const missing=n.total-n.covered;
+  const eligible=[...coverage.values()].flatMap(report=>report.items||[])
+     .filter(item=>item.status!=="covered"&&item.can_translate).length;
+  const checkedEligible=checked.size?picksFor("translate").length:0;
+  const scopeCount=coverage.size+"/"+selectedSeasons.size;
   $("coverage-totals").textContent=selectedSeasons.size?
-    n.covered+" of "+n.total+" episodes have Japanese subtitles · "+
-    (n.total-n.covered)+" remaining · "+
-    coverage.size+"/"+selectedSeasons.size+" seasons loaded":
-    "Choose one or several seasons to inspect coverage.";
-  const src=picksFor("source"), ai=checked.size?picksFor("translate"):[];
+    "Selected seasons only · "+scopeCount+" loaded · "+
+    n.covered+" / "+n.total+" episodes with Japanese · "+
+    missing+" without Japanese in this selection (not entire-series total) · "+
+    n.review+" timing/verification or other reviews · "+
+    n.sourcing+" sourcing · "+n.needs_english+" need English · "+
+    eligible+" currently eligible for PLaMo. "+
+    "Source: saved coverage queue and checked sidecars; may lag Jellyfin.":
+    "Choose seasons to inspect. Counts describe loaded selections, not the whole series.";
+  $("refresh-coverage").disabled=busy||!selectedSeasons.size;
   $("source-selected").disabled=busy||!selectedSeasons.size||latest.workersBusy;
   $("source-whole-series").disabled=busy||latest.workersBusy;
-  $("translate-selected").disabled=busy||!checked.size||!ai.length||latest.workersBusy||!latest.aiAvailable;
+  $("translate-selected").disabled=busy||!checkedEligible||latest.workersBusy||!latest.aiAvailable;
   $("source-selected").textContent="Find Japanese · selected "+
     (checked.size?checked.size+" episode(s)":selectedSeasons.size+" season(s)");
-  $("translate-selected").textContent="Last resort: checked PLaMo ("+ai.length+")";
+  $("translate-selected").textContent="Translate checked with PLaMo ("+
+    checkedEligible+" selected / "+eligible+" eligible)";
   $("toggle-episodes").disabled=!n.total;
   $("action-note").textContent=checked.size?
-    "Your "+checked.size+" checked episode(s) will be sourced through Jellyfin. Clear checks to source selected seasons.":
-    "Whole-series retry can process up to 200 missing episodes in one background job. Selected scopes use 20-search passes. Progress survives browser closure.";
+    checked.size+" episode(s) checked. PLaMo accepts only those currently eligible ("+
+    checkedEligible+"); sourcing is a separate action.":
+    "No episodes checked. Reviewing the list never starts translation. Select individual episodes for PLaMo, or source selected seasons separately. "+
+    "The missing count is not a count of PLaMo-ready episodes.";
   if(expanded)renderEpisodes();
 }
 function statusName(item){
@@ -740,6 +753,14 @@ $("clear-seasons").addEventListener("click",()=>{
   selectedSeasons.clear();coverage.clear();checked.clear();
   for(const input of $("seasons").querySelectorAll('input[type="checkbox"]'))input.checked=false;
   renderCoverage();
+});
+$("refresh-coverage").addEventListener("click",async()=>{
+  if(busy||!selectedSeasons.size)return;
+  busy=true;
+  try{
+    await Promise.all([...selectedSeasons].map(loadSeason));
+    showMessage("Rechecked "+coverage.size+" selected season(s) against the saved coverage queue and physical Japanese sidecars. This is not a Jellyfin library rescan.");
+  }finally{busy=false;renderCoverage();}
 });
 $("toggle-episodes").addEventListener("click",()=>{
   expanded=!expanded;$("episode-details").hidden=!expanded;
