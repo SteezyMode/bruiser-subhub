@@ -290,11 +290,13 @@ def safe_failure_reason(stdout,stderr):
 
 
 def is_upstream_failure(stdout,reason):
-    """Only common provider failures should pause a *whole-series* pass."""
-    return (reason.startswith("provider_http_") or reason in (
-        "provider_download_failed","provider_search_failed",
-        "preflight_or_credentials_failed")) and (
-        "JELLYFIN_JA_SEARCH_REQUEST:" in stdout)
+    """Pause only if requests reached the provider but no bytes came back.
+
+    Individual media preflight failures and invalid subtitle QA (bytes already
+    downloaded) are independent item holds, not evidence provider is down.
+    """
+    return ("JELLYFIN_JA_SEARCH_REQUEST:" in stdout and
+            "JELLYFIN_JA_BYTES:" not in stdout)
 
 
 def execute(rows,doc,*,limit,runner=call,writer=write_job_state):
