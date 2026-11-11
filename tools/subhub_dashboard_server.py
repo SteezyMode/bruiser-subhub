@@ -542,6 +542,8 @@ def scheduled_source_activity(active, max_lines=5000):
             "source_held":"Most recent automatic source cycle failed",
             "source_completed":("Source stages finished; search deferred by provider"
                                 if details.get("search_stopped_early")
+                                else "Selected searches finished; provider coverage incomplete"
+                                if details.get("search_partial")
                                 else "Most recent automatic source cycle completed"),
             "source_interrupted":"Most recent automatic source cycle interrupted",
         }[status]
