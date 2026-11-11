@@ -1,5 +1,7 @@
 # Instructions for work on Bruiser SubHub
 
+> **OpenSubtitles account (owner-confirmed Nov 11):** username `ajstarrett`, not `optiplex`. Password was provided in the conversation but is **NOT** in this public repository and must not be committed. subbuzz has its own OpenSubtitles.com username/password fields, separate from Sublarr and Jellyfin's native subtitle plugin. See [provider identity and enabled provider details](docs/SEARCH_RECOVERY_ROADMAP.md#2026-11-11-owner-confirmed-opensubtitles-identity-and-provider-toggles).
+
 > **Latest P0-B failed runtime result:** Owner ran the S07E02 subbuzz fetch test; remote search returned both JA candidates but the in-memory remote-byte GET returned `HTTPError`, status hidden by original probe. **No bytes/staging/ALASS/publication.** Subbuzz aggregates upstream providers, potentially duplicating OS/SubDL. Next action is *read-only Jellyfin journal inspection*, not blind reruns. [Record & command](docs/SEARCH_RECOVERY_ROADMAP.md#2026-11-11-p0-b-live-retrieval-attempt--search-succeeded-bytes-not-retrieved).
 
 > **MANDATORY NEXT-CHAT HANDOFF — AS OF 2026-11-11**
