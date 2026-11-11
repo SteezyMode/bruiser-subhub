@@ -109,9 +109,9 @@ def keep_source_dialogue(source, aligned):
     for i,(original,corrected) in enumerate(zip(old,new),1):
         if corrected["start"]<0 or corrected["end"]<=corrected["start"]:
             raise RuntimeError("sync_invalid_interval")
-        lines.append(f'{i}\\n{format_ms(corrected["start"])} --> '
-                     f'{format_ms(corrected["end"])}\\n{original["text"]}')
-    return ("\\n\\n".join(lines)+"\\n").encode("utf-8")
+        lines.append(f'{i}\n{format_ms(corrected["start"])} --> '
+                     f'{format_ms(corrected["end"])}\n{original["text"]}')
+    return ("\n\n".join(lines)+"\n").encode("utf-8")
 
 
 def path_in_container(host_path,mounts):
