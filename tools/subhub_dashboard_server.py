@@ -832,8 +832,9 @@ def start_movie_source(doc):
             or not path.is_file() or not any(path.is_relative_to(root)
                                             for root in MOVIE_ROOTS)):
         raise ValueError("selected_movie_no_longer_available")
-    if (unit_active(BATCH_UNIT) or unit_active(SCHEDULED_UNIT)
-            or unit_active(SEASON_SOURCE_UNIT) or unit_active(JELLYFIN_SOURCE_UNIT)
+    if (unit_active(FINISH_UNIT) or unit_active(BATCH_UNIT) or
+            unit_active(SCHEDULED_UNIT) or unit_active(SEASON_SOURCE_UNIT)
+            or unit_active(JELLYFIN_SOURCE_UNIT)
             or unit_active(MOVIE_UNIT) or translation_busy()):
         raise RuntimeError("another_source_or_translation_worker_is_active")
     if not movie_source_status()["available"]:
@@ -869,8 +870,9 @@ def start_movie_translation(doc):
     if (evidence.get("jellyfin_id")!=jid or not evidence.get("fallback_ready")
             or evidence.get("search_outcome") not in ("none","review","plausible")):
         raise RuntimeError("movie_not_in_verified_japanese_fallback_queue")
-    if (unit_active(BATCH_UNIT) or unit_active(SCHEDULED_UNIT)
-            or unit_active(SEASON_SOURCE_UNIT) or unit_active(JELLYFIN_SOURCE_UNIT)
+    if (unit_active(FINISH_UNIT) or unit_active(BATCH_UNIT) or
+            unit_active(SCHEDULED_UNIT) or unit_active(SEASON_SOURCE_UNIT)
+            or unit_active(JELLYFIN_SOURCE_UNIT)
             or unit_active(MOVIE_UNIT) or translation_busy()):
         raise RuntimeError("another_source_or_translation_worker_is_active")
     if not season_batch.ENGINE.is_file() or season_batch.ENGINE.is_symlink():
@@ -1026,6 +1028,8 @@ def source_controls(action):
             raise RuntimeError("season_source_active_cannot_start_source_worker")
         if unit_active(JELLYFIN_SOURCE_UNIT):
             raise RuntimeError("Jellyfin source batch already running")
+        if unit_active(FINISH_UNIT):
+            raise RuntimeError("TV completion job already running")
     if action=="start-auto":
         if manual or scheduled:
             raise RuntimeError("Source job already running")
@@ -1067,7 +1071,7 @@ def control_availability():
     scheduled=unit_active(SCHEDULED_UNIT)
     can_start=not manual and not scheduled and not unit_active(SEASON_SOURCE_UNIT)
     if can_start:
-        can_start=not translation_busy() and not unit_active(JELLYFIN_SOURCE_UNIT)
+        can_start=not translation_busy() and not unit_active(JELLYFIN_SOURCE_UNIT) and not unit_active(FINISH_UNIT)
     return {"available":True,
             "start_auto":can_start,
             "stop_auto":scheduled,
@@ -1375,8 +1379,9 @@ def start_season_sources(doc):
         picks = None
     else:
         raise ValueError("invalid_season_source_request")
-    if (unit_active(BATCH_UNIT) or unit_active(SCHEDULED_UNIT)
-            or unit_active(SEASON_SOURCE_UNIT) or unit_active(JELLYFIN_SOURCE_UNIT)
+    if (unit_active(FINISH_UNIT) or unit_active(BATCH_UNIT) or
+            unit_active(SCHEDULED_UNIT) or unit_active(SEASON_SOURCE_UNIT)
+            or unit_active(JELLYFIN_SOURCE_UNIT)
             or translation_busy()):
         raise RuntimeError("another_source_or_translation_worker_is_active")
     if not season_sources_status()["available"]:
@@ -1623,8 +1628,9 @@ def jellyfin_source_arguments(doc):
 
 
 def start_jellyfin_source(doc):
-    if (unit_active(BATCH_UNIT) or unit_active(SCHEDULED_UNIT)
-            or unit_active(SEASON_SOURCE_UNIT) or unit_active(JELLYFIN_SOURCE_UNIT)
+    if (unit_active(FINISH_UNIT) or unit_active(BATCH_UNIT) or
+            unit_active(SCHEDULED_UNIT) or unit_active(SEASON_SOURCE_UNIT)
+            or unit_active(JELLYFIN_SOURCE_UNIT)
             or unit_active(MOVIE_UNIT) or translation_busy()):
         raise RuntimeError("another_source_or_translation_worker_is_active")
     if not JELLYFIN_SOURCE_EXEC.is_file() or JELLYFIN_SOURCE_EXEC.is_symlink():
