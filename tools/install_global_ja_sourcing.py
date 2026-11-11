@@ -43,6 +43,7 @@ SOURCE_FILES=(
     "benchmark_subtitle_search_paths.py",
     "probe_jellyfin_remote_subtitle.py",
     "ja_first_stage_jellyfin.py",
+    "subhub_download_ledger.py",
     "subhub_jellyfin_batch.py",
     "ja_first_autofill.py",
 )
@@ -186,6 +187,7 @@ def main():
             "benchmark_subtitle_search_paths.py",
             "probe_jellyfin_remote_subtitle.py",
             "ja_first_stage_jellyfin.py",
+            "subhub_download_ledger.py",
             "subhub_jellyfin_batch.py",
         })
         destinations[("source",name)]=target
