@@ -449,7 +449,11 @@ def pick(rows, db, budget):
             done.add(str(jid))
         elif outcome == "error" and when >= now-86400:
             done.add(str(jid))
-        elif outcome not in ("in_progress","error","deferred") and when >= now-30*86400:
+        elif outcome == "partial" and when >= now-20*3600:
+            # One or more providers were unavailable. Don't requery available
+            # providers again in the same allowance window; retry on later runs.
+            done.add(str(jid))
+        elif outcome not in ("in_progress","error","deferred","partial") and when >= now-30*86400:
             # Zero-result entries made before provider-gate verification are
             # inconclusive and may be retried once with the improved
             # strategy. Existing positive candidates
