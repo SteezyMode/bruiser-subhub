@@ -71,6 +71,17 @@ def main():
     print("MISSING_WITH_SAVED_JA_STAGE:",len(already_staged),flush=True)
     print("ALREADY_PUBLISHED_BUT_STALE_MANIFEST:",len(existing),flush=True)
     print("MISSING_WITH_NO_JA_STAGE:",len(unstaged),flush=True)
+    not_source_ready = [
+        r for r in rows if isinstance(r,dict)
+        and r.get("kind")=="Episode"
+        and r.get("series_title")==args.series
+        and str(r.get("status") or "").startswith("review_")
+    ]
+    print("INVENTORY_REQUIRES_REVIEW:",len(not_source_ready),flush=True)
+    for row in not_source_ready:
+        print(f'REVIEW S{int(row.get("season") or 0):02d}'
+              f'E{int(row.get("episode") or 0):02d}: '
+              f'{row.get("status")}',flush=True)
     for row in unstaged:
         jid=str(row["jellyfin_id"])
         outcome,raw=history.get(jid,("never_searched","{}"))
