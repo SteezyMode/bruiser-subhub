@@ -869,15 +869,18 @@ def start_movie_translation(doc):
         raise RuntimeError("another_source_or_translation_worker_is_active")
     if not season_batch.ENGINE.is_file() or season_batch.ENGINE.is_symlink():
         raise RuntimeError("subhub_ai_not_installed")
-    try:
-        from . import subhub_plamo_handoff as handoff
-    except ImportError:
-        import subhub_plamo_handoff as handoff
-    with handoff.safe_db(handoff.QUEUE) as db:
-        rows=handoff.eligible(db,jid,1)
-    if len(rows)!=1 or rows[0]["path"]!=video or rows[0]["kind"]!="Movie":
+    with season_batch.read_queue() as db:
+        rows=db.execute("""
+            SELECT m.path,m.kind,t.action,t.state
+            FROM media AS m JOIN tasks AS t ON t.path=m.path
+            WHERE m.jellyfin_id=? AND m.kind='Movie' AND t.target='ja'
+              AND t.active=1
+        """,(jid,)).fetchall()
+    if (len(rows)!=1 or rows[0]["path"]!=video
+            or rows[0]["action"] not in (
+                "validate_english_for_ja_fallback","recover_english_for_ja_fallback")
+            or rows[0]["state"]!="pending"):
         raise RuntimeError("selected_movie_source_queue_changed")
-    handoff.validate_row(rows[0])
     command=[
         "systemd-run","--user","--unit=bruiser-subhub-translation-batch",
         "--collect","--property=KillMode=control-group","--",
