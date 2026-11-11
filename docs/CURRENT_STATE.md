@@ -1,4 +1,18 @@
-# SubHub — current state and next verified work (2026-11-10 JST)
+# SubHub — current state and next verified work (updated 2026-11-11 JST)
+
+> **CURRENT OWNER PRIORITY OVERRIDE — READ FIRST.**
+>
+> **[Search Recovery Roadmap (canonical development handoff)](SEARCH_RECOVERY_ROADMAP.md)** · [P0 search issue #89](https://github.com/SteezyMode/bruiser-subhub/issues/89) · [P1/P2 progress, multi-movie batches and poster browsing issue #90](https://github.com/SteezyMode/bruiser-subhub/issues/90)
+>
+> **Definitive owner-run host audit, Nov 11:** OptiPlex search **strategy v4 installed**; overnight run recorded **44 NONE, 1 DEFERRED at #45 of configured 600 ceiling**, stopping because **SubDL was budget_exhausted while OpenSubtitles was still ok**. **Zero usable new Japanese matches from those 44 searches.** The worker subsequently finished its staging/publish stages, using previously retained candidates (19 publications); it **did not finish 600 searches**. Provider pacing: `stretch`, 20% margin; present-day counters reset to zero after UTC day rollover. Direct IASIP S07E02 candidate had been discovered in a separate provider test. ALASS binary and publisher integration were owner-verified on host.
+>
+> **P0:** Fix true provider query metadata (movie year / series parent identity), source participation, first-50 truncation, lost cache `matches`, subdl staging, and per-provider budget continuity. Benchmark 10 known cases and Jellyfin playback; **no new 600-title run just to see what happens**.
+>
+> **P1:** EVERY job, including full-library/selected TV/single movie/mixed-movie batch/staging/ALASS QA/PLaMo, needs a **real progress bar, current item, outcomes and blocked/deferred reason in dashboard**, not a grayed-out button. User must be able to select and run **multiple mixed-genre movies in one batch**.
+>
+> **P2:** A Jellyfin-like **poster grid**: selecting `Comedy` without a title typed loads the **entire actual Comedy category**; typing `Step Brothers` directly also works. Selection persists across pages/categories. Later, once sourcing is demonstrably reliable, incremental automatic JA sourcing for newly added Jellyfin media.
+>
+> **Critical honesty:** GitHub unit tests/commits != OptiPlex installed != valid candidates != staged/ALASS-verified != published != Jellyfin dialogue/playback verified. Dashboard partial-stop correction committed and CI-passing; **not confirmed deployed**. The older historical paragraphs below include outdated priorities, tentative hypotheses and earlier "not deployed" statements. **They are history, not this day's working instructions.** Don't let them override this top status.
 
 **Read [../GOAL.md](../GOAL.md) first.** Historical records formerly appended here remain in the Git history; dated docs under docs/ are retained as archives, not competing priorities.
 
