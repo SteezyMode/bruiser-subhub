@@ -276,8 +276,8 @@ def execute(rows,doc,*,limit,runner=call,writer=write_state):
         except subprocess.TimeoutExpired:
             code,out,err=124,"","timed_out"
         verdict=classify_stage(code,out,err)
-        if "JELLYFIN_JA_MATCHING_CANDIDATES:" in out or
-             "JELLYFIN_JA_BYTES:" in out:
+        if ("JELLYFIN_JA_MATCHING_CANDIDATES:" in out or
+                "JELLYFIN_JA_BYTES:" in out):
             doc["searches_this_run"]+=1
         # The operation can still have spent a request if it errored after
         # remote SEARCH started but before it printed matching candidates.
