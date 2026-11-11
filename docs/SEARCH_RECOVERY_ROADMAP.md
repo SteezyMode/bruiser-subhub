@@ -16,7 +16,7 @@
 - **Trigger/repro:** Owner's November 11 audit: full-library source v4 performed 44 `NONE` and ended at #45 `DEFERRED` on *Jug Face*. `provider_gates={opensubtitles:ok, subdl:budget_exhausted}`. Earlier `require_sources()` required **every** provider to be open.
 - **Patch:** `tools/ja_first_search_pilot.py` now sends a search to the existing long-lived Sublarr server when **any** enabled core Japanese provider is healthy. Sublarr's own coordinator still applies the other provider's budget and skips blocked providers. Health is checked before and after, and if any enabled provider is unavailable, results are marked **partial/incomplete**, never an exhaustive `none`. If all are unavailable, the worker emits `deferred` and does not POST. If a provider closes between first IMDb lookup and optional fallback, the first response is retained.
 - **Persistence:** Empty incomplete queries get `outcome=partial`; `incomplete_providers` and gates are stored alongside existing candidate/rejected evidence. Partial search is retry-eligible after 20 hours, not continuously re-requested in the same budget window. The coverage queue continues `search_ja` for partial/deferred; selected-TV workflow uses the same contract. Staging code can recognize `partial` history. Journal/parser/dashboard now count **Partial** separately from **No match**. Existing plausible candidates are retained without being automatically published.
-- **Offline evidence:** `test_ja_first_partial_providers.py` covers SubDL blocked/OpenSubtitles active, all blocked/zero provider POSTs, a gate closure between movie queries, private history+retry and real partial progress reporting. CI for commit `9c208d2ecf0f462807b516b884b6dd03cc417e83` passed Python 3.11 and 3.12.
+- **Offline evidence:** `test_ja_first_partial_providers.py` covers SubDL blocked/OpenSubtitles active, all blocked/zero provider POSTs, a gate closure between movie queries, private history+retry and real partial progress reporting. A fully completed `PARTIAL` batch now displays **"Finished selected searches; provider coverage incomplete"**, not all providers searched. The read-only audit parser also recognizes `PARTIAL`; additional tracker and audit regressions pass. The latest full-suite run (GitHub Actions [42949454242](https://github.com/SteezyMode/bruiser-subhub/actions/runs/42949454242)) passed on Python 3.11 and 3.12.
 - **Deployment & limitations:** **NOT confirmed installed on OptiPlex. NOT a proven increase in Japanese subtitle matches.** The combined endpoint can still return caches, skip particular providers, strip metadata and cap results. Pre/post health alone cannot prove which provider was searched. There is no per-provider-specific search API here, so rechecking partial records later can repeat queries for already-open providers. That is tracked, not concealed.
 
 ### Attempt P0-A2: Compare an *existing* metadata-aware library search route before rewriting Sublarr
@@ -24,8 +24,29 @@
 - **Reason:** Sublarr v1.18.0 POST `/providers/search` drops `VideoQuery.year`; SubDL's actual `year` parameter is generated only from that field. Appending a year to plain title in SubHub v4 does not restore it. The same endpoint truncates to 50; cached match evidence may be absent. We verified those behaviors also persist in the simplified endpoint at Sublarr v1.20.1; upgrading untested would be an ungrounded promise.
 - **Added:** `tools/benchmark_subtitle_search_paths.py` with `test_benchmark_subtitle_search_paths.py`. It selects **one to three explicitly named items** from the existing Jellyfin-authoritative private manifest, prints previous SubHub outcome/partial-rejected counts, and *optionally* calls Jellyfin's authenticated, built-in `GET /Items/{itemId}/RemoteSearch/Subtitles/ja` for the **same library item**. Defaults to **preview/no remote requests**; `--execute` is explicit; no downloads, DB writes, publisher or folder mutations. The actual underlying Jellyfin plugin request counts may differ from the 1–3 API requests and may consume quotas.
 - **Use to determine:** Is a known correct-title Japanese subtitle discoverable via Jellyfin with its exact item metadata when SubHub v4 says `none`? What provider responded? Does the title/episode name match? This is **discovery only**, not subtitle validation or publication.
-- **Test history:** The first standalone benchmark-test CI failed because the unittest accessed `urllib.request.Request.method` (not the documented `.get_method()`); corrected in [commit `35d8679`](https://github.com/SteezyMode/bruiser-subhub/commit/35d867965c68efb4bb470a94c1a8b3caa35a7d62). No server runtime was implicated. Record CI status and live benchmark separately.
+- **Test history:** The first standalone benchmark-test CI failed because the unittest accessed `urllib.request.Request.method` (not the documented `.get_method()`); corrected in [commit `35d8679`](https://github.com/SteezyMode/bruiser-subhub/commit/35d867965c68efb4bb470a94c1a8b3caa35a7d62). Running as a pinned temporary file originally also required the installed source directory on `PYTHONPATH`; direct-script import fallback was added in `1b7026b`. The complete latest offline tests passed on both Python versions ([run 42949454242](https://github.com/SteezyMode/bruiser-subhub/actions/runs/42949454242)). **No live Jellyfin provider call has yet been made by this benchmark.**
 - **Deployment & outcome:** **Not run on OptiPlex**. No claim that Jellyfin returns better matches yet. If it does, prefer reusing that maintained route rather than another bespoke search algorithm; if it doesn't, inspect actual provider registration/settings and native response evidence before assuming Japanese subtitles do not exist.
+
+### Reproducible Jellyfin comparison command, only after checking installed source is idle
+
+Download the pinned comparison tool (does not install or modify anything) and show the plan with **zero provider calls**:
+
+```bash
+ssh optiplex@100.121.156.34 'bash -s' <<'REMOTE'
+set -euo pipefail
+PIN="1b7026b9cea9dfbd018c325537085b0ea19db0f4"
+TMP="$(mktemp)"
+trap 'rm -f "$TMP"' EXIT
+curl -fsSL "https://raw.githubusercontent.com/SteezyMode/bruiser-subhub/$PIN/tools/benchmark_subtitle_search_paths.py" -o "$TMP"
+python3 -B "$TMP" --movie "Bride of Chucky" \
+    --movie "Late Night with the Devil" \
+    --episode "It's Always Sunny in Philadelphia S07E02"
+# To perform THREE Jellyfin remote-subtitle searches (which MAY spend upstream
+# quotas), repeat the same python command with --execute appended.
+REMOTE
+```
+
+The script reads the existing private catalog/Jellyfin auth, prints only titles, metadata, prior SubHub counts and up to ten subtitle result names per item; no credentials, subtitle bytes, sidecar writes or new directories. If a title is missing/ambiguous, **the probe fails instead of guessing**. These examples are a **bounded comparison cohort only**, not hardcoded search logic. To test other titles, replace the three CLI arguments.
 
 ### One bounded next real test (do not start a full scan)
 
