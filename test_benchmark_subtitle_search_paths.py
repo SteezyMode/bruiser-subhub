@@ -35,7 +35,7 @@ class JellyfinSubtitleComparison(unittest.TestCase):
         outgoing=[]
         def opener(req,timeout):
             outgoing.append(req)
-            self.assertEqual(req.method,"GET")
+            self.assertEqual(req.get_method(),"GET")
             self.assertEqual(timeout,100)
             return io.BytesIO(json.dumps([{
                 "ProviderName":"OpenSubtitles",
