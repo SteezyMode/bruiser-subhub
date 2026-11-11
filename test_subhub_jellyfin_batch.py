@@ -320,6 +320,12 @@ class DashboardJellyfinControls(unittest.TestCase):
         self.assertEqual(status["state"],"launch_failed")
         self.assertIn("unit refused",status["current"])
 
+    def test_live_health_probe_checks_mount_writability_not_just_mode(self):
+        self.assertTrue(dashboard.jellyfin_job_receipts_writable())
+        with patch.object(dashboard,"JELLYFIN_SOURCE_LAUNCH",
+                          self.root/"missing"/"receipt.json"):
+            self.assertFalse(dashboard.jellyfin_job_receipts_writable())
+
     def test_existing_dashboard_unit_preserves_home_read_only_except_receipts(self):
         root=Path(__file__).parent/"tools"
         unit=(root/"install_subhub_dashboard.sh").read_text()
