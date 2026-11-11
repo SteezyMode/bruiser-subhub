@@ -20,6 +20,7 @@ from pathlib import Path
 import re
 import sqlite3
 import time
+from urllib.error import HTTPError
 
 try:
     from . import benchmark_subtitle_search_paths as benchmark
@@ -27,6 +28,7 @@ try:
     from . import ja_first_stage_saved_batch as stage
     from . import ja_first_publish_staged as publisher
     from . import ja_first_catalog_manifest as catalog
+    from . import subhub_download_ledger as ledger
 except ImportError:
     import sys
     sys.path.insert(0,str(Path.home()/"bruiser-pilot/subhub-control"))
@@ -35,6 +37,7 @@ except ImportError:
     import ja_first_stage_saved_batch as stage
     import ja_first_publish_staged as publisher
     import ja_first_catalog_manifest as catalog
+    import subhub_download_ledger as ledger
 
 JID = re.compile(r"[a-f0-9]{32}\Z")
 SOURCE = "jellyfin"
@@ -246,8 +249,21 @@ def main():
         return
     candidate=matching[0]
     sid,digest=numeric_stage_id(candidate["Id"])
-    # One byte GET only. A failed provider download never mutates stage state.
-    raw,content_type=probe.get_remote_bytes(candidate,auth,opener)
+    # Count ACTUAL remote subtitle GETs in the owner-private ledger,
+    # independently of whether the downloaded Japanese text passes QA.
+    source_name=ledger.jellyfin_provider(candidate)
+    route=("jellyfin_subbuzz" if str(candidate.get("ProviderName") or "")
+           .casefold()=="subbuzz" else "jellyfin_native")
+    attempt=ledger.begin(source_name,route)
+    try:
+        raw,content_type=probe.get_remote_bytes(candidate,auth,opener)
+    except Exception as exc:
+        code=int(exc.code) if isinstance(exc,HTTPError) else None
+        outcome="quota_blocked" if code in (406,429) else "failed"
+        ledger.finish(attempt,outcome,error_kind=(
+            f"HTTP_{code}" if code else type(exc).__name__))
+        raise
+    ledger.finish(attempt,"downloaded",byte_count=len(raw))
     summary=probe.characterize(raw,content_type)
     print("JELLYFIN_JA_BYTES:",json.dumps(summary),flush=True)
     metrics=stage_metadata(row,candidate,sid,digest,raw,runtime,
