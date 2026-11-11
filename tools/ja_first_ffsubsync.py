@@ -262,7 +262,7 @@ def prepare(jid,sid,*,aligner=align_in_container):
 def record_path(jid,sid):
     if not gate.EXPECTED_ID_PATTERN.fullmatch(jid) or not sid.isdigit():
         raise RuntimeError("invalid_record_identity")
-    return gate.STAGED/"timing-adjusted"/(jid+".opensubtitles."+sid+".ja.ffsubsync.srt")
+    return gate.STAGED/"timing-adjusted"/(jid+"."+gate.source_label(jid,sid)+"."+sid+".ja.ffsubsync.srt")
 
 
 def provenance_matches(jid,sid,original_hash,published_hash):
