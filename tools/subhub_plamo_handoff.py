@@ -391,7 +391,7 @@ def acquire_exact_english(video, jid, kind, source):
         if str(result.get("ThreeLetterISOLanguageName") or "").casefold() not in ("en","eng"):
             continue
         if kind=="Episode":
-            tags=re.findall(r"(?i)s(\\d{1,2})[\\s._-]*e(\\d{1,3})",
+            tags=re.findall(r"(?i)s(\d{1,2})[\s._-]*e(\d{1,3})",
                             str(result.get("Name") or ""))
             if tags and any((int(ss),int(ee))!=(season,episode)
                             for ss,ee in tags):
