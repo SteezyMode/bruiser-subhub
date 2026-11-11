@@ -165,8 +165,9 @@ def main():
         print(json.dumps(status,ensure_ascii=False))
     print("COMPARISON ONLY: no subtitles downloaded, no database or media changed.")
     if not args.execute:
-        print("No provider searches performed; --execute may consume up to "+
-              str(len(rows))+" remote-provider search allowances.")
+        print("No provider searches performed. --execute makes "+
+              str(len(rows))+" Jellyfin remote-search requests; underlying plugin "
+              "provider calls and allowances can differ.")
 
 
 if __name__=="__main__":
