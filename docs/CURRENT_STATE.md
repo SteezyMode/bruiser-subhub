@@ -1,5 +1,7 @@
 # SubHub — current state and next verified work (updated 2026-11-11 JST)
 
+> **LATEST VERIFIED P0 (Nov 11):** Source code `360638244a3cd3b15e114ac6f8c53daa12317757` installed. IASIP S07E02 Japanese sidecar **PUBLISHED** (402 cues, FFSUBSYNC original; source video and existing tracks preserved). SHA256 `afaf762847bc25646704180536fa186805181822cd0959c381026669ffb5fcf2`. **Jellyfin playback and real dialogue timing not verified yet.** The next goal is general-purpose budgeted Jellyfin-native sourcing/queue progress for the entire catalog. This does NOT resolve the v4 44/44 search misses.
+>
 > **CURRENT OWNER PRIORITY OVERRIDE — READ FIRST.**
 >
 > **[Search Recovery Roadmap (canonical development handoff)](SEARCH_RECOVERY_ROADMAP.md)** · [P0 search issue #89](https://github.com/SteezyMode/bruiser-subhub/issues/89) · [P1/P2 progress, multi-movie batches and poster browsing issue #90](https://github.com/SteezyMode/bruiser-subhub/issues/90)
