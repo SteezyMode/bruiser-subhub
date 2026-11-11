@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import ast
 import hashlib
+import json
 import os
 from pathlib import Path
 import re
@@ -21,6 +22,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 from urllib.request import urlopen
 
 REPO="SteezyMode/bruiser-subhub"
@@ -266,6 +268,23 @@ def main():
         if was_dashboard:
             systemctl("restart",DASH_UNIT)
             print("DASHBOARD: existing service restarted")
+            # This checks writability FROM INSIDE the dashboard's actual
+            # mount namespace, not just owner permissions on the host.
+            # If missing, rollback instead of leaving another dead button.
+            job_writable=False
+            for attempt in range(10):
+                try:
+                    with urlopen("http://127.0.0.1:17876/healthz",timeout=2) as reply:
+                        health=json.loads(reply.read(2048))
+                    job_writable=(health.get("mode")=="owner_controls" and
+                                  health.get("job_receipts_writable") is True)
+                    if job_writable:break
+                except (OSError,ValueError):
+                    pass
+                time.sleep(.4)
+            if not job_writable:
+                fail("Dashboard restarted but its job receipts are still read-only")
+            print("DASHBOARD SANDBOX: live private-job write probe PASS")
         if args.install_only:
             print("INSTALL ONLY: catalog, queue, timers and source workers unchanged")
         else:
