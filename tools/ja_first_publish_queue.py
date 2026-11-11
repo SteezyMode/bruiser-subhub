@@ -87,6 +87,24 @@ def queued_staged_titles(records, *, queue_reader=priorities.active_coverage_que
     return [row for row in records if str(row[0]) in eligible]
 
 
+def select_staged_series(records, rows, series, season=None):
+    """Filter existing staged files by Jellyfin's canonical series identity.
+
+    No discovery, no new staging, and no changes to the catalog. One generic
+    selector works for every series; the publisher still enforces its own
+    source identity, timing and existing-subtitle protections.
+    """
+    eligible = {
+        str(row.get("jellyfin_id")) for row in rows
+        if isinstance(row, dict)
+        and row.get("kind") == "Episode"
+        and row.get("series_title") == series
+        and (season is None or row.get("season") == season)
+        and row.get("status") == "ready_ja_search"
+    }
+    return [record for record in records if str(record[0]) in eligible]
+
+
 def unique_titles(records, max_titles):
     grouping = OrderedDict()
     for jid, sid, digest in records:
@@ -315,9 +333,17 @@ def main():
                         help="only titles with pending staged-JA work in Bruiser coverage queue")
     parser.add_argument("--jellyfin-id", default="",
                         help="restrict work to ONE exact catalog item, not other staged titles")
+    parser.add_argument("--series", default="",
+                        help="publish already-staged JA only for this Jellyfin series")
+    parser.add_argument("--season", type=int, default=None,
+                        help="optional season number; requires --series")
     args = parser.parse_args()
     if args.jellyfin_id and not direct.EXPECTED_ID_PATTERN.fullmatch(args.jellyfin_id):
         parser.error("--jellyfin-id must be one exact 32-hex Jellyfin media ID")
+    if args.series and (not 1 <= len(args.series) <= 160 or args.jellyfin_id):
+        parser.error("--series must be 1..160 chars, cannot combine with --jellyfin-id")
+    if args.season is not None and (not args.series or not 1 <= args.season <= 99):
+        parser.error("--season needs --series and a valid season 1..99")
     if args.self_test:
         self_test()
         return
@@ -329,6 +355,13 @@ def main():
         records = [record for record in records if record[0] == args.jellyfin_id]
         print("EXACT_JELLYFIN_ITEM_FILTER:",args.jellyfin_id,
               "matching_stage_rows:",len(records),flush=True)
+    if args.series:
+        from benchmark_subtitle_search_paths import load_latest_manifest
+        records = select_staged_series(
+            records, load_latest_manifest(), args.series, args.season)
+        print("SELECTED_STAGED_SERIES:", args.series,
+              "season:", args.season or "all",
+              "staged_items:", len({str(r[0]) for r in records}), flush=True)
     if args.queue_staged_only:
         records = queued_staged_titles(records)
         print("BRUISER_PENDING_STAGED_TITLES:",
