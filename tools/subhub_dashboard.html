@@ -649,7 +649,12 @@ async function refreshStatus(){
     const scoped=!!(d.season_sources||{}).active;
     $("run-status").textContent=jellyfin?"Jellyfin source batch active":
       jobStarting?"Jellyfin source batch starting":
-      scoped?"Selected sourcing active":ai?"PLaMo active":source?"Source worker active":"Idle";
+      scoped?"Selected sourcing active":ai?"PLaMo active":source?"Source worker active":
+      (d.jellyfin_source||{}).known?
+        (jobState==="completed"?"Last source pass finished":
+         jobState==="paused"?"Source pass paused · review exceptions":
+         jobState==="failed_before_progress"?"Source job did not start":"Idle"):
+      "Idle";
     const batch=(d.season_translation||{}).progress||{};
     $("batch-overview").hidden=!batch.known;
     if(batch.known){
