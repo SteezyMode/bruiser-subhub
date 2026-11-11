@@ -144,6 +144,25 @@ def read_state(path=STATE):
     return data
 
 
+def scoped_state_file(selection):
+    """One receipt per exact owner scope; a one-episode job must not erase a series."""
+    encoded=json.dumps(selection,sort_keys=True,ensure_ascii=False).encode("utf-8")
+    if len(encoded)>16_000:
+        raise ValueError("source_scope_too_large")
+    digest=hashlib.sha256(encoded).hexdigest()[:20]
+    return STATE.parent/("jellyfin-source-scope-"+digest+".json")
+
+
+def read_scoped_state(selection):
+    """Resumes old work even after an unrelated episode was sourced separately."""
+    path=scoped_state_file(selection)
+    prior=read_state(path)
+    if prior and prior.get("selector")==selection:
+        return prior
+    old=read_state()
+    return old if old and old.get("selector")==selection else None
+
+
 def write_state(doc,path=STATE):
     """Atomic 0600 receipt. Browser refreshes never mutate it."""
     _safe_state_root(path)
@@ -198,6 +217,12 @@ def fresh_state(rows,chosen,prior=None,now=None):
     }
 
 
+def write_job_state(doc):
+    """Persist exact-scope history AND the latest-job dashboard display."""
+    write_state(doc,scoped_state_file(doc["selector"]))
+    write_state(doc)
+
+
 def event(doc,kind,label="",detail=""):
     doc["phase"]=kind
     doc["current"]=label
@@ -238,7 +263,7 @@ def classify_stage(code,stdout,stderr):
     return "held"
 
 
-def execute(rows,doc,*,limit,runner=call,writer=write_state):
+def execute(rows,doc,*,limit,runner=call,writer=write_job_state):
     """One budget-limited real-media pass. Never equate no-match with coverage."""
     rows_by_id={row["jellyfin_id"]:row for row in rows}
     writer(doc)
@@ -374,7 +399,7 @@ def main(argv=None):
     signal.signal(signal.SIGINT,stop_requested)
     try:
         stage.private_root()
-        prior=read_state()
+        prior=read_scoped_state(plan)
         doc=fresh_state(chosen,plan,prior)
         doc["job_id"]=args.job_id
         doc["search_cap"]=args.max_searches
