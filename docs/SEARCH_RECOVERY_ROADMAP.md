@@ -7,6 +7,10 @@
 >
 > **Owner's current explicit order:** (1) fix reliable Japanese subtitle search and publication end-to-end; (2) all jobs need real dashboard progress, and manual batches must be possible; (3) Jellyfin-style movie poster grid with genre browsing/multi-selection; (4) eventually incremental source-on-add. No enterprise/startup framing. Do not build attractive controls that fail to deliver Japanese subtitles.
 
+## Nov 11 inventory classification fix — keep covered episode identities
+
+Generic bug in `tools/ja_first_catalog_manifest.py::classify()`: when a video already has Japanese sidecar/embedded subtitle or Japanese audio, classifier previously returned **before setting the series title and season/episode identifiers**. This made it impossible to count fully subtitled episodes per series from a new manifest, hiding 55 existing sidecars in the stale source audit. Now populate descriptive series title, season and episode metadata **before the coverage short-circuit**, without modifying the existing search-eligibility logic. Regression test added in `test_ja_first_native_series_identity.py`. **GitHub only until next guarded install**; full CI environment has unrelated ffprobe-dependent test failures. Next run `install_global_ja_sourcing.py --commit pinned_sha --install-only` when workers idle, then `ja_first_catalog_manifest.py --save` and count exact 179 episodes from the refreshed intake manifest.
+
 ## Nov 11 owner executed no-duplicate sourcing preflight — 11 source gaps have a reason
 
 **Owner's actual OptiPlex output** of pinned `ja_first_recover_unstaged.py --series ... --start`: `MISSING_WITH_SAVED_JA_STAGE=12`, `ALREADY_PUBLISHED_BUT_STALE_MANIFEST=55`, `MISSING_WITH_NO_JA_STAGE=11`, `INVENTORY_REQUIRES_REVIEW=0`, `INCOMPLETE_LOOKUPS_OR_SAVED_RESULTS_TO_RETRY=0`, `COMPLETED_LOOKUPS_NEED_NEW_SOURCE=11`. **Nothing was launched** because no justified repeat against current OS/SubDL. The pre-existing latest manifest is stale: do **not** infer definitive coverage from 141/179 or 149/179; obtain fresh Jellyfin catalog via existing `ja_first_catalog_manifest.py --save` (create-only) and cross-check sidecars.
