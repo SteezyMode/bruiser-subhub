@@ -134,7 +134,10 @@ class NativeSeriesIdentityTests(unittest.TestCase):
         self.assertFalse(stage.identity_ok(row, {
             **self.candidate, "filename": "Different.Show.S12E02.ja.srt"
         }))
-        self.assertFalse(stage.identity_ok(row, {
+        # Exact series title and S/E in the filename are sufficient for
+        # staging even when the provider omits its optional series flag.
+        # Publication still requires Japanese text and verified synchronization.
+        self.assertTrue(stage.identity_ok(row, {
             **self.candidate, "matches": ["season", "episode"]
         }))
         self.assertFalse(stage.identity_ok({
