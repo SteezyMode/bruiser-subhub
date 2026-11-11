@@ -144,6 +144,7 @@ details>summary{cursor:pointer}
   <p class="small muted" id="jellyfin-job-current"></p>
   <div class="row"><button id="jellyfin-job-continue" class="primary" type="button" hidden>Continue remaining</button><button id="jellyfin-job-stop" type="button" class="quiet" hidden>Stop source job</button></div>
   <div id="jellyfin-job-events" class="small muted" aria-live="polite"></div>
+  <div id="jellyfin-job-holds" class="small muted" aria-live="polite"></div>
  </div>
  <div id="batch-overview" hidden>
   <div class="split"><strong id="batch-count">PLaMo batch</strong><span id="batch-remaining" class="small muted"></span></div>
@@ -535,8 +536,11 @@ function renderJellyfinJob(d){
     (p.deferred||0)+" deferred · "+(p.searches_this_run||0)+
     " / "+(p.search_cap||20)+" provider searches allowed this pass";
   $("jellyfin-job-current").textContent=p.current?
-    "Now: "+escapeText(p.current)+" · "+escapeText(p.phase||""):
+    (p.active?"Now: ":"Status: ")+escapeText(p.current)+" · "+escapeText(p.phase||""):
     "Phase: "+escapeText(p.phase||"waiting");
+  $("jellyfin-job-holds").textContent=(p.holds||[]).length?
+    "Held episodes: "+p.holds.map(x=>x.item+" — "+x.reason.replaceAll("_"," ")).join(" | "):
+    "";
   $("jellyfin-job-stop").hidden=!p.active;
   $("jellyfin-job-continue").hidden=p.active||!p.pending||!p.known;
   $("jellyfin-job-continue").disabled=busy||latest.workersBusy;
@@ -688,7 +692,10 @@ $("source-whole-series").addEventListener("click",async()=>{
   try{
     const result=await ownerPost("/api/jellyfin-source/start",{series:selectedSeries});
     showMessage("Started whole-series sourcing: "+result.eligible+
-      " eligible episodes. Live progress is under Active work.");
+      " eligible episodes. Watch Active work for status, holds and published results.");
+    $("jellyfin-job").hidden=false;
+    $("jellyfin-job-title").textContent=selectedSeries+" · Japanese sourcing";
+    $("jellyfin-job-state").textContent="Starting";
   }catch(err){showMessage("Not started: "+err.message,true);}
   finally{busy=false;await refreshStatus();renderCoverage();}
 });
