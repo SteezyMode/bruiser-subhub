@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import statistics
 import subprocess
@@ -193,18 +194,42 @@ def _intensive_external_english(video):
     A second, independent video-audio alignment must agree before it can
     authorize Japanese publication. Never request provider downloads here.
     """
+    # This module is installed standalone in subhub-control; importing
+    # daily_japanese (not in the source installer) silently missed otherwise
+    # usable English sidecars. Resolve existing same-stem files ourselves.
+    # Never inspect unrelated episode files or follow symlinks.
+    video=Path(video)
+    prefix=(video.stem+".").casefold()
+    accepted=[]
     try:
-        from daily_japanese import english_srt
-        path=english_srt(video)
-        if (path is None or path.is_symlink() or not path.is_file()
-                or not 100<path.stat().st_size<=MAX_ALIGNED_SIZE):
-            return None
-        raw=path.read_bytes()
-        if len(ff.parse_cues(raw))<75:
-            return None
-        return raw
-    except (ImportError,RuntimeError,OSError,UnicodeError):
+        for path in video.parent.iterdir():
+            if (path.is_symlink() or not path.is_file() or
+                    path.suffix.casefold()!=".srt" or
+                    not path.name.casefold().startswith(prefix)):
+                continue
+            tokens=set(re.split(
+                r"[.\\s_\\[\\]()-]+",
+                path.name[len(video.stem)+1:].casefold()))
+            if (not tokens.intersection({"en","eng","english"}) or
+                    tokens.intersection({"ja","jp","jpn","japanese","forced"})):
+                continue
+            if not 100<path.stat().st_size<=MAX_ALIGNED_SIZE:
+                continue
+            try:
+                raw=path.read_bytes()
+                if len(ff.parse_cues(raw))>=75:
+                    accepted.append((("sdh" in tokens,"cc" in tokens,
+                                      path.name.casefold()),raw,path.name))
+            except (RuntimeError,UnicodeError,OSError):
+                continue
+    except OSError:
         return None
+    if not accepted:
+        return None
+    accepted.sort(key=lambda x:x[0])
+    print("ALASS_INTENSIVE_REFERENCE same_video_english_sidecar",
+          accepted[0][2],flush=True)
+    return accepted[0][1]
 
 
 def _intensive_agreement(first,second):
@@ -245,6 +270,11 @@ def intensive_align(video,raw,*,runner=subprocess.run):
         references.insert(0,("same_video_embedded_english",embedded))
     if external is not None:
         references.insert(0,("same_video_english_sidecar",external))
+    if len(references)<2:
+        print("ALASS_INTENSIVE_HELD no_independent_reference_available;"
+              " no same-video English subtitle was found; skipping wasted"
+              " audio-only ALASS configurations",flush=True)
+        raise RuntimeError("alass_intensive_missing_english_reference")
     valid=[]
     attempted=0
     failures={}
@@ -265,8 +295,18 @@ def intensive_align(video,raw,*,runner=subprocess.run):
                     p=runner([str(BINARY),str(ref),str(source),str(dest),*flags],
                              stdout=subprocess.PIPE,stderr=subprocess.PIPE,
                              timeout=600,check=False)
+                    if p.returncode and setting=="constant_offset":
+                        # Several older ALASS Linux builds accept the
+                        # singular spelling instead of the documented plural.
+                        p=runner([str(BINARY),str(ref),str(source),str(dest),
+                                  "--no-split"],
+                                 stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                                 timeout=600,check=False)
                     if p.returncode or not dest.is_file():
-                        raise RuntimeError("alass_command_failed")
+                        error=p.stderr.decode("utf-8","replace") if isinstance(p.stderr,bytes) else str(p.stderr or "")
+                        raise RuntimeError("alass_command_failed:exit="+
+                                           str(p.returncode)+":"+
+                                           error.replace("\\n"," ")[:100])
                     if not 0<dest.stat().st_size<=MAX_ALIGNED_SIZE:
                         raise RuntimeError("alass_invalid_output_size")
                     candidate=ff.keep_source_dialogue(raw,dest.read_bytes())
