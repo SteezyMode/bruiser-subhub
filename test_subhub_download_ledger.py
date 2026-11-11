@@ -113,7 +113,7 @@ class DailyDownloadLedger(unittest.TestCase):
     def test_native_quota_block_and_other_failure_are_recorded(self):
         request="SUBHUB_DOWNLOAD_REQUEST: opensubtitles\n"
         native_stage.record_native_download_attempt(
-            request,{"result":"blocked","error":"HTTP 429 Too Many Requests"},
+            request,{"result":"blocked","error":"HTTP_429 Too Many Requests"},
             path=self.path)
         native_stage.record_native_download_attempt(
             request,{"result":"blocked","error_type":"ConnectionError"},
