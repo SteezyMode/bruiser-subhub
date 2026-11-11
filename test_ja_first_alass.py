@@ -199,5 +199,37 @@ class AlassTests(unittest.TestCase):
             self.assertEqual(chosen,aligned)
             self.assertIn("--no-split",flags)
 
+
+    def test_jellyfin_indexed_english_read_only_exact_video(self):
+        import io
+        import json
+        from tools import ja_first_catalog_manifest as cat
+        raw,_=fixture(lambda i:0)
+        jid="a"*32
+        calls=[]
+        video=Path("/tmp/Example S09E04.mkv")
+        doc={"Id":jid,"Type":"Episode","Path":str(video),
+             "MediaSources":[{"Id":"mediasrc-001",
+             "MediaStreams":[{"Index":3,"Type":"Subtitle",
+                              "Language":"eng","Codec":"subrip",
+                              "IsExternal":True,"IsForced":False}]}]}
+        def opener(req,timeout):
+            calls.append(req.full_url)
+            if req.full_url.endswith("MediaSources,MediaStreams"):
+                return io.BytesIO(json.dumps(doc).encode())
+            if req.full_url.endswith("Subtitles/3/Stream.srt"):
+                return io.BytesIO(raw)
+            raise AssertionError("Unapproved local Jellyfin endpoint")
+        with patch.object(cat,"load_auth",return_value="test-only-auth"):
+            result=alass._intensive_jellyfin_english(video,jid,opener=opener)
+        self.assertEqual(result,raw)
+        self.assertEqual(len(calls),2)
+        self.assertTrue(all("127.0.0.1:8096" in url for url in calls))
+        self.assertTrue(all("RemoteSearch" not in url for url in calls))
+        doc["Path"]="/some/other/video.mkv"
+        with patch.object(cat,"load_auth",return_value="test-only-auth"):
+            self.assertIsNone(alass._intensive_jellyfin_english(video,jid,opener=opener))
+        self.assertEqual(len(calls),3)
+
 if __name__=="__main__":
     unittest.main()
