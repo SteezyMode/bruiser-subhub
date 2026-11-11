@@ -419,13 +419,16 @@ function renderCoverage(){
   if(Object.keys(latest).length)renderNextStep(latest);
 }
 function statusName(item){
-  if(item.status==="covered")return "Japanese subtitles present";
-  if(item.can_source && (item.search?.plausible_candidates||0)>0)
-    return "Japanese subtitle match found · try sourcing first";
-  if(item.can_source)return "Needs Japanese sourcing or timing repair";
-  if(item.can_translate)return "PLaMo translation available";
-  if(item.status==="needs_english")return "Needs English subtitles for translation";
-  return "Needs attention";
+  if(item.next_action)return item.next_action;
+  // Backward-compatible display for an older dashboard server.
+  if(item.status==="covered")return "READY · Japanese subtitles present";
+  if(item.reason==="duplicate_episode_versions")return "REVIEW · Duplicate episode files";
+  if((item.search?.plausible_candidates||0)>0)
+    return "REPAIR · Japanese candidate found; check timing";
+  if(item.status==="needs_english")return "GET ENGLISH · Search/sync or transcribe with Whisper";
+  if(item.can_source)return "SEARCH · Japanese subtitles";
+  if(item.can_translate)return "PLAMO OPTION · Recheck Japanese availability";
+  return "REVIEW · Verify subtitles and media identity";
 }
 function renderEpisodes(){
   const host=$("episode-details");
