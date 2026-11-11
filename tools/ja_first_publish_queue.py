@@ -417,7 +417,8 @@ def main():
         print("MEDIA:", jid, "| candidate IDs:",
               ",".join(sid for sid, _ in candidates), flush=True)
         try:
-            kind, row, value = choose(jid, candidates, intensive_only=args.intensive_only)
+            kind, row, value = (choose(jid, candidates, intensive_only=True)
+                                if args.intensive_only else choose(jid, candidates))
             print("RESULT:", report_title(row), "|", kind, flush=True)
             counts[kind] += 1
             if kind.startswith("published_"):
