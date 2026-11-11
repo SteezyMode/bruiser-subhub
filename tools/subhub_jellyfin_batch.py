@@ -20,6 +20,7 @@ import json
 import os
 from pathlib import Path
 import re
+import selectors
 import signal
 import subprocess
 import sys
@@ -246,11 +247,84 @@ def progress(doc):
                 round(finished/total,4) if total else 1}
 
 
-def call(command,*,timeout):
-    """Captured only; never log provider remote IDs, credentials or subtitle text."""
-    proc=subprocess.run(command,capture_output=True,text=True,
-                        stdin=subprocess.DEVNULL,timeout=timeout,check=False)
-    return proc.returncode,proc.stdout[-2500:],proc.stderr[-500:]
+def _milestone(line):
+    """Only sanitized, code-generated stage signals may update owner progress."""
+    if line.startswith("MEDIA:"):
+        return "video_checked", "Video and subtitle eligibility checked"
+    if line.startswith("JELLYFIN_JA_SEARCH_REQUEST:"):
+        return "searching_provider", "Searching Japanese subtitle providers"
+    if line.startswith("JELLYFIN_JA_MATCHING_CANDIDATES:"):
+        return "matching", "Provider search returned; filtering candidates"
+    if line.startswith("JELLYFIN_JA_BYTES:"):
+        return "download_received", "Subtitle bytes downloaded; validating Japanese"
+    if line.startswith("JELLYFIN_PRIVATE_STAGE:"):
+        return "staged", "Japanese subtitle validated and staged privately"
+    if line.startswith("ALASS HELD:"):
+        return "alignment_fallback", "ALASS held; checking alternative sync"
+    if line.startswith("FFSUBSYNC:"):
+        return "timing_checked", "FFSUBSYNC timing validated"
+    if line.startswith("SOURCED_GROSS_QA:"):
+        return "quality_checked", "Gross subtitle quality gate completed"
+    if line.startswith("PUBLISHED:"):
+        return "published_sidecar", "Japanese subtitle created"
+    return None
+
+
+def call(command,*,timeout,progress=None):
+    """Stream safe milestones every few seconds; enforce the original timeout.
+
+    No subtitle text, secret-bearing URLs, provider candidate IDs or entire
+    stdout/stderr are written to persistent job state. Tests can inject a runner.
+    """
+    proc=subprocess.Popen(command,stdin=subprocess.DEVNULL,
+                          stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+    watch=selectors.DefaultSelector()
+    collected={"out":bytearray(),"err":bytearray()}
+    lines={"out":bytearray(),"err":bytearray()}
+    start=time.monotonic()
+    next_heartbeat=start+10
+    try:
+        watch.register(proc.stdout,selectors.EVENT_READ,"out")
+        watch.register(proc.stderr,selectors.EVENT_READ,"err")
+        while watch.get_map():
+            now=time.monotonic()
+            if now-start>=timeout:
+                raise subprocess.TimeoutExpired(command,timeout)
+            for key,_ in watch.select(timeout=min(1,max(.01,timeout-(now-start)))):
+                kind=key.data
+                chunk=os.read(key.fileobj.fileno(),8192)
+                if not chunk:
+                    watch.unregister(key.fileobj)
+                    continue
+                collected[kind].extend(chunk)
+                if len(collected[kind])>12000:
+                    del collected[kind][:-12000]
+                if kind=="out" and progress:
+                    lines[kind].extend(chunk)
+                    while b"\n" in lines[kind]:
+                        entry,_,remaining=lines[kind].partition(b"\n")
+                        lines[kind]=bytearray(remaining)
+                        signal=_milestone(entry.decode("utf-8","replace"))
+                        if signal:
+                            progress(*signal)
+                    if len(lines[kind])>8192:
+                        lines[kind].clear()
+            if progress and time.monotonic()>=next_heartbeat:
+                progress("working","Still processing this episode")
+                next_heartbeat=time.monotonic()+10
+        proc.wait(timeout=max(.01,timeout-(time.monotonic()-start)))
+        return (proc.returncode,
+                collected["out"].decode("utf-8","replace")[-2500:],
+                collected["err"].decode("utf-8","replace")[-1500:])
+    except BaseException:
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait()
+        raise
+    finally:
+        watch.close()
+        proc.stdout.close()
+        proc.stderr.close()
 
 
 def classify_stage(code,stdout,stderr):
@@ -333,8 +407,14 @@ def execute(rows,doc,*,limit,runner=call,writer=write_job_state):
         writer(doc)
         cmd=[sys.executable,"-B",str(SOURCE_DIR/"ja_first_stage_jellyfin.py"),
              "--jellyfin-id",item["id"],"--provider","subbuzz","--apply"]
+        def checkpoint(phase,detail):
+            event(doc,phase,label,detail)
+            writer(doc)
         try:
-            code,out,err=runner(cmd,timeout=320)
+            if runner is call:
+                code,out,err=runner(cmd,timeout=320,progress=checkpoint)
+            else:
+                code,out,err=runner(cmd,timeout=320)
         except subprocess.TimeoutExpired:
             code,out,err=124,"","timed_out"
         verdict=classify_stage(code,out,err)
@@ -352,7 +432,11 @@ def execute(rows,doc,*,limit,runner=call,writer=write_job_state):
             p_cmd=[sys.executable,"-B",str(SOURCE_DIR/"ja_first_publish_queue.py"),
                    "--jellyfin-id",item["id"],"--max-titles","1","--limit","1","--apply"]
             try:
-                pub_code,pub_out,pub_err=runner(p_cmd,timeout=800)
+                if runner is call:
+                    pub_code,pub_out,pub_err=runner(
+                        p_cmd,timeout=800,progress=checkpoint)
+                else:
+                    pub_code,pub_out,pub_err=runner(p_cmd,timeout=800)
             except subprocess.TimeoutExpired:
                 pub_code,pub_out,pub_err=124,"","timed_out"
             expected='"jellyfin_id": "'+item["id"]+'"'
