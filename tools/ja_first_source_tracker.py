@@ -23,7 +23,7 @@ JOURNAL_ROWS = 16000
 
 RE_SEARCH_PLAN = re.compile(r"Search requests planned:\s*(\d+)\s*\|\s*budget:\s*(\d+)")
 RE_SEARCH_START = re.compile(r"\[(\d+)/(\d+)\] SEARCHING:\s*(.*)")
-RE_SEARCH_DONE = re.compile(r"\[(\d+)/(\d+)\] (PLAUSIBLE|NONE|REVIEW|ERROR):")
+RE_SEARCH_DONE = re.compile(r"\[(\d+)/(\d+)\] (PLAUSIBLE|NONE|REVIEW|PARTIAL|ERROR):")
 RE_SEARCH_DEFERRED = re.compile(r"\[(\d+)/(\d+)\] DEFERRED:\s*(.*)")
 RE_STAGE_PLAN = re.compile(r"Selected:\s*(\d+)\s*\|\s*budget:\s*(\d+)")
 RE_STAGE_START = re.compile(r"\[(\d+)/(\d+)\] STAGING:\s*(.*)")
@@ -86,7 +86,7 @@ def parse(events):
         "search_limit": 0, "stage_limit": 0, "publish_limit": 0,
         "search_planned": 0, "search_completed": 0,
         "search_found": 0, "search_none": 0, "search_review": 0,
-        "search_errors": 0, "search_deferred": 0,
+        "search_partial": 0, "search_errors": 0, "search_deferred": 0,
         "search_stopped_early": False, "search_stop_reason": "",
         "stage_planned": 0, "stage_attempts": 0,
         "staged": 0, "stage_holds": 0,
@@ -131,6 +131,9 @@ def parse(events):
                     state["search_none"] += 1
                 elif verdict == "REVIEW":
                     state["search_review"] += 1
+                elif verdict == "PARTIAL":
+                    state["search_partial"] += 1
+                    notable.append("Partial provider coverage: retries remain pending")
                 else:
                     state["search_errors"] += 1
             elif (m := RE_SEARCH_DEFERRED.search(line)):
@@ -270,6 +273,7 @@ def render(state, now=None):
         "  Matched titles: " + str(state["search_found"]) +
         "  |  No results: " + str(state["search_none"]) +
         "  |  Review: " + str(state["search_review"]) +
+        "  |  Partial: " + str(state["search_partial"]) +
         "  |  Errors: " + str(state["search_errors"]) +
         "  |  Deferred: " + str(state["search_deferred"]),
         "DOWNLOADS   " + bar(state["stage_attempts"], state["stage_planned"]),
