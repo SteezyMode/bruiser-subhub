@@ -51,6 +51,31 @@ class AlassTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError,"dialogue_changed"):
             alass.assess(raw,modified,1500)
 
+    def test_sync_keeps_original_japanese_when_engine_reflows_text(self):
+        raw, aligned = fixture(lambda i: -2)
+        original = "これは元の日本語字幕 20 です".encode("utf-8")
+        rewrapped = "これは元の日本語\n字幕 20 です".encode("utf-8")
+        self.assertIn(original, aligned)
+        aligned = aligned.replace(original, rewrapped, 1)
+        fixed = alass.ff.keep_source_dialogue(raw, aligned)
+        src_cues = alass.ff.parse_cues(raw)
+        fixed_cues = alass.ff.parse_cues(fixed)
+        self.assertEqual(
+            [x["text"] for x in fixed_cues],
+            [x["text"] for x in src_cues])
+        self.assertEqual(fixed_cues[20]["start"], src_cues[20]["start"] - 2000)
+        self.assertEqual(alass.assess(raw, fixed, 1500)["mode"], "aligned")
+
+    def test_sync_does_not_accept_changed_word_or_missing_cues(self):
+        raw, aligned = fixture(lambda i: 1)
+        changed = aligned.replace(
+            "これは元の日本語字幕 20 です".encode("utf-8"),
+            "これは別の日本語字幕 20 です".encode("utf-8"), 1)
+        with self.assertRaisesRegex(RuntimeError, "sync_dialogue_changed"):
+            alass.ff.keep_source_dialogue(raw, changed)
+        with self.assertRaisesRegex(RuntimeError, "sync_cue_count_changed"):
+            alass.ff.keep_source_dialogue(raw, aligned.rsplit(b"\n\n", 1)[0])
+
     def test_extreme_misalignment_held(self):
         raw,aligned=fixture(lambda i:130)
         with self.assertRaisesRegex(RuntimeError,"extreme_shift"):
