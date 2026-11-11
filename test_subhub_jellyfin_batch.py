@@ -121,7 +121,9 @@ class GenericJellyfinBatch(unittest.TestCase):
         self.assertEqual(state["state"],"paused")
         self.assertEqual(state["searches_this_run"],1)
         self.assertEqual(batch.progress(state)["pending"],2)
+        self.assertEqual((state["pass_processed"],state["pass_total"]),(1,3))
         second=batch.fresh_state(rows,selection,state,now=now+1)
+        self.assertEqual((second["pass_processed"],second["pass_total"]),(0,2))
         self.assertEqual(second["items"][0]["status"],"no_match")
         self.assertEqual(second["items"][1]["status"],"queued")
         with patch.object(batch.stage,"japanese_sidecar_exists",return_value=False), \
@@ -129,6 +131,7 @@ class GenericJellyfinBatch(unittest.TestCase):
             batch.execute(rows,second,limit=1,runner=runner,writer=lambda doc:None)
         self.assertEqual(len(calls),2)
         self.assertEqual(second["searches_this_run"],1)
+        self.assertEqual((second["pass_processed"],second["pass_total"]),(1,2))
         stale=batch.fresh_state(rows,selection,second,now=now+21*3600)
         self.assertEqual(stale["items"][0]["status"],"queued")
 
@@ -144,6 +147,7 @@ class GenericJellyfinBatch(unittest.TestCase):
         self.assertEqual(state["items"][1]["status"],"queued")
         self.assertEqual(batch.progress(state)["no_match"],0)
         self.assertEqual(state["searches_this_run"],1)
+        self.assertEqual((state["pass_processed"],state["pass_total"]),(1,3))
 
     def test_existing_subtitle_skips_without_provider_request(self):
         rows=batch.choose(self.rows,series="Example Show",picks=[(1,1)])
@@ -159,6 +163,7 @@ class GenericJellyfinBatch(unittest.TestCase):
         self.assertEqual(state["state"],"completed")
         self.assertEqual(batch.progress(state)["already_covered"],1)
         self.assertEqual(state["searches_this_run"],0)
+        self.assertEqual((state["pass_processed"],state["pass_total"]),(1,1))
 
     def test_three_independent_media_holds_do_not_stop_series(self):
         rows=batch.choose(self.rows,series="Example Show")
@@ -184,21 +189,34 @@ class GenericJellyfinBatch(unittest.TestCase):
         self.assertEqual(state["items"][2]["reason"],
                          "japanese_subtitle_readability_failed")
 
-    def test_three_real_provider_failures_pause_and_keep_rest_queued(self):
+    def test_http_500_episodes_are_set_aside_and_queue_keeps_running(self):
+        # A few bad episodes (or Jellyfin plugin 500s) do not block the rest.
         rows=batch.choose(self.rows,series="Example Show")
+        rows.append(tv("9"*32,3,1))
         state=batch.fresh_state(rows,batch.selector(series="Example Show"))
         attempts=[]
         def runner(cmd,*,timeout):
             attempts.append(cmd)
-            return (1,"JELLYFIN_JA_SEARCH_REQUEST: item",
-                    "RuntimeError: provider_download_failed")
+            if len(attempts)<=3:
+                return (1,"JELLYFIN_JA_SEARCH_REQUEST: item",
+                        "HTTP Error 500: Internal Server Error")
+            return (0,"JELLYFIN_JA_SEARCH_REQUEST: item\\n"
+                      "HELD: no exactly matching Japanese SRT","")
         with patch.object(batch.time,"sleep"):
             batch.execute(rows,state,limit=20,runner=runner,writer=lambda doc:None)
-        self.assertEqual(len(attempts),3)
-        self.assertEqual(state["state"],"paused")
-        self.assertEqual(state["searches_this_run"],3)
-        self.assertEqual(state["items"][0]["reason"],"provider_download_failed")
-        self.assertEqual(state["phase"],"paused_provider_error")
+        self.assertEqual(len(attempts),4)
+        self.assertEqual(state["state"],"completed")
+        self.assertEqual(state["searches_this_run"],4)
+        self.assertEqual((state["pass_processed"],state["pass_total"]),(4,4))
+        self.assertEqual([x["reason"] for x in state["items"][:3]],
+                         ["provider_http_500"]*3)
+        self.assertEqual(state["items"][3]["status"],"no_match")
+        self.assertEqual(batch.progress(state)["pending"],0)
+        # Next pass has no pending work. Existing holds remain reviewable,
+        # not silently re-requested.
+        next_pass=batch.fresh_state(rows,state["selector"],state,now=int(time.time())+1)
+        self.assertEqual(next_pass["pass_total"],0)
+        self.assertEqual(next_pass["pass_processed"],0)
 
     def test_separate_episode_resume_does_not_erase_whole_series_job(self):
         with tempfile.TemporaryDirectory() as d:
