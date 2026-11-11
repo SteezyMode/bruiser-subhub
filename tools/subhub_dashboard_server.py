@@ -1276,6 +1276,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/control/start-manual","/api/control/stop-manual",
             "/api/translation/start","/api/translation/stop",
             "/api/source-season/start","/api/source-season/stop",
+            "/api/jellyfin-source/start","/api/jellyfin-source/stop",
             "/api/movie/start","/api/movie/stop"):
             self.write(405,b'{"error":"controls_not_available_in_v0_1"}')
             return
@@ -1295,13 +1296,14 @@ class Handler(BaseHTTPRequestHandler):
                 self.headers.get("Content-Type","").split(";")[0].strip()
                 != "application/json" or not size.isdecimal() or
                  int(size) > (16000 if target in (
-                     "/api/translation/start","/api/source-season/start")
+                     "/api/translation/start","/api/source-season/start",
+                     "/api/jellyfin-source/start")
                      else 1200 if target=="/api/movie/start" else 2)):
             self.write(403,b'{"error":"owner_control_access_denied"}')
             return
         try:
             if target in ("/api/translation/start","/api/source-season/start",
-                          "/api/movie/start"):
+                          "/api/movie/start","/api/jellyfin-source/start"):
                 if not (2 <= int(size) <= (
                         1200 if target=="/api/movie/start" else 16000)):
                     raise ValueError("invalid_batch_request_size")
@@ -1310,6 +1312,8 @@ class Handler(BaseHTTPRequestHandler):
                          if target == "/api/translation/start"
                          else start_movie_source(request)
                          if target == "/api/movie/start"
+                         else start_jellyfin_source(request)
+                         if target == "/api/jellyfin-source/start"
                          else start_season_sources(request))
             else:
                 if size=="2" and self.rfile.read(2)!=b"{}":
@@ -1320,6 +1324,8 @@ class Handler(BaseHTTPRequestHandler):
                     value = stop_season_translation()
                 elif target == "/api/source-season/stop":
                     value = stop_season_sources()
+                elif target == "/api/jellyfin-source/stop":
+                    value = stop_jellyfin_source()
                 else:
                     value=source_controls(target.rsplit("/",1)[-1])
             self.write(200,json.dumps(value).encode("utf-8"))
