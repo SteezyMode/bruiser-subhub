@@ -31,7 +31,8 @@ QUEUE = HOME / "bruiser-pilot/coverage-queue/coverage.sqlite3"
 ROOT = HOME / "bruiser-pilot/plamo3-ab"
 WORK = HOME / "bruiser-pilot/subhub-translation"
 BATCH_STATE = ROOT / "american-dad-existing-english-batch/batch.pid"
-ALLOWED_ACTIONS = {"validate_english_for_ja_fallback"}
+ALLOWED_ACTIONS = {"validate_english_for_ja_fallback",
+                   "recover_english_for_ja_fallback"}
 OWNER_REVIEW_ACTIONS = {"review_saved_ja", "download_saved_ja",
                         "align_existing_staged_ja", "search_ja"}
 SEARCH_DB = HOME / "bruiser-pilot/ja-first-inventory/japanese-search.sqlite3"
@@ -129,7 +130,7 @@ def validate_row(row, owner_review=False):
         raise RuntimeError("invalid_coverage_queue_identity")
     if row["kind"] not in ("Movie","Episode"):
         raise RuntimeError("invalid_media_kind")
-    if not row["english_text"] and not (
+    if not row["english_text"] and row["action"]!="recover_english_for_ja_fallback" and not (
             owner_review and
             ((row["action"]=="review_uncertain"
               and row["target"]=="review") or
@@ -354,8 +355,62 @@ def verify_owner_unlabeled_audio(video):
           flush=True)
 
 
+def acquire_exact_english(video, jid, kind, source):
+    """Find English only for the SAME Jellyfin video, never by fuzzy title.
+
+    Uses the existing Jellyfin provider credentials. A video-hash match is
+    necessary for unattended download; it is NOT timing approval. The caller
+    must subsequently run exact-video ffsubsync and refuse unsafe alignment.
+    """
+    from urllib.parse import quote
+    if not JELLYFIN_ID.fullmatch(str(jid or "")) or kind not in ("Episode","Movie"):
+        raise RuntimeError("english_search_requires_exact_jellyfin_identity")
+    client=source.NativeJellyfin()
+    item=client.get("/Items/"+jid)
+    if (not isinstance(item,dict) or item.get("Id")!=jid
+            or item.get("Type")!=kind or item.get("Path")!=str(video)):
+        raise RuntimeError("english_search_jellyfin_video_identity_mismatch")
+    season=item.get("ParentIndexNumber") if kind=="Episode" else None
+    episode=item.get("IndexNumber") if kind=="Episode" else None
+    if kind=="Episode" and (
+            type(season) is not int or type(episode) is not int
+            or season<1 or episode<1):
+        raise RuntimeError("english_search_episode_identity_missing")
+    results=client.get("/Items/"+jid+"/RemoteSearch/Subtitles/eng")
+    if not isinstance(results,list):
+        raise RuntimeError("english_provider_search_not_list")
+    accepted=[]
+    for result in results:
+        if not isinstance(result,dict) or result.get("IsHashMatch") is not True:
+            continue
+        if (not result.get("Id") or not result.get("ProviderName")
+                or result.get("IsForced") is True):
+            continue
+        if str(result.get("Format") or "").casefold() not in ("srt","subrip"):
+            continue
+        if str(result.get("ThreeLetterISOLanguageName") or "").casefold() not in ("en","eng"):
+            continue
+        if kind=="Episode":
+            tags=re.findall(r"(?i)s(\\d{1,2})[\\s._-]*e(\\d{1,3})",
+                            str(result.get("Name") or ""))
+            if tags and any((int(ss),int(ee))!=(season,episode)
+                            for ss,ee in tags):
+                continue
+        accepted.append(result)
+    if not accepted:
+        raise RuntimeError("no_exact_video_hash_english_srt_found")
+    accepted.sort(key=lambda x:(-int(x.get("DownloadCount") or 0),
+                                str(x.get("ProviderName") or "")))
+    chosen=accepted[0]
+    client.post("/Items/"+jid+"/RemoteSearch/Subtitles/"+
+                quote(str(chosen["Id"]),safe=""))
+    print("SUBHUB_AI_ENGLISH_DOWNLOADED video_hash_verified"
+          " provider="+str(chosen["ProviderName"])[:45]+
+          " timing=unverified_pending_ffsubsync",flush=True)
+
+
 def saved_media(video, jid, info, daily, source, small, sync, safe_media_path,
-                *, allow_unlabeled_audio=False):
+                *, kind="Episode", allow_unlabeled_audio=False):
     """Exact-file EN only; hold bad external sync, missing EN, unexpected audio."""
     video = safe_media_path(str(video))
     if video.is_symlink() or not video.is_file():
@@ -367,7 +422,10 @@ def saved_media(video, jid, info, daily, source, small, sync, safe_media_path,
             raise RuntimeError("english_audio_not_verified")
         verify_owner_unlabeled_audio(video)
     if info["embedded_en"] is None and daily.english_srt(video) is None:
-        raise RuntimeError("english_text_source_not_available_yet")
+        print("SUBHUB_AI_ENGLISH_MISSING source_search_for_exact_video",flush=True)
+        acquire_exact_english(video,jid,kind,source)
+        if daily.english_srt(video) is None:
+            raise RuntimeError("english_download_not_available_as_sidecar")
     if info["embedded_en"] is not None:
         result = subprocess.run(
             ["ffmpeg","-nostdin","-hide_banner","-loglevel","error",
@@ -437,7 +495,7 @@ def prepared_source(row, folder, mod):
     info=daily.probe(video)
     video,cues,sha,origin,timing=saved_media(
         video,row["jellyfin_id"],info,daily,source,small,sync,safe_media_path,
-        allow_unlabeled_audio=(
+        kind=row["kind"], allow_unlabeled_audio=(
             (row.get("action")=="review_uncertain"
              and row.get("target")=="review") or
             (row.get("target")=="ja" and row.get("state")=="held"
