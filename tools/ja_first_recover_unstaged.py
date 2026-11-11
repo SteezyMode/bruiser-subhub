@@ -50,6 +50,24 @@ def prepare(rows, staged_ids, series, sidecar_checker=staging.japanese_sidecar_e
     order=lambda r:(int(r.get("season") or 0),int(r.get("episode") or 0))
     return sorted(unstaged,key=order),sorted(already_staged,key=order),existing
 
+def needs_source_retry(outcome, details):
+    """Do not repeat a complete empty lookup to the SAME two providers."""
+    if outcome in {"never_searched","error","deferred","partial","in_progress"}:
+        return True
+    if details.get("incomplete_providers"):
+        return True
+    try:
+        version=int(details.get("strategy_version") or 0)
+    except (ValueError,TypeError):
+        version=0
+    if version < 5:
+        return True
+    # A positive saved result without staged bytes deserves a recovery retry.
+    if outcome=="plausible" and details.get("candidates"):
+        return True
+    return False
+
+
 def main():
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--series",required=True)
@@ -82,6 +100,8 @@ def main():
         print(f'REVIEW S{int(row.get("season") or 0):02d}'
               f'E{int(row.get("episode") or 0):02d}: '
               f'{row.get("status")}',flush=True)
+    retry=[]
+    source_pool_gap=[]
     for row in unstaged:
         jid=str(row["jellyfin_id"])
         outcome,raw=history.get(jid,("never_searched","{}"))
@@ -89,19 +109,24 @@ def main():
             detail=json.loads(raw or "{}")
         except (ValueError,TypeError):
             detail={}
+        eligible=needs_source_retry(outcome,detail)
+        (retry if eligible else source_pool_gap).append(row)
         tags=",".join(str(x) for x in detail.get("incomplete_providers") or [])
         print(f'S{row["season"]:02d}E{row["episode"]:02d} '
+              f'| next={"retry_incomplete" if eligible else "new_provider_or_english"} '
               f'| prior={outcome} | saved={len(detail.get("candidates") or [])} '
               f'| rejected={len(detail.get("rejected_candidates") or [])} '
               f'| provider_hits={detail.get("provider_total","?")} '
               f'| incomplete={tags or "-"}',
               flush=True)
+    print("INCOMPLETE_LOOKUPS_OR_SAVED_RESULTS_TO_RETRY:",len(retry),flush=True)
+    print("COMPLETED_LOOKUPS_NEED_NEW_SOURCE:",len(source_pool_gap),flush=True)
     if not args.start:
-        print("READ ONLY: No source worker launched. Pass --start for a real bounded job.",
+        print("READ ONLY: No source worker launched. Pass --start to retry only incomplete or saved-positive results.",
               flush=True)
         return
-    if not unstaged:
-        print("NO UNSTAGED SOURCE ITEMS: nothing launched.",flush=True)
+    if not retry:
+        print("NO JUSTIFIED RE-SEARCH WITH CURRENT TWO PROVIDERS: nothing launched.",flush=True)
         return
     # Use the EXISTING dashboard launcher, preserving real Active Work status,
     # provider rate caps, and one selector-scoped receipt. No bespoke worker.
@@ -111,7 +136,7 @@ def main():
     import subhub_dashboard_server as dashboard
     doc={"series":args.series,
          "picks":[{"season":r["season"],"episode":r["episode"]}
-                  for r in unstaged]}
+                  for r in retry]}
     result=dashboard.start_jellyfin_source(doc)
     print("SOURCE JOB ACCEPTED:",json.dumps(result,sort_keys=True),flush=True)
 
