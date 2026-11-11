@@ -152,7 +152,9 @@ def run(series, seasons=()):
     print("FINISH_RESULT",json.dumps({"remaining":final["missing"],
         "covered":final["covered"],"total":final["total"],
         "state":receipt["state"]},ensure_ascii=False),flush=True)
-    return 0 if final["missing"]==0 else 2
+    # Unresolved provider/edition work is a partial RESULT, not a crashed job.
+    # The dashboard reads the retained remaining count for follow-up.
+    return 0
 
 
 def main(argv=None):
