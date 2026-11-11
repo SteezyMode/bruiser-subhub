@@ -14,8 +14,9 @@ import sqlite3
 import sys
 
 HOST = Path.home() / "bruiser-pilot/subhub-control"
-if str(HOST) not in sys.path:
-    sys.path.insert(0,str(HOST))
+MODULES = HOST if (HOST / "ja_first_stage_saved_batch.py").is_file() else Path(__file__).resolve().parent
+if str(MODULES) not in sys.path:
+    sys.path.insert(0,str(MODULES))
 import benchmark_subtitle_search_paths as benchmark
 import ja_first_stage_saved_batch as staging
 
