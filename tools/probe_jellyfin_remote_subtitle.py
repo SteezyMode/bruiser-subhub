@@ -141,6 +141,14 @@ def characterize(data,ct):
             len(JP_CHAR.findall(decoded))>=10}
 
 
+def safe_failure(exc):
+    """Expose only the HTTP status, never a provider URL, token or response body."""
+    if isinstance(exc, HTTPError):
+        code = int(exc.code)
+        return "HTTP_" + str(code) if 100 <= code <= 599 else "HTTP_invalid_status"
+    return type(exc).__name__
+
+
 def main():
     ap=argparse.ArgumentParser(description=__doc__)
     group=ap.add_mutually_exclusive_group(required=True)
@@ -173,7 +181,7 @@ def main():
     try:
         candidates=request_candidates(row,auth,op)
     except (HTTPError,URLError,OSError,RuntimeError,ValueError) as exc:
-        print("REMOTE SEARCH HELD:",type(exc).__name__,flush=True)
+        print("REMOTE SEARCH HELD:",safe_failure(exc),flush=True)
         return
     print("JELLYFIN_REMOTE_RESULTS:",len(candidates),flush=True)
     selected=[]
@@ -203,7 +211,7 @@ def main():
         print("REMOTE_BYTES_PROBE:",json.dumps(characterize(data,ct)),
               flush=True)
     except (HTTPError,URLError,OSError,RuntimeError,ValueError) as exc:
-        print("REMOTE_BYTES_HELD:",type(exc).__name__,flush=True)
+        print("REMOTE_BYTES_HELD:",safe_failure(exc),flush=True)
         return
     print("IN-MEMORY ONLY: no subtitle contents printed, no files or DB altered. "+
           "No ALASS or publication attempted.")
