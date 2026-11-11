@@ -508,14 +508,24 @@ function renderLibrarySourceProgress(d){
       total?current+" of "+total+" checked":"Waiting for planned count");
   };
   bar("library-search",p.search_completed,p.search_planned);
+  if(p.search_stopped_early){
+    $("library-search-label").textContent=(p.search_completed||0)+" searched / "+
+      (p.search_planned||0)+" queued · stopped early";
+    $("library-search-meter").setAttribute("aria-valuetext",
+      "Stopped after "+(p.search_completed||0)+" searches; provider deferred");
+  }
   bar("library-stage",p.stage_attempts,p.stage_planned);
   bar("library-publish",p.publish_title_checked,p.publish_title_planned);
   $("library-live-summary").textContent=
     "Matches: "+(p.search_found||0)+" · No match: "+(p.search_none||0)+
     " · Review: "+(p.search_review||0)+" · Errors: "+(p.search_errors||0)+
+    " · Deferred: "+(p.search_deferred||0)+
     " · Staged: "+(p.staged||0)+" · Published: "+(p.published||0)+
     " · Held: "+((p.stage_holds||0)+(p.publish_holds||0));
-  $("library-live-current").textContent="Current: "+escapeText(p.current_item||"Waiting for next item");
+  $("library-live-current").textContent=p.search_stopped_early?
+    "Search stopped early: "+escapeText(p.search_stop_reason||"Provider unavailable")+
+    ". Staging and publication may have continued with previously saved results.":
+    "Current: "+escapeText(p.current_item||"Waiting for next item");
 }
 async function refreshStatus(){
   try{
