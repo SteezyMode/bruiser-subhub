@@ -245,6 +245,11 @@ for i, job in enumerate(jobs):
 '''
 
 
+try:
+    from . import ja_first_movie_scope as movie_scope
+except ImportError:
+    import ja_first_movie_scope as movie_scope
+
 def tokens(value):
     return re.findall(r"[a-z]+|[0-9]+", str(value or "").casefold())
 
@@ -447,7 +452,7 @@ def open_db():
     return db
 
 
-def pick(rows, db, budget):
+def pick(rows, db, budget, scope='all'):
     """Sort catalog metadata in memory; touch ONLY a few shortlisted files."""
     now = int(time.time())
     done=set()
@@ -486,6 +491,8 @@ def pick(rows, db, budget):
     queue = priorities.active_coverage_queue()
     choices = []
     for row in rows:
+        if not movie_scope.matches(row, scope):
+            continue
         kind = row.get("kind")
         key = str(row.get("jellyfin_id") or "")
         if (kind not in ("Movie", "Episode") or not key or key in done
@@ -776,6 +783,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--budget", type=int, default=12, help="1..600 provider-search requests")
     ap.add_argument("--jellyfin-id",default="",help="search one real catalog item by its external title/season/episode identity")
+    ap.add_argument("--scope",choices=("all",movie_scope.SCOPE),default="all",
+                    help="filter searches to specified existing movie categories")
     ap.add_argument("--self-test", action="store_true")
     ap.add_argument("--report", action="store_true", help="print stored results; no provider searches")
     ap.add_argument("--recover-saved", action="store_true",
@@ -813,13 +822,15 @@ def main():
             if len(matches)!=1:
                 raise RuntimeError("explicit_source_item_missing_or_ambiguous")
             row=matches[0]
+            if not movie_scope.matches(row,args.scope):
+                raise RuntimeError("explicit_item_outside_requested_scope")
             query=query_for(row)
             if query is None:
                 raise RuntimeError("explicit_item_not_source_ready")
             chosen=[{"id":args.jellyfin_id,"row":row,"query":query}]
         else:
-            chosen = pick(data["items"], db, args.budget)
-        print("Inventory:", manifest.name, flush=True)
+            chosen = pick(data["items"], db, args.budget, scope=args.scope)
+        print("Inventory:", manifest.name, "| scope:", args.scope, flush=True)
         print("Search requests planned:", len(chosen), "| budget:", args.budget, flush=True)
         print("Movie / Episode:", dict(Counter(j["row"]["kind"] for j in chosen)),
               flush=True)
