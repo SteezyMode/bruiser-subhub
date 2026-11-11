@@ -7,6 +7,22 @@
 >
 > **Owner's current explicit order:** (1) fix reliable Japanese subtitle search and publication end-to-end; (2) all jobs need real dashboard progress, and manual batches must be possible; (3) Jellyfin-style movie poster grid with genre browsing/multi-selection; (4) eventually incremental source-on-add. No enterprise/startup framing. Do not build attractive controls that fail to deliver Japanese subtitles.
 
+## 2026-11-11 LIVE benchmark outcome — Jellyfin existing provider path
+
+**Owner executed** `tools/benchmark_subtitle_search_paths.py --execute` against three actual Jellyfin items on OptiPlex; **no subtitles downloaded/published and no library files altered**. This is the first real alternate-path measurement; don't revert to the earlier `not run` statement further below.
+
+| Same Jellyfin item | SubHub stored search | Jellyfin native remote-search |
+|---|---|---|
+| *Bride of Chucky* (1998) | v4 `none`, provider reported 12 results, 62 retained rejects, 0 usable | **0** Japanese candidates |
+| *Late Night with the Devil* (2024) | v3 `review`, 3 saved exact-title JA candidates (original year 2023) | **6** JA results: **3 Open Subtitles** and **3 subbuzz** (potential duplicate releases; NOT 6 distinct translations) |
+| *It's Always Sunny in Philadelphia* S07E02 (2011) | **v2** `none`, provider total 0, zero saved candidates | **2** JA results: **1 Open Subtitles** and **1 subbuzz**, same `WEB-DL.DSNP` release candidate (possibly duplicate) |
+
+**What this actually proves:** Jellyfin's configured remote subtitle providers can discover real, correctly titled Japanese candidates for two known-positive items, including the **subbuzz** provider absent from SubHub's effective OpenSubtitles staging flow. The old v2 episode miss is **not evidence v4 would miss that episode**. The *Late Night* v3 results had already been recovered into REVIEW (unverified 2023/2024 release), so do not claim Jellyfin alone found that film. For *Bride*, **both paths returned no usable JA**; do not accept mismatched 'Bride' filenames. Remote search results are NOT downloaded subtitle bytes or verified timing.
+
+**Newly verified API possibility:** Jellyfin supports `GET /Providers/Subtitles/Subtitles/{subtitleId}` returning remote subtitle bytes **without attaching/writing them to the video**. Inspect upstream `Jellyfin.Api/Controllers/SubtitleController.cs` `GetRemoteSubtitles` versus **do NOT use** `POST /Items/{itemId}/RemoteSearch/Subtitles/{subtitleId}`—the latter calls `DownloadSubtitles()` then `TrySaveSubtitle()`, writing directly in media directories and bypassing SubHub's ALASS/non-overwrite QA. A bounded, single-result **in-memory GET probe** is the appropriate next test. GET of remote bytes may consume a provider download allowance. No media-file side effects claimed for the GET endpoint; test on the installed host before integrating into the private stage pipeline.
+
+**P0 direction after benchmark:** don't rebuild a provider catalog or assume v4 success. Verify Jellyfin remote retrieval on one exact episode candidate (prefer subbuzz for incremental provider coverage), then consider an adapter that stages bytes **privately**, retaining provider/ID/episode provenance and existing ALASS/QA. Correct Sublarr metadata/query/participation remains unresolved separately; an alternate maintained Jellyfin provider route may reduce the need for bespoke source work if proved successful. Keep OpenSubtitles/SubDL quotas separate across systems.
+
 ## 2026-11-11 continuation — P0-A attempt record (code + comparison, NO host acceptance yet)
 
 **This section is the most recent work.** Keep it visible. The earlier host audit below remains the authoritative measurement of the installed OptiPlex.
