@@ -24,6 +24,7 @@ JOURNAL_ROWS = 16000
 RE_SEARCH_PLAN = re.compile(r"Search requests planned:\s*(\d+)\s*\|\s*budget:\s*(\d+)")
 RE_SEARCH_START = re.compile(r"\[(\d+)/(\d+)\] SEARCHING:\s*(.*)")
 RE_SEARCH_DONE = re.compile(r"\[(\d+)/(\d+)\] (PLAUSIBLE|NONE|REVIEW|ERROR):")
+RE_SEARCH_DEFERRED = re.compile(r"\[(\d+)/(\d+)\] DEFERRED:\s*(.*)")
 RE_STAGE_PLAN = re.compile(r"Selected:\s*(\d+)\s*\|\s*budget:\s*(\d+)")
 RE_STAGE_START = re.compile(r"\[(\d+)/(\d+)\] STAGING:\s*(.*)")
 RE_MEDIA_PLAN = re.compile(r"Staged candidates:\s*(\d+)\s*\|\s*unique titles:\s*(\d+)")
@@ -85,7 +86,8 @@ def parse(events):
         "search_limit": 0, "stage_limit": 0, "publish_limit": 0,
         "search_planned": 0, "search_completed": 0,
         "search_found": 0, "search_none": 0, "search_review": 0,
-        "search_errors": 0,
+        "search_errors": 0, "search_deferred": 0,
+        "search_stopped_early": False, "search_stop_reason": "",
         "stage_planned": 0, "stage_attempts": 0,
         "staged": 0, "stage_holds": 0,
         "publish_title_planned": 0, "publish_title_checked": 0,
@@ -131,6 +133,12 @@ def parse(events):
                     state["search_review"] += 1
                 else:
                     state["search_errors"] += 1
+            elif (m := RE_SEARCH_DEFERRED.search(line)):
+                state["search_deferred"] += 1
+                state["search_stopped_early"] = True
+                state["search_stop_reason"] = "Provider budget or availability deferred"
+                state["provider_limited"] = True
+                notable.append("Provider search deferred: not a confirmed subtitle miss")
             elif (m := RE_STAGE_PLAN.search(line)):
                 state["stage_planned"] = int(m.group(1))
             elif (m := RE_STAGE_START.search(line)):
@@ -179,7 +187,9 @@ def parse(events):
                     notable.append("Subtitle held; no overwrite")
             elif line.startswith("AUTOFILL_CYCLE_COMPLETE"):
                 state["complete"] = True
-                state["phase"] = "Completed (source-only)"
+                state["phase"] = ("Finished stages; sourcing stopped at provider limit"
+                                  if state["search_stopped_early"] else
+                                  "Completed (source-only)")
                 state["current"] = ""
             elif line.startswith(("JA_SOURCE_AUTOFILL_HELD", "BRUISER CYCLE HELD",
                                   "SEARCH PILOT FAILED", "STAGING ERROR",
@@ -260,7 +270,8 @@ def render(state, now=None):
         "  Matched titles: " + str(state["search_found"]) +
         "  |  No results: " + str(state["search_none"]) +
         "  |  Review: " + str(state["search_review"]) +
-        "  |  Errors: " + str(state["search_errors"]),
+        "  |  Errors: " + str(state["search_errors"]) +
+        "  |  Deferred: " + str(state["search_deferred"]),
         "DOWNLOADS   " + bar(state["stage_attempts"], state["stage_planned"]),
         "  Staged: " + str(state["staged"]) +
         "  |  Held: " + str(state["stage_holds"]) +
@@ -272,6 +283,8 @@ def render(state, now=None):
         "  |  Recognized earlier: " + str(state["existing_recognized"]) +
         "  |  Publication ceiling: " + str(state["publish_limit"] or "?"),
         "",
+        ("Search unfinished: " + state["search_stop_reason"]
+         if state["search_stopped_early"] else "Search complete/ongoing as indicated above"),
         "Current: " + current,
         "Next scheduled: " + state.get("next_run", "unknown"),
         "",
