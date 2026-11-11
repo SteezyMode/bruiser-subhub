@@ -373,6 +373,7 @@ def main(argv=None):
         stage.private_root()
         prior=read_state()
         doc=fresh_state(chosen,plan,prior)
+        doc["search_cap"]=args.max_searches
         print("JELLYFIN_BATCH_BEGIN",json.dumps({
             "selected":len(chosen),"selector":plan,
             "max_searches":args.max_searches},ensure_ascii=False),flush=True)
