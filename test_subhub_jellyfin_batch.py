@@ -57,6 +57,29 @@ class GenericJellyfinBatch(unittest.TestCase):
         with self.assertRaises(ValueError):
             batch.choose(self.rows,movie_ids=["f"*32,"f"*32])
 
+    def test_live_source_worker_exposes_milestones_before_completion(self):
+        code=("import sys,time;"
+              "print('MEDIA: video ready',flush=True);"
+              "print('JELLYFIN_JA_SEARCH_REQUEST: x',flush=True);"
+              "time.sleep(.15);"
+              "print('JELLYFIN_JA_MATCHING_CANDIDATES: 1',flush=True);"
+              "time.sleep(.15);"
+              "print('JELLYFIN_JA_BYTES: 100',flush=True)")
+        events=[]
+        rc,out,err=batch.call([sys.executable,"-u","-c",code],
+                              timeout=5,progress=lambda phase,detail:events.append(phase))
+        self.assertEqual(rc,0,err)
+        self.assertIn("searching_provider",events)
+        self.assertIn("matching",events)
+        self.assertIn("download_received",events)
+        self.assertIn("JELLYFIN_JA_BYTES:",out)
+        self.assertEqual(err,"")
+
+    def test_streamed_source_worker_honors_timeout(self):
+        code="import time;time.sleep(2)"
+        with self.assertRaises(subprocess.TimeoutExpired):
+            batch.call([sys.executable,"-u","-c",code],timeout=.15)
+
     def test_completed_source_batch_and_exact_id_no_direct_jellyfin_write(self):
         rows=batch.choose(self.rows,series="Example Show",seasons=[1])
         plan=batch.selector(series="Example Show",seasons=[1])
