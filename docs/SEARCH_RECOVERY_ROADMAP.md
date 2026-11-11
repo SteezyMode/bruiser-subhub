@@ -7,6 +7,21 @@
 >
 > **Owner's current explicit order:** (1) fix reliable Japanese subtitle search and publication end-to-end; (2) all jobs need real dashboard progress, and manual batches must be possible; (3) Jellyfin-style movie poster grid with genre browsing/multi-selection; (4) eventually incremental source-on-add. No enterprise/startup framing. Do not build attractive controls that fail to deliver Japanese subtitles.
 
+## Nov 11 owner executed no-duplicate sourcing preflight — 11 source gaps have a reason
+
+**Owner's actual OptiPlex output** of pinned `ja_first_recover_unstaged.py --series ... --start`: `MISSING_WITH_SAVED_JA_STAGE=12`, `ALREADY_PUBLISHED_BUT_STALE_MANIFEST=55`, `MISSING_WITH_NO_JA_STAGE=11`, `INVENTORY_REQUIRES_REVIEW=0`, `INCOMPLETE_LOOKUPS_OR_SAVED_RESULTS_TO_RETRY=0`, `COMPLETED_LOOKUPS_NEED_NEW_SOURCE=11`. **Nothing was launched** because no justified repeat against current OS/SubDL. The pre-existing latest manifest is stale: do **not** infer definitive coverage from 141/179 or 149/179; obtain fresh Jellyfin catalog via existing `ja_first_catalog_manifest.py --save` (create-only) and cross-check sidecars.
+
+**11 un-staged misses**: S05E13, S06E09, S08E02, S09E09, S14E03, S18E01/E02/E04/E05/E07/E08. All have stored `outcome=none`, `provider_total=0`, no rejected candidates and no incomplete providers for the **two downloader sources**.
+
+**Important clustering verified using published external series metadata**:
+- **Four of five removed-from-streaming episodes**: S06E09 *Dee Reynolds: Shaping America's Youth*, S08E02 *The Gang Recycles Their Trash*, S09E09 *The Gang Makes Lethal Weapon 6*, S14E03 *Dee Day*. These are unlikely to have Disney+ matched Japanese streaming subtitles; prioritize correctly-matched English source and *manually chosen* PLaMo, not repeated OS/SubDL empty searches. S04E03 is the fifth generally removed episode but is NOT in these un-staged gaps.
+- S05E13 is likely *A Very Sunny Christmas* — a 2009 hour-long Christmas special, historically a DVD release, season-number ambiguity; inspect actual file and English captions, search **special's title** not only numeric S05E13. Never rename/swaps based on Jellyfin label alone.
+- S18 E01/E02/E04/E05/E07/E08 are **brand-new 2026 releases** (US season premiered Aug 17 and concluded Oct 12, 2026); Japanese subtitle upload lag plausible. Test enabled native Sublarr alternatives rather than assume permanence. Four remaining S18 episodes already have Japanese available, so 6/10 missing is specific, not total absence.
+
+**Sublarr upstream** documents built-in provider adapters broader than the two hardwired SubHub stage downloaders. Relevant no-key provider candidate **SubsDump**; **Subf2m** also no key; assess actual installed version, enabled providers, language coverage, and per-provider health with local `/api/v1/providers/health` before enabling/installing anything. Jimaku/Kitsunekko are anime-focused, likely low-value for this American live-action sitcom. SubsDump and any other native provider results should flow through Sublarr's own staging/sync mechanisms where feasible; don't DIY adapters without a genuine need. Do not blindly upgrade installed Sublarr or bulk search entire library.
+
+**Distinct next steps:** (1) refresh local Jellyfin inventory and get exact uncovered tally; (2) inspect local provider health and 11 episodes' available English subtitle source; (3) targeted S18 provider discovery with a non-OS/SubDL source if configured; (4) 4 removed + special to English→PLaMo only after source inspection and owner approval; (5) retain 12 staged timing holds separately, matching release rather than trusting enormous ALASS shifts. No media changes during diagnostic.
+
 ## Nov 11 NEXT SOURCE PASS — all remaining episodes, avoiding duplicate downloads
 
 From prior host verified **8 additional staged-JA publications**, projected IASIP Japanese coverage is **149/179; 30 missing pending refreshed Jellyfin catalog**. Rough partition: **12 have Japanese stages but remain alignment/QA held**; approx **18 have no successfully staged Japanese**. Counts must be reconciled against physical sidecars and the latest Jellyfin inventory before claiming exact missing count.
