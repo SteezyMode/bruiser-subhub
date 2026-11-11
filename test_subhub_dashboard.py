@@ -72,6 +72,26 @@ class StatusTests(unittest.TestCase):
             finally:
                 dashboard._SOURCE_CACHE.update(old)
 
+    def test_older_source_tracker_can_omit_optional_fields(self):
+        """Historical tracker schemas must not crash the entire status API."""
+        journal=dashboard.subprocess.CompletedProcess([],0,stdout="{}")
+        legacy={"has_run":True,"phase":"Reading archived source events",
+                "current":"", "recent":[], "started":1,"last_event":2,
+                "complete":True,"failed":False}
+        with patch.object(dashboard.subprocess,"run",return_value=journal), \
+             patch.object(dashboard.source_tracker,"parse",return_value=legacy), \
+             patch.object(dashboard.time,"monotonic",return_value=5010.):
+            old=dict(dashboard._SOURCE_CACHE)
+            try:
+                dashboard._SOURCE_CACHE.update(when=0.0,state=None)
+                snapshot=dashboard.scheduled_source_activity(False)
+                self.assertTrue(snapshot["metrics_available"])
+                self.assertEqual(snapshot["search_partial"],0)
+                self.assertEqual(snapshot["search_stopped_early"],False)
+                self.assertEqual(snapshot["phase"],"source_completed")
+            finally:
+                dashboard._SOURCE_CACHE.update(old)
+
     def test_unavailable_journal_is_unknown_not_false_zero_success(self):
         failed=dashboard.subprocess.CompletedProcess([],1,stdout="")
         with patch.object(dashboard.subprocess,"run",return_value=failed), \
