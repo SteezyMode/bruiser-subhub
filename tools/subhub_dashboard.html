@@ -889,10 +889,18 @@ function renderNextStep(d){
   if(finish.active){
     title=(finish.series||"Selected show")+" — finishing Japanese subtitles";
     const p=finish.source_progress;
-    reason=p&&p.total?
+    const q=finish.intensive_progress;
+    reason=finish.phase==="intensive_recovery"&&q?
+      "Intensive synchronization: "+q.seasons_done+"/"+q.seasons_total+
+      " seasons examined, "+q.titles_checked+" titles checked, "+
+      q.trials+" ALASS trials, "+q.published+" Japanese subtitles published. "+
+      "Currently: "+(q.current||"preparing next candidate"):
+      p&&p.total?
       p.processed+" / "+p.total+" episodes processed in this source pass; "+
       p.published+" published, "+p.downloads+" downloaded. "+
       "PLaMo follows only for eligible gaps.":
+      finish.phase==="translation"?
+      "Intensive recovery finished; PLaMo is handling eligible gaps.":
       "Sourcing started; waiting for its first checkpoint.";
     target="active-work";label="View completion progress";
   }else if(job.active){
@@ -964,12 +972,29 @@ async function refreshStatus(){
       $("finish-job-title").textContent=(finish.series||"Selected series")+" · completion";
       $("finish-job-status").textContent=finish.active?
         "Running · "+(finish.phase==="source"?"finding/fixing Japanese":
+          finish.phase==="intensive_recovery"?"intensive ALASS recovery":
           finish.phase==="translation"?"PLaMo translation":
           finish.phase||"starting"):finish.state||"Unknown";
-      const valid=!!(finish.active&&finish.phase==="source"&&p&&
+      const intense=!!(finish.active&&finish.phase==="intensive_recovery"&&
+        finish.intensive_progress&&finish.intensive_progress.seasons_total>0);
+      const q=finish.intensive_progress||{};
+      const validSource=!!(finish.active&&finish.phase==="source"&&p&&
         Number.isInteger(p.total)&&p.total>0&&Number.isInteger(p.processed));
+      const valid=validSource||intense;
       $("finish-source-meter").hidden=!valid;
-      if(valid){
+      if(intense){
+        const percent=Math.max(0,Math.min(100,100*q.seasons_done/q.seasons_total));
+        $("finish-source-fill").style.width=percent+"%";
+        $("finish-source-meter").setAttribute("aria-valuenow",String(Math.round(percent)));
+        $("finish-source-meter").setAttribute("aria-valuetext",
+          q.seasons_done+" of "+q.seasons_total+" seasons examined; "+
+          q.trials+" intensive timing trials; "+q.published+" published");
+        $("finish-job-details").textContent=
+          q.seasons_done+" / "+q.seasons_total+" seasons examined · "+
+          q.titles_checked+" staged titles checked · "+q.trials+" timing trials · "+
+          q.published+" Japanese subtitles published";
+        $("finish-source-current").textContent="Now: "+(q.current||"Selecting next staged subtitle");
+      }else if(validSource){
         const percent=Math.max(0,Math.min(100,100*p.processed/p.total));
         $("finish-source-fill").style.width=percent+"%";
         $("finish-source-meter").setAttribute("aria-valuenow",String(Math.round(percent)));
