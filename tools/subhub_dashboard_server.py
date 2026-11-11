@@ -782,6 +782,24 @@ def download_ledger_status():
         return empty
 
 
+def configured_source_scope():
+    """Read owner scope without altering any provider/worker state."""
+    path=Path.home()/"bruiser-pilot/ja-first-inventory/.source-scope.json"
+    if not path.exists() and not path.is_symlink():
+        return "all"
+    try:
+        if (path.is_symlink() or not path.is_file() or path.stat().st_mode&0o077
+                or path.stat().st_uid!=os.getuid() or path.stat().st_size>500):
+            return "unavailable"
+        record=json.loads(path.read_text("utf-8"))
+        if isinstance(record,dict) and set(record)=={"scope"} and record["scope"] in (
+                "all","horror-drama-folders"):
+            return record["scope"]
+    except (OSError,ValueError,TypeError):
+        pass
+    return "unavailable"
+
+
 def status_payload():
     doc = checked_state()
     log = trusted_log(doc) if doc else None
@@ -795,6 +813,7 @@ def status_payload():
     result["season_sources"]=season_sources_status()
     result["jellyfin_source"]=jellyfin_source_status()
     result["download_usage"]=download_ledger_status()
+    result["source_config_scope"]=configured_source_scope()
     result["movie_source"]=movie_source_status()
     result["controls"]=control_availability()
     return result
