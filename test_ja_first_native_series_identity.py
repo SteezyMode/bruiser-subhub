@@ -60,6 +60,15 @@ class NativeSeriesIdentityTests(unittest.TestCase):
         self.assertEqual(q["language"], "ja")
         self.assertNotIn("imdb_id", q)
 
+    def test_existing_japanese_episodes_keep_series_and_episode_identity(self):
+        self.item["MediaStreams"].append({
+            "Type": "Subtitle", "Language": "ja", "IsForced": False
+        })
+        row = self.inspect()
+        self.assertEqual(row["status"], "existing_japanese_subtitle")
+        self.assertEqual(row["series_title"], "It's Always Sunny in Philadelphia")
+        self.assertEqual((row["season"], row["episode"]), (12, 2))
+
     def test_episode_series_id_and_name_works_without_parent_listing(self):
         self.series = {}
         row = self.inspect()
