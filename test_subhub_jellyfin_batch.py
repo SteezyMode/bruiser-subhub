@@ -183,12 +183,28 @@ class DashboardJellyfinControls(unittest.TestCase):
              patch.object(dashboard.subprocess,"run",side_effect=run):
             result=dashboard.start_jellyfin_source({"series":"Example Show"})
         self.assertEqual(result["eligible"],135)
-        self.assertEqual(result["max_searches_this_run"],20)
+        self.assertEqual(result["max_searches_this_run"],200)
+        self.assertIn("--max-searches",calls[0])
+        self.assertIn("200",calls[1])
         self.assertNotIn("--run",calls[0])
         self.assertIn("--run",calls[1])
         self.assertIn("--collect",calls[1])
         self.assertIn("KillMode=control-group"," ".join(calls[1]))
         self.assertNotIn("--start",calls[1])
+
+    def test_selected_season_uses_20_searches_but_whole_series_uses_200(self):
+        calls=[]
+        def run(command,**kwargs):
+            calls.append(command)
+            return SimpleNamespace(returncode=0,stdout='{"eligible": 12}',stderr="")
+        with patch.object(dashboard,"unit_active",return_value=False), \
+             patch.object(dashboard,"translation_busy",return_value=False), \
+             patch.object(dashboard,"JELLYFIN_SOURCE_EXEC",Path(__file__)), \
+             patch.object(dashboard.subprocess,"run",side_effect=run):
+            result=dashboard.start_jellyfin_source(
+                {"series":"Example Show","seasons":[1]})
+        self.assertEqual(result["max_searches_this_run"],20)
+        self.assertEqual(calls[1][calls[1].index("--max-searches")+1],"20")
 
     def test_status_is_exact_receipt_not_inferred_from_disabled_button(self):
         with tempfile.TemporaryDirectory() as d:
