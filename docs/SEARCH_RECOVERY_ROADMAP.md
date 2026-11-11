@@ -7,6 +7,33 @@
 >
 > **Owner's current explicit order:** (1) fix reliable Japanese subtitle search and publication end-to-end; (2) all jobs need real dashboard progress, and manual batches must be possible; (3) Jellyfin-style movie poster grid with genre browsing/multi-selection; (4) eventually incremental source-on-add. No enterprise/startup framing. Do not build attractive controls that fail to deliver Japanese subtitles.
 
+## 2026-11-11 continuation — P0-A attempt record (code + comparison, NO host acceptance yet)
+
+**This section is the most recent work.** Keep it visible. The earlier host audit below remains the authoritative measurement of the installed OptiPlex.
+
+### Attempt P0-A1: Stop losing OpenSubtitles when SubDL reaches its pacing gate
+
+- **Trigger/repro:** Owner's November 11 audit: full-library source v4 performed 44 `NONE` and ended at #45 `DEFERRED` on *Jug Face*. `provider_gates={opensubtitles:ok, subdl:budget_exhausted}`. Earlier `require_sources()` required **every** provider to be open.
+- **Patch:** `tools/ja_first_search_pilot.py` now sends a search to the existing long-lived Sublarr server when **any** enabled core Japanese provider is healthy. Sublarr's own coordinator still applies the other provider's budget and skips blocked providers. Health is checked before and after, and if any enabled provider is unavailable, results are marked **partial/incomplete**, never an exhaustive `none`. If all are unavailable, the worker emits `deferred` and does not POST. If a provider closes between first IMDb lookup and optional fallback, the first response is retained.
+- **Persistence:** Empty incomplete queries get `outcome=partial`; `incomplete_providers` and gates are stored alongside existing candidate/rejected evidence. Partial search is retry-eligible after 20 hours, not continuously re-requested in the same budget window. The coverage queue continues `search_ja` for partial/deferred; selected-TV workflow uses the same contract. Staging code can recognize `partial` history. Journal/parser/dashboard now count **Partial** separately from **No match**. Existing plausible candidates are retained without being automatically published.
+- **Offline evidence:** `test_ja_first_partial_providers.py` covers SubDL blocked/OpenSubtitles active, all blocked/zero provider POSTs, a gate closure between movie queries, private history+retry and real partial progress reporting. CI for commit `9c208d2ecf0f462807b516b884b6dd03cc417e83` passed Python 3.11 and 3.12.
+- **Deployment & limitations:** **NOT confirmed installed on OptiPlex. NOT a proven increase in Japanese subtitle matches.** The combined endpoint can still return caches, skip particular providers, strip metadata and cap results. Pre/post health alone cannot prove which provider was searched. There is no per-provider-specific search API here, so rechecking partial records later can repeat queries for already-open providers. That is tracked, not concealed.
+
+### Attempt P0-A2: Compare an *existing* metadata-aware library search route before rewriting Sublarr
+
+- **Reason:** Sublarr v1.18.0 POST `/providers/search` drops `VideoQuery.year`; SubDL's actual `year` parameter is generated only from that field. Appending a year to plain title in SubHub v4 does not restore it. The same endpoint truncates to 50; cached match evidence may be absent. We verified those behaviors also persist in the simplified endpoint at Sublarr v1.20.1; upgrading untested would be an ungrounded promise.
+- **Added:** `tools/benchmark_subtitle_search_paths.py` with `test_benchmark_subtitle_search_paths.py`. It selects **one to three explicitly named items** from the existing Jellyfin-authoritative private manifest, prints previous SubHub outcome/partial-rejected counts, and *optionally* calls Jellyfin's authenticated, built-in `GET /Items/{itemId}/RemoteSearch/Subtitles/ja` for the **same library item**. Defaults to **preview/no remote requests**; `--execute` is explicit; no downloads, DB writes, publisher or folder mutations. The actual underlying Jellyfin plugin request counts may differ from the 1–3 API requests and may consume quotas.
+- **Use to determine:** Is a known correct-title Japanese subtitle discoverable via Jellyfin with its exact item metadata when SubHub v4 says `none`? What provider responded? Does the title/episode name match? This is **discovery only**, not subtitle validation or publication.
+- **Test history:** The first standalone benchmark-test CI failed because the unittest accessed `urllib.request.Request.method` (not the documented `.get_method()`); corrected in [commit `35d8679`](https://github.com/SteezyMode/bruiser-subhub/commit/35d867965c68efb4bb470a94c1a8b3caa35a7d62). No server runtime was implicated. Record CI status and live benchmark separately.
+- **Deployment & outcome:** **Not run on OptiPlex**. No claim that Jellyfin returns better matches yet. If it does, prefer reusing that maintained route rather than another bespoke search algorithm; if it doesn't, inspect actual provider registration/settings and native response evidence before assuming Japanese subtitles do not exist.
+
+### One bounded next real test (do not start a full scan)
+
+1. Verify source worker idle and retain backups; if choosing to install P0-A1, use an installer pinned to a verified commit. **Do not silently enable the daily timer** or launch a batch.
+2. Probe the *read-only preview* against actual Jellyfin manifest identities. Compare up to three known titles with `--execute` **only after checking provider quotas**, e.g. *Bride of Chucky*, *Late Night with the Devil*, and IASIP S07E02. No files will be downloaded; even zero Jellyfin results may reflect a missing plugin.
+3. Compare outputs against the saved SubHub evidence. If Jellyfin finds real correct-title Japanese and SubHub doesn't, locate the minimal maintained metadata-aware route. If both miss, inspect provider raw search/skip logs. A single successful sample never authorizes a library-wide scan.
+4. Document actual provider calls, confirmed matches, staging verdict and installed SHA in this roadmap and [issue #89](https://github.com/SteezyMode/bruiser-subhub/issues/89). **P0 remains open** until subtitles reach Jellyfin verified; P1 job progress/movie batches remain explicitly prioritized.
+
 ## 0. Truth-in-status register — update after EACH real test
 
 | Layer | What is currently established | What is NOT established |
