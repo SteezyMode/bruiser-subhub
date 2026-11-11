@@ -103,6 +103,44 @@ class SeasonBatchTests(unittest.TestCase):
             batch.unresolved_plan("It's Always Sunny in Philadelphia",
                                   path=self.dbpath,limit=0)
 
+    def test_real_timing_qa_failure_in_owner_unresolved_plamo_batch(self):
+        import json, time
+        root=Path(self.temp.name)
+        work=root/"bruiser-pilot/ja-first-inventory"
+        work.mkdir(parents=True,exist_ok=True)
+        searchdb=work/"japanese-search.sqlite3"
+        with sqlite3.connect(self.dbpath) as db:
+            db.execute("""
+                UPDATE tasks SET action='search_ja',state='held',
+                    note='ja_publication_held_after_real_timing_qa:alass_and_ffsubsync'
+                WHERE path LIKE '%S01E03.mkv'
+            """)
+        with sqlite3.connect(searchdb) as db:
+            db.execute("CREATE TABLE searches (jellyfin_id TEXT,outcome TEXT,"
+                       "candidate_count INTEGER,plausible_count INTEGER,"
+                       "results_json TEXT,searched_at INTEGER)")
+            db.execute("INSERT INTO searches VALUES(?,?,?,?,?,?)",
+                       (f"{3:032x}","review",1,0,
+                        json.dumps({"provider_total":1,"candidates":[]}),
+                        int(time.time())))
+        searchdb.chmod(0o600)
+        with mock.patch.object(batch,"HOME",root):
+            plan=batch.unresolved_plan(
+                "It's Always Sunny in Philadelphia",path=self.dbpath)
+        held=[p for p in plan["picks"] if p["episode"]==3]
+        self.assertEqual(len(held),1)
+        self.assertTrue(held[0]["failed_japanese_timing"])
+        self.assertEqual(plan["selected"],7)
+        # Ordinary "review_saved_ja" with no actual failed timing QA
+        # must still require a separate owner decision.
+        with sqlite3.connect(self.dbpath) as db:
+            db.execute("UPDATE tasks SET action='review_saved_ja',"
+                       "note='' WHERE path LIKE '%S01E03.mkv'")
+        with mock.patch.object(batch,"HOME",root):
+            plan=batch.unresolved_plan(
+                "It's Always Sunny in Philadelphia",path=self.dbpath)
+        self.assertNotIn(3,[p["episode"] for p in plan["picks"]])
+
     def test_reviewed_source_can_be_sent_explicitly_to_plamo(self):
         # No provider call: a real previous source-search result is mandatory.
         import json, time
