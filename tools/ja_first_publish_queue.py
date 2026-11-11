@@ -232,10 +232,27 @@ def report_title(row):
     return title if title else "media " + str(row.get("jellyfin_id") or "unknown")
 
 
-def choose(jid, candidates):
+def choose(jid, candidates, *, intensive_only=False):
     published_state, row = existing_verdict(jid, candidates)
     if published_state != "absent":
         return published_state, row, None
+    # Explicit second-pass mode is ONLY for the already-failed candidates.
+    # Never repeat the expensive normal ALASS/ffsubsync attempts here.
+    # Each title and candidate is isolated: one failure cannot stop the queue.
+    if intensive_only:
+        if not alass.available():
+            raise RuntimeError("intensive_alass_unavailable")
+        for sid, _ in candidates[:3]:
+            try:
+                ready=alass.intensive_prepare(jid,sid)
+                print("  ALASS INTENSIVE:", sid,
+                      json.dumps(ready["assessment"]),flush=True)
+                return "ready_alass", row, ready
+            except (ValueError,OSError,RuntimeError,KeyError,sqlite3.Error,
+                    subprocess.CalledProcessError,subprocess.TimeoutExpired) as exc:
+                print("  ALASS INTENSIVE HELD:",sid,type(exc).__name__,
+                      str(exc)[:140],flush=True)
+        raise RuntimeError("intensive_candidates_unverified")
     # Prefer the existing standalone alass engine: unlike the older
     # ffsubsync route it preserves split / frame-rate corrections instead of
     # rejecting all nonuniform shifts. All source, QA, and no-overwrite gates
@@ -333,6 +350,9 @@ def main():
                         help="maximum distinct titles to examine 1..1000")
     parser.add_argument("--apply", action="store_true",
                         help="create at most --limit new Japanese subtitle sidecars")
+    parser.add_argument("--intensive-only", action="store_true",
+                        help="second pass for already-held staged candidates; compare ALASS"
+                             " settings and independent references before any publication")
     parser.add_argument("--queue-staged-only", action="store_true",
                         help="only titles with pending staged-JA work in Bruiser coverage queue")
     parser.add_argument("--jellyfin-id", default="",
@@ -381,6 +401,10 @@ def main():
               len({str(item[0]) for item in records}), flush=True)
     title_groups = unique_titles(records, args.max_titles)
     print("=== UNIFIED JAPANESE SUBTITLE PUBLISH QUEUE ===", flush=True)
+    if args.intensive_only:
+        print("RECOVERY: intensive ALASS second pass; cached stages only;"
+              " each failed candidate isolated; require independent timing agreement",
+              flush=True)
     print("Staged candidates:", len(records),
           "| unique titles:", len(title_groups),
           "| max new sidecars:", args.limit,
@@ -393,7 +417,7 @@ def main():
         print("MEDIA:", jid, "| candidate IDs:",
               ",".join(sid for sid, _ in candidates), flush=True)
         try:
-            kind, row, value = choose(jid, candidates)
+            kind, row, value = choose(jid, candidates, intensive_only=args.intensive_only)
             print("RESULT:", report_title(row), "|", kind, flush=True)
             counts[kind] += 1
             if kind.startswith("published_"):
