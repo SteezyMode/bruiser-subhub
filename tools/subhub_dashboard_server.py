@@ -538,16 +538,16 @@ def scheduled_source_activity(active, max_lines=5000):
             raise RuntimeError("journal_unavailable")
         details=source_tracker.parse(
             source_tracker.events_from_jsonl(completed.stdout))
-        if not details["has_run"]:
+        if not details.get("has_run",False):
             if not active:
                 return idle
             raise RuntimeError("current_cycle_not_in_journal_window")
         status="source_running" if active else "source_interrupted"
-        if details["failed"]:
+        if details.get("failed",False):
             status="source_held"
-        elif details["complete"]:
+        elif details.get("complete",False):
             status="source_completed"
-        phase=details["phase"] if active else {
+        phase=details.get("phase","Working on Japanese subtitles") if active else {
             "source_held":"Most recent automatic source cycle failed",
             "source_completed":("Source stages finished; search deferred by provider"
                                 if details.get("search_stopped_early")
@@ -556,35 +556,35 @@ def scheduled_source_activity(active, max_lines=5000):
                                 else "Most recent automatic source cycle completed"),
             "source_interrupted":"Most recent automatic source cycle interrupted",
         }[status]
-        current=safe_text(details["current"],150)
+        current=safe_text(details.get("current",""),150)
         data={**idle,"active":active,"metrics_available":True,
               "provider_limited":details.get("provider_limited",False),
               "phase":status,
               "phase_label":safe_text(phase,105),
               "current_item":current or "Preparing the next item",
-              "events":[safe_text(x,160) for x in details["recent"]][-9:],
+              "events":[safe_text(x,160) for x in details.get("recent",[])][-9:],
               "sample_window":"latest "+str(max_lines)+" journal events",
-              "started":details["started"],
-              "last_event":details["last_event"],
-              "search_completed":details["search_completed"],
-              "search_planned":details["search_planned"],
-              "search_found":details["search_found"],
-              "search_none":details["search_none"],
-              "search_review":details["search_review"],
-              "search_partial":details["search_partial"],
-              "search_errors":details["search_errors"],
-              "search_deferred":details["search_deferred"],
-              "search_stopped_early":details["search_stopped_early"],
-              "search_stop_reason":details["search_stop_reason"],
-              "stage_attempts":details["stage_attempts"],
-              "stage_planned":details["stage_planned"],
-              "staged":details["staged"],
-              "stage_holds":details["stage_holds"],
-              "publish_title_checked":details["publish_title_checked"],
-              "publish_title_planned":details["publish_title_planned"],
-              "published":details["published"],
-              "publish_holds":details["publish_holds"]}
-    except (OSError,ValueError,RuntimeError,subprocess.TimeoutExpired) as exc:
+              "started":details.get("started",0),
+              "last_event":details.get("last_event",0),
+              "search_completed":details.get("search_completed",0),
+              "search_planned":details.get("search_planned",0),
+              "search_found":details.get("search_found",0),
+              "search_none":details.get("search_none",0),
+              "search_review":details.get("search_review",0),
+              "search_partial":details.get("search_partial",0),
+              "search_errors":details.get("search_errors",0),
+              "search_deferred":details.get("search_deferred",0),
+              "search_stopped_early":details.get("search_stopped_early",False),
+              "search_stop_reason":details.get("search_stop_reason",""),
+              "stage_attempts":details.get("stage_attempts",0),
+              "stage_planned":details.get("stage_planned",0),
+              "staged":details.get("staged",0),
+              "stage_holds":details.get("stage_holds",0),
+              "publish_title_checked":details.get("publish_title_checked",0),
+              "publish_title_planned":details.get("publish_title_planned",0),
+              "published":details.get("published",0),
+              "publish_holds":details.get("publish_holds",0)}
+    except (OSError,ValueError,RuntimeError,KeyError,TypeError,subprocess.TimeoutExpired) as exc:
         data={**idle,"active":active,"phase":"source_running",
               "phase_label":"Source worker active — progress unavailable",
               "current_item":safe_text(str(exc),110)}
