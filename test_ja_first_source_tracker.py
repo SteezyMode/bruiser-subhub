@@ -80,6 +80,30 @@ class SourceTrackerTests(unittest.TestCase):
         self.assertEqual(d["current"],"")
         self.assertIn("Newly published: 1",monitor.render(d,now=140))
 
+    def test_provider_deferred_scan_reports_partial_search_but_valid_publications(self):
+        events=[
+            e(100,"RUNNING_SOURCES_ONLY_CYCLE search_budget=600 stage_budget=200 publish_limit=200"),
+            e(101,"=== DISCOVERY ==="),
+            e(102,"Search requests planned: 600 | budget: 600"),
+            e(103,"[44/600] NONE: plausible=0 review=0"),
+            e(104,"[45/600] DEFERRED: {'opensubtitles': 'budget_exhausted'} (remaining items not queried)"),
+            e(105,"=== STAGE CANDIDATES ==="),
+            e(106,"=== PUBLISH VERIFIED JA ==="),
+            e(107,'QUEUE SUMMARY: {"published_new":19,"held":72}'),
+            e(108,"AUTOFILL_CYCLE_COMPLETE"),
+        ]
+        state=monitor.parse(events)
+        self.assertTrue(state["complete"])
+        self.assertEqual(state["search_completed"],44)
+        self.assertEqual(state["search_deferred"],1)
+        self.assertEqual(state["search_planned"],600)
+        self.assertTrue(state["search_stopped_early"])
+        self.assertTrue(state["provider_limited"])
+        self.assertEqual(state["published"],19)
+        self.assertEqual(state["phase"],
+                         "Finished stages; sourcing stopped at provider limit")
+        self.assertIn("Search unfinished",monitor.render(state,now=110))
+
     def test_unified_publisher_receipts_are_counted_without_double_counting(self):
         events=[
             e(100,"RUNNING_SOURCES_ONLY_CYCLE search_budget=5 stage_budget=5 publish_limit=5"),
