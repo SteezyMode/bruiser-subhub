@@ -88,6 +88,32 @@ def parse_cues(raw):
     return cues
 
 
+def keep_source_dialogue(source, aligned):
+    """Use sync output ONLY for timestamps; always keep the source dialogue.
+
+    Some alignment engines reflow subtitle lines or normalize whitespace.
+    Accept that formatting difference only when every cue has exactly the
+    original non-whitespace characters in the same order. Never approve
+    dropped, added, or reordered words; never modify the source stage.
+    """
+    old=parse_cues(source)
+    new=parse_cues(aligned)
+    if len(old)!=len(new):
+        raise RuntimeError("sync_cue_count_changed")
+    if any("".join(a["text"].split()) != "".join(b["text"].split())
+           for a,b in zip(old,new)):
+        raise RuntimeError("sync_dialogue_changed")
+    if all(a["text"]==b["text"] for a,b in zip(old,new)):
+        return aligned
+    lines=[]
+    for i,(original,corrected) in enumerate(zip(old,new),1):
+        if corrected["start"]<0 or corrected["end"]<=corrected["start"]:
+            raise RuntimeError("sync_invalid_interval")
+        lines.append(f'{i}\\n{format_ms(corrected["start"])} --> '
+                     f'{format_ms(corrected["end"])}\\n{original["text"]}')
+    return ("\\n\\n".join(lines)+"\\n").encode("utf-8")
+
+
 def path_in_container(host_path,mounts):
     """Only existing Docker bind-mount mappings; reject ambiguous mappings."""
     host=Path(host_path)
@@ -247,6 +273,9 @@ def prepare(jid,sid,*,aligner=align_in_container):
     # It does not grade idiom choice, fluent machine translation, or meaning.
     quality=source_quality.require_not_garbage(raw)
     synced=aligner(video,raw)
+    # Sync tools may reflow text. Keep the original JA dialogue byte-for-byte
+    # per cue; their output is only authority for candidate timestamps.
+    synced=keep_source_dialogue(raw,synced)
     # Preserve source bytes; only touch the private aligned candidate.
     synced,overlap_report=repair_minor_overlaps(synced,runtime)
     if gate.validate_srt(synced,runtime)!=qa:
