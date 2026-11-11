@@ -216,6 +216,7 @@ const escapeText = v => String(v == null ? "" : v);
 let catalog=[], selectedSeries="", selectedMovie=null;
 let selectedSeasons=new Set(), coverage=new Map(), checked=new Set();
 let expanded=false, showCovered=false, busy=false, lastWorkers=false, latest={};
+let initializedSeasons=new Set();
 let unresolvedPreview=null;
 const key=(s,e)=>s+":"+e;
 const picksFor = kind => {
@@ -336,6 +337,7 @@ function openSeries(entry){
   selectedSeries=entry.series;
   selectedMovie=null;
   selectedSeasons.clear();coverage.clear();checked.clear();expanded=true;
+  initializedSeasons.clear();
   unresolvedPreview=null;
   $("tv-panel").hidden=false;$("movie-panel").hidden=true;
   $("series-heading").textContent=entry.series;
@@ -438,7 +440,11 @@ function renderEpisodes(){
   for(const [season,report] of [...coverage].sort((a,b)=>a[0]-b[0])){
     const items=report.items.filter(it=>showCovered||it.status!=="covered");
     const card=document.createElement("details");card.className="season-card";
-    card.dataset.season=String(season);card.open=openSeasons.has(String(season));
+    card.dataset.season=String(season);
+    // First time a season loads, expand it so missing titles are actually visible.
+    // Once the owner closes it, later status refreshes respect that choice.
+    card.open=openSeasons.has(String(season))||!initializedSeasons.has(season);
+    initializedSeasons.add(season);
     const title=document.createElement("summary");
     const incomplete=report.items.filter(it=>it.status!=="covered").length;
     title.textContent="Season "+season+" · "+(incomplete?
