@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
@@ -20,7 +20,7 @@ import sqlite3
 import subprocess
 import tempfile
 import time
-from urllib.parse import urlsplit, parse_qs
+from urllib.parse import urlsplit, parse_qs, quote
 import sys
 
 ROOT = Path.home() / "bruiser-pilot" / "batch-control"
@@ -724,6 +724,60 @@ def stop_movie_source():
     return {"ok":True,"action":"stop_movie_source"}
 
 
+def download_ledger_status():
+    """Read only actual instrumented download requests; never guess quotas."""
+    path=Path.home()/"bruiser-pilot/ja-first-inventory"/"subhub-provider-download-ledger.sqlite3"
+    empty={"available":False,"today_downloaded":0,"today_attempted":0,
+           "today_quota_blocked":0,"today_failed":0,"today_pending":0,
+           "providers":{},"recent_days":[],"quota_limit":None,
+           "quota_reset":None,"account_wide_total_known":False,
+           "basis":"Only instrumented SubHub downloads, beginning at installation"}
+    try:
+        if (not path.is_file() or path.is_symlink() or
+                path.stat().st_mode & 0o077):
+            return empty
+        jst=timezone(timedelta(hours=9))
+        today=datetime.now(jst).date()
+        since=(today-timedelta(days=6)).isoformat()
+        uri="file:"+quote(str(path.resolve()),safe="/")+"?mode=ro"
+        with sqlite3.connect(uri,uri=True,timeout=3) as db:
+            rows=db.execute("""SELECT day_jst,provider,outcome,count(*)
+                 FROM download_event WHERE day_jst>=?
+                 GROUP BY day_jst,provider,outcome""",(since,)).fetchall()
+        day_map={}
+        for day,provider,outcome,n in rows:
+            if (not isinstance(day,str) or len(day)!=10 or
+                    provider not in ("opensubtitles","subdl","yify","other","unknown") or
+                    outcome not in ("pending","downloaded","quota_blocked","failed")):
+                continue
+            dayrecord=day_map.setdefault(day,{"day":day,"downloaded":0,
+                                              "attempted":0,"quota_blocked":0,
+                                              "failed":0,"pending":0,"providers":{}})
+            for record in (dayrecord,dayrecord["providers"].setdefault(provider,{
+                    "downloaded":0,"attempted":0,"quota_blocked":0,
+                    "failed":0,"pending":0})):
+                record["attempted"]+=n
+                record[outcome]+=n
+        current=day_map.get(today.isoformat(),{
+            "downloaded":0,"attempted":0,"quota_blocked":0,
+            "failed":0,"pending":0,"providers":{}})
+        return {**empty,"available":True,
+                "today_downloaded":current["downloaded"],
+                "today_attempted":current["attempted"],
+                "today_quota_blocked":current["quota_blocked"],
+                "today_failed":current["failed"],
+                "today_pending":current["pending"],
+                "providers":current["providers"],
+                "recent_days":[{"day":(today-timedelta(days=i)).isoformat(),
+                                **day_map.get((today-timedelta(days=i)).isoformat(),
+                                              {"downloaded":0,"attempted":0,
+                                               "quota_blocked":0,"failed":0,
+                                               "pending":0,"providers":{}})}
+                               for i in range(7)]}
+    except (OSError,sqlite3.Error,ValueError,TypeError):
+        return empty
+
+
 def status_payload():
     doc = checked_state()
     log = trusted_log(doc) if doc else None
@@ -736,6 +790,7 @@ def status_payload():
     result["season_translation"]=season_batch_status()
     result["season_sources"]=season_sources_status()
     result["jellyfin_source"]=jellyfin_source_status()
+    result["download_usage"]=download_ledger_status()
     result["movie_source"]=movie_source_status()
     result["controls"]=control_availability()
     return result
