@@ -71,7 +71,53 @@ details>summary{cursor:pointer}
  <div class="row"><span id="run-status" class="small muted">Checking workers…</span><a id="open-sublarr" class="tool-link" href="http://127.0.0.1:15765/" target="_blank" rel="noopener noreferrer" title="Opens Sublarr through the SubHub Mac/Linux SSH shortcut tunnel">Open Sublarr</a><button class="quiet" id="refresh">Refresh</button></div>
 </header>
 
-<section class="panel" id="library-coverage">
+<section class="panel" id="next-step" aria-live="polite">
+ <h2>Current job and next action</h2>
+ <p id="next-state">Checking work status…</p>
+ <p id="next-instruction" class="muted">Opening the dashboard does not start work.</p>
+ <p id="selected-coverage" class="small muted" hidden></p>
+ <button type="button" class="primary" id="next-action" hidden>Review titles</button>
+</section>
+
+<section class="panel" id="active-work">
+ <div class="split"><h2>Active work</h2><span id="current-work" class="small muted">No current job</span></div>
+ <div class="status-strip"><span>Source: <strong id="source-state">—</strong></span><span>PLaMo: <strong id="plamo-state">—</strong></span><span>Provider allowance: <strong id="quota">Unverified</strong></span></div>
+ <details id="daily-downloads" class="review">
+ <summary>Provider usage and download history</summary>
+  <div class="split"><strong>Daily subtitle downloads (observed)</strong><span id="download-day" class="small muted">Japan time</span></div>
+  <p id="download-today" class="small">Waiting for recorded downloads</p>
+  <p id="download-providers" class="small muted">Limits and resets not yet verified.</p>
+  <details><summary>Last 7 days · downloaded / attempted / quota blocked</summary>
+   <div id="download-history" class="small muted"></div>
+  </details>
+  <p class="small muted">Counts only instrumented SubHub downloads after installation, not all Jellyfin, Sublarr or manual activity. Provider reset time and true account-wide allowance are still unknown.</p>
+ </details>
+ <div id="jellyfin-job" hidden>
+  <div class="split"><strong id="jellyfin-job-title">Jellyfin Japanese sourcing</strong><span class="small muted" id="jellyfin-job-state"></span></div>
+  <div class="meter" id="jellyfin-job-meter" role="progressbar" aria-label="Jellyfin sourcing episodes completed" aria-valuemin="0" aria-valuenow="0" aria-valuemax="100"><div class="fill" id="jellyfin-job-fill"></div></div>
+  <p class="small muted" id="jellyfin-job-details"></p>
+  <p class="small muted" id="jellyfin-job-current"></p>
+  <div class="row"><button id="jellyfin-job-continue" class="primary" type="button" hidden>Continue remaining</button><button id="jellyfin-job-stop" type="button" class="quiet" hidden>Stop source job</button></div>
+  <div id="jellyfin-job-holds" class="small muted" aria-live="polite"></div>
+  <details class="review"><summary>Technical activity</summary>
+   <div id="jellyfin-job-events" class="small muted" aria-live="polite"></div>
+  </details>
+ </div>
+ <div id="batch-overview" hidden>
+  <div class="split"><strong id="batch-count">PLaMo batch</strong><span id="batch-remaining" class="small muted"></span></div>
+  <div class="meter" role="progressbar" aria-label="PLaMo episodes finished" id="batch-meter" aria-valuemin="0" aria-valuenow="0" aria-valuemax="100"><div class="fill" id="batch-fill"></div></div>
+  <p id="batch-details" class="small muted"></p>
+ </div>
+ <p class="small muted" id="job-progress">Source events and saved cue checkpoints are shown here. Closing this page does not stop jobs.</p>
+ <div id="active-jobs"></div>
+ <details id="history"><summary>Previous jobs and review holds</summary><div id="past-jobs"></div><p id="recent-events" class="small muted"></p></details>
+ <div class="row" style="margin-top:12px"><button type="button" id="stop-sourcing" class="quiet" hidden>Stop selected sourcing</button><button type="button" id="stop-translation" class="quiet" hidden>Stop translation batch</button></div>
+</section>
+
+<details class="panel" id="library-details">
+ <summary>Library totals, sourcing controls and technical progress</summary>
+ <p class="small muted">Search and download counters show attempts, not completed Japanese subtitles.</p>
+ <section class="panel" id="library-coverage">
  <h2>Entire library · Japanese subtitle coverage</h2>
  <div class="status-strip" aria-live="polite">
   <span>JP subtitles <strong id="ja-total-present">—</strong></span>
@@ -106,6 +152,7 @@ details>summary{cursor:pointer}
   <p class="small muted">Each bar measures the current bounded pass, not total library coverage. Subsequent passes may have different totals.</p>
  </div>
 </section>
+</details>
 
 <section class="panel">
  <h2>Find a movie or TV series</h2>
@@ -158,39 +205,7 @@ details>summary{cursor:pointer}
  <p id="movie-feedback" class="small muted">Select the correct edition. Timing must pass validation before publication.</p>
 </section>
 
-<section class="panel">
- <div class="split"><h2>Active work</h2><span id="current-work" class="small muted">No current job</span></div>
- <div class="status-strip"><span>Source: <strong id="source-state">—</strong></span><span>PLaMo: <strong id="plamo-state">—</strong></span><span>Provider allowance: <strong id="quota">Unverified</strong></span></div>
- <div id="daily-downloads" class="review">
-  <div class="split"><strong>Daily subtitle downloads (observed)</strong><span id="download-day" class="small muted">Japan time</span></div>
-  <p id="download-today" class="small">Waiting for recorded downloads</p>
-  <p id="download-providers" class="small muted">Limits and resets not yet verified.</p>
-  <details><summary>Last 7 days · downloaded / attempted / quota blocked</summary>
-   <div id="download-history" class="small muted"></div>
-  </details>
-  <p class="small muted">Counts only instrumented SubHub downloads after installation, not all Jellyfin, Sublarr or manual activity. Provider reset time and true account-wide allowance are still unknown.</p>
- </div>
- <div id="jellyfin-job" hidden>
-  <div class="split"><strong id="jellyfin-job-title">Jellyfin Japanese sourcing</strong><span class="small muted" id="jellyfin-job-state"></span></div>
-  <div class="meter" id="jellyfin-job-meter" role="progressbar" aria-label="Jellyfin sourcing episodes completed" aria-valuemin="0" aria-valuenow="0" aria-valuemax="100"><div class="fill" id="jellyfin-job-fill"></div></div>
-  <p class="small muted" id="jellyfin-job-details"></p>
-  <p class="small muted" id="jellyfin-job-current"></p>
-  <div class="row"><button id="jellyfin-job-continue" class="primary" type="button" hidden>Continue remaining</button><button id="jellyfin-job-stop" type="button" class="quiet" hidden>Stop source job</button></div>
-  <div id="jellyfin-job-holds" class="small muted" aria-live="polite"></div>
-  <details class="review"><summary>Technical activity</summary>
-   <div id="jellyfin-job-events" class="small muted" aria-live="polite"></div>
-  </details>
- </div>
- <div id="batch-overview" hidden>
-  <div class="split"><strong id="batch-count">PLaMo batch</strong><span id="batch-remaining" class="small muted"></span></div>
-  <div class="meter" role="progressbar" aria-label="PLaMo episodes finished" id="batch-meter" aria-valuemin="0" aria-valuenow="0" aria-valuemax="100"><div class="fill" id="batch-fill"></div></div>
-  <p id="batch-details" class="small muted"></p>
- </div>
- <p class="small muted" id="job-progress">Source events and saved cue checkpoints are shown here. Closing this page does not stop jobs.</p>
- <div id="active-jobs"></div>
- <details id="history"><summary>Previous jobs and review holds</summary><div id="past-jobs"></div><p id="recent-events" class="small muted"></p></details>
- <div class="row" style="margin-top:12px"><button type="button" id="stop-sourcing" class="quiet" hidden>Stop selected sourcing</button><button type="button" id="stop-translation" class="quiet" hidden>Stop translation batch</button></div>
-</section>
+
 <p id="toast" role="status" aria-live="polite"></p>
 <footer class="small muted">Source-first, PLaMo fallback. Existing Japanese tracks and completed cue checkpoints are preserved. A timing pass is not a guarantee of perfect synchronization.</footer>
 </main>
@@ -320,7 +335,7 @@ async function translateUnresolved(){
 function openSeries(entry){
   selectedSeries=entry.series;
   selectedMovie=null;
-  selectedSeasons.clear();coverage.clear();checked.clear();expanded=false;
+  selectedSeasons.clear();coverage.clear();checked.clear();expanded=true;
   unresolvedPreview=null;
   $("tv-panel").hidden=false;$("movie-panel").hidden=true;
   $("series-heading").textContent=entry.series;
@@ -328,6 +343,7 @@ function openSeries(entry){
   for(const n of entry.seasons){
     const label=document.createElement("label");label.className="season-choice";
     const input=document.createElement("input");input.type="checkbox";input.value=String(n);
+    input.checked=true;selectedSeasons.add(n);
     input.addEventListener("change",async()=>{
       if(input.checked){selectedSeasons.add(n);await loadSeason(n);}
       else{selectedSeasons.delete(n);coverage.delete(n);pruneChecked();}
@@ -335,8 +351,16 @@ function openSeries(entry){
     });
     label.append(input,document.createTextNode("Season "+n));host.append(label);
   }
-  $("episode-details").hidden=true;$("toggle-episodes").textContent="Review remaining episodes";
+  $("episode-details").hidden=false;$("toggle-episodes").textContent="Hide episode details";
   $("feedback").hidden=true;renderCoverage();refreshUnresolved();
+  // Read existing queue/sidecar coverage, not providers. Load the whole series.
+  (async()=>{
+    for(let i=0;i<entry.seasons.length;i+=4){
+      if(selectedSeries!==entry.series)return;
+      await Promise.all(entry.seasons.slice(i,i+4).map(loadSeason));
+      renderCoverage();
+    }
+  })().catch(()=>showMessage("Some seasons could not be read. Use Refresh to retry.",true));
   window.scrollTo({top:$("tv-panel").offsetTop-18,behavior:"smooth"});
 }
 function pruneChecked(){
@@ -370,14 +394,9 @@ function renderCoverage(){
   const checkedEligible=checked.size?picksFor("translate").length:0;
   const scopeCount=coverage.size+"/"+selectedSeasons.size;
   $("coverage-totals").textContent=selectedSeasons.size?
-    "Selected seasons only · "+scopeCount+" loaded · "+
-    n.covered+" / "+n.total+" episodes with Japanese · "+
-    missing+" without Japanese in this selection (not entire-series total) · "+
-    n.review+" timing/verification or other reviews · "+
-    n.sourcing+" sourcing · "+n.needs_english+" need English · "+
-    eligible+" currently eligible for PLaMo. "+
-    "Source: saved coverage queue and checked sidecars; may lag Jellyfin.":
-    "Choose seasons to inspect. Counts describe loaded selections, not the whole series.";
+    missing+" missing Japanese · "+n.covered+" with Japanese in "+
+    scopeCount+" loaded/selected seasons. Saved queue and sidecars; may lag Jellyfin.":
+    "Select seasons to inspect Japanese subtitle coverage.";
   $("refresh-coverage").disabled=busy||!selectedSeasons.size;
   $("source-selected").disabled=busy||!selectedSeasons.size||latest.workersBusy;
   $("source-whole-series").disabled=busy||latest.workersBusy;
@@ -392,11 +411,10 @@ function renderCoverage(){
     checkedEligible+" selected / "+eligible+" eligible)";
   $("toggle-episodes").disabled=!n.total;
   $("action-note").textContent=checked.size?
-    checked.size+" episode(s) checked. PLaMo accepts only those currently eligible ("+
-    checkedEligible+"); sourcing is a separate action.":
-    "No episodes checked. Reviewing the list never starts translation. Select individual episodes for PLaMo, or source selected seasons separately. "+
-    "The missing count is not a count of PLaMo-ready episodes.";
+    checked.size+" episode(s) selected. Find Japanese first; translate only when recovery is exhausted.":
+    "Review the missing episodes below. A PLaMo option is not proof that Japanese sourcing is exhausted.";
   if(expanded)renderEpisodes();
+  if(Object.keys(latest).length)renderNextStep(latest);
 }
 function statusName(item){
   if(item.status==="covered")return "Japanese subtitles present";
@@ -423,7 +441,8 @@ function renderEpisodes(){
     card.dataset.season=String(season);card.open=openSeasons.has(String(season));
     const title=document.createElement("summary");
     const incomplete=report.items.filter(it=>it.status!=="covered").length;
-    title.textContent="Season "+season+" · "+incomplete+" remaining · "+report.covered+" Japanese present";
+    title.textContent="Season "+season+" · "+(incomplete?
+      incomplete+" missing Japanese":"Japanese subtitles present for all episodes");
     card.append(title);
     const body=document.createElement("div");body.className="body";
     if(!items.length){
@@ -802,11 +821,76 @@ function renderGlobalCoverage(data){
     Number(c.subtitle_sidecars_found_since_snapshot||0)+
     " · Tracks embedded since this inventory was created need another catalog scan.";
 }
+function renderNextStep(d){
+  const source=d.source_job||{}, job=d.jellyfin_source||{};
+  const translation=d.season_translation||{};
+  const sourceRunning=!!source.active||!!d.source_active;
+  const plamoRunning=!!translation.active||!!((d.translation||{}).american_dad_batch||{}).active;
+  let title,reason,target="lookup",label="Find a title";
+  if(job.active){
+    title=((job.selector||{}).series||"Selected media")+" — Japanese sourcing running";
+    reason="Wait for the actual published subtitles. Search attempts and downloaded candidates are not completed results.";
+    target="active-work";label="View active work";
+  }else if(sourceRunning){
+    title=(source.scope==="horror-drama-folders"?"Horror and Drama/Suspense":"Library")+" — Japanese sourcing running";
+    reason="Let this run continue. You can inspect another show's coverage without interrupting it.";
+    target="active-work";label="View active work";
+  }else if(plamoRunning){
+    title="PLaMo translation running";
+    reason="Only published Japanese sidecars count as complete. Check holds under Active work.";
+    target="active-work";label="View active work";
+  }else if(source.search_stopped_early||source.provider_limited){
+    title="Last source search stopped early";
+    reason="Provider limits deferred unfinished work. The missing titles are still missing; revisit them when allowance returns.";
+    target="library-details";label="Review source limits";
+  }else if(job.known&&job.state==="paused"){
+    title="Previous Japanese source job paused";
+    reason="Inspect unfinished items and continue that job, not a duplicate pass.";
+    target="active-work";label="Review unfinished work";
+  }else if(job.known&&job.state==="failed_before_progress"){
+    title="Previous Japanese source job failed to start";
+    reason="Inspect the recorded error before retrying.";
+    target="active-work";label="Review failure";
+  }else{
+    title="No source or translation job active";
+    reason="Find a movie or series below. See which titles have Japanese subtitles before starting more work.";
+  }
+  $("next-state").textContent=title;
+  $("next-instruction").textContent=reason;
+  const note=$("selected-coverage");
+  if(selectedSeries&&selectedSeasons.size){
+    const items=[...coverage.values()].flatMap(x=>x.items||[]);
+    const covered=items.filter(x=>x.status==="covered").length;
+    const missing=items.length-covered;
+    note.textContent=items.length?
+      selectedSeries+" — "+missing+" still missing Japanese in "+
+      coverage.size+" loaded season(s); "+covered+" with Japanese. Saved queue/sidecars may lag Jellyfin.":
+      selectedSeries+" — loading subtitle coverage…";
+    note.hidden=false;
+    if(!job.active&&!sourceRunning&&!plamoRunning){
+      target="tv-panel";label="Review missing episodes";
+    }
+  }else note.hidden=true;
+  const button=$("next-action");
+  button.hidden=false;button.textContent=label;button.dataset.target=target;
+}
+$("next-action").addEventListener("click",()=>{
+  const target=$("next-action").dataset.target||"lookup";
+  if(target==="library-details")$("library-details").open=true;
+  if(target==="tv-panel"){
+    expanded=true;$("episode-details").hidden=false;
+    $("toggle-episodes").textContent="Hide episode details";renderEpisodes();
+  }
+  $(target)?.scrollIntoView({block:"start",behavior:"smooth"});
+  if(target==="lookup")$("title-search").focus();
+});
+
 async function refreshStatus(){
   try{
     const d=await getJson("/api/status");
     latest=d;
     renderGlobalCoverage(d);
+    renderNextStep(d);
     const setting=d.source_config_scope||"unavailable";
     $("library-source-selection").textContent=setting==="horror-drama-folders"?
       "Selected for every run: Horror + Drama/Suspense movie folders on BOTH drives":
