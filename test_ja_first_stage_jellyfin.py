@@ -11,9 +11,15 @@ import unittest
 from unittest.mock import patch
 
 TOOLS=Path(__file__).resolve().parent/"tools"
+_inserted=False
 if str(TOOLS) not in sys.path:
     sys.path.insert(0,str(TOOLS))
-import ja_first_stage_jellyfin as jf
+    _inserted=True
+try:
+    import ja_first_stage_jellyfin as jf
+finally:
+    if _inserted:
+        sys.path.remove(str(TOOLS))
 
 
 class JellyfinNativeStageTests(unittest.TestCase):
