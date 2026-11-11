@@ -15,8 +15,10 @@ from __future__ import annotations
 
 try:
     from . import ja_first_priority as priorities
+    from . import subhub_download_ledger as ledger
 except ImportError:
     import ja_first_priority as priorities
+    import subhub_download_ledger as ledger
 
 import argparse
 from collections import Counter
@@ -660,6 +662,13 @@ def run_one(job, database):
     ):
         raise RuntimeError("container_staging_blocked:" +
                            str(report.get("error") or report.get("error_type") or "unknown")[:70])
+    # A genuine new Sublarr/OpenSubtitles download has already happened in
+    # the existing container. Count it even if copying or timing later holds.
+    # Cached "already_staged" returns explicitly must NOT spend another count.
+    if report.get("new_download"):
+        total_bytes=int((report.get("metrics") or {}).get("bytes") or 0)
+        if total_bytes>0:
+            ledger.record_completed("opensubtitles","sublarr_native",total_bytes)
     held = report["result"] == "held_duration_mismatch"
     target, digest = preserve_from_container(
         row, candidate, report, hold_duration=held)
