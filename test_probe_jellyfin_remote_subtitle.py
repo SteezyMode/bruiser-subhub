@@ -81,6 +81,16 @@ class RemoteSubtitleProbeTests(unittest.TestCase):
             probe.NoRedirect().redirect_request(None,None,302,"found",{},
                                                 "http://evil.example/")
 
+    def test_http_error_status_report_without_leaking_request_url_or_body(self):
+        from urllib.error import HTTPError
+        err=HTTPError("http://127.0.0.1:8096/secret/provider-token",
+                      429,"Too Many Requests",{},io.BytesIO(b"private body"))
+        self.assertEqual(probe.safe_failure(err),"HTTP_429")
+        self.assertNotIn("secret",probe.safe_failure(err))
+        self.assertNotIn("private",probe.safe_failure(err))
+        self.assertEqual(probe.safe_failure(RuntimeError("sensitive URL")),
+                         "RuntimeError")
+
     def test_movie_wrong_year_and_wrong_title_fail(self):
         movie={"kind":"Movie","title":"Bride of Chucky","year":1998}
         self.assertTrue(probe.relevant(movie,{
