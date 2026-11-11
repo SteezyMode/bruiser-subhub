@@ -7,6 +7,36 @@
 >
 > **Owner's current explicit order:** (1) fix reliable Japanese subtitle search and publication end-to-end; (2) all jobs need real dashboard progress, and manual batches must be possible; (3) Jellyfin-style movie poster grid with genre browsing/multi-selection; (4) eventually incremental source-on-add. No enterprise/startup framing. Do not build attractive controls that fail to deliver Japanese subtitles.
 
+## 2026-11-11 P0-C — Jellyfin subtitle into existing private SubHub stage (CODE ONLY)
+
+**P0-C is now implemented in GitHub but NOT installed on OptiPlex. No staged Jellyfin candidate, ALASS result, publication or playback is yet verified.** This preserves P0 status honestly.
+
+### Change, deliberately using existing machinery
+
+- New `tools/ja_first_stage_jellyfin.py`: **one explicitly selected actual Jellyfin movie or episode** (no show-specific code), using the existing authoritative inventory and authentication. Preview is zero provider calls and zero writes. Explicit `--apply` performs **one** Jellyfin provider search and at most **one** remote subtitle GET. It reuses `probe_jellyfin_remote_subtitle.py`, not Jellyfin's direct-save POST; confirms correct media title/episode and Japanese SRT, checks host video duration, existing Japanese tracks, strict cue/text density, and writes **only** an exclusive-create private file and a row in the **existing** `japanese-stage.sqlite3`. It does not start ALASS or publish; there are no additional credentials, services or media directories.
+- Source identity: staged names `<jellyfin_id>.jellyfin.<stable_numeric_hash_of_remote_id>.ja.srt` (not a fabricated OpenSubtitles ID). Private metrics record `provider=jellyfin`, the real underlying Jellyfin provider label (e.g. `subbuzz`), remote-ID SHA-256, item-scoped media identity, subtitle-content SHA-256, cue count and video runtime. No raw provider remote ID or credentials printed/saved. The existing DB has a `(jellyfin_id,subtitle_id)` key; collision against an existing provider must be refused rather than overwritten.
+- Shared `ja_first_stage_timing_audit.py`, `ja_first_publish_staged.py`, `ja_first_alass.py`, `ja_first_ffsubsync.py`, `ja_first_publish_shifted.py`, `ja_first_publish_queue.py` now distinguish original OpenSubtitles vs new Jellyfin provenance. Their original publisher gating (timing comparison, ALASS/ffsubsync, Japanese density, exact item identity, video stream checks, create-only sidecars) is retained. Jellyfin stage provenance uses the existing private DB instead of falsifying Sublarr's historical search record. Original staged OpenSubtitles paths remain unchanged.
+- `ja_first_publish_queue.py --jellyfin-id <32hex>` added so the pilot can examine/publish **only** its selected item, never accidentally another old staged title. Default remains dry-run. An actual `--apply` must be explicit and requires normal publisher approval.
+- Updated the **existing reversible** `install_global_ja_sourcing.py`, not a new installer: includes required modules, preserves old files in a private rollback backup, refuses active source workers, and has an explicit `--install-only` flag that skips catalog refresh, coverage queue reconciliation, source timer changes and broad search. The old post-install check erroneously required a v3 marker `title_only_fallback`; it now checks the installed v4 strategy.
+
+### Regressions encountered and resolved (avoid repeating)
+
+- Initial shared-publisher integration introduced missing-provider-tag rejection for legacy OpenSubtitles stages. **Resolved:** old `.opensubtitles.` files may have no provider tag, but new `.jellyfin.` files require explicit valid source provenance. Existing publication-retirement tests pass.
+- Existing ffsubsync tests create in-memory prepared records before a stage DB exists. Initial provider-aware derived naming tried to open that nonexistent DB. **Resolved:** legacy filename fallback only if stage DB is missing (publication still cannot proceed without DB); real staged records read/validate actual provider.
+- New test imported bare `tools` modules while leaving `sys.path` globally altered, triggering unrelated older benchmark fixture errors in the **same test runner**. **Resolved:** restore import path immediately after loading test module; do not change frozen model fixtures. The provider-specific stage tests pass, and the full original suite was green after this correction.
+- Tests added: `test_ja_first_stage_jellyfin.py` verifies exact episode identity, wrong-title/year rejection, encrypted/opaque remote-ID hashing, copy-once private staging + stored SHA, idempotence, no overwrite/collision, source-aware publisher file checks. `test_ja_first_publish_item_filter.py` verifies dry-run exact-ID filtering and invalid-ID denial.
+- **Latest full CI:** [GitHub Actions P0-C suite](https://github.com/SteezyMode/bruiser-subhub/actions) passes on 3.11/3.12; **commit result from the latest test run must be rechecked** before host deployment. Unit success is not host success.
+
+### P0-C next safe acceptance
+
+1. Use only the **pinned** existing installer with `--install-only` (no source batch, no queue transition), after verifying source services idle. It backs up changes; the owner should see the exact installed revision in its output.
+2. Run new adapter **without** `--apply` against IASIP S07E02: verifies real Jellyfin media file, runtime, existing Japanese sidecar/stream status without provider credits.
+3. If eligible, single `--apply`: one remote search, at most one byte retrieval, private stage only. Report stage-ID, SHA and Japanese cue counts, not downloaded text. **No new media sidecar yet.**
+4. Run `ja_first_publish_queue.py --jellyfin-id <ID> --max-titles 1 --limit 1` in **dry-run** to test ALASS/timing publication gates; only after affirmative owner review should `--apply` create the first sidecar. Check actual in-Jellyfin playback/timing before a broader batch.
+5. If the exact episode already has Japanese subtitles or owner changes their media, hold. Do NOT bypass the no-clobber gate or choose another title without owner input.
+
+**Remaining P0 problems:** confirmed 44/44 v4 no new matches, simplified Sublarr API losing metadata/year, first-50 truncation and cached `matches`, incomplete SubDL staging, and per-provider budget fixes still only tested in GitHub. The provider-backed adapter gives a practical alternate source path but is NOT a proven whole-library fix. P1 progress bars/mixed-movie batches and P2 poster grid remain clearly prioritized in issue #90.
+
 ## 2026-11-11 P0-B download **VERIFIED on OptiPlex** — authentication fixed
 
 **Owner's successful rerun** (pinned probe SHA `9512c3cbba8ea90cafc624329f7783112f5a81b6`, single IASIP S07E02):
