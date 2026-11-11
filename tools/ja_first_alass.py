@@ -171,6 +171,159 @@ def align(video,raw):
         raise RuntimeError("alass_failed_no_valid_output")
 
 
+
+# Intensive recovery is deliberately separate from the ordinary single-pass
+# aligner. It is called ONLY for already-held staged candidates.
+INTENSIVE_OPTIONS=(
+    ("splits_5",("--split-penalty","5")),
+    ("splits_10",("--split-penalty","10")),
+    ("splits_20",("--split-penalty","20")),
+    ("constant_offset",("--no-splits",)),
+)
+INTENSIVE_MIN_AGREEMENT=0.90
+INTENSIVE_TOLERANCE_MS=1500
+
+
+def _intensive_external_english(video):
+    """A local EN sidecar is a candidate reference, never proof by itself.
+
+    Accept only a non-symlinked regular subtitle named for this exact video.
+    A second, independent video-audio alignment must agree before it can
+    authorize Japanese publication. Never request provider downloads here.
+    """
+    try:
+        from daily_japanese import english_srt
+        path=english_srt(video)
+        if (path is None or path.is_symlink() or not path.is_file()
+                or not 100<path.stat().st_size<=MAX_ALIGNED_SIZE):
+            return None
+        raw=path.read_bytes()
+        if len(ff.parse_cues(raw))<75:
+            return None
+        return raw
+    except (ImportError,RuntimeError,OSError,UnicodeError):
+        return None
+
+
+def _intensive_agreement(first,second):
+    """Require convergence at opening, middle AND end of the same cue list."""
+    a=ff.parse_cues(first)
+    b=ff.parse_cues(second)
+    if len(a)!=len(b) or len(a)<75:
+        return None
+    if [c["text"] for c in a]!=[c["text"] for c in b]:
+        return None
+    chunks=[]
+    for lo,hi in ((0,len(a)//3),(len(a)//3,2*len(a)//3),
+                  (2*len(a)//3,len(a))):
+        deltas=[abs(a[i]["start"]-b[i]["start"]) for i in range(lo,hi)]
+        fraction=sum(d<=INTENSIVE_TOLERANCE_MS for d in deltas)/len(deltas)
+        chunks.append(round(fraction,3))
+    if min(chunks)<INTENSIVE_MIN_AGREEMENT:
+        return None
+    return chunks
+
+
+def intensive_align(video,raw,*,runner=subprocess.run):
+    """Rescue staged subtitles only: exhaustive refs/configs, independent QA.
+
+    This does not overwrite, publish, source, or translate. Multiple settings
+    of the same video-audio reference are NOT independent validation.
+    """
+    if not available():
+        raise RuntimeError("standalone_alass_unavailable")
+    if not gate.STAGED.is_dir() or gate.STAGED.is_symlink():
+        raise RuntimeError("private_stage_missing")
+    runtime=gate.subprocess_duration(video)
+    original_health=gate.validate_srt(raw,runtime)
+    references=[("video_audio",video)]
+    embedded=_embedded_english(video)
+    external=_intensive_external_english(video)
+    if embedded is not None:
+        references.insert(0,("same_video_embedded_english",embedded))
+    if external is not None:
+        references.insert(0,("same_video_english_sidecar",external))
+    valid=[]
+    attempted=0
+    failures={}
+    with tempfile.TemporaryDirectory(prefix=".alass-intensive-",dir=gate.STAGED) as folder:
+        folder=Path(folder)
+        source=folder/"original.ja.srt"
+        source.write_bytes(raw)
+        for label,reference in references:
+            if isinstance(reference,bytes):
+                ref=folder/(label+".en.srt")
+                ref.write_bytes(reference)
+            else:
+                ref=reference
+            for setting,flags in INTENSIVE_OPTIONS:
+                attempted+=1
+                dest=folder/(label+"."+setting+".ja.srt")
+                try:
+                    p=runner([str(BINARY),str(ref),str(source),str(dest),*flags],
+                             stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                             timeout=600,check=False)
+                    if p.returncode or not dest.is_file():
+                        raise RuntimeError("alass_command_failed")
+                    if not 0<dest.stat().st_size<=MAX_ALIGNED_SIZE:
+                        raise RuntimeError("alass_invalid_output_size")
+                    candidate=ff.keep_source_dialogue(raw,dest.read_bytes())
+                    if gate.validate_srt(candidate,runtime)!=original_health:
+                        raise RuntimeError("alass_japanese_cue_health_changed")
+                    metrics=assess(raw,candidate,runtime)
+                    ends=[x["end"] for x in ff.parse_cues(candidate)]
+                    if max(ends)<runtime*700:
+                        raise RuntimeError("alass_insufficient_episode_coverage")
+                    valid.append((label,setting,candidate,metrics))
+                    print("ALASS_INTENSIVE_TRIAL",label,setting,
+                          "accepted_in_bounds",flush=True)
+                except (OSError,RuntimeError,ValueError,subprocess.TimeoutExpired) as exc:
+                    reason=str(exc).split(":",1)[0]
+                    failures[reason]=failures.get(reason,0)+1
+                    print("ALASS_INTENSIVE_TRIAL",label,setting,
+                          "held",reason,flush=True)
+        # Require agreement between VIDEO AUDIO and a different reference.
+        # Agreement between multiple penalties on the same reference cannot
+        # certify the video/dialogue is right.
+        for label,setting,candidate,metrics in valid:
+            if label=="video_audio":
+                continue
+            for other_label,other_setting,other,other_metrics in valid:
+                if other_label!="video_audio":
+                    continue
+                fractions=_intensive_agreement(candidate,other)
+                if fractions is None:
+                    continue
+                print("ALASS_INTENSIVE_VERIFIED",label,setting,
+                      "against",other_label,other_setting,
+                      "thirds",fractions,flush=True)
+                return candidate,{
+                    "alignment_reference":label,
+                    "intensive_cross_reference":"video_audio",
+                    "intensive_agreement_thirds":fractions,
+                    "intensive_settings":setting,
+                    "intensive_attempts":attempted,
+                    "intensive_valid":len(valid),
+                }
+    print("ALASS_INTENSIVE_HELD no_independent_reference_agreement",
+          "attempts",attempted,"valid",len(valid),
+          "reasons",json.dumps(failures,sort_keys=True),flush=True)
+    raise RuntimeError("alass_intensive_no_independent_reference_agreement")
+
+
+def intensive_prepare(jid,sid):
+    """Reuse the normal identity, cue, no-clobber and publication QA gates."""
+    extra={}
+    def recovery(video,raw):
+        corrected,details=intensive_align(video,raw)
+        extra.update(details)
+        return corrected
+    ready=prepare(jid,sid,aligner=recovery)
+    ready["assessment"].update(extra)
+    ready["assessment"]["engine"]="standalone_alass_intensive_v1"
+    return ready
+
+
 def artifact(jid,sid):
     if not gate.EXPECTED_ID_PATTERN.fullmatch(jid) or not str(sid).isdigit():
         raise RuntimeError("invalid_alass_provenance_identity")
