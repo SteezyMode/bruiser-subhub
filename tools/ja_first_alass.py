@@ -44,8 +44,10 @@ def assess(original, corrected, runtime):
         raise RuntimeError("alass_invalid_interval")
     if any(x["start"]<after[i-1]["start"] for i,x in enumerate(after) if i):
         raise RuntimeError("alass_reordered_cues")
-    if max(x["end"] for x in after)>runtime*1000+5000:
-        raise RuntimeError("alass_out_of_video")
+    latest=max(x["end"] for x in after)
+    if latest>runtime*1000+5000:
+        raise RuntimeError("alass_out_of_video:overrun_seconds="+
+                           str(round(latest/1000-runtime,2)))
     shifts=[(b["start"]-a["start"])/1000 for a,b in zip(before,after)]
     if any(abs(n)>MAX_ABSOLUTE_SHIFT_S for n in shifts):
         raise RuntimeError("alass_extreme_shift_requires_review")
@@ -276,10 +278,13 @@ def intensive_align(video,raw,*,runner=subprocess.run):
                         raise RuntimeError("alass_insufficient_episode_coverage")
                     valid.append((label,setting,candidate,metrics))
                     print("ALASS_INTENSIVE_TRIAL",label,setting,
-                          "accepted_in_bounds",flush=True)
+                          "accepted_in_bounds",
+                          "shift_min_s",metrics["shift_min_s"],
+                          "shift_max_s",metrics["shift_max_s"],flush=True)
                 except (OSError,RuntimeError,ValueError,subprocess.TimeoutExpired) as exc:
-                    reason=str(exc).split(":",1)[0]
-                    failures[reason]=failures.get(reason,0)+1
+                    reason=str(exc)[:100]
+                    category=reason.split(":",1)[0]
+                    failures[category]=failures.get(category,0)+1
                     print("ALASS_INTENSIVE_TRIAL",label,setting,
                           "held",reason,flush=True)
         # Require agreement between VIDEO AUDIO and a different reference.
