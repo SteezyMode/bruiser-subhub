@@ -750,12 +750,12 @@ def source_controls(action):
     if action=="start-manual":
         raise RuntimeError("legacy_manual_worker_disabled_use_source_only_service")
     if action in ("start-auto", "start-manual") and not (manual or scheduled):
-        if unit_active(JELLYFIN_SOURCE_UNIT):
-            raise RuntimeError("Jellyfin source batch already running")
         if translation_busy():
             raise RuntimeError("translation_active_cannot_start_source_worker")
         if unit_active(SEASON_SOURCE_UNIT):
             raise RuntimeError("season_source_active_cannot_start_source_worker")
+        if unit_active(JELLYFIN_SOURCE_UNIT):
+            raise RuntimeError("Jellyfin source batch already running")
     if action=="start-auto":
         if manual or scheduled:
             raise RuntimeError("Source job already running")
