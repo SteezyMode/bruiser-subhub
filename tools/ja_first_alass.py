@@ -15,6 +15,8 @@ from pathlib import Path
 import statistics
 import subprocess
 import tempfile
+from urllib.request import Request, urlopen
+from urllib.parse import quote
 
 import ja_first_publish_staged as gate
 import ja_first_ffsubsync as ff
@@ -231,6 +233,75 @@ def _intensive_external_english(video):
     return accepted[0][1]
 
 
+
+def _intensive_jellyfin_english(video,jid,*,opener=urlopen):
+    """Read only an EN subtitle stream ALREADY indexed by local Jellyfin.
+
+    No RemoteSearch, provider download, POST, write, or additional accounts.
+    Require exact item and video identity; never follow file paths returned
+    by the server. The video-audio alignment must still independently agree.
+    """
+    if not jid or not gate.EXPECTED_ID_PATTERN.fullmatch(str(jid)):
+        return None
+    try:
+        import ja_first_catalog_manifest as catalog
+        auth=catalog.load_auth()
+        def read(path,max_bytes):
+            req=Request(catalog.BASE+path,headers={"Authorization":auth})
+            with opener(req,timeout=40) as response:
+                content=response.read(max_bytes+1)
+            if not 0<len(content)<=max_bytes:
+                raise RuntimeError("jellyfin_subtitle_response_wrong_size")
+            return content
+        item=json.loads(read("/Items/"+str(jid)+
+                             "?Fields=MediaSources,MediaStreams",500_000))
+        if (not isinstance(item,dict) or
+                str(item.get("Id") or "").lower()!=str(jid).lower() or
+                item.get("Path")!=str(video) or
+                item.get("Type") not in ("Episode","Movie")):
+            raise RuntimeError("jellyfin_english_item_identity_mismatch")
+        sources=item.get("MediaSources") or []
+        # Some Jellyfin versions report MediaStreams on the item instead of
+        # the MediaSource. Never guess a media-source ID.
+        options=[]
+        for source in sources:
+            if not isinstance(source,dict):
+                continue
+            media_id=str(source.get("Id") or "")
+            if not media_id or len(media_id)>128 or re.search(r"[^a-zA-Z0-9_-]",media_id):
+                continue
+            for stream in source.get("MediaStreams") or []:
+                if not isinstance(stream,dict):
+                    continue
+                lang=str(stream.get("Language") or "").casefold().split("-")[0]
+                codec=str(stream.get("Codec") or "").casefold()
+                index=stream.get("Index")
+                if (stream.get("Type")!="Subtitle" or
+                        lang not in ("en","eng","english") or
+                        stream.get("IsForced") is True or
+                        type(index) is not int or not 0<=index<100 or
+                        codec not in ("subrip","srt","ass","ssa","webvtt","vtt","mov_text","text")):
+                    continue
+                options.append((bool(stream.get("IsHearingImpaired")),
+                                bool(stream.get("IsExternal")) is False,
+                                media_id,index))
+        options.sort()
+        for _,_,media_id,index in options[:4]:
+            try:
+                data=read("/Videos/"+str(jid)+"/"+quote(media_id,safe="")+
+                          "/Subtitles/"+str(index)+"/Stream.srt",MAX_ALIGNED_SIZE)
+                if len(ff.parse_cues(data))<75:
+                    continue
+                print("ALASS_INTENSIVE_REFERENCE jellyfin_indexed_english",
+                      "stream",index,flush=True)
+                return data
+            except (OSError,ValueError,RuntimeError):
+                continue
+    except (ImportError,OSError,ValueError,KeyError,TypeError,RuntimeError):
+        return None
+    return None
+
+
 def _intensive_agreement(first,second):
     """Require convergence at opening, middle AND end of the same cue list."""
     a=ff.parse_cues(first)
@@ -250,7 +321,7 @@ def _intensive_agreement(first,second):
     return chunks
 
 
-def intensive_align(video,raw,*,runner=subprocess.run):
+def intensive_align(video,raw,*,jid=None,runner=subprocess.run):
     """Rescue staged subtitles only: exhaustive refs/configs, independent QA.
 
     This does not overwrite, publish, source, or translate. Multiple settings
@@ -265,10 +336,13 @@ def intensive_align(video,raw,*,runner=subprocess.run):
     references=[("video_audio",video)]
     embedded=_embedded_english(video)
     external=_intensive_external_english(video)
+    indexed=_intensive_jellyfin_english(video,jid) if jid else None
     if embedded is not None:
         references.insert(0,("same_video_embedded_english",embedded))
     if external is not None:
         references.insert(0,("same_video_english_sidecar",external))
+    if indexed is not None and indexed not in (embedded,external):
+        references.insert(0,("jellyfin_indexed_english",indexed))
     if len(references)<2:
         print("ALASS_INTENSIVE_HELD no_independent_reference_available;"
               " no same-video English subtitle was found; skipping wasted"
@@ -359,7 +433,7 @@ def intensive_prepare(jid,sid):
     """Reuse the normal identity, cue, no-clobber and publication QA gates."""
     extra={}
     def recovery(video,raw):
-        corrected,details=intensive_align(video,raw)
+        corrected,details=intensive_align(video,raw,jid=jid)
         extra.update(details)
         return corrected
     ready=prepare(jid,sid,aligner=recovery)
