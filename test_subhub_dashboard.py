@@ -114,8 +114,8 @@ class StatusTests(unittest.TestCase):
             self.assertIn('id="'+name+'"',html)
         self.assertEqual(html.count('type="text"'),1)
         self.assertIn("Review remaining episodes",html)
-        self.assertIn("Translate checked with PLaMo (",
-                       "Translate unresolved with PLaMo",html)
+        self.assertIn("Translate checked with PLaMo (",html)
+        self.assertIn("Translate unresolved with PLaMo",html)
         for name in ("batch-overview","batch-count","batch-remaining",
                      "batch-details","batch-fill"):
             self.assertIn('id="'+name+'"',html)
@@ -125,7 +125,7 @@ class StatusTests(unittest.TestCase):
     def test_episode_review_stays_open_and_has_real_actions(self):
         html=dashboard.HTML.read_text(encoding="utf-8")
         for phrase in ("openSeasons","openReviews","card.open=openSeasons.has",
-                       "Last resort: translate checked episodes",
+                       "Translate checked with PLaMo (",
                        "Translate this episode with PLaMo","Find Japanese / fix timing",
                        'bulkAction("source",','bulkAction("translate",'):
             self.assertIn(phrase,html)
