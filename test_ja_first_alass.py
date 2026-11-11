@@ -1,7 +1,10 @@
 """Offline unit tests: standalone alass split/framerate correction safety."""
 from pathlib import Path
 import sys
+import tempfile
+import subprocess
 import unittest
+from unittest.mock import patch
 
 TOOLS=str(Path(__file__).resolve().parent/"tools")
 sys.path.insert(0,TOOLS)
@@ -80,6 +83,65 @@ class AlassTests(unittest.TestCase):
         raw,aligned=fixture(lambda i:130)
         with self.assertRaisesRegex(RuntimeError,"extreme_shift"):
             alass.assess(raw,aligned,1800)
+
+
+    def test_intensive_agreement_requires_every_third(self):
+        raw, moved = fixture(lambda i: 0 if i<60 else 5)
+        self.assertEqual(alass._intensive_agreement(raw,raw),[1.0,1.0,1.0])
+        self.assertIsNone(alass._intensive_agreement(raw,moved))
+
+    def test_intensive_never_approves_multiple_settings_of_only_audio(self):
+        raw, aligned = fixture(lambda i: -2)
+        with tempfile.TemporaryDirectory() as d:
+            directory=Path(d)
+            def runner(cmd,**kwargs):
+                Path(cmd[3]).write_bytes(aligned)
+                return subprocess.CompletedProcess(cmd,0,b"",b"")
+            with patch.object(alass,"available",return_value=True), \
+                 patch.object(alass.gate,"STAGED",directory), \
+                 patch.object(alass.gate,"subprocess_duration",return_value=1100), \
+                 patch.object(alass.gate,"validate_srt",return_value={"cues":180}), \
+                 patch.object(alass,"_embedded_english",return_value=None), \
+                 patch.object(alass,"_intensive_external_english",return_value=None):
+                with self.assertRaisesRegex(RuntimeError,"no_independent_reference"):
+                    alass.intensive_align(directory/"video.mkv",raw,runner=runner)
+
+    def test_intensive_requires_external_or_embedded_to_agree_with_audio(self):
+        raw, aligned = fixture(lambda i: -2)
+        with tempfile.TemporaryDirectory() as d:
+            directory=Path(d)
+            def runner(cmd,**kwargs):
+                Path(cmd[3]).write_bytes(aligned)
+                return subprocess.CompletedProcess(cmd,0,b"",b"")
+            with patch.object(alass,"available",return_value=True), \
+                 patch.object(alass.gate,"STAGED",directory), \
+                 patch.object(alass.gate,"subprocess_duration",return_value=1100), \
+                 patch.object(alass.gate,"validate_srt",return_value={"cues":180}), \
+                 patch.object(alass,"_embedded_english",return_value=None), \
+                 patch.object(alass,"_intensive_external_english",return_value=b"trusted-en-reference"):
+                chosen,details=alass.intensive_align(directory/"video.mkv",raw,runner=runner)
+            self.assertEqual(chosen,aligned)
+            self.assertEqual(details["intensive_cross_reference"],"video_audio")
+            self.assertEqual(details["intensive_agreement_thirds"],[1.,1.,1.])
+            self.assertEqual(details["intensive_attempts"],8)
+
+    def test_intensive_does_not_accept_conflicting_independent_reference(self):
+        raw, aligned = fixture(lambda i: -2)
+        _, wrong=fixture(lambda i: 9)
+        with tempfile.TemporaryDirectory() as d:
+            directory=Path(d)
+            def runner(cmd,**kwargs):
+                reference=Path(cmd[1]).name
+                Path(cmd[3]).write_bytes(wrong if reference.endswith(".en.srt") else aligned)
+                return subprocess.CompletedProcess(cmd,0,b"",b"")
+            with patch.object(alass,"available",return_value=True), \
+                 patch.object(alass.gate,"STAGED",directory), \
+                 patch.object(alass.gate,"subprocess_duration",return_value=1100), \
+                 patch.object(alass.gate,"validate_srt",return_value={"cues":180}), \
+                 patch.object(alass,"_embedded_english",return_value=None), \
+                 patch.object(alass,"_intensive_external_english",return_value=b"possibly-wrong-reference"):
+                with self.assertRaisesRegex(RuntimeError,"no_independent_reference"):
+                    alass.intensive_align(directory/"video.mkv",raw,runner=runner)
 
 if __name__=="__main__":
     unittest.main()
