@@ -1161,6 +1161,11 @@ def jellyfin_source_status():
                 "already_covered":counts["covered"],
                 "no_match":counts["no_match"],"held":counts["held"],
                 "deferred":counts["deferred"],
+                "holds":[{"item":safe_text(item.get("label"),125),
+                          "reason":safe_text(item.get("reason") or
+                                            "details_not_recorded",110)}
+                         for item in items if isinstance(item,dict) and
+                         item.get("status")=="held"][:12],
                 "searches_this_run":int_value(doc.get("searches_this_run")),
                 "search_cap":int_value(doc.get("search_cap") or 20),
                 "downloads_this_run":int_value(doc.get("downloads_this_run")),
