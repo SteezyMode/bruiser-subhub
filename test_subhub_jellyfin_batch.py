@@ -397,7 +397,7 @@ class DashboardJellyfinControls(unittest.TestCase):
         self.assertTrue(info["active"])
         self.assertEqual(info["state"],"starting")
         self.assertEqual(info["pending"],78)
-        self.assertIn("first worker checkpoint",info["current"])
+        self.assertIn("first progress checkpoint",info["current"])
 
     def test_old_progress_cannot_disguise_failed_new_job(self):
         launch={"schema":"jellyfin-source-launch-v1",
