@@ -54,6 +54,7 @@ DASH_FILES=(
     "subhub_dashboard_server.py",
     "subhub_dashboard.html",
     "ja_first_source_tracker.py",
+    "subhub_library_coverage.py",
     "subhub_season_sources.py",
     "bruiser_coverage_queue.py",
 )
