@@ -35,6 +35,18 @@ class SearchAuditTests(unittest.TestCase):
                     self.assertEqual(con.execute("SELECT outcome FROM searches").fetchone()[0],
                                      "none")
 
+    def test_partial_search_included_in_journal_audit(self):
+        lines="\n".join([
+            "RUNNING_SOURCES_ONLY_CYCLE search_budget=2 stage_budget=1 publish_limit=1",
+            "[1/2] PARTIAL: plausible=0 review=0 provider_total=0 incomplete=subdl",
+            "[2/2] NONE: plausible=0 review=0 provider_total=0",
+            "AUTOFILL_CYCLE_COMPLETE"
+        ])
+        with patch.object(audit,"subprocess_output",return_value=lines):
+            result=audit.journal_report()
+        self.assertEqual(result["search_outcomes"],{"PARTIAL":1,"NONE":1})
+        self.assertTrue(result["pipeline_completed"])
+
     def test_deferred_cycle_separate_from_pipeline_completion(self):
         logs="\n".join([
             "RUNNING_SOURCES_ONLY_CYCLE search_budget=600 stage_budget=200 publish_limit=200",
