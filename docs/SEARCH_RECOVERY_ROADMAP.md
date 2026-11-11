@@ -7,6 +7,14 @@
 >
 > **Owner's current explicit order:** (1) fix reliable Japanese subtitle search and publication end-to-end; (2) all jobs need real dashboard progress, and manual batches must be possible; (3) Jellyfin-style movie poster grid with genre browsing/multi-selection; (4) eventually incremental source-on-add. No enterprise/startup framing. Do not build attractive controls that fail to deliver Japanese subtitles.
 
+## 2026-11-11 owner-confirmed OpenSubtitles identity and provider toggles
+
+- **Owner-confirmed OpenSubtitles username: `ajstarrett`** (the earlier `optiplex` login guess was incorrect). Use the EXISTING account, not a new registration. The account password was provided privately in chat, but **must not be committed to this public repository**; no password/email/reset link/token/API key has been added here. ChatGPT/this repository must not be treated as a reliable secret vault.
+- **Owner's screenshot of subbuzz Settings → Providers:** `OpenSubtitles.com` checked, `YIFY Subtitles` checked, `Subdl.com` and all remaining sources unchecked. This is a **list of enabled nested subbuzz providers**, not evidence that the checked ones can authenticate or download.
+- **Exact existing source behavior:** `subbuzz`'s `Providers/OpenSubtitlesCom.cs` requires its own username+password at download time; Jellyfin's other OpenSubtitles plugin and Sublarr account are independent. `subbuzz`'s `Providers/SubDl.cs` requires both the provider checkbox **and** a `SubdlApiKey`; checking it without an API key does nothing. Sublarr already has SubDL enabled/working in its separate configuration, so only consider reusing that existing key locally; avoid another account. YIFY respects the requested subtitle language, so it can stay enabled but its actual Japanese yield is unproven.
+- **Operational next action:** save correct existing OpenSubtitles credentials in Jellyfin Dashboard → Plugins → subbuzz → OpenSubtitles.com Account. Keep OpenSubtitles and YIFY on; optionally enable SubDL once its existing valid key is locally configured, respecting combined provider quota. Then rerun ONE in-memory subtitle GET before adding any new source/publisher code. Never enable every provider indiscriminately.
+- **Priority still P0 search quality:** this fixes an authentication/download blocker only; it does NOT resolve the 44/44 new-search miss rate, Sublarr metadata transport/50-result truncation, or full-workflow validation.
+
 ## 2026-11-11 P0-B root cause confirmed — subbuzz OpenSubtitles authentication not configured
 
 **Host log inspected by owner after in-memory GET failure**:
