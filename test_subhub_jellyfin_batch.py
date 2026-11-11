@@ -137,6 +137,67 @@ class GenericJellyfinBatch(unittest.TestCase):
         self.assertEqual(batch.progress(state)["already_covered"],1)
         self.assertEqual(state["searches_this_run"],0)
 
+    def test_three_independent_media_holds_do_not_stop_series(self):
+        rows=batch.choose(self.rows,series="Example Show")
+        state=batch.fresh_state(rows,batch.selector(series="Example Show"))
+        failures=[
+            (1,"","RuntimeError: media_duration_unavailable"),
+            (1,"MEDIA: S01E02 | runtime_seconds: 123\n",
+             "RuntimeError: embedded_subtitle_check_failed"),
+            (1,"JELLYFIN_JA_SEARCH_REQUEST: item\nJELLYFIN_JA_BYTES: bytes",
+             "RuntimeError: japanese_subtitle_readability_failed"),
+        ]
+        calls=[]
+        def runner(cmd,*,timeout):
+            calls.append(cmd)
+            return failures[len(calls)-1]
+        with patch.object(batch.time,"sleep"):
+            batch.execute(rows,state,limit=10,runner=runner,writer=lambda doc:None)
+        self.assertEqual(len(calls),3)
+        self.assertEqual(state["state"],"completed")
+        self.assertEqual(batch.progress(state)["held"],3)
+        self.assertEqual(state["searches_this_run"],1)
+        self.assertEqual(state["items"][0]["reason"],"media_duration_unavailable")
+        self.assertEqual(state["items"][2]["reason"],
+                         "japanese_subtitle_readability_failed")
+
+    def test_three_real_provider_failures_pause_and_keep_rest_queued(self):
+        rows=batch.choose(self.rows,series="Example Show")
+        state=batch.fresh_state(rows,batch.selector(series="Example Show"))
+        attempts=[]
+        def runner(cmd,*,timeout):
+            attempts.append(cmd)
+            return 1,"JELLYFIN_JA_SEARCH_REQUEST: item",
+                   "RuntimeError: provider_download_failed"
+        with patch.object(batch.time,"sleep"):
+            batch.execute(rows,state,limit=20,runner=runner,writer=lambda doc:None)
+        self.assertEqual(len(attempts),3)
+        self.assertEqual(state["state"],"paused")
+        self.assertEqual(state["searches_this_run"],3)
+        self.assertEqual(state["items"][0]["reason"],"provider_download_failed")
+        self.assertEqual(state["phase"],"paused_provider_error")
+
+    def test_separate_episode_resume_does_not_erase_whole_series_job(self):
+        with tempfile.TemporaryDirectory() as d:
+            folder=Path(d);os.chmod(folder,0o700)
+            with patch.object(batch,"STATE",folder/"current.json"):
+                series_plan=batch.selector(series="Example Show")
+                series_rows=batch.choose(self.rows,series="Example Show")
+                prior=batch.fresh_state(series_rows,series_plan)
+                prior["items"][0]["status"]="held"
+                prior["items"][0]["reason"]="source_validation_hold"
+                batch.write_job_state(prior)
+                episode_plan=batch.selector(series="Example Show",picks=[(1,2)])
+                ep=batch.fresh_state([series_rows[1]],episode_plan)
+                ep["items"][0]["status"]="published"
+                batch.write_job_state(ep)
+                self.assertEqual(batch.read_state()["selector"],episode_plan)
+                restored=batch.read_scoped_state(series_plan)
+                self.assertEqual(restored["items"][0]["reason"],
+                                 "source_validation_hold")
+                self.assertEqual(len(restored["items"]),3)
+                self.assertEqual(len(list(folder.glob("jellyfin-source-scope-*.json"))),2)
+
     def test_private_job_state_is_atomic_owner_only_and_resumable(self):
         with tempfile.TemporaryDirectory() as d:
             folder=Path(d);os.chmod(folder,0o700)
@@ -238,6 +299,45 @@ class DashboardJellyfinControls(unittest.TestCase):
             self.assertEqual(data["pending"],1)
             self.assertEqual(data["published"],1)
             self.assertEqual(data["state"],"paused")
+
+    def test_accepted_job_shows_before_any_progress_is_written(self):
+        receipt={"schema":"jellyfin-source-launch-v1",
+                 "job_id":"1"*16,"selector":{"series":"Example Show",
+                 "seasons":[],"picks":[]},"eligible":78,"search_cap":200,
+                 "accepted_at":int(time.time())}
+        dashboard.write_jellyfin_launch(receipt)
+        with patch.object(dashboard,"JELLYFIN_SOURCE_STATE",
+                          self.root/"missing-progress.json"), \
+             patch.object(dashboard,"JELLYFIN_SOURCE_EXEC",Path(__file__)), \
+             patch.object(dashboard,"unit_active",return_value=True):
+            info=dashboard.jellyfin_source_status()
+        self.assertTrue(info["known"])
+        self.assertTrue(info["active"])
+        self.assertEqual(info["state"],"starting")
+        self.assertEqual(info["pending"],78)
+        self.assertIn("first worker checkpoint",info["current"])
+
+    def test_old_progress_cannot_disguise_failed_new_job(self):
+        launch={"schema":"jellyfin-source-launch-v1",
+                "job_id":"2"*16,"selector":{"series":"Example Show",
+                "seasons":[],"picks":[]},"eligible":78,"search_cap":200,
+                "accepted_at":int(time.time())-30}
+        dashboard.write_jellyfin_launch(launch)
+        history=batch.fresh_state([tv("a"*32,1,1)],
+                                  batch.selector(series="Old Show"))
+        history["job_id"]="1"*16
+        progress_file=self.root/"old-progress.json"
+        batch.write_state(history,progress_file)
+        with patch.object(dashboard,"JELLYFIN_SOURCE_STATE",progress_file), \
+             patch.object(dashboard,"unit_active",return_value=False), \
+             patch.object(dashboard,"_jellyfin_early_error",
+                          return_value="JELLYFIN_BATCH_HELD RuntimeError existing_worker_lock"):
+            info=dashboard.jellyfin_source_status()
+        self.assertTrue(info["known"])
+        self.assertEqual(info["state"],"failed_before_progress")
+        self.assertFalse(info["progress_available"])
+        self.assertEqual(info["total"],78)
+        self.assertIn("existing_worker_lock",info["current"])
 
     def test_dashboard_javascript_parses_where_node_available(self):
         node=shutil.which("node")
