@@ -26,6 +26,7 @@ except ImportError:
     import subhub_translation_batch as batch
 
 SOURCE = Path.home() / "bruiser-pilot/subhub-control/subhub_jellyfin_batch.py"
+INTENSIVE = SOURCE.with_name("ja_first_publish_queue.py")
 TRANSLATOR = Path(__file__).with_name("subhub_translation_batch.py")
 STATE = Path.home() / "bruiser-pilot/ja-first-inventory/finish-scope.json"
 MAX_TRANSLATION_PICKS = 200
@@ -130,6 +131,18 @@ def run(series, seasons=()):
         write_state(receipt)
         print("FINISH_HELD source_worker_failed",flush=True)
         return 1
+    # The ordinary source worker has already exhausted the normal timing
+    # routes. Retry ONLY staged, still-unpublished candidates with expensive
+    # ALASS cross-reference checks. One failed season/episode cannot derail
+    # another. No provider quotas or new subtitle downloads are used here.
+    receipt.update(phase="intensive_recovery")
+    write_state(receipt)
+    for sn in before["seasons"]:
+        rc=command([INTENSIVE,"--series",series,"--season",str(sn),
+                    "--max-titles","100","--limit","100",
+                    "--intensive-only","--apply"],"intensive_recovery_S"+str(sn))
+        if rc:
+            print("FINISH_INTENSIVE_HELD season",sn,"rc",rc,flush=True)
     after_source=plan(series,before["seasons"])
     receipt.update(phase="translation",after_source={
         k:v for k,v in after_source.items() if k!="picks"})
