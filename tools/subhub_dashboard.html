@@ -105,7 +105,9 @@ details>summary{cursor:pointer}
  </div>
  <div id="finish-job" hidden>
   <div class="split"><strong id="finish-job-title">TV completion</strong><span id="finish-job-status" class="small muted"></span></div>
+  <div class="meter" id="finish-source-meter" role="progressbar" aria-label="Episodes processed during completion sourcing" aria-valuemin="0" aria-valuenow="0" aria-valuemax="100" hidden><div class="fill" id="finish-source-fill"></div></div>
   <p id="finish-job-details" class="small muted"></p>
+  <p id="finish-source-current" class="small muted"></p>
   <button id="finish-stop" class="quiet" type="button" hidden>Stop completion job</button>
  </div>
  <div id="batch-overview" hidden>
@@ -750,6 +752,11 @@ function renderDownloadUsage(d){
 }
 function renderJellyfinJob(d){
   const p=d.jellyfin_source||{};
+  // An active finish job owns a separate child source; hide the obsolete
+  // independent Jellyfin job's saved failure rather than mislabel the run.
+  if((d.finish_scope||{}).active){
+    $("jellyfin-job").hidden=true;return;
+  }
   $("jellyfin-job").hidden=!p.known&&!p.active;
   if(!p.known&&!p.active)return;
   // Count ONLY episodes selected for this run. A failed/no-match episode
@@ -875,10 +882,20 @@ function renderGlobalCoverage(data){
 function renderNextStep(d){
   const source=d.source_job||{}, job=d.jellyfin_source||{};
   const translation=d.season_translation||{};
+  const finish=d.finish_scope||{};
   const sourceRunning=!!source.active||!!d.source_active;
   const plamoRunning=!!translation.active||!!((d.translation||{}).american_dad_batch||{}).active;
   let title,reason,target="lookup",label="Find a title";
-  if(job.active){
+  if(finish.active){
+    title=(finish.series||"Selected show")+" — finishing Japanese subtitles";
+    const p=finish.source_progress;
+    reason=p&&p.total?
+      p.processed+" / "+p.total+" episodes processed in this source pass; "+
+      p.published+" published, "+p.downloads+" downloaded. "+
+      "PLaMo follows only for eligible gaps.":
+      "Sourcing started; waiting for its first checkpoint.";
+    target="active-work";label="View completion progress";
+  }else if(job.active){
     title=((job.selector||{}).series||"Selected media")+" — Japanese sourcing running";
     reason="Wait for the actual published subtitles. Search attempts and downloaded candidates are not completed results.";
     target="active-work";label="View active work";
@@ -918,7 +935,7 @@ function renderNextStep(d){
       coverage.size+" loaded season(s); "+covered+" with Japanese. Saved queue/sidecars may lag Jellyfin.":
       selectedSeries+" — loading subtitle coverage…";
     note.hidden=false;
-    if(!job.active&&!sourceRunning&&!plamoRunning){
+    if(!finish.active&&!job.active&&!sourceRunning&&!plamoRunning){
       target="tv-panel";label="Review missing episodes";
     }
   }else note.hidden=true;
@@ -943,12 +960,40 @@ async function refreshStatus(){
     const finish=d.finish_scope||{};
     $("finish-job").hidden=!finish.active&&!finish.series;
     if(finish.active||finish.series){
+      const p=finish.source_progress||null;
       $("finish-job-title").textContent=(finish.series||"Selected series")+" · completion";
       $("finish-job-status").textContent=finish.active?
-        "Running · "+(finish.phase||"starting"):finish.state||"Unknown";
-      $("finish-job-details").textContent=finish.remaining+" Japanese subtitles still missing in scope. "+
-        (finish.state==="completed"?"All selected episodes covered.":
-         finish.state==="partial"?"Unresolved items need another pass or review.":"");
+        "Running · "+(finish.phase==="source"?"finding/fixing Japanese":
+          finish.phase==="translation"?"PLaMo translation":
+          finish.phase||"starting"):finish.state||"Unknown";
+      const valid=!!(finish.active&&finish.phase==="source"&&p&&
+        Number.isInteger(p.total)&&p.total>0&&Number.isInteger(p.processed));
+      $("finish-source-meter").hidden=!valid;
+      if(valid){
+        const percent=Math.max(0,Math.min(100,100*p.processed/p.total));
+        $("finish-source-fill").style.width=percent+"%";
+        $("finish-source-meter").setAttribute("aria-valuenow",String(Math.round(percent)));
+        $("finish-source-meter").setAttribute("aria-valuetext",
+          p.processed+" of "+p.total+" episodes processed; "+p.published+" Japanese subtitles published");
+        $("finish-job-details").textContent=
+          p.processed+" / "+p.total+" episodes processed · "+
+          p.searches+" searches · "+p.downloads+" downloads · "+
+          p.published+" Japanese subtitles published · "+
+          p.held+" held · "+p.no_match+" no match · "+p.deferred+" deferred";
+        const age=Math.max(0,p.age_seconds||0);
+        $("finish-source-current").textContent=
+          "Now: "+(p.current||"Preparing next episode")+
+          " · "+String(p.phase||"").replaceAll("_"," ")+
+          (age>120?" · No checkpoint for "+age+" seconds":"");
+      }else{
+        $("finish-job-details").textContent=finish.remaining+
+          " Japanese subtitles still missing in scope (last coverage check). "+
+          (finish.state==="completed"?"All selected episodes covered.":
+           finish.state==="partial"?"Some remain unresolved.": "");
+        $("finish-source-current").textContent=finish.active&&finish.phase==="source"?
+          "Preparing source pass; awaiting its first real checkpoint.":
+          finish.active&&finish.phase==="translation"?"PLaMo is running; see translation activity below.":"";
+      }
       $("finish-stop").hidden=!finish.active;
     }
     renderGlobalCoverage(d);
@@ -997,7 +1042,9 @@ async function refreshStatus(){
           (batch.blocked?" · "+batch.blocked+" blocked":"")+
           (batch.state==="interrupted"?" · interrupted":"");
     }
-    $("current-work").textContent=jellyfin?
+    $("current-work").textContent=finishActive?
+       "Series completion: "+escapeText((d.finish_scope?.source_progress||{}).current||
+         (d.finish_scope||{}).phase||"Preparing"):jellyfin?
        "Japanese source: "+escapeText((d.jellyfin_source||{}).current||"Preparing"):
        batch.active&&batch.current?"PLaMo: "+batch.series+" "+batch.current:
        escapeText(d.current_item||d.phase_label||"No current job");
