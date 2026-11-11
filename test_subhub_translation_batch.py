@@ -105,7 +105,7 @@ class SeasonBatchTests(unittest.TestCase):
                                      path=self.dbpath)
         duplicate = next(x for x in report["items"] if x["episode"] == 3)
         self.assertEqual(duplicate["next_action"],
-                         "REVIEW · Duplicate episode files")
+                         "REVIEW · Japanese on 0/2 editions; choose version")
         self.assertFalse(duplicate["can_translate"])
         self.assertFalse(duplicate["can_source"])
 
