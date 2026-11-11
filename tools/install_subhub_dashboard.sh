@@ -118,6 +118,9 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
+# Dashboard may write ONLY owner-private source-job receipts to this folder.
+# The media library, source code, and the remainder of home stay read-only.
+ReadWritePaths=%h/bruiser-pilot/ja-first-inventory
 UMask=0077
 
 [Install]
