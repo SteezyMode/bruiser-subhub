@@ -10,6 +10,8 @@
 >
 > **Owner requirements, easy to miss:** all jobs need actual persistent progress bars and current-item/remaining/outcome state **inside the dashboard**, never a disabled button as the only indicator; manually select any mix of movies in one batch; a `Comedy` category must actually display the full Jellyfin Comedy library as a **poster grid** even with an empty search field. These are recorded and prioritized, not implemented.
 
+> **2026-11-11 P0 continuation (NOT deployed):** A tested patch now continues searching with OpenSubtitles when SubDL's provider budget is exhausted and labels incomplete zeroes `partial` instead of `none`. A new 1–3-item Jellyfin remote-subtitle comparison is ready for controlled live measurement (`tools/benchmark_subtitle_search_paths.py`). This **does not fix Sublarr's lost movie-year metadata, 50-result cap or SubDL staging**, and has not yet improved verified subtitle yield. Read [attempt log and next test](docs/SEARCH_RECOVERY_ROADMAP.md#2026-11-11-continuation--p0-a-attempt-record-code--comparison-no-host-acceptance-yet) before searching again.
+
 **The entire purpose:** give one household good, natural, correctly timed Japanese subtitles for the movies and TV it already watches in Jellyfin. This is not a startup, a software product, a showcase, or a competition to invent a subtitle manager. A subtitle that actually plays well is success. A commit, benchmark, downloaded candidate or attractive dashboard is not.
 
 ## Read these, in this order
