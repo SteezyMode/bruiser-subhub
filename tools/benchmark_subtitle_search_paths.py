@@ -23,6 +23,10 @@ try:
     from . import ja_first_catalog_manifest as catalog
     from . import ja_first_search_pilot as search
 except ImportError:
+    # A pinned benchmark script can be executed from a temporary file on the
+    # OptiPlex; import only the EXISTING installed SubHub source directory.
+    import sys
+    sys.path.insert(0, str(Path.home() / "bruiser-pilot/subhub-control"))
     import ja_first_catalog_manifest as catalog
     import ja_first_search_pilot as search
 
