@@ -295,6 +295,9 @@ def season_report(series, season, *, path=None):
             and row["queue_target"]=="review" and state=="pending"
             and JELLYFIN_ID.fullmatch(jid))
         review_ai = review_ai or owner_unlabeled
+        recover_english = bool(status=="needs_english" and
+            action=="recover_english_for_ja_fallback" and state=="pending"
+            and JELLYFIN_ID.fullmatch(jid))
         retry_source = bool(owner_unlabeled or
             (not covered and JELLYFIN_ID.fullmatch(jid)
              and action in ("search_ja", "download_saved_ja",
@@ -307,7 +310,7 @@ def season_report(series, season, *, path=None):
                 "queue_reason":str(row["queue_reason"] or "")[:120],
                 "queue_note":str(row["queue_note"] or "")[:120],
                 "can_source":retry_source,
-                "can_translate":status=="ready" or review_ai,
+                "can_translate":status=="ready" or review_ai or recover_english,
                 "owner_review_fallback":review_ai,
                 "failed_source_qa":source_qa_held,
                 "owner_unlabeled_audio":owner_unlabeled,
@@ -325,6 +328,8 @@ def season_report(series, season, *, path=None):
                 item["reason"] = ("search_had_unaccepted_results_review_rejections"
                                   if proof["provider_total"] else
                                   "no_japanese_candidate_found_in_last_search")
+        if recover_english:
+            item["reason"]="japanese_source_exhausted_english_will_be_searched_and_synced"
         if item["can_translate"]:
             item["jellyfin_id"] = jid
         items.append(item)
@@ -337,6 +342,53 @@ def season_report(series, season, *, path=None):
             "needs_english":counts["needs_english"],"review":counts["review"],
             "source_eligible":sum(bool(i.get("can_source")) for i in items),
             "timing_note":"Unverified alignment is never certified accurate."}
+
+
+def unresolved_plan(series, *, path=None, limit=200):
+    """Choose actual source-first fallback tasks without manual episode hunting.
+
+    Do not promote timing-held, partial-provider or unsearched work to PLaMo.
+    Only pending JA-exhausted queue actions are eligible; source repair holds
+    remain visible in the preview, not silently translated.
+    """
+    validate(series,1,1,1)
+    if type(limit) is not int or not 1<=limit<=200:
+        raise ValueError("unresolved_limit_outside_1_to_200")
+    with read_queue(path) as db:
+        raw=db.execute("""
+            SELECT DISTINCT season FROM media WHERE kind='Episode' AND series=?
+        """,(series,)).fetchall()
+    seasons=sorted({int(row["season"]) for row in raw
+                    if str(row["season"] or "").isdigit()
+                    and 1<=int(row["season"])<=60})
+    ready=[]
+    pending=0
+    blocked=0
+    missing=0
+    english_needed=0
+    for season in seasons:
+        report=season_report(series,season,path=path)
+        for item in report["items"]:
+            if item["status"]=="covered":
+                continue
+            missing+=1
+            if item.get("can_translate") and item["status"] in ("ready","needs_english"):
+                if len(ready)<limit:
+                    ready.append({"season":season,"episode":item["episode"],
+                                  "title":item["title"],
+                                  "needs_english":item["status"]=="needs_english"})
+                if item["status"]=="needs_english":
+                    english_needed+=1
+            else:
+                blocked+=1
+                if item.get("can_source") or item["status"] in ("review","sourcing"):
+                    pending+=1
+    return {"series":series, "total_missing":missing,
+            "eligible_total":missing-blocked,
+            "selected":len(ready),"needs_english":english_needed,
+            "awaiting_japanese_recovery":pending,"blocked":blocked,
+            "limit":limit,"picks":ready,
+            "note":"Based on persisted source-first queue; timing holds remain in recovery."}
 
 
 def selected_episode_plan(series, season, episodes, *, path=None):
