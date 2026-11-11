@@ -109,7 +109,8 @@ def read_staging(jid, sid):
     if metrics.get("format") != "srt" or metrics.get("bytes") != len(data):
         raise RuntimeError("staging_format_or_size_mismatch")
     recorded_provider = str(metrics.get("provider") or "")
-    actual_provider = "jellyfin" if ".jellyfin." in staged.name else "opensubtitles"
+    actual_provider = ("jellyfin" if ".jellyfin." in staged.name else
+                       "subdl" if ".subdl." in staged.name else "opensubtitles")
     if (recorded_provider != actual_provider
             and not (actual_provider == "opensubtitles" and not recorded_provider)):
         # Legacy OpenSubtitles stage records were saved before a provider
@@ -129,7 +130,8 @@ def source_label(jid, sid):
     if not STAGE_DB.exists() and not STAGE_DB.is_symlink():
         return "opensubtitles"
     staged, _, _ = read_staging(jid, sid)
-    return "jellyfin" if ".jellyfin." in staged.name else "opensubtitles"
+    return ("jellyfin" if ".jellyfin." in staged.name else
+            "subdl" if ".subdl." in staged.name else "opensubtitles")
 
 
 def verify_search_identity(row, jid, sid):
@@ -140,6 +142,27 @@ def verify_search_identity(row, jid, sid):
         # history or lying about which subtitle provider supplied the bytes.
         from ja_first_stage_jellyfin import validate_staged_provenance
         validate_staged_provenance(row, jid, sid, metrics)
+        return
+    if metrics["provider"] == "subdl":
+        from ja_first_stage_subdl import identity_ok as subdl_identity_ok, numeric_id
+        if (metrics.get("source_schema")!="sublarr-subdl-v1"
+                or metrics.get("source_jellyfin_id")!=jid
+                or metrics.get("source_series_title")!=str(row.get("series_title") or "")[:160]
+                or metrics.get("source_season")!=row.get("season")
+                or metrics.get("source_episode")!=row.get("episode")):
+            raise RuntimeError("subdl_stage_identity_changed")
+        uri=db_uri(SEARCH_DB)
+        with sqlite3.connect(uri,uri=True,timeout=10) as db:
+            record=db.execute("SELECT results_json FROM searches WHERE jellyfin_id=?",
+                              (jid,)).fetchone()
+        if not record:
+            raise RuntimeError("subdl_saved_search_missing")
+        options=json.loads(record[0]).get("candidates",[])
+        matches=[c for c in options if isinstance(c,dict)
+                 and subdl_identity_ok(row,c)
+                 and numeric_id(str(c["subtitle_id"]))==(sid,metrics.get("source_remote_id_sha256"))]
+        if len(matches)!=1:
+            raise RuntimeError("subdl_candidate_not_verified")
         return
     uri = db_uri(SEARCH_DB)
     with sqlite3.connect(uri, uri=True, timeout=10) as db:
