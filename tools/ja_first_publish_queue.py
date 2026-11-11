@@ -26,6 +26,10 @@ ja_first_publish_shifted.py.
 from __future__ import annotations
 
 import argparse
+try:
+    from . import ja_first_movie_scope as movie_scope
+except ImportError:
+    import ja_first_movie_scope as movie_scope
 from collections import OrderedDict, Counter
 import hashlib
 import json
@@ -337,6 +341,8 @@ def main():
                         help="publish already-staged JA only for this Jellyfin series")
     parser.add_argument("--season", type=int, default=None,
                         help="optional season number; requires --series")
+    parser.add_argument("--scope",choices=("all",movie_scope.SCOPE),default="all",
+                        help="filter staged publication to selected movie folders")
     args = parser.parse_args()
     if args.jellyfin_id and not direct.EXPECTED_ID_PATTERN.fullmatch(args.jellyfin_id):
         parser.error("--jellyfin-id must be one exact 32-hex Jellyfin media ID")
@@ -351,6 +357,13 @@ def main():
             and 1 <= args.max_titles <= MAX_TITLES):
         parser.error("limit must be 1..200, max-titles 1..1000")
     records = stages()
+    if args.scope != "all":
+        from benchmark_subtitle_search_paths import load_latest_manifest
+        eligible = {str(row.get("jellyfin_id")) for row in
+                    load_latest_manifest() if movie_scope.matches(row,args.scope)}
+        records = [record for record in records if str(record[0]) in eligible]
+        print("SELECTED_STAGED_SCOPE:", args.scope,
+              "eligible_catalog_titles:", len(eligible), flush=True)
     if args.jellyfin_id:
         records = [record for record in records if record[0] == args.jellyfin_id]
         print("EXACT_JELLYFIN_ITEM_FILTER:",args.jellyfin_id,
