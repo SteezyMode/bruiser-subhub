@@ -31,9 +31,16 @@ SOURCE_FILES=(
     "ja_first_priority.py",
     "ja_first_catalog_manifest.py",
     "ja_first_stage_saved_batch.py",
+    "ja_first_stage_timing_audit.py",
+    "ja_first_publish_staged.py",
+    "ja_first_publish_shifted.py",
     "ja_first_publish_queue.py",
     "ja_first_alass.py",
     "ja_first_ffsubsync.py",
+    # Existing Jellyfin-backed provider adapter, not a new provider service.
+    "benchmark_subtitle_search_paths.py",
+    "probe_jellyfin_remote_subtitle.py",
+    "ja_first_stage_jellyfin.py",
     "ja_first_autofill.py",
 )
 DASH_FILES=(
@@ -131,7 +138,12 @@ def main():
     parser.add_argument("--commit",required=True)
     parser.add_argument("--start",action="store_true",
                         help="enable existing daily source timer and start one JA-only pass now")
+    parser.add_argument("--install-only",action="store_true",
+                        help="install code with rollback backup only: no catalog refresh,"
+                             " queue reconcile, source run or timer changes")
     args=parser.parse_args()
+    if args.install_only and args.start:
+        parser.error("--install-only and --start are mutually exclusive")
     if not re.fullmatch("[0-9a-f]{40}",args.commit):
         parser.error("--commit needs one full 40-character Git commit hash")
 
@@ -147,7 +159,12 @@ def main():
     destinations={}
     for name in SOURCE_FILES:
         target=HOST/name
-        secure_file(target,allow_new=name=="ja_first_alass.py")
+        secure_file(target,allow_new=name in {
+            "ja_first_alass.py",
+            "benchmark_subtitle_search_paths.py",
+            "probe_jellyfin_remote_subtitle.py",
+            "ja_first_stage_jellyfin.py",
+        })
         destinations[("source",name)]=target
     for name in DASH_FILES:
         target=DASH/name
@@ -210,25 +227,26 @@ def main():
         if was_dashboard:
             systemctl("restart",DASH_UNIT)
             print("DASHBOARD: existing service restarted")
-        # Catalog refresh catches newly eligible movies and untagged audio;
-        # it writes ONLY private inventory JSON, never the production library.
-        p=subprocess.run([sys.executable,"-B",str(HOST/"ja_first_catalog_manifest.py"),"--save"],
-                         stdout=subprocess.PIPE,stderr=subprocess.PIPE,
-                         text=True,timeout=1200,check=False)
-        if p.returncode:
-            fail("Jellyfin source catalog refresh failed: "+p.stderr[-220:])
-        print("JELLYFIN CATALOG: refreshed using new library-wide eligibility")
-        # Queue planner now treats old provider misses as search work, and
-        # an explicit init reconciles old premature translation queue labels.
-        tracker=DASH/"bruiser_coverage_queue.py"
-        p=subprocess.run([sys.executable,"-B",str(tracker),"init"],
-                         stdout=subprocess.PIPE,stderr=subprocess.PIPE,
-                         text=True,timeout=180,check=False)
-        if p.returncode:
-            print("QUEUE RECONCILE: held, existing queue kept; "+
-                  p.stderr[-160:],flush=True)
+        if args.install_only:
+            print("INSTALL ONLY: catalog, queue, timers and source workers unchanged")
         else:
-            print("QUEUE RECONCILE: complete")
+            # Catalog refresh catches newly eligible movies and untagged audio;
+            # it writes ONLY private inventory JSON, never the production library.
+            p=subprocess.run([sys.executable,"-B",str(HOST/"ja_first_catalog_manifest.py"),"--save"],
+                             stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                             text=True,timeout=1200,check=False)
+            if p.returncode:
+                fail("Jellyfin source catalog refresh failed: "+p.stderr[-220:])
+            print("JELLYFIN CATALOG: refreshed using new library-wide eligibility")
+            tracker=DASH/"bruiser_coverage_queue.py"
+            p=subprocess.run([sys.executable,"-B",str(tracker),"init"],
+                             stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                             text=True,timeout=180,check=False)
+            if p.returncode:
+                print("QUEUE RECONCILE: held, existing queue kept; "+
+                      p.stderr[-160:],flush=True)
+            else:
+                print("QUEUE RECONCILE: complete")
 
     except BaseException:
         for target,old,mode in reversed(updated):
