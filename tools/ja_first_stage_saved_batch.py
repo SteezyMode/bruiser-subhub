@@ -376,12 +376,12 @@ def identity_ok(row, result):
                             and re.fullmatch(r"[0-9a-fA-F]{32}",
                                 str(row.get("series_jellyfin_id") or ""))))):
             return False
-        # Explicit episode and named series, plus native Sublarr's match set.
+        # A subtitle explicitly naming the right series and S/E is a
+        # recoverable candidate even if an upstream provider supplies no
+        # 'matches' flags. ALASS/ffsubsync and publisher still establish
+        # whether it actually fits the video; a wrong episode stays rejected.
         tags = named_episode(name + " " + release)
         if not tags or tags != {(season, number)}:
-            return False
-        if not {"series", "season", "episode"}.issubset(
-                set(result.get("matches") or [])):
             return False
         return any(contiguous_words(tokens(text), tokens(row["series_title"]))
                    for text in (name, release))
