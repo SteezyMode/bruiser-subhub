@@ -525,7 +525,12 @@ def main(argv=None):
                           "selector":plan},ensure_ascii=False))
         return 0
     if not args.run:
-        print(json.dumps({"eligible":len(chosen),"selector":plan,
+        # The dashboard should show 0/47, not 0/78, on a resumed pass:
+        # completed/held items remain saved but are not re-attempted.
+        prior=read_scoped_state(plan)
+        pending=fresh_state(chosen,plan,prior)["pass_total"]
+        print(json.dumps({"eligible":pending,"selected":len(chosen),
+                          "selector":plan,
                           "max_searches_this_run":args.max_searches,
                           "mode":"PREVIEW_NO_PROVIDER_CALLS"},ensure_ascii=False))
         return 0
