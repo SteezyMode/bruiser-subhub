@@ -44,3 +44,29 @@ The prior **191-film source-failure audit** reconstructed four categories in the
 3. **Code cleanup follows working coverage recovery**, with scope in GitHub issue rather than another bespoke overhaul: consolidate three normalizing/sync entry paths, provenance and QC, remove redundant experiments once superseded, reduce misleading or duplicated statuses, test against representative real saved media, and keep ordinary UI simple with technical detail collapsed. Keep existing Sublarr where it solves the problem; no compulsory Ollama, new model or startup-style framework.
 
 **Links:** [PR #91](https://github.com/SteezyMode/bruiser-subhub/pull/91) · [existing candidate recovery issue #64](https://github.com/SteezyMode/bruiser-subhub/issues/64) · [search recall issue #89](https://github.com/SteezyMode/bruiser-subhub/issues/89).
+
+
+## Five-film owner staging pilot — later Nov 12, 2026
+
+Owner installed source revision 93fa0a3fcef4f33077d8c38a1b8fc953a9e942fc with --install-only; backup /home/optiplex/bruiser-pilot/subhub-control/.ja-library-source-backup-auxco34y. Health checks passed, workers stayed stopped. Saved candidates were downloaded/staged only; publication passes were dry-run; **no new media sidecars published in this pilot**.
+
+| Movie | Saved release | Actual result |
+| --- | --- | --- |
+| **[REC] (2007)** | OpenSubtitles 8693762 | Downloaded and privately staged as **held_duration_mismatch**. 1,052 cues, 9,067 JA characters; SRT ends 5221.58s vs 4514.12s video (ratio 1.157). Not eligible for standard publication; normal queue shows zero active stage rows, but saved held bytes exist. |
+| **Green Room (2016)** | OpenSubtitles 4247924 | Staged 1,307 timestamp entries, 14,053 Japanese characters, ratio 0.971. ALASS/ffsubsync held **staged_srt_multiple_timestamps_per_block**. Need inspect exact damaged blocks before any repair; no Japanese dialogue loss authorized. |
+| **Late Night with the Devil (2024)** | OpenSubtitles 10806108 | Staged 1,343 cues; **ready_alass** in actual publisher dry-run. Same-video embedded English reference; uniform +15.755s. Aligned SHA256 80854d70b5e85dcc35a71989b15790b6004a33a8f836db1d904900d28a5655b0. **Not published yet.** |
+| **The Witch (2016)** | OpenSubtitles 10285361 | Staged 868 cues; **ready_alass** in actual publisher dry-run. video_audio reference; uniform −15.542s. Aligned SHA256 4dad6aaf1f2faff5016fdb12937422b20ffd05435eea500a03d86baa51b38d29. **Not published yet.** |
+| **Double Blind (2024)** | SubDL 3746725-8668631 | Saved candidate found, but **pre-HTTP ValueError** prevented its first SubDL download. Shared ledger rejected the literal route **sublarr_native_subdl** invoked by the native SubDL stage worker. No bytes downloaded or stage recorded in this attempt. |
+
+### Confirmed common bug fixed in GitHub, not yet deployed
+
+- Added the missing **sublarr_native_subdl** route to subhub_download_ledger.ROUTES. The stage worker called ledger.begin before the provider request, so this exactly accounts for the observed generic ValueError; this specific attempt consumed zero provider downloads.
+- Added test_subhub_download_ledger regression for native SubDL route and unknown-route refusal, and safer fixed-code error reporting from ja_first_stage_subdl. New test passed; overall CI baseline remains four historical failures and eight errors.
+
+### Next owner verification
+
+1. Create-only publish the two actual ready_alass candidates (Late Night with the Devil ID c56f7de05115e6162920b9295e2218d7; The Witch ID aa41799d85d1f138a4d56b2385fd00fc). Do not mark published until owner output shows PUBLISHED.
+2. Install the new SubDL ledger fix using the pinned source installer in --install-only mode with worker-idle preflight, then retry Double Blind SubDL stage once and run publisher dry-run. This can spend **one** real provider download allowance; no automatic publication.
+3. Inspect exact Green Room malformed SRT blocks using the existing read-only subhub_source_failure_audit.find_structural_defects before designing general lossless separators repair.
+4. Keep [REC] held for a different edition or credible reference, not a relaxed runtime threshold. The subtitle/video ending discrepancy is about 707 seconds.
+5. Broader batch recovery remains the goal; measure actual stage → ready → published yield and preserve original downloaded files.
