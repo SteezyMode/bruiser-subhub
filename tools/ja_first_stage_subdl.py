@@ -68,7 +68,16 @@ def identity_ok(row,candidate):
     if tags and tags!=expected:
         return False
     matches=set(candidate.get("matches") or [])
-    return expected==tags or ("episode" in matches and "season" in matches)
+    # The broad provider endpoint also returns other shows with the same
+    # S/E numbers. Require actual series identity in the name OR verified
+    # provider series match, not episode numbers alone.
+    series=stage.tokens(row.get("series_title"))
+    texts=(candidate.get("filename"),candidate.get("release_info"))
+    named=any(stage.contiguous_words(stage.tokens(text),series)
+              for text in texts) if series else False
+    series_evidence=named or "series" in matches
+    return series_evidence and (expected==tags or
+                                {"episode","season"}.issubset(matches))
 
 
 def private_candidate(jid,row,subtitle_id=None):
