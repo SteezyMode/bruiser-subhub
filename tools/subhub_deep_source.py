@@ -153,6 +153,12 @@ def repair_staged(jid):
 def stage_one(jid, candidate):
     provider = candidate["provider"]
     sid = str(candidate["subtitle_id"])
+    # Initial repair_staged() already attempted all persisted candidate bytes.
+    stage_id = sid if provider == "opensubtitles" else subdl.numeric_id(sid)[0]
+    if (jid,stage_id) in stage.read_staged() or (
+            provider == "opensubtitles" and
+            (jid,stage_id) in stage.rejected_duration_candidates()):
+        return "rejected", "previously_staged_or_rejected"
     if provider == "opensubtitles":
         cmd = [HERE/"ja_first_stage_saved_batch.py", "--jellyfin-id",jid,
                "--kind","all","--budget","1","--subtitle-id",sid,
@@ -170,6 +176,7 @@ def stage_one(jid, candidate):
     if receipt in out:
         return "staged", "saved_release_acquired"
     if ("REJECTED_DOWNLOAD_SKIPPED:" in out or
+            "SAVED_REJECTED_DOWNLOAD:" in out or
             "STAGE_REJECTED:" in out or
             "SUBDL_REJECTED:" in out):
         return "rejected", "invalid_candidate_bytes"
