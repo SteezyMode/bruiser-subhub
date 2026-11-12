@@ -32,6 +32,75 @@ def fixture(shift):
     return ("\n\n".join(source)+"\n").encode(),("\n\n".join(corrected)+"\n").encode()
 
 class AlassTests(unittest.TestCase):
+    def test_smile2_1202_cue_regression_through_standard_alass_prepare(self):
+        """Regression for real host hold: one 1.627-second inversion, no lost JP.
+
+        Keep this in normal ALASS preparation, not a one-off Smile 2 script.
+        No Docker/audio sync or media file writes are performed in this test.
+        """
+        cues=[]
+        for i in range(1,1203):
+            if i<=143:
+                start=(i-1)*5000+25000
+            elif i==144:
+                start=778028
+            elif i==145:
+                start=776401
+            else:
+                start=785000+(i-146)*6000
+            end=start+900
+            cues.append(f"{i}\n{clock(start)} --> {clock(end)}\n"
+                        f"日本語台詞そのまま {i}")
+        raw=("\n\n".join(cues)+"\n").encode("utf-8")
+        original_hash=alass._sha(raw)
+        runtime=7758.25
+        seen=[]
+        def fake_aligner(video,source):
+            seen.append(source)
+            parsed=alass.ff.parse_cues(source)
+            # Model measured host outcome, a uniform +8 ms ALASS alignment.
+            return ("\n\n".join(
+                f'{i}\n{clock(c["start"]+8)} --> '
+                f'{clock(c["end"]+8)}\n{c["text"]}'
+                for i,c in enumerate(parsed,1))+"\n").encode("utf-8")
+        def qa(data,duration):
+            return {"cues":len(alass.ff.parse_cues(data))}
+        with patch.object(alass,"available",return_value=True), \
+             patch.object(alass.gate,"read_inventory",
+                          return_value={"host_path":"/fake/Smile2.mkv"}), \
+             patch.object(alass.gate,"verify_search_identity"), \
+             patch.object(alass.gate,"read_staging",
+                          return_value=(None,raw,{"video_seconds":runtime,
+                                                  "cues":1202})), \
+             patch.object(alass.gate,"safe_media_path",
+                          return_value=Path("/fake/Smile2.mkv")), \
+             patch.object(alass.gate,"ffprobe_streams",
+                          return_value=([],None)), \
+             patch.object(alass.gate,"check_no_existing_ja"), \
+             patch.object(alass.gate,"subprocess_duration",
+                          return_value=runtime), \
+             patch.object(alass.gate,"validate_srt",side_effect=qa), \
+             patch.object(alass.gate,"video_target",
+                          return_value=Path("/fake/Smile2.ja.srt")), \
+             patch.object(alass.quality,"require_not_garbage",
+                          return_value={"verdict":"pass"}):
+            result=alass.prepare("a"*32,"10759142",aligner=fake_aligner)
+        self.assertEqual(alass._sha(result["original"]),original_hash)
+        report=result["assessment"]["structural_repair"]
+        self.assertEqual(report["local_timestamp_swaps"],
+                         [{"original_cues":[144,145],"jump_ms":1627}])
+        self.assertEqual(report["retained_dialogue_cues"],1202)
+        self.assertEqual(len(alass.ff.parse_cues(seen[0])),1202)
+        self.assertEqual(len(alass.ff.parse_cues(result["chosen"])),1202)
+        self.assertEqual(result["assessment"]["shift_min_s"],0.008)
+        self.assertEqual(result["assessment"]["shift_max_s"],0.008)
+        self.assertEqual(result["assessment"]["mode"],"aligned")
+        self.assertEqual(sorted(c["text"] for c in alass.ff.parse_cues(raw)),
+                         sorted(c["text"] for c in
+                                alass.ff.parse_cues(result["chosen"])))
+        self.assertLess(seen[0].index("日本語台詞そのまま 145".encode()),
+                        seen[0].index("日本語台詞そのまま 144".encode()))
+
     def test_three_section_correction_preserved(self):
         raw,aligned=fixture(lambda i: -1.91 if i<40 else .25 if i<150 else 2.3)
         summary=alass.assess(raw,aligned,1500)
