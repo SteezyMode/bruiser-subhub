@@ -63,7 +63,11 @@ class LibraryBrowserTests(unittest.TestCase):
                                return_value=self.manifest):
             top=browser.browse(kind="Movie")
             self.assertEqual(len(top["folders"]),1)
-            root=top["folders"][0]["path"]
+            self.assertEqual(top["folders"][0]["category"],"Action")
+            combined=browser.browse(kind="Movie",category="Action")
+            self.assertEqual(combined["matching_items"],3)
+            self.assertEqual(combined["folders"],[])
+            root=browser.root_for(str(self.crawl),"Movie")
             child=browser.browse(kind="Movie",folder=root)
             self.assertTrue(child["folders"])
             with self.assertRaisesRegex(ValueError,"folder_not_in"):
@@ -96,6 +100,44 @@ class LibraryBrowserTests(unittest.TestCase):
         self.assertTrue(all(x["state"]=="needs_japanese" for x in data["items"]))
         self.assertEqual(data["matching_items"],5)
         self.assertEqual(data["folders"],[])
+
+    def test_identical_horror_folders_across_drives_merge_without_symlinks(self):
+        # Two existing Jellyfin movie roots, identical physical category name.
+        a=self.base/"DriveA"/"Movies"/"Horror"
+        b=self.base/"DriveB"/"Movies"/"Horror"
+        a.mkdir(parents=True);b.mkdir(parents=True)
+        for jid,home,title in (
+            ("a"*32,a,"Film One"),("b"*32,b,"Film Two")):
+            (home/title).mkdir()
+            video=home/title/(title+".mkv")
+            video.write_bytes(b"mock movie")
+            item=self.movie(video,title,status="ready_ja_search",
+                            genres=["Horror"])
+            item["jellyfin_id"]=jid
+            self.rows.append(item)
+        self.manifest.write_text(json.dumps(
+            {"schema":1,"generated_utc":"2026-11-12T01:01:01Z",
+             "items":self.rows}),encoding="utf-8")
+        browser._CACHE.update(until=0.0,signature=None,items=None,generated="")
+        with mock.patch.object(browser.coverage,"latest_manifest",
+                               return_value=self.manifest):
+            home=browser.browse(kind="Movie")
+            horror=[d for d in home["folders"] if d["label"]=="Horror"]
+            self.assertEqual(len(horror),1)
+            self.assertEqual(horror[0]["needs_japanese"],2)
+            combined=browser.browse(kind="Movie",category="Horror")
+            self.assertEqual(combined["matching_items"],2)
+            self.assertEqual(combined["scope_counts"]["needs_japanese"],2)
+            self.assertEqual(combined["folders"],[])
+            self.assertEqual({r["jellyfin_id"] for r in combined["items"]},
+                             {"a"*32,"b"*32})
+            self.assertEqual({r["root"] for r in combined["items"]},
+                             {str(self.base/"DriveA"/"Movies"),
+                              str(self.base/"DriveB"/"Movies")})
+            with self.assertRaisesRegex(ValueError,"combined_movie_folder"):
+                browser.browse(kind="Movie",category="NotReal")
+            with self.assertRaisesRegex(ValueError,"combined_movie_folder"):
+                browser.browse(kind="Episode",category="Horror")
 
     def test_exact_action_finish_skips_new_ja_sidecar(self):
         self.rows[0]["jellyfin_id"]="a"*32
