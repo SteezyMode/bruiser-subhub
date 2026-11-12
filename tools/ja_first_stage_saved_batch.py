@@ -513,6 +513,16 @@ def choices(inventory, searches, already, budget, kind, only_id=None, scope="all
                      and not known_rejected_download(row,c)]
         if not plausible:
             continue
+        # A long-running library snapshot can lag behind sidecars published
+        # by yesterday's job. Check existing local subtitles BEFORE consuming
+        # a limited staging slot. This is a filename-only, read-only check,
+        # not an attempt to judge or modify the existing subtitle.
+        video=Path(str(row.get("host_path") or ""))
+        if (not only_id and video.is_file() and not video.is_symlink()
+                and japanese_sidecar_exists(video)):
+            print("  COVERED_SINCE_CATALOG:",str(row.get("title") or
+                  row.get("series_title") or jid),flush=True)
+            continue
         if not only_id and not alternate_ready(row):
             # A prior stage is waiting for its FIRST publication decision.
             # Another download now would consume provider quota unnecessarily.
