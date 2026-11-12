@@ -400,7 +400,9 @@ def run(series=None, seasons=(), *, movie_ids=(), movie_scope=None,
                         result.update(json.loads(line.split(":",1)[1]))
                     except (TypeError,ValueError):
                         pass
-                elif line.startswith(("DEEP_SOURCE_CANDIDATE:",
+                elif line.startswith(("DEEP_SOURCE_STEP:",
+                                      "DEEP_SOURCE_STAGE_UNRESOLVED:",
+                                      "DEEP_SOURCE_CANDIDATE:",
                                       "DEEP_SOURCE_SEARCH:",
                                       "DEEP_SOURCE_PUBLISHED:",
                                       "DEEP_SOURCE_PUBLISH_RETRY:")):
