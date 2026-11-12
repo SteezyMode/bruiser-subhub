@@ -117,8 +117,12 @@ details>summary{cursor:pointer}
  </div>
  <div id="finish-job" hidden>
   <div class="split"><strong id="finish-job-title">TV completion</strong><span id="finish-job-status" class="small muted"></span></div>
-  <div class="meter" id="finish-source-meter" role="progressbar" aria-label="Episodes processed during completion sourcing" aria-valuemin="0" aria-valuenow="0" aria-valuemax="100" hidden><div class="fill" id="finish-source-fill"></div></div>
+  <div class="split" id="finish-queue-row" hidden><span>Queue examined at least once (not completed)</span><strong id="finish-queue-label" class="small muted">—</strong></div>
+  <div class="meter" id="finish-queue-meter" role="progressbar" aria-label="Distinct media files examined in current job" aria-valuemin="0" aria-valuenow="0" aria-valuemax="100" hidden><div class="fill" id="finish-queue-fill"></div></div>
+  <div class="split"><span>Japanese subtitles covered</span><strong id="finish-coverage-label" class="small muted">—</strong></div>
+  <div class="meter" id="finish-source-meter" role="progressbar" aria-label="Media files with Japanese subtitles or audio" aria-valuemin="0" aria-valuenow="0" aria-valuemax="100" hidden><div class="fill" id="finish-source-fill"></div></div>
   <p id="finish-job-details" class="small muted"></p>
+  <p id="finish-monitor" class="small muted" aria-live="polite">Checking worker heartbeat…</p>
   <p id="finish-source-current" class="small muted"></p>
   <button id="finish-stop" class="quiet" type="button" hidden>Stop completion job</button>
  </div>
@@ -1219,19 +1223,32 @@ async function refreshStatus(){
         Number.isInteger(p.total)&&p.total>0&&Number.isInteger(p.processed));
       const valid=validFlow||validSource||intense;
       $("finish-source-meter").hidden=!valid;
+      const unique=validFlow&&flow.unique_instrumented;
+      $("finish-queue-row").hidden=!unique;
+      $("finish-queue-meter").hidden=!unique;
+      if(unique){
+        const visited=Math.min(flow.total,flow.initially_covered+flow.attempted_unique);
+        const percent=100*visited/flow.total;
+        $("finish-queue-label").textContent=visited+" / "+flow.total+" examined";
+        $("finish-queue-fill").style.width=percent+"%";
+        $("finish-queue-meter").setAttribute("aria-valuenow",String(Math.round(percent)));
+        $("finish-queue-meter").setAttribute("aria-valuetext",
+          visited+" of "+flow.total+" media files covered initially or attempted at least once");
+      }
       if(validFlow){
         const percent=Math.max(0,Math.min(100,100*flow.covered/flow.total));
+        $("finish-coverage-label").textContent=flow.covered+" / "+flow.total;
         $("finish-source-fill").style.width=percent+"%";
         $("finish-source-meter").setAttribute("aria-valuenow",String(Math.round(percent)));
         $("finish-source-meter").setAttribute("aria-valuetext",
           flow.covered+" of "+flow.total+" exact media files covered; "+
           flow.source+" sourcing; "+flow.plamo+" PLaMO");
         $("finish-job-details").textContent=
-          flow.covered+" / "+flow.total+" covered · "+
-          flow.source+" awaiting/attempting Japanese sources · "+
-          flow.plamo+" in PLaMO fallback · "+
-          flow.source_attempts+" source attempts · "+
-          flow.plamo_attempts+" translation attempts";
+          flow.covered+" covered (includes preexisting) · "+
+          flow.source+" still sourcing · "+
+          flow.plamo+" queued for PLaMO · "+
+          flow.source_attempts+" total source attempts (including retries) · "+
+          flow.plamo_attempts+" PLaMO attempts";
         const elapsed=Math.max(0,Number(finish.item_elapsed_seconds)||0);
         const totalElapsed=Math.max(0,Number(finish.elapsed_seconds)||0);
         $("finish-source-current").textContent="Now: "+
@@ -1278,6 +1295,31 @@ async function refreshStatus(){
           "Preparing source pass; awaiting its first real checkpoint.":
           finish.active&&finish.phase==="translation"?"PLaMo is running; see translation activity below.":"";
       }
+      const monitor=finish.monitor||"unknown";
+      const outputAge=Number(finish.real_output_age_seconds);
+      let status="";
+      if(monitor==="child_process_alive"){
+        status="Child process alive (PID "+finish.worker_pid+") · "+
+          (Number.isFinite(outputAge)?outputAge+"s since last real output":
+           "Waiting for first output");
+        if(outputAge>=600)status+=" · Long silence: check for stalled alignment";
+      }else if(monitor==="heartbeat_lost"){
+        status="WARNING: no worker heartbeat for "+
+          finish.heartbeat_age_seconds+"s. Possible stalled controller.";
+      }else if(monitor==="scheduled_retry"){
+        status="Waiting for automatic provider/AI retry · "+
+          Math.ceil(Number(finish.retry_in_seconds||0)/60)+" min remaining";
+      }else if(monitor==="old_worker_without_heartbeat"){
+        status="Older installed worker: no heartbeat support. Service is active, "+
+          "but this dashboard cannot verify child liveness.";
+      }else if(monitor==="preparing_next_process"){
+        status="Controller heartbeat fresh; preparing the next operation.";
+      }else if(monitor==="stopped"){
+        status="Worker stopped · "+(finish.state||"unknown");
+      }else{
+        status="Monitoring not yet available";
+      }
+      $("finish-monitor").textContent=status;
       $("finish-stop").hidden=!finish.active;
     }
     renderGlobalCoverage(d);
