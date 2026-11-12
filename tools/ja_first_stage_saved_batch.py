@@ -443,8 +443,14 @@ def rejected_duration_candidates():
 
 def known_rejected_download(row,candidate):
     """Previously downloaded malformed subtitle, not an untried release."""
+    # A stale inventory may name a missing media file; selection must not
+    # abort the whole library run. The existing per-title staging preflight
+    # will reject that file without spending a provider download.
+    video=Path(str(row.get("host_path") or ""))
+    if not video.is_file() or video.is_symlink():
+        return False
     key=candidate_progress.fingerprint(
-        row["host_path"],candidate_progress.saved_candidate_digest(candidate),"stage")
+        video,candidate_progress.saved_candidate_digest(candidate),"stage")
     prior=candidate_progress.known(
         str(row["jellyfin_id"]),str(candidate["subtitle_id"]),"stage",key,
         max_age_seconds=30*86400)
