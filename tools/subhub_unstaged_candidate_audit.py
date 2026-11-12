@@ -27,14 +27,32 @@ JID=re.compile(r"[a-f0-9]{32}\Z")
 AGE_LIMIT_HOURS=72
 
 
-def installed_stagers():
-    """Read the actual installed policy, never a reimplemented identity guess."""
+def installed_stagers(*,policy_local=False):
+    """Use actual staging modules, installed or pinned in an audit temp dir.
+
+    --policy-local previews an uninstalled policy *without installing it*.
+    Dependencies still resolve from the existing installed worker directory.
+    """
     if HOST.is_symlink() or not HOST.is_dir():
         raise RuntimeError("installed_source_dir_unavailable")
     if str(HOST) not in sys.path:
         sys.path.insert(0,str(HOST))
+    if policy_local:
+        local=Path(__file__).resolve().parent
+        required=("ja_first_stage_saved_batch.py","ja_first_stage_subdl.py")
+        if any(not (local/file).is_file() or
+               (local/file).is_symlink() for file in required):
+            raise RuntimeError("pinned_local_staging_modules_missing")
+        if str(local) in sys.path:
+            sys.path.remove(str(local))
+        sys.path.insert(0,str(local))
     import ja_first_stage_saved_batch as opensub
     import ja_first_stage_subdl as subdl
+    if policy_local and (Path(opensub.__file__).resolve().parent!=
+                         Path(__file__).resolve().parent or
+                         Path(subdl.__file__).resolve().parent!=
+                         Path(__file__).resolve().parent):
+        raise RuntimeError("local_identity_policy_not_loaded")
     return opensub,subdl
 
 
@@ -83,8 +101,10 @@ def evaluate_candidates(row,candidates,opensub,subdl,stage_records):
             failed_download=False
         else:
             excluded["provider_not_supported_by_stage"]+=1
-            suitable=False
-            failed_download=False
+            illustrations.append({
+                "provider":provider,"sid":sid[:70],
+                "reason":"unsupported_stage_transport"})
+            continue
         if not suitable:
             excluded["stage_identity_not_established"]+=1
             illustrations.append({
@@ -157,7 +177,7 @@ def current_status(row,selected,stage_rows,opensub,queue,inventory_old):
     return "stageable_both_providers","candidate_routes_both_available"
 
 
-def audit_saved_unstaged(*,limit=100,full=False):
+def audit_saved_unstaged(*,limit=100,full=False,policy_local=False):
     state=history.read_json(history.STATE)
     latest=history.manifest()
     search=history.searches()
@@ -166,7 +186,7 @@ def audit_saved_unstaged(*,limit=100,full=False):
         state,latest,search,stages,history.journal_events(state))
     cohort=[x for x in report["items"]
             if x["reason"]=="japanese_candidates_found_not_staged"]
-    opensub,subdl=installed_stagers()
+    opensub,subdl=installed_stagers(policy_local=policy_local)
     queue=opensub.priorities.active_coverage_queue()
     age=saved_manifest_age_hours()
     print("=== SAVED JAPANESE CANDIDATES NOT STAGED: READ-ONLY TRIAGE ===")
@@ -183,7 +203,10 @@ def audit_saved_unstaged(*,limit=100,full=False):
     if age>AGE_LIMIT_HOURS:
         print("WARNING: generic staging currently rejects the stale manifest "
               "until it is refreshed, regardless of per-title identity.")
-    print("Installed OpenSubtitles and SubDL identity rules used.")
+    print("Staging identity policy:",
+          "PINNED LOCAL PREVIEW (NOT INSTALLED)" if policy_local else
+          "CURRENTLY INSTALLED WORKER")
+    print("Actual OpenSubtitles and SubDL identity rules used.")
     results=[]
     for item in cohort[:limit]:
         jid=item["jellyfin_id"]
@@ -244,12 +267,16 @@ def main():
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--full",action="store_true",
                     help="show individual identity rejects, queue state")
+    ap.add_argument("--policy-local",action="store_true",
+                    help="preview downloaded staging modules alongside this script; "
+                         "never installs or modifies host source")
     ap.add_argument("--limit",type=int,default=100,
                     help="maximum historical cohort titles to inspect (1..1000)")
     opts=ap.parse_args()
     if not 1<=opts.limit<=1000:
         ap.error("--limit must be 1..1000")
-    audit_saved_unstaged(limit=opts.limit,full=opts.full)
+    audit_saved_unstaged(limit=opts.limit,full=opts.full,
+                         policy_local=opts.policy_local)
 
 
 if __name__=="__main__":
