@@ -1,5 +1,7 @@
 """One-click scope completion: offline, no provider, GPU or media access."""
 import json
+from pathlib import Path
+import tempfile
 import unittest
 from unittest import mock
 from tools import subhub_finish_scope as finish
@@ -47,7 +49,7 @@ class ScopeCompletionTests(unittest.TestCase):
         before={"series":"Sunny","seasons":[9],"total":2,
                 "missing":2,"covered":0,"picks":[]}
         logs=[]
-        def invoke(args,label,on_line=None):
+        def invoke(args,label,on_line=None,on_heartbeat=None):
             logs.append((label,[str(x) for x in args]))
             if label.startswith("deep_source_"):
                 verdict="covered" if first[:8] in label else "plamo"
@@ -73,12 +75,33 @@ class ScopeCompletionTests(unittest.TestCase):
         self.assertEqual(save.call_args.args[0]["state"],"completed")
         sleep.assert_not_called()
 
+    def test_live_heartbeat_reports_silence_without_inventing_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            file=Path(directory)/"worker.py"
+            file.write_text("import time\n"
+                            "time.sleep(0.22)\n"
+                            "print('ACTUAL_STAGE: ready',flush=True)\n",
+                            encoding="utf-8")
+            output=[]
+            pulses=[]
+            rc=finish.command([file],"heartbeat_fixture",
+                              on_line=output.append,
+                              on_heartbeat=lambda pid,silent:
+                                  pulses.append((pid,silent)),
+                              interval=0.04)
+        self.assertEqual(rc,0)
+        self.assertEqual(output,["ACTUAL_STAGE: ready\n"])
+        # At least one heartbeat occurred during output silence. It must
+        # be interpreted as liveness, not a fake processing checkpoint.
+        self.assertGreaterEqual(len(pulses),3)
+        self.assertGreater(pulses[0][0],0)
+
     def test_quota_defer_remains_source_and_retries_without_human_review(self):
         jid="c"*32
         before={"series":"Sunny","seasons":[9],"total":1,
                 "missing":1,"covered":0,"picks":[]}
         calls=[]
-        def invoke(args,label,on_line=None):
+        def invoke(args,label,on_line=None,on_heartbeat=None):
             calls.append(label)
             outcome="retry_source" if len(calls)==1 else "covered"
             on_line("DEEP_SOURCE_RESULT: "+json.dumps({
