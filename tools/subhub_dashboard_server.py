@@ -1245,7 +1245,9 @@ def finish_scope_status():
     last_output_at=int_value(doc.get("last_real_output_at"))
     worker_pid=int_value(doc.get("worker_pid"))
     heartbeat_age=max(0,now-heartbeat_at) if heartbeat_at else None
-    silent_age=max(0,now-last_output_at) if last_output_at else None
+    last_event_or_start=last_output_at or int_value(doc.get("item_started_at"))
+    silent_age=(max(0,now-last_event_or_start)
+                if last_event_or_start else None)
     if not active:
         monitor="stopped"
     elif state=="waiting_retry":
