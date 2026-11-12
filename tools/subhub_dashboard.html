@@ -59,6 +59,17 @@ hr{border:0;border-top:1px solid var(--line);margin:17px 0}
 .fill{height:100%;background:#89acdf;width:0}
 #toast{min-height:19px;margin:12px 0;color:var(--dim)}
 #feedback{white-space:pre-wrap}
+.browse-tabs{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+.browse-tabs button[aria-pressed="true"]{border-color:var(--accent);background:#30445e}
+#browse-query{flex:1;min-width:180px}
+#browse-state,#browse-genre{background:#121923;color:var(--ink);border:1px solid #637084;border-radius:7px;padding:9px;max-width:100%}
+.browse-entry{display:flex;align-items:center;gap:10px;padding:10px 3px;border-top:1px solid #33404e}
+.browse-entry>div{min-width:0;flex:1;overflow-wrap:anywhere}
+.browse-folder{width:100%;text-align:left;background:transparent;border:0;border-top:1px solid #33404e;border-radius:0;padding:11px 5px}
+.browse-folder:hover{background:var(--surface2)}
+.browse-count{font-size:12px;color:var(--dim)}
+.browse-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:9px;margin:10px 0}
+#browse-items{max-height:540px;overflow-y:auto}
 details>summary{cursor:pointer}
 [hidden]{display:none!important}
 @media(max-width:720px){main{padding:15px}.panel{padding:15px}.result-list{grid-template-columns:1fr}#title-search{width:100%}header{align-items:start}}
@@ -122,6 +133,52 @@ details>summary{cursor:pointer}
  <div class="row" style="margin-top:12px"><button type="button" id="stop-sourcing" class="quiet" hidden>Stop selected sourcing</button><button type="button" id="stop-translation" class="quiet" hidden>Stop translation batch</button></div>
 </section>
 
+
+<section class="panel" id="library-browser">
+ <div class="split"><h2>Browse media</h2><span id="browse-total" class="small muted">Reading Jellyfin inventory…</span></div>
+ <p class="small muted">Explore actual movie and television folders or select a Jellyfin genre. Items already subtitled are shown but excluded from sourcing.</p>
+ <div class="browse-tabs">
+  <button id="browse-movies" type="button" aria-pressed="true">Movies</button>
+  <button id="browse-episodes" type="button" aria-pressed="false">Television</button>
+ </div>
+ <div class="row">
+  <button id="browse-back" type="button" class="quiet" disabled>Back</button>
+  <span id="browse-path" class="small muted">All movie folders</span>
+ </div>
+ <form id="browse-search" class="row" style="margin-top:12px">
+  <input id="browse-query" type="text" maxlength="100" placeholder="Search titles in this selection…" aria-label="Search media titles" autocomplete="off">
+  <select id="browse-genre" aria-label="Jellyfin genre">
+   <option value="">All genres</option>
+  </select>
+  <select id="browse-state" aria-label="Japanese subtitle coverage">
+   <option value="all">All coverage states</option>
+   <option value="needs_japanese">Missing JP subtitles</option>
+   <option value="covered">JP subtitles present</option>
+   <option value="audio_only">JP audio only</option>
+   <option value="unverified">Unverified</option>
+  </select>
+  <button type="submit">Search</button>
+ </form>
+ <p id="browse-counts" class="small muted"></p>
+ <div class="browse-toolbar">
+  <button id="browse-select-page" type="button" class="quiet">Select visible missing</button>
+  <button id="browse-clear" type="button" class="quiet">Clear selection</button>
+  <strong id="browse-selected-count" class="small">0 selected</strong>
+ </div>
+ <div id="browse-folders" aria-live="polite"></div>
+ <div id="browse-items" aria-live="polite"></div>
+ <div class="row" style="margin-top:12px">
+  <button id="browse-prev" type="button" class="quiet" disabled>Previous</button>
+  <span id="browse-page" class="small muted"></span>
+  <button id="browse-next" type="button" class="quiet" disabled>Next</button>
+ </div>
+ <div class="row" style="margin-top:14px">
+  <button id="browse-finish-selected" class="primary" type="button" disabled>Finish selected missing files</button>
+  <button id="browse-finish-folder" type="button" disabled>Finish all missing in this library</button>
+ </div>
+ <p id="browse-feedback" class="small muted" aria-live="polite">A Finish action attempts Japanese sourcing and timing repair, then PLaMO only for proven misses. JP-subtitled items are skipped.</p>
+</section>
+
 <details class="panel" id="library-details">
  <summary>Library totals, sourcing controls and technical progress</summary>
  <p class="small muted">Search and download counters show attempts, not completed Japanese subtitles.</p>
@@ -141,9 +198,7 @@ details>summary{cursor:pointer}
  <h2>Entire library · Japanese sourcing</h2>
  <p class="small muted">Search all eligible movies and TV episodes, recover old misses with title-based queries, stage candidates, repair timing and publish without overwriting. The Japanese-only search button remains available separately; Finish also handles PLaMO fallback.</p>
  <div class="row">
-  <button id="finish-movie-scope" class="primary" type="button" disabled>Finish movies in selected scope</button>
-  <button id="stop-finish-movies" type="button" class="quiet" hidden>Stop movie completion</button>
-  <button id="source-library" type="button" disabled>Japanese sourcing only</button>
+  <button id="source-library" type="button" disabled>Run Japanese-only sourcing</button>
   <button id="stop-library" type="button" class="quiet" hidden>Stop current library pass</button>
  </div>
  <p id="library-source-selection" class="small muted">Selected scope: reading owner settings…</p>
@@ -1132,13 +1187,6 @@ async function refreshStatus(){
         " · Held "+(daily.publish_holds||0):
         daily.active?" · Work is active; detailed counts unavailable":" · No recent progress data");
     $("source-library").disabled=busy||!((d.controls||{}).start_auto)||d.workersBusy;
-    $("finish-movie-scope").disabled=busy||d.workersBusy||
-      !["all","movies-no-anime","horror-drama-folders"].includes(setting)||
-      !d.finish_scope?.available;
-    $("finish-movie-scope").textContent=setting==="movies-no-anime"?
-      "Finish non-anime movies":setting==="horror-drama-folders"?
-      "Finish Horror + Drama movies":"Finish movie library";
-    $("stop-finish-movies").hidden=!d.finish_scope?.active;
     $("stop-library").hidden=!((d.controls||{}).stop_auto);
     $("library-source-note").textContent=source&&!scoped?
       ((d.source_job||{}).scope==="horror-drama-folders"?
@@ -1231,19 +1279,6 @@ async function librarySourceAction(stop){
   }catch(err){toast("Library sourcing: "+err.message);}
   finally{busy=false;await refreshStatus();}
 }
-$("finish-movie-scope").addEventListener("click",async()=>{
-  const scope=latest.source_config_scope||"";
-  if(busy||latest.workersBusy||
-     !["all","movies-no-anime","horror-drama-folders"].includes(scope))return;
-  busy=true;
-  try{
-    const result=await ownerPost("/api/finish/start",{movie_scope:scope});
-    toast(result.state==="already_covered"?"All selected movies are covered.":
-      "Movie completion started: Japanese sourcing and repairs, then automatic PLaMO for proven misses.");
-  }catch(err){toast("Movie completion: "+err.message);}
-  finally{busy=false;await refreshStatus();}
-});
-$("stop-finish-movies").addEventListener("click",()=>stopJob("/api/finish/stop"));
 $("source-library").addEventListener("click",()=>librarySourceAction(false));
 $("stop-library").addEventListener("click",()=>librarySourceAction(true));
 $("source-whole-series").addEventListener("click",async()=>{
