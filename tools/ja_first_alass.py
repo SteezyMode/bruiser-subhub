@@ -90,7 +90,16 @@ def prepare(jid,sid,*,aligner=None):
         raise RuntimeError("staging_cue_count_has_changed")
     quality.require_not_garbage(raw)
     if aligner is None:
-        aligned,reference_type=align(video,raw)
+        # A successful ALASS exit does not mean a usable subtitle. Validate
+        # the result *inside* reference selection, so failed EN-reference
+        # output falls through to the video's audio instead of stopping here.
+        def validate_trial(candidate):
+            normalized=ff.keep_source_dialogue(raw,candidate)
+            if gate.validate_srt(normalized,runtime)!=src_metrics:
+                raise RuntimeError("alass_subtitle_health_changed")
+            assess(raw,normalized,runtime)
+            return normalized
+        aligned,reference_type=align(video,raw,validator=validate_trial)
     else:
         aligned=aligner(video,raw)
         reference_type="test_or_external"
@@ -144,12 +153,20 @@ def _embedded_english(video):
             continue
     return None
 
-def align(video,raw):
-    """Full standalone alass: same-video embedded EN when present, else audio."""
+def align(video,raw,*,validator=None,runner=None):
+    """Try the same-video EN reference, then audio; require valid output.
+
+    ALASS can exit successfully yet produce reordered, out-of-video, or
+    otherwise invalid timings (upstream issues #43/#47/#50). Do not select a
+    reference merely because it wrote a nonempty file. The ordinary prepare()
+    passes the existing dialogue, health and timing validation unchanged.
+    """
     if not available():
         raise RuntimeError("standalone_alass_unavailable")
     if not gate.STAGED.is_dir() or gate.STAGED.is_symlink():
         raise RuntimeError("private_stage_missing")
+    runner = subprocess.run if runner is None else runner
+    failures=[]
     with tempfile.TemporaryDirectory(prefix=".alass-",dir=gate.STAGED) as folder:
         source=Path(folder)/"input.ja.srt"
         source.write_bytes(raw)
@@ -163,17 +180,23 @@ def align(video,raw):
         for label,reference in choices:
             dest=Path(folder)/(label+".ja.srt")
             try:
-                p=subprocess.run([str(BINARY),str(reference),str(source),str(dest)],
-                                 stdout=subprocess.PIPE,stderr=subprocess.PIPE,
-                                 timeout=600,check=False)
-            except subprocess.TimeoutExpired:
-                continue
-            if p.returncode or not dest.is_file():
-                continue
-            if not 0<dest.stat().st_size<=MAX_ALIGNED_SIZE:
-                continue
-            return dest.read_bytes(),label
-        raise RuntimeError("alass_failed_no_valid_output")
+                p=runner([str(BINARY),str(reference),str(source),str(dest)],
+                         stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                         timeout=600,check=False)
+                if p.returncode or not dest.is_file():
+                    raise RuntimeError("alass_command_failed")
+                if not 0<dest.stat().st_size<=MAX_ALIGNED_SIZE:
+                    raise RuntimeError("alass_invalid_output_size")
+                output=dest.read_bytes()
+                if validator is not None:
+                    output=validator(output)
+                print("ALASS_REFERENCE_SELECTED:",label,flush=True)
+                return output,label
+            except (OSError,ValueError,RuntimeError,subprocess.TimeoutExpired) as exc:
+                reason=(str(exc) or type(exc).__name__)[:110]
+                failures.append(label+":"+reason)
+                print("ALASS_REFERENCE_HELD:",label,reason,flush=True)
+        raise RuntimeError("alass_no_validated_reference:"+", ".join(failures)[:240])
 
 
 
