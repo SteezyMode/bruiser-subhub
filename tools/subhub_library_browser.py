@@ -165,14 +165,16 @@ def browse(*, kind="Movie", folder="", query="", page=0, state="all",
                 # One direct child directory below the current folder.
                 rel=PurePosixPath(r["folder"]).relative_to(PurePosixPath(folder))
                 child_path=str(PurePosixPath(folder)/rel.parts[0])
-            if child_path not in child:
-                child[child_path]={"path":child_path if kind!="Movie" or folder else "",
+            # Match a folder label case-insensitively across drive mounts.
+            group_key=child_path.casefold() if kind=="Movie" and not folder else child_path
+            if group_key not in child:
+                child[group_key]={"path":child_path if kind!="Movie" or folder else "",
                     "category":child_path if kind=="Movie" and not folder else "",
                     "label":PurePosixPath(child_path).name,
                     "total":0,"covered":0,"needs_japanese":0,
                     "audio_only":0,"unverified":0}
-            child[child_path]["total"]+=1
-            child[child_path][r["state"]]+=1
+            child[group_key]["total"]+=1
+            child[group_key][r["state"]]+=1
         # A movie folder can contain one subfolder per title/release.
         # Show all descendant *movie files* as selectable rows in the parent
         # folder, not just direct-child files. Keep folder navigation as an
