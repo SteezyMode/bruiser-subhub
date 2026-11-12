@@ -111,8 +111,11 @@ details>summary{cursor:pointer}
   <div class="meter" id="jellyfin-job-meter" role="progressbar" aria-label="Jellyfin sourcing episodes completed" aria-valuemin="0" aria-valuenow="0" aria-valuemax="100"><div class="fill" id="jellyfin-job-fill"></div></div>
   <p class="small muted" id="jellyfin-job-details"></p>
   <p class="small muted" id="jellyfin-job-current"></p>
-  <div class="row"><button id="jellyfin-job-continue" class="primary" type="button" hidden>Continue remaining</button><button id="jellyfin-job-stop" type="button" class="quiet" hidden>Stop source job</button></div>
-  <div id="jellyfin-job-holds" class="small muted" aria-live="polite"></div>
+  <div class="row"><button id="jellyfin-job-stop" type="button" class="quiet" hidden>Stop source job</button></div>
+  <details class="review" id="jellyfin-unresolved" hidden>
+   <summary id="jellyfin-unresolved-label">Movies without new subtitles</summary>
+   <div id="jellyfin-job-holds" class="small muted"></div>
+  </details>
   <details class="review"><summary>Technical activity</summary>
    <div id="jellyfin-job-events" class="small muted" aria-live="polite"></div>
   </details>
@@ -162,7 +165,13 @@ details>summary{cursor:pointer}
  <details class="review"><summary>Translation details</summary>
   <div id="active-jobs"></div>
  </details>
- <details id="history"><summary>Previous jobs and review holds</summary><div id="past-jobs"></div><p id="recent-events" class="small muted"></p></details>
+ <details id="history"><summary>Previous jobs and unresolved titles</summary>
+  <div id="jellyfin-saved-queue" hidden>
+   <p id="jellyfin-saved-queue-label" class="small muted"></p>
+   <button id="jellyfin-job-continue" type="button" class="quiet" hidden>Continue saved queue</button>
+  </div>
+  <div id="past-jobs"></div><p id="recent-events" class="small muted"></p>
+ </details>
  <div class="row" style="margin-top:12px"><button type="button" id="stop-sourcing" class="quiet" hidden>Stop selected sourcing</button><button type="button" id="stop-translation" class="quiet" hidden>Stop translation batch</button></div>
 </section>
 
@@ -1025,8 +1034,22 @@ function renderJellyfinJob(d){
   if((d.finish_scope||{}).active){
     $("jellyfin-job").hidden=true;return;
   }
-  // Saved receipts belong in history, not the default Current job panel.
+  // Only a LIVE sourcing worker receives a progress bar.
+  // Paused/finished receipts remain under the collapsed History section.
   $("jellyfin-job").hidden=!p.active;
+  const resumable=!p.active&&p.known&&Number(p.pending)>0&&
+    ["paused","interrupted"].includes(p.state);
+  $("jellyfin-saved-queue").hidden=!resumable;
+  $("jellyfin-job-continue").hidden=!resumable;
+  $("jellyfin-job-continue").disabled=busy||!!d.workersBusy;
+  if(resumable){
+    const scope=p.selector||{};
+    const name=scope.library_category||scope.library_genre||
+      scope.library_folder?.split("/").pop()||scope.series||
+      (scope.item_ids?"Selected media":"Selected movies");
+    $("jellyfin-saved-queue-label").textContent=
+      name+": "+p.pending+" files not yet checked. This is a saved queue, not an active job.";
+  }
   if(!p.active)return;
   // Count ONLY episodes selected for this run. A failed/no-match episode
   // advances the same meter as a publication; saved results stay separate.
@@ -1056,14 +1079,13 @@ function renderJellyfinJob(d){
     (p.active?"Now: ":"Last activity: ")+escapeText(p.current)+staleNotice:
     (p.active?"Preparing next episode":"");
   const exceptions=p.exceptions||[];
-  $("jellyfin-job-holds").textContent=exceptions.length?
-    "Set aside for review ("+exceptions.length+"):\n"+
-    exceptions.map(x=>x.item+" — "+
-      (x.reason||x.status||"review needed").replaceAll("_"," ")).join("\n"):
-    "No exceptions recorded";
+  $("jellyfin-unresolved").hidden=!exceptions.length;
+  $("jellyfin-unresolved-label").textContent=
+    exceptions.length+" titles without new Japanese subtitles (saved results; no action needed)";
+  $("jellyfin-job-holds").textContent=exceptions.map(x=>
+    x.item+" — "+(x.reason||x.status||"source unavailable").replaceAll("_"," ")
+  ).join("\n");
   $("jellyfin-job-stop").hidden=!p.active;
-  $("jellyfin-job-continue").hidden=p.active||!p.pending||!p.known;
-  $("jellyfin-job-continue").disabled=busy||latest.workersBusy;
   $("jellyfin-job-events").textContent=(p.events||[]).slice(-6)
     .map(e=>e.phase+(e.item?" · "+e.item:"")+(e.detail?" · "+e.detail:""))
     .join(" | ");
