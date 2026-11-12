@@ -96,8 +96,12 @@ def prepare(jid,sid,*,aligner=None,independently_verified_tail=False):
     runtime=float(record.get("video_seconds") or 0)
     if not 600<=runtime<=4*3600 or abs(gate.subprocess_duration(video)-runtime)>0.5:
         raise RuntimeError("original_video_has_changed")
+    # In-memory only: skip explicit release-timing annotations and correct a
+    # single adjacent <=2s source clock inversion. Preserve stage SHA/bytes.
+    # Final publication still requires independent ALASS timing validation.
     source,repair=structure.normalize(
-        raw,expected_timestamps=int(record.get("cues") or -1))
+        raw,expected_timestamps=int(record.get("cues") or -1),
+        trial_release_note=True,trial_local_swap=True)
     src_metrics=gate.validate_srt(source,runtime)
     quality.require_not_garbage(source)
     if aligner is None:
