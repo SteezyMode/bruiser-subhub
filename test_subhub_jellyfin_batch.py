@@ -125,6 +125,40 @@ class GenericJellyfinBatch(unittest.TestCase):
         self.assertEqual(preview["max_searches_this_run"],20)
         execute.assert_not_called()
 
+    def test_combined_horror_collection_uses_both_drives_without_reprocessing(self):
+        rows=[
+            dict(movie("a"*32,"Old Drive Horror"),
+                 host_path="/mnt/2TB/Plex Expansion/Movies/Horror/Film A.mkv",
+                 genres=["Horror"]),
+            dict(movie("b"*32,"Archive Horror"),
+                 host_path="/mnt/BigDisk/Films/Horror/Film B/Film B.mkv",
+                 genres=["Horror"]),
+            dict(movie("c"*32,"Covered Horror",status="existing_japanese_subtitle"),
+                 host_path="/mnt/BigDisk/Films/Horror/Film C.mkv",
+                 genres=["Horror"]),
+            dict(movie("d"*32,"Other"),
+                 host_path="/mnt/2TB/Plex Expansion/Movies/Action/Film D.mkv",
+                 genres=["Action"]),
+        ]
+        selected=batch.choose(rows,library_category="Horror",library_kind="Movie")
+        self.assertEqual({r["jellyfin_id"] for r in selected},
+                         {"a"*32,"b"*32})
+        plan=batch.selector(library_category="Horror",library_kind="Movie")
+        self.assertEqual(plan,{"library_category":"Horror","kind":"Movie"})
+        done=batch.fresh_state(selected,plan,now=1000)
+        done["items"][0]["status"]="published"
+        done["items"][1]["status"]="held"
+        resumed=batch.fresh_state(selected,plan,done,now=1001)
+        self.assertEqual(resumed["pass_total"],0)
+        with patch.object(batch.benchmark,"load_latest_manifest",return_value=rows), \
+             patch.object(batch,"read_scoped_state",return_value=None), \
+             patch.object(batch,"execute") as execute, \
+             contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(batch.main(
+                ["--library-category","Horror","--library-kind","Movie"]),0)
+        self.assertEqual(json.loads(output.getvalue())["eligible"],2)
+        execute.assert_not_called()
+
     def test_actual_cli_preview_accepts_folder_and_genre(self):
         rows=[
             dict(movie("b"*32,"Missing"),host_path="/media/Movies/Drama/B.mkv",
@@ -387,6 +421,18 @@ class DashboardJellyfinControls(unittest.TestCase):
         ]:
             with self.assertRaises(ValueError):
                 dashboard.jellyfin_source_arguments(req)
+
+    def test_combined_movie_folder_request_uses_source_worker_not_ai(self):
+        with patch.object(dashboard.media_browser,"browse",
+                          return_value={"items":[]}) as browse:
+            args=dashboard.jellyfin_source_arguments(
+                {"library_category":"Horror","kind":"Movie"})
+        self.assertEqual(args,[
+            "--library-category","Horror","--library-kind","Movie"])
+        browse.assert_called_once_with(kind="Movie",category="Horror")
+        with self.assertRaisesRegex(ValueError,"invalid_combined_movie_folder"):
+            dashboard.jellyfin_source_arguments(
+                {"library_category":"Horror","kind":"Episode"})
 
     def test_browse_source_requests_are_validated_and_use_existing_worker(self):
         with patch.object(dashboard.media_browser,"browse",
