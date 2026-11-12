@@ -149,13 +149,19 @@ def _acquire(jid,candidate):
 
 
 def _safe_apply():
-    # The prior Finish batch remains stopped; don't race another writer.
-    for name in ("bruiser-subhub-finish-scope.service",
-                 "bruiser-subhub-ja-source.service"):
+    # Mirror the real installer owner-idle policy. A wrong unit name here
+    # would leave two writers competing for provider quota and stage files.
+    try:
+        from . import install_global_ja_sourcing as installer
+    except ImportError:
+        import install_global_ja_sourcing as installer
+    for name in installer.BUSY_UNITS:
         result=subprocess.run(["systemctl","--user","is-active",name],
                               capture_output=True,text=True,timeout=12)
         if result.stdout.strip() in ("active","activating","reloading"):
             raise RuntimeError("existing_subhub_source_worker_active:"+name)
+        if result.returncode not in (0,3,4):
+            raise RuntimeError("worker_idle_check_inconclusive:"+name)
 
 
 def repass(*,apply=False,stage_budget=12,publish_attempt_budget=40):
