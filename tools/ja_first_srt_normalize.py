@@ -12,6 +12,10 @@ from __future__ import annotations
 import re
 import unicodedata
 
+# A release-duration note is metadata, not spoken Japanese. Trial only:
+# require ALL strong cues, never guess merely from a number or a title.
+RELEASE_DURATION=re.compile(r"(?<![0-9])(?:[0-9]{1,2}[:：]){2}[0-9]{2}(?![0-9])")
+
 MAX_BYTES=2_000_000
 STAMP=re.compile(
     r"\A((?:\d{1,3}:)?\d{2}:\d{2}[,.]\d{2,3})\s*-->\s*"
@@ -49,7 +53,21 @@ def _remove_controls(dialogue):
     return "".join(keep),removed
 
 
-def normalize(raw,*,expected_timestamps=None):
+def _release_note(text,start_ms):
+    """Strict first-cue technical annotation predicate, never an AI guess."""
+    if start_ms>120000 or not RELEASE_DURATION.search(text):
+        return False
+    japanese=("動画" in text and
+              any(term in text for term in ("合わせ", "ズレ", "ずれ", "同期")))
+    lowered=text.casefold()
+    english=("video" in lowered and
+             any(term in lowered for term in ("sync", "offset", "version",
+                                               "timing", "aligned")))
+    return japanese or english
+
+
+def normalize(raw,*,expected_timestamps=None,
+              trial_release_note=False,trial_local_swap=False):
     """Return (working SRT bytes, change report) without modifying raw.
 
     No dialogue is dropped except empty cue slots and non-text control chars.
@@ -75,6 +93,8 @@ def normalize(raw,*,expected_timestamps=None):
     parsed=[]
     empty=0
     invalid_controls=0
+    release_notes=0
+    reordered=[]
     for k,block in enumerate(blocks,1):
         if len(ARROWS.findall(block))>1:
             raise RuntimeError("staged_srt_multiple_timestamps_per_block")
@@ -95,6 +115,11 @@ def normalize(raw,*,expected_timestamps=None):
         if not clean.strip():
             empty+=1
             continue
+        if trial_release_note and k==1 and _release_note(clean,start):
+            # Only exclude the explicit technical opening annotation from
+            # the working trial. The provider original remains immutable.
+            release_notes+=1
+            continue
         parsed.append((start,end,timing,clean))
     if len(blocks)!=stamp_total:
         # Never normalize a block which silently combines multiple cues,
@@ -102,9 +127,23 @@ def normalize(raw,*,expected_timestamps=None):
         raise RuntimeError("staged_srt_multiple_timestamps_per_block")
     if not parsed:
         raise RuntimeError("staged_srt_no_dialogue")
-    if any(parsed[i][0]<parsed[i-1][0] for i in range(1,len(parsed))):
-        raise RuntimeError("staged_srt_cue_order_invalid")
-    changed=bool(empty or invalid_controls or raw.startswith(b"\xef\xbb\xbf"))
+    reversals=[i for i in range(1,len(parsed))
+               if parsed[i][0]<parsed[i-1][0]]
+    if reversals:
+        if not trial_local_swap or len(reversals)!=1:
+            raise RuntimeError("staged_srt_cue_order_invalid")
+        i=reversals[0]
+        jump=parsed[i-1][0]-parsed[i][0]
+        if jump>2000 or jump<=0:
+            raise RuntimeError("staged_srt_cue_order_invalid")
+        # Swap full time/text pairs (never exchange dialogue between times).
+        # Only a one-adjacent-pair correction; any remaining reversal holds.
+        parsed[i-1],parsed[i]=parsed[i],parsed[i-1]
+        if any(parsed[j][0]<parsed[j-1][0] for j in range(1,len(parsed))):
+            raise RuntimeError("staged_srt_cue_order_invalid")
+        reordered=[{"original_cues":[i,i+1],"jump_ms":jump}]
+    changed=bool(empty or invalid_controls or release_notes or reordered
+                 or raw.startswith(b"\xef\xbb\xbf"))
     changed=changed or "\r" in original or any(
         not block.strip(" \t\r\n").startswith(str(i))
         for i,block in enumerate(blocks,1) if block.strip(" \t\r\n").splitlines()[0].strip().isdigit()
@@ -114,6 +153,8 @@ def normalize(raw,*,expected_timestamps=None):
         "retained_dialogue_cues":len(parsed),
         "empty_cues_removed":empty,
         "control_characters_removed":invalid_controls,
+        "technical_release_notes_excluded":release_notes,
+        "local_timestamp_swaps":reordered,
         "structural_repair":changed
     }
     if not changed:
