@@ -575,13 +575,20 @@ def recover_via_sublarr(row, *, remaining_searches, checkpoint):
         return "held",0 if is_cached else 1
     def try_both():
         downloaded=0
+        limited=[]
         for source,command,receipt in (
                 ("OpenSubtitles",os_stage,"STAGED:"),
                 ("SubDL",subdl_stage,"STAGED_SUBDL:")):
             state,n=try_provider(command,source,receipt)
             downloaded+=n
-            if state in ("published","deferred"):
-                return state,downloaded,source.lower()
+            if state=="published":
+                return "published",downloaded,source.lower()
+            if state=="deferred":
+                # Provider quotas are independent: OpenSubtitles 429 must not
+                # prevent a saved SubDL candidate from being staged/published.
+                limited.append(source.lower())
+        if limited:
+            return "deferred",downloaded,"+".join(limited)
         return "unavailable",downloaded,""
 
     # A previously downloaded, verified Japanese stage must get a publishing
