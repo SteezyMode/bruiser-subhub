@@ -19,6 +19,7 @@ import re
 import sqlite3
 import subprocess
 import sys
+import unicodedata
 
 ROOT=Path.home()/"bruiser-pilot/ja-first-inventory"
 SEARCH_DB=ROOT/"japanese-search.sqlite3"
@@ -293,6 +294,122 @@ def inspect_staged(results):
                 print("    SAMPLE:",sample)
     print("\nOnly saved staging and failure records were read; nothing was changed.")
 
+
+
+def find_structural_defects(path):
+    """Diagnose mismatches between staging's regex cue count and publisher's blocks.
+
+    The inspection mirrors the strict publication parser without attempting to
+    repair or write a single byte. Report genuine timestamp/empty/control
+    defects in context; never automatically delete Japanese dialogue.
+    """
+    root=ROOT/"staged"
+    if (not path.is_file() or path.is_symlink()
+            or not path.resolve().is_relative_to(root.resolve())
+            or not 0<path.stat().st_size<=2_000_000):
+        return {"error":"unsafe_or_missing_staged_file"}
+    raw=path.read_bytes()
+    text=None
+    for codec in ("utf-8-sig","utf-16","cp932","shift_jis"):
+        try:
+            text=raw.decode(codec)
+            break
+        except UnicodeError:
+            pass
+    if text is None:
+        return {"error":"undecodable_staged_file"}
+    blocks=re.split(r"\r?\n[ \t]*\r?\n",text.strip())
+    strict_stamp=re.compile(
+        r"^[ \t]*(?:\d{1,3}:)?\d{2}:\d{2}[,.]\d{2,3}[ \t]*-->"
+        r"[ \t]*(?:\d{1,3}:)?\d{2}:\d{2}[,.]\d{2,3}[ \t]*$")
+    full_stamp=re.compile(
+        r"(?m)^[ \t]*(?:\d{1,3}:)?\d{2}:\d{2}[,.]\d{2,3}[ \t]*-->"
+        r"[ \t]*(?:\d{1,3}:)?\d{2}:\d{2}[,.]\d{2,3}")
+    problems=[]
+    multi=0
+    bad_stamps=0
+    empty=0
+    controls=0
+    for index,block in enumerate(blocks,1):
+        lines=block.splitlines()
+        ix=1 if lines and lines[0].strip().isdigit() else 0
+        timestamp_lines=[(i,line) for i,line in enumerate(lines)
+                         if "-->" in line]
+        if len(timestamp_lines)>1:
+            multi+=1
+            if len(problems)<16:
+                problems.append({
+                    "block":index,"type":"multiple_timestamps_in_one_block",
+                    "timestamp_lines":[line.strip()[:95]
+                                      for _,line in timestamp_lines[:4]],
+                    "neighboring_text":repr(block[:250])})
+        if len(lines)<ix+2 or not strict_stamp.fullmatch(
+                lines[ix].strip() if len(lines)>ix else ""):
+            bad_stamps+=1
+            if len(problems)<16:
+                problems.append({
+                    "block":index,"type":"unparseable_srt_block",
+                    "neighboring_text":repr(block[:250])})
+        elif not "\n".join(lines[ix+1:]).strip():
+            empty+=1
+            if len(problems)<16:
+                problems.append({"block":index,"type":"empty_dialogue",
+                                 "neighboring_text":repr(block[:250])})
+        for pos,char in enumerate(block):
+            if unicodedata.category(char)=="Cc" and char not in "\t\n\r":
+                controls+=1
+                if len(problems)<16:
+                    problems.append({
+                        "block":index,"type":"unexpected_control_character",
+                        "codepoint":"U+%04X"%ord(char),
+                        "context":repr(block[max(0,pos-30):pos+31])})
+    return {
+        "bytes":len(raw),"blocks":len(blocks),
+        "timestamp_lines":len(full_stamp.findall(text)),
+        "blocks_with_multiple_timestamps":multi,
+        "unparseable_blocks":bad_stamps,"empty_dialogue_blocks":empty,
+        "control_character_occurrences":controls,
+        "examples":problems
+    }
+
+
+def inspect_defects(results):
+    items=[x for x in results["items"]
+           if x["reason"]=="japanese_candidates_staged_but_unpublished"]
+    print("=== EXACT STAGED SRT DEFECTS (READ ONLY) ===")
+    print("Found",len(items),"movies with staged files")
+    if not items:
+        return
+    ids=[x["jellyfin_id"] for x in items]
+    qmarks=",".join("?" for _ in ids)
+    with sqlite3.connect("file:"+str(STAGE_DB.resolve())+"?mode=ro",
+                         uri=True,timeout=12) as db:
+        rows=db.execute(
+            f"SELECT jellyfin_id,subtitle_id,host_path,status,sha256 "
+            f"FROM staged WHERE jellyfin_id IN ({qmarks}) "
+            "ORDER BY jellyfin_id,subtitle_id",ids).fetchall()
+    for item in items:
+        jid=item["jellyfin_id"]
+        print("\nMOVIE:",item["title"],item.get("year"),
+              "| Jellyfin ID",jid)
+        for _,sid,path,status,digest in (r for r in rows if r[0]==jid):
+            details=find_structural_defects(Path(path))
+            print("  Subtitle",sid,"stage status",status,
+                  "sha256",str(digest)[:16],
+                  "blocks",details.get("blocks"),
+                  "timestamp lines",details.get("timestamp_lines"),
+                  "multi-timestamp blocks",details.get(
+                      "blocks_with_multiple_timestamps"),
+                  "unparseable blocks",details.get("unparseable_blocks"),
+                  "bad control chars",details.get(
+                      "control_character_occurrences"))
+            for issue in details.get("examples") or []:
+                print("    ISSUE:",json.dumps(issue,ensure_ascii=False))
+            if details.get("error"):
+                print("    ERROR:",details["error"])
+    print("\nNo subtitle, media, staging, or failure-receipt writes performed.")
+
+
 def main(argv=None):
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--full",action="store_true",
@@ -301,6 +418,8 @@ def main(argv=None):
                     help="print machine-readable audit for subsequent experiments")
     ap.add_argument("--inspect-staged",action="store_true",
                     help="show saved timing failure reasons and actual Japanese cue samples for staged PLaMO cases")
+    ap.add_argument("--inspect-defects",action="store_true",
+                    help="locate malformed SRT blocks and broken control characters without modifying subtitles")
     args=ap.parse_args(argv)
     data=analyze(read_json(STATE),manifest(),searches(),stages(),
                  journal_events(read_json(STATE)))
@@ -309,6 +428,9 @@ def main(argv=None):
         return
     if args.inspect_staged:
         inspect_staged(data)
+        return
+    if args.inspect_defects:
+        inspect_defects(data)
         return
     print("=== STOPPED SUBHUB BATCH: PLaMO SALVAGE AUDIT (READ ONLY) ===")
     print("Selected items:",data["scope_total"],
