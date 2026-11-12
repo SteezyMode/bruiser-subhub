@@ -682,7 +682,7 @@ def main(argv=None):
     if (args.movie_id or args.item_id or args.library_folder or args.library_genre) and (
             args.season or args.pick):
         parser.error("season/pick requires --series")
-    if (args.library_folder or args.library_genre) != bool(args.library_kind):
+    if bool(args.library_folder or args.library_genre) != bool(args.library_kind):
         parser.error("--library-kind required only for --library-folder/--library-genre")
     if args.job_id and not re.fullmatch(r"[a-f0-9]{16}",args.job_id):
         parser.error("invalid dashboard job ID")
