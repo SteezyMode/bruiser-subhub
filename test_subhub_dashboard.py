@@ -106,13 +106,18 @@ class StatusTests(unittest.TestCase):
             finally:
                 dashboard._SOURCE_CACHE.update(old)
 
-    def test_page_has_single_search_and_compact_season_review(self):
+    def test_page_has_media_browser_and_compact_season_review(self):
         html=dashboard.HTML.read_text(encoding="utf-8")
         for name in ("title-search","search-results","seasons","episode-details",
                      "source-selected","translate-selected","toggle-episodes",
                      "active-jobs"):
             self.assertIn('id="'+name+'"',html)
-        self.assertEqual(html.count('type="text"'),1)
+        # Browse/search within a library and direct title lookup are distinct.
+        self.assertEqual(html.count('type="text"'),2)
+        for item in ("library-browser","browse-genre","browse-state",
+                     "browse-finish-selected","browse-finish-folder"):
+            self.assertIn('id="'+item+'"',html)
+        self.assertNotIn('id="finish-movie-scope"',html)
         self.assertIn("Review remaining episodes",html)
         self.assertIn("Translate checked with PLaMo (",html)
         self.assertIn("Translate unresolved with PLaMo",html)
