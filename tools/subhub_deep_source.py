@@ -123,6 +123,9 @@ def publish(jid, intensive=False):
            "--max-titles", "1", "--limit", "1", "--apply"]
     if intensive:
         cmd.append("--intensive-only")
+    print("DEEP_SOURCE_STEP:",jid,
+          "intensive_ALASS_timing_repair" if intensive else
+          "normal_timing_alignment_and_publication",flush=True)
     rc, out, err = call(cmd, timeout=14*3600)
     for line in out.splitlines():
         if not line.startswith("BRUISER_PUBLISH_ITEM:"):
@@ -182,6 +185,7 @@ def stage_one(jid, candidate):
         cmd = [HERE/"ja_first_stage_subdl.py", "--jellyfin-id",jid,
                "--subtitle-id",sid,"--apply"]
         receipt = "STAGED_SUBDL:"
+    print("DEEP_SOURCE_STEP:",jid,"download_staging",provider,sid,flush=True)
     rc,out,err = call(cmd,timeout=900)
     if "PROVIDER_LIMIT_REACHED:" in out or "429" in err or "406" in err:
         return "retry", "provider_quota_or_cooldown"
@@ -211,6 +215,7 @@ def stage_one(jid, candidate):
 
 def refresh_search(jid):
     cmd=[HERE/"ja_first_search_pilot.py","--jellyfin-id",jid,"--budget","2"]
+    print("DEEP_SOURCE_STEP:",jid,"search_japanese_providers",flush=True)
     rc,out,err=call(cmd,timeout=500)
     print("DEEP_SOURCE_SEARCH:",jid,"rc",rc,flush=True)
     return rc==0 and "ERROR:" not in out and "DEFERRED:" not in out
