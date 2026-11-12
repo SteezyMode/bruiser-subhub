@@ -211,6 +211,8 @@ def main():
             "subhub_download_ledger.py",
             "subhub_jellyfin_batch.py",
             "subhub_deep_source.py",
+            "subhub_source_failure_audit.py",
+            "subhub_plamo_source_repass.py",
         })
         destinations[("source",name)]=target
     for name in DASH_FILES:
