@@ -321,6 +321,163 @@ async function ownerPost(path,payload){
   if(!response.ok) throw Error(data.error||"Action rejected");
   return data;
 }
+
+const browseModel={kind:"Movie",folder:"",genre:"",query:"",state:"all",
+                   page:0,items:[],data:null,history:[]};
+const browseSelected=new Set();
+function browseSetCount(){
+  $("browse-selected-count").textContent=browseSelected.size+" selected missing";
+  $("browse-finish-selected").disabled=busy||!!latest.workersBusy||
+    !browseSelected.size||!latest.finish_scope?.available;
+}
+function browseEntry(name,description,callback){
+  const button=document.createElement("button");
+  button.type="button";button.className="browse-folder";
+  const title=document.createElement("strong");title.textContent=name;
+  const detail=document.createElement("span");detail.className="browse-count";
+  detail.textContent=" · "+description;
+  button.append(title,detail);
+  button.addEventListener("click",callback);
+  return button;
+}
+function browseNavigate(folder){
+  browseModel.history.push({folder:browseModel.folder,genre:browseModel.genre,
+                           query:browseModel.query,page:browseModel.page});
+  browseModel.folder=folder;browseModel.genre="";
+  $("browse-genre").value="";
+  browseModel.query="";$("browse-query").value="";
+  browseModel.page=0;loadBrowse();
+}
+function renderBrowse(data){
+  browseModel.items=Array.isArray(data.items)?data.items:[];
+  browseModel.data=data;
+  $("browse-movies").setAttribute("aria-pressed",String(browseModel.kind==="Movie"));
+  $("browse-episodes").setAttribute("aria-pressed",String(browseModel.kind==="Episode"));
+  $("browse-back").disabled=!browseModel.history.length;
+  $("browse-path").textContent=browseModel.folder||
+    (browseModel.genre?browseModel.genre+" · "+
+      (browseModel.kind==="Movie"?"Movies":"Television"):
+      browseModel.kind==="Movie"?"All movie libraries":"All TV libraries");
+  const counts=data.scope_counts||{};
+  $("browse-counts").textContent=
+    Number(counts.covered||0).toLocaleString()+" with JP subtitles · "+
+    Number(counts.needs_japanese||0).toLocaleString()+" missing JP subtitles · "+
+    Number(counts.audio_only||0).toLocaleString()+" JP audio only · "+
+    Number(counts.unverified||0).toLocaleString()+" unverified";
+  $("browse-total").textContent=Number(data.scope_total||0).toLocaleString()+
+    " indexed files in this scope";
+  const genreNode=$("browse-genre");
+  const value=browseModel.genre;
+  genreNode.replaceChildren();
+  const all=document.createElement("option");all.value="";all.textContent="All genres";
+  genreNode.append(all);
+  for(const genre of data.genres||[]){
+    const opt=document.createElement("option");opt.value=genre;opt.textContent=genre;
+    genreNode.append(opt);
+  }
+  genreNode.value=value;
+  const folders=$("browse-folders");folders.replaceChildren();
+  for(const folder of data.folders||[]){
+    folders.append(browseEntry(folder.label,
+      folder.needs_japanese+" missing · "+folder.covered+" subtitled · "+
+      folder.total+" files",()=>browseNavigate(folder.path)));
+  }
+  const list=$("browse-items");list.replaceChildren();
+  for(const item of browseModel.items){
+    const line=document.createElement("div");line.className="browse-entry";
+    const check=document.createElement("input");check.type="checkbox";
+    check.checked=browseSelected.has(item.jellyfin_id);
+    check.disabled=item.state!=="needs_japanese";
+    check.setAttribute("aria-label","Select "+item.title);
+    check.addEventListener("change",()=>{
+      if(check.checked)browseSelected.add(item.jellyfin_id);
+      else browseSelected.delete(item.jellyfin_id);
+      browseSetCount();
+    });
+    const text=document.createElement("div");
+    const title=document.createElement("strong");
+    const prefix=item.kind==="Episode"?
+      (item.series||"Unknown series")+" · S"+
+      String(item.season||0).padStart(2,"0")+"E"+
+      String(item.episode||0).padStart(2,"0")+" · ":"";
+    title.textContent=prefix+item.title+(item.year?" ("+item.year+")":"");
+    const sub=document.createElement("div");sub.className="detail";
+    sub.textContent=(
+      item.state==="covered"?"JP SUBTITLES PRESENT":
+      item.state==="audio_only"?"JP AUDIO ONLY · No JP subtitles identified":
+      item.state==="needs_japanese"?"MISSING JP SUBTITLES · Eligible for sourcing":
+      "COVERAGE UNVERIFIED · Not yet source-ready");
+    if(item.state==="covered")sub.classList.add("good");
+    if(item.state==="needs_japanese")sub.classList.add("warning");
+    text.append(title,sub);line.append(check,text);list.append(line);
+  }
+  if(!(data.folders||[]).length&&!browseModel.items.length){
+    const empty=document.createElement("p");empty.className="small muted";
+    empty.textContent="No matching media on this page.";
+    list.append(empty);
+  }
+  $("browse-prev").disabled=browseModel.page===0;
+  $("browse-next").disabled=!data.more;
+  $("browse-page").textContent="Page "+(browseModel.page+1)+
+    " · "+data.matching_items+" files in current view";
+  $("browse-finish-folder").disabled=busy||!!latest.workersBusy||
+    !latest.finish_scope?.available||!!browseModel.query.trim()||
+    Number(counts.needs_japanese||0)===0;
+  $("browse-finish-folder").textContent=browseModel.genre?
+    "Finish missing in "+browseModel.genre:
+    browseModel.folder?"Finish missing in this folder":
+    "Finish missing in "+(browseModel.kind==="Movie"?"Movies":"Television");
+  browseSetCount();
+}
+async function loadBrowse(){
+  const query=new URLSearchParams({
+    kind:browseModel.kind,folder:browseModel.folder,genre:browseModel.genre,
+    query:browseModel.query,page:String(browseModel.page),state:browseModel.state
+  });
+  $("browse-feedback").textContent="Loading saved Jellyfin inventory…";
+  try{
+    const data=await getJson("/api/library/browse?"+query.toString());
+    renderBrowse(data);
+    $("browse-feedback").textContent="Checked items are only missing-Japanese titles. "+
+      "Existing JP subtitles, including newer sidecars, are excluded automatically.";
+  }catch(err){
+    $("browse-feedback").textContent="Library browse unavailable: "+err.message;
+    $("browse-finish-folder").disabled=true;
+    $("browse-finish-selected").disabled=true;
+  }
+}
+async function browseFinish(selected){
+  if(busy||!!latest.workersBusy)return;
+  let payload;
+  if(selected){
+    const ids=[...browseSelected];
+    if(!ids.length)return;
+    payload={item_ids:ids};
+  }else if(browseModel.query.trim()){
+    $("browse-feedback").textContent=
+      "Clear the search text before finishing a whole library or genre.";
+    return;
+  }else if(browseModel.genre){
+    payload={library_genre:browseModel.genre,kind:browseModel.kind};
+  }else if(browseModel.folder){
+    payload={library_folder:browseModel.folder};
+  }else{
+    payload={library_group:browseModel.kind};
+  }
+  busy=true;browseSetCount();
+  try{
+    const result=await ownerPost("/api/finish/start",payload);
+    $("browse-feedback").textContent=result.state==="already_covered"?
+      "Everything eligible in this selection is already covered.":
+      "Completion started for "+result.accepted+
+      " missing files. Japanese sourcing/repair first, then PLaMO for proven misses.";
+    browseSelected.clear();
+    await refreshStatus();browseSetCount();
+  }catch(err){
+    $("browse-feedback").textContent="Finish not started: "+err.message;
+  }finally{busy=false;browseSetCount();}
+}
+
 async function loadCatalog(){
   try{
     const data=await getJson("/api/translation/catalog");
@@ -1320,7 +1477,53 @@ $("movie-stop").addEventListener("click",()=>movieAction(true));
 $("movie-plamo").addEventListener("click",movieTranslate);
 $("stop-sourcing").addEventListener("click",()=>stopJob("/api/source-season/stop"));
 $("stop-translation").addEventListener("click",()=>stopJob("/api/translation/stop"));
-loadCatalog();refreshStatus();setInterval(refreshStatus,5000);
+
+$("browse-movies").addEventListener("click",()=>{
+  browseModel.kind="Movie";browseModel.folder="";browseModel.genre="";
+  browseModel.query="";browseModel.page=0;browseModel.history=[];
+  $("browse-query").value="";browseSelected.clear();loadBrowse();
+});
+$("browse-episodes").addEventListener("click",()=>{
+  browseModel.kind="Episode";browseModel.folder="";browseModel.genre="";
+  browseModel.query="";browseModel.page=0;browseModel.history=[];
+  $("browse-query").value="";browseSelected.clear();loadBrowse();
+});
+$("browse-back").addEventListener("click",()=>{
+  const previous=browseModel.history.pop();if(!previous)return;
+  Object.assign(browseModel,previous);
+  $("browse-query").value=browseModel.query;loadBrowse();
+});
+$("browse-search").addEventListener("submit",event=>{
+  event.preventDefault();browseModel.query=$("browse-query").value.trim();
+  browseModel.page=0;loadBrowse();
+});
+$("browse-genre").addEventListener("change",()=>{
+  browseModel.genre=$("browse-genre").value;browseModel.folder="";
+  browseModel.query="";$("browse-query").value="";
+  browseModel.page=0;browseModel.history=[];loadBrowse();
+});
+$("browse-state").addEventListener("change",()=>{
+  browseModel.state=$("browse-state").value;
+  browseModel.page=0;loadBrowse();
+});
+$("browse-select-page").addEventListener("click",()=>{
+  for(const item of browseModel.items)
+    if(item.state==="needs_japanese")browseSelected.add(item.jellyfin_id);
+  renderBrowse(browseModel.data);
+});
+$("browse-clear").addEventListener("click",()=>{
+  browseSelected.clear();if(browseModel.data)renderBrowse(browseModel.data);
+});
+$("browse-prev").addEventListener("click",()=>{
+  if(browseModel.page>0){browseModel.page--;loadBrowse();}
+});
+$("browse-next").addEventListener("click",()=>{
+  if(browseModel.data?.more){browseModel.page++;loadBrowse();}
+});
+$("browse-finish-selected").addEventListener("click",()=>browseFinish(true));
+$("browse-finish-folder").addEventListener("click",()=>browseFinish(false));
+
+loadCatalog();refreshStatus();loadBrowse();setInterval(refreshStatus,5000);
 </script>
 </body>
 </html>
