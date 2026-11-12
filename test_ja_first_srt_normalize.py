@@ -63,6 +63,49 @@ class StructuralNormalizationTests(unittest.TestCase):
                                     "staged_srt_multiple_timestamps_per_block"):
             norm.normalize(raw,expected_timestamps=2)
 
+    def test_missing_blank_line_between_complete_cues_preserves_green_room_dialogue(self):
+        # Actual host block 1233 has 2 standalone stamps and real JP
+        # dialogue but only one SRT blank-line boundary.
+        sample=(
+            "1234\\n01:21:22,245 --> 01:21:23,444\\n投げ捨てろ\\n"
+            "01:22:22,604 --> 01:22:24,104\\n\\\"犬に注意\\\"\\n"
+        ).encode("utf-8")
+        out,report=norm.normalize(sample,expected_timestamps=2)
+        self.assertEqual(report["merged_blocks_repaired"],1)
+        self.assertEqual(report["merged_cues_recovered"],1)
+        self.assertEqual(report["retained_dialogue_cues"],2)
+        self.assertIn("投げ捨てろ".encode(),out)
+        self.assertIn('"犬に注意"'.encode(),out)
+        self.assertIn(b"1\\n01:21:22,245",out)
+        self.assertIn(b"2\\n01:22:22,604",out)
+        self.assertEqual(sample.count("投げ捨てろ".encode()),
+                         out.count("投げ捨てろ".encode()))
+        self.assertEqual(sample.count("犬に注意".encode()),
+                         out.count("犬に注意".encode()))
+
+    def test_multiple_complete_merged_srt_blocks_all_repaired(self):
+        raw=(cue(1,"00:00:01,000","00:00:02,000","始まり")+
+             ("2\\n00:00:03,000 --> 00:00:04,000\\n待って\\n"
+              "00:00:05,000 --> 00:00:06,000\\n行こう\\n\\n"
+              "4\\n00:00:07,000 --> 00:00:08,000\\nはい").encode())
+        out,report=norm.normalize(raw,expected_timestamps=4)
+        self.assertEqual(report["merged_blocks_repaired"],1)
+        self.assertEqual(report["retained_dialogue_cues"],4)
+        for line in ("始まり","待って","行こう","はい"):
+            self.assertEqual(raw.count(line.encode()),out.count(line.encode()))
+
+    def test_ambiguous_or_missing_dialogue_merged_stays_held(self):
+        missing=(
+            "1\\n00:00:01,000 --> 00:00:02,000\\n"
+            "00:00:03,000 --> 00:00:04,000\\n最後").encode()
+        with self.assertRaisesRegex(RuntimeError,"merged_block_missing_dialogue"):
+            norm.normalize(missing,expected_timestamps=2)
+        numbered=(
+            "1\\n00:00:01,000 --> 00:00:02,000\\nこんにちは\\n"
+            "2\\n00:00:03,000 --> 00:00:04,000\\n最後").encode()
+        with self.assertRaisesRegex(RuntimeError,"merged_block_ambiguous_index"):
+            norm.normalize(numbered,expected_timestamps=2)
+
     def test_out_of_order_detected_with_exact_cue_numbers_and_no_mutation(self):
         source=(cue(1,"00:00:10,000","00:00:11,000","はじめ")+
                 cue(2,"00:00:30,000","00:00:31,000","次の場面")+
