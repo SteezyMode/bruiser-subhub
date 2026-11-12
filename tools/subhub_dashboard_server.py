@@ -1244,6 +1244,11 @@ def finish_scope_status():
             "phase":safe_text(doc.get("phase"),42),
             "series":safe_text(doc.get("series"),160),
             "current":safe_text(doc.get("current"),160),
+            "detail":safe_text(doc.get("detail"),160),
+            "elapsed_seconds":max(0,int(time.time())-int_value(
+                doc.get("started_at"))) if doc.get("started_at") else 0,
+            "item_elapsed_seconds":max(0,int(time.time())-int_value(
+                doc.get("item_started_at"))) if doc.get("item_started_at") else 0,
             "last_issue":safe_text(doc.get("last_issue"),160),
             "flow_counts":{
                 "total":int_value(doc.get("total_exact_files")),
