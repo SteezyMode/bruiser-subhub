@@ -22,7 +22,10 @@ import statistics
 import subprocess
 from urllib.parse import quote
 
-import ja_first_srt_normalize as clean
+try:
+    from . import ja_first_srt_normalize as clean
+except ImportError:
+    import ja_first_srt_normalize as clean
 
 ROOT=Path.home()/"bruiser-pilot/ja-first-inventory"
 ALLOWED=(Path("/mnt/BigDisk/Video"),Path("/mnt/2TB/Plex Expansion"))
