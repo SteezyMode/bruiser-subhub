@@ -202,10 +202,9 @@ details>summary{cursor:pointer}
   <button id="browse-next" type="button" class="quiet" disabled>Next</button>
  </div>
  <div class="row" style="margin-top:14px">
-  <button id="browse-finish-selected" class="primary" type="button" disabled>Finish selected missing files</button>
-  <button id="browse-finish-folder" type="button" disabled>Finish all missing in this library</button>
+  <button id="browse-source" class="primary" type="button" disabled>Find Japanese</button>
  </div>
- <p id="browse-feedback" class="small muted" aria-live="polite">A Finish action attempts Japanese sourcing and timing repair, then PLaMO only for proven misses. JP-subtitled items are skipped.</p>
+ <p id="browse-feedback" class="small muted" aria-live="polite">Select missing titles or open a movie folder / genre and click Find Japanese. Existing JP subtitles are skipped. No PLaMO.</p>
 </section>
 
 <details class="panel" id="library-details">
@@ -355,13 +354,18 @@ const browseModel={kind:"Movie",folder:"",genre:"",query:"",state:"all",
                    page:0,items:[],data:null,history:[]};
 const browseSelected=new Set();
 function browseSetCount(){
-  $("browse-selected-count").textContent=browseSelected.size+" selected missing";
-  $("browse-finish-selected").disabled=busy||!!latest.workersBusy||
-    !browseSelected.size||!latest.finish_scope?.available;
+  const n=browseSelected.size;
   const counts=browseModel.data?.scope_counts||{};
-  $("browse-finish-folder").disabled=busy||!!latest.workersBusy||
-    !latest.finish_scope?.available||!!browseModel.query.trim()||
-    !Number(counts.needs_japanese||0);
+  const folderOrGenre=!!browseModel.folder||!!browseModel.genre;
+  const scoped=n===0&&folderOrGenre&&!browseModel.query.trim();
+  const missing=Number(counts.needs_japanese||0);
+  $("browse-selected-count").textContent=n+" selected";
+  $("browse-source").textContent=n?"Find Japanese for "+n+" selected":
+    browseModel.genre?"Find Japanese in "+browseModel.genre:
+    browseModel.folder?"Find Japanese in this folder":"Select a folder or movies";
+  $("browse-source").disabled=busy||!!latest.workersBusy||
+    !latest.jellyfin_source?.available||n>300||
+    !(n>0||(scoped&&missing>0&&missing<=500));
 }
 function browseEntry(name,description,callback){
   const button=document.createElement("button");
@@ -453,13 +457,6 @@ function renderBrowse(data){
   $("browse-next").disabled=!data.more;
   $("browse-page").textContent="Page "+(browseModel.page+1)+
     " · "+data.matching_items+" files in current view";
-  $("browse-finish-folder").disabled=busy||!!latest.workersBusy||
-    !latest.finish_scope?.available||!!browseModel.query.trim()||
-    Number(counts.needs_japanese||0)===0;
-  $("browse-finish-folder").textContent=browseModel.genre?
-    "Finish missing in "+browseModel.genre:
-    browseModel.folder?"Finish missing in this folder":
-    "Finish missing in "+(browseModel.kind==="Movie"?"Movies":"Television");
   browseSetCount();
 }
 async function loadBrowse(){
@@ -471,43 +468,43 @@ async function loadBrowse(){
   try{
     const data=await getJson("/api/library/browse?"+query.toString());
     renderBrowse(data);
-    $("browse-feedback").textContent="Checked items are only missing-Japanese titles. "+
-      "Existing JP subtitles, including newer sidecars, are excluded automatically.";
+    $("browse-feedback").textContent="Choose missing titles, or use Find Japanese for this folder / genre. "+
+      "The source-only queue skips covered files, resumes unfinished selections, and never starts PLaMO.";
   }catch(err){
     $("browse-feedback").textContent="Library browse unavailable: "+err.message;
-    $("browse-finish-folder").disabled=true;
-    $("browse-finish-selected").disabled=true;
+    $("browse-source").disabled=true;
   }
 }
-async function browseFinish(selected){
-  if(busy||!!latest.workersBusy)return;
+async function browseSource(){
+  if(busy||latest.workersBusy||!latest.jellyfin_source?.available)return;
   let payload;
-  if(selected){
-    const ids=[...browseSelected];
-    if(!ids.length)return;
-    payload={item_ids:ids};
+  if(browseSelected.size){
+    if(browseSelected.size>300){
+      $("browse-feedback").textContent="Choose at most 300 missing items for this queue.";return;
+    }
+    payload={item_ids:[...browseSelected]};
   }else if(browseModel.query.trim()){
-    $("browse-feedback").textContent=
-      "Clear the search text before finishing a whole library or genre.";
-    return;
+    $("browse-feedback").textContent="Select matching movie titles first.";return;
   }else if(browseModel.genre){
     payload={library_genre:browseModel.genre,kind:browseModel.kind};
   }else if(browseModel.folder){
-    payload={library_folder:browseModel.folder};
+    payload={library_folder:browseModel.folder,kind:browseModel.kind};
   }else{
-    payload={library_group:browseModel.kind};
+    $("browse-feedback").textContent="Open a movie folder or select titles first.";return;
   }
+  if(!confirm("Find Japanese subtitles for this selection? "+
+    "Uses existing provider history, processes at most 20 searches in this pass, "+
+    "never runs PLaMO and never replaces existing Japanese subtitles."))return;
   busy=true;browseSetCount();
   try{
-    const result=await ownerPost("/api/finish/start",payload);
-    $("browse-feedback").textContent=result.state==="already_covered"?
-      "Everything eligible in this selection is already covered.":
-      "Completion started for "+result.accepted+
-      " missing files. Japanese sourcing/repair first, then PLaMO for proven misses.";
+    const result=await ownerPost("/api/jellyfin-source/start",payload);
+    $("browse-feedback").textContent="Japanese sourcing started for "+
+      result.eligible+" missing files. Follow progress in Active work. "+
+      "Use Continue remaining for the next 20 searches.";
     browseSelected.clear();
-    await refreshStatus();browseSetCount();
+    await refreshStatus();
   }catch(err){
-    $("browse-feedback").textContent="Finish not started: "+err.message;
+    $("browse-feedback").textContent="Could not start: "+err.message;
   }finally{busy=false;browseSetCount();}
 }
 
@@ -1018,17 +1015,19 @@ function renderJellyfinJob(d){
   const finished=known?Math.min(total,p.pass_processed):0;
   const percent=total?Math.round(100*finished/total):0;
   const scope=p.selector||{};
-  $("jellyfin-job-title").textContent=(scope.series||"Selected Jellyfin movies")+
-    " · Japanese subtitle pass";
+  $("jellyfin-job-title").textContent=(scope.series||
+    scope.library_genre||scope.library_folder?.split("/").pop()||
+    (scope.item_ids?"Selected media":"Selected movies"))+
+    " · Japanese sourcing";
   $("jellyfin-job-state").textContent=p.active?"Running":
     p.state==="completed"?"Pass finished":p.state||"Preparing";
   $("jellyfin-job-fill").style.width=percent+"%";
   $("jellyfin-job-meter").setAttribute("aria-valuenow",String(percent));
   $("jellyfin-job-meter").setAttribute("aria-valuetext",
-    total?finished+" of "+total+" episodes processed":"Awaiting run totals");
+    total?finished+" of "+total+" files checked":"Awaiting run totals");
   $("jellyfin-job-details").textContent=total?
-    finished+" / "+total+" episodes processed this pass":
-    known?"No new episodes selected this pass":"Waiting for per-pass counts";
+    finished+" / "+total+" files checked this pass":
+    known?"No new files selected this pass":"Waiting for per-pass counts";
   const phaseAge=Math.max(0,Number(p.phase_age_seconds)||0);
   const staleNotice=p.active&&p.progress_available&&phaseAge>120?
     " · No new checkpoint for "+phaseAge+"s":"";
@@ -1630,11 +1629,16 @@ $("source-whole-series").addEventListener("click",async()=>{
 $("jellyfin-job-stop").addEventListener("click",()=>stopJob("/api/jellyfin-source/stop"));
 $("jellyfin-job-continue").addEventListener("click",async()=>{
   const p=(latest.jellyfin_source||{}),scope=p.selector||{};
-  if(!scope.series){toast("No resumable TV job selected.");return;}
-  const payload={series:scope.series};
-  if(Array.isArray(scope.picks)&&scope.picks.length)
+  if(!scope.series&&!scope.item_ids&&!scope.movie_ids&&!scope.library_folder&&
+      !scope.library_genre){toast("No resumable source job selected.");return;}
+  const payload=scope.series?{series:scope.series}:
+    scope.item_ids?{item_ids:scope.item_ids}:
+    scope.movie_ids?{movie_ids:scope.movie_ids}:
+    scope.library_folder?{library_folder:scope.library_folder,kind:scope.kind}:
+    {library_genre:scope.library_genre,kind:scope.kind};
+  if(scope.series&&Array.isArray(scope.picks)&&scope.picks.length)
     payload.picks=scope.picks.map(p=>({season:p[0],episode:p[1]}));
-  else if(Array.isArray(scope.seasons)&&scope.seasons.length)
+  else if(scope.series&&Array.isArray(scope.seasons)&&scope.seasons.length)
     payload.seasons=scope.seasons;
   busy=true;
   try{await ownerPost("/api/jellyfin-source/start",payload);
@@ -1692,8 +1696,7 @@ $("browse-prev").addEventListener("click",()=>{
 $("browse-next").addEventListener("click",()=>{
   if(browseModel.data?.more){browseModel.page++;loadBrowse();}
 });
-$("browse-finish-selected").addEventListener("click",()=>browseFinish(true));
-$("browse-finish-folder").addEventListener("click",()=>browseFinish(false));
+$("browse-source").addEventListener("click",browseSource);
 
 loadCatalog();refreshStatus();loadBrowse();setInterval(refreshStatus,5000);
 </script>
