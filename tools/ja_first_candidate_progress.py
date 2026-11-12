@@ -22,18 +22,20 @@ SEARCH_DB=ROOT/"japanese-search.sqlite3"
 MODULES={
     "stage":("ja_first_stage_saved_batch.py",),
     "alass":("ja_first_alass.py","ja_first_ffsubsync.py",
-             "ja_first_publish_staged.py","ja_first_obvious_quality.py"),
-    "ffsubsync":("ja_first_ffsubsync.py","ja_first_publish_staged.py",
-                "ja_first_obvious_quality.py"),
+             "ja_first_srt_normalize.py","ja_first_publish_staged.py",
+             "ja_first_obvious_quality.py"),
+    "ffsubsync":("ja_first_ffsubsync.py","ja_first_srt_normalize.py",
+                "ja_first_publish_staged.py","ja_first_obvious_quality.py"),
     # Final receipts depend on the alignment/QA implementations, not on
     # dashboard log formatting or daily publisher bookkeeping. A new
     # validation policy must explicitly bump FINAL_GATE_VERSION.
     "final":("ja_first_publish_shifted.py",
-             "ja_first_publish_staged.py","ja_first_alass.py",
+             "ja_first_publish_staged.py","ja_first_srt_normalize.py",
+             "ja_first_alass.py",
              "ja_first_ffsubsync.py","ja_first_obvious_quality.py"),
 }
 
-FINAL_GATE_VERSION="1"  # Bump only when final trust/selection rules change.
+FINAL_GATE_VERSION="2"  # Bump only when final trust/selection rules change.
 
 def tokens(text):
     text=re.sub(r"(?<=[a-z])['\u2019](?=[a-z])","",str(text or "").casefold())
