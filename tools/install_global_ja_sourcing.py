@@ -52,6 +52,8 @@ SOURCE_FILES=(
     "subhub_download_ledger.py",
     "subhub_jellyfin_batch.py",
     "subhub_deep_source.py",
+    "subhub_source_failure_audit.py",
+    "subhub_plamo_source_repass.py",
     "ja_first_autofill.py",
 )
 AI_FILES=("subhub_plamo_handoff.py",)
