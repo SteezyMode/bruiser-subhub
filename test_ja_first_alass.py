@@ -85,6 +85,82 @@ class AlassTests(unittest.TestCase):
             alass.assess(raw,aligned,1800)
 
 
+    def test_normal_prepare_retries_audio_when_english_output_is_out_of_video(self):
+        raw, good=fixture(lambda i: -2)
+        _, bad=fixture(lambda i: 500)
+        with tempfile.TemporaryDirectory() as temp:
+            folder=Path(temp)
+            video=folder/"film.mkv"
+            output=folder/"film.ja.srt"
+            calls=[]
+            def runner(cmd,**kwargs):
+                label=Path(cmd[1]).name
+                calls.append(label)
+                Path(cmd[3]).write_bytes(bad if label.endswith(".english.srt") else good)
+                return subprocess.CompletedProcess(cmd,0,b"",b"")
+            with patch.object(alass,"available",return_value=True), \
+                 patch.object(alass.gate,"STAGED",folder), \
+                 patch.object(alass.gate,"read_inventory",return_value={"host_path":str(video)}), \
+                 patch.object(alass.gate,"verify_search_identity"), \
+                 patch.object(alass.gate,"read_staging",return_value=(
+                     None,raw,{"video_seconds":1100,"cues":180})), \
+                 patch.object(alass.gate,"safe_media_path",return_value=video), \
+                 patch.object(alass.gate,"ffprobe_streams",return_value=([],None)), \
+                 patch.object(alass.gate,"check_no_existing_ja"), \
+                 patch.object(alass.gate,"subprocess_duration",return_value=1100), \
+                 patch.object(alass.gate,"validate_srt",return_value={"cues":180}), \
+                 patch.object(alass.gate,"video_target",return_value=output), \
+                 patch.object(alass.quality,"require_not_garbage",return_value={}), \
+                 patch.object(alass,"_embedded_english",return_value=b"english-reference"), \
+                 patch.object(alass.subprocess,"run",side_effect=runner):
+                result=alass.prepare("a"*32,"123")
+            self.assertEqual(result["chosen"],good)
+            self.assertEqual(result["assessment"]["alignment_reference"],"video_audio")
+            self.assertEqual(len(calls),2)
+            self.assertFalse(output.exists())
+
+    def test_normal_alass_prefers_valid_english_without_unnecessary_audio(self):
+        raw, good=fixture(lambda i:-2)
+        with tempfile.TemporaryDirectory() as temp:
+            folder=Path(temp)
+            calls=[]
+            def runner(cmd,**kwargs):
+                calls.append(Path(cmd[1]).name)
+                Path(cmd[3]).write_bytes(good)
+                return subprocess.CompletedProcess(cmd,0,b"",b"")
+            def validator(raw_output):
+                normalized=alass.ff.keep_source_dialogue(raw,raw_output)
+                alass.assess(raw,normalized,1100)
+                return normalized
+            with patch.object(alass,"available",return_value=True), \
+                 patch.object(alass.gate,"STAGED",folder), \
+                 patch.object(alass,"_embedded_english",return_value=b"english-reference"):
+                chosen,reference=alass.align(folder/"film.mkv",raw,
+                                             validator=validator,runner=runner)
+            self.assertEqual(chosen,good)
+            self.assertEqual(reference,"same_video_embedded_english")
+            self.assertEqual(len(calls),1)
+
+    def test_normal_alass_holds_both_invalid_references(self):
+        raw,_=fixture(lambda i:0)
+        _, invalid=fixture(lambda i:500)
+        with tempfile.TemporaryDirectory() as temp:
+            folder=Path(temp)
+            calls=[]
+            def runner(cmd,**kwargs):
+                calls.append(Path(cmd[1]).name)
+                Path(cmd[3]).write_bytes(invalid)
+                return subprocess.CompletedProcess(cmd,0,b"",b"")
+            def validator(raw_output):
+                alass.assess(raw,alass.ff.keep_source_dialogue(raw,raw_output),1100)
+                return raw_output
+            with patch.object(alass,"available",return_value=True), \
+                 patch.object(alass.gate,"STAGED",folder), \
+                 patch.object(alass,"_embedded_english",return_value=b"english-reference"):
+                with self.assertRaisesRegex(RuntimeError,"alass_no_validated_reference"):
+                    alass.align(folder/"film.mkv",raw,validator=validator,runner=runner)
+            self.assertEqual(len(calls),2)
+
     def test_intensive_agreement_requires_every_third(self):
         raw, moved = fixture(lambda i: 0 if i<60 else 5)
         self.assertEqual(alass._intensive_agreement(raw,raw),[1.0,1.0,1.0])
