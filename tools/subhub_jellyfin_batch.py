@@ -68,9 +68,9 @@ def movie_category(path):
     parts=PurePosixPath(path).parts
     hits=[i for i,p in enumerate(parts[:-1])
           if p.casefold() in ("movies","films","film")]
-    if not hits:
-        return None
-    relative=parts[min(hits)+1:-1]
+    # Match the dashboard browser's fallback for unusual media-root names.
+    root_end=min(hits)+1 if hits else min(4,len(parts)-1)
+    relative=parts[root_end:-1]
     return relative[0] if relative else "Unsorted"
 
 
@@ -161,8 +161,8 @@ def choose(rows, *, series=None, seasons=(), picks=(), movie_ids=(),
             if not selected:
                 raise ValueError("genre_not_in_Jellyfin_catalog")
 
-    if len(selected) > MAX_ITEMS:
-        raise ValueError("selection_too_large_split_into_batches")
+    # Limit actual missing work, not already-completed movies in this genre.
+    # Thousands of covered movies must not make a small missing queue fail.
     seen = set()
     result = []
     for row in sorted(selected,key=lambda r: (
@@ -176,6 +176,8 @@ def choose(rows, *, series=None, seasons=(), picks=(), movie_ids=(),
         # sidecars are rechecked on disk again immediately before provider use.
         if row.get("status") == "ready_ja_search":
             result.append(row)
+            if len(result)>MAX_ITEMS:
+                raise ValueError("missing_selection_too_large_split_into_batches")
     return result
 
 
