@@ -195,6 +195,7 @@ def main():
         target=HOST/name
         secure_file(target,allow_new=name in {
             "ja_first_movie_scope.py",
+            "ja_first_candidate_progress.py",
             "ja_first_alass.py",
             "benchmark_subtitle_search_paths.py",
             "probe_jellyfin_remote_subtitle.py",
