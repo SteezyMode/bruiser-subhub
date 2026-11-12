@@ -96,6 +96,12 @@ def implementation_hash(engine):
         h.update(hashlib.sha256(path.read_bytes()).digest())
     return h.hexdigest()
 
+def group_digest(candidates):
+    """Stable title-level fingerprint across candidate order changes."""
+    return hashlib.sha256(json.dumps(sorted(
+        (str(sid),str(digest)) for sid,digest in candidates)).encode()).hexdigest()
+
+
 def fingerprint(video_path,staged_sha,engine):
     """Stable only while the selected file/reference and algorithm are stable."""
     if engine not in MODULES or not re.fullmatch(r"[a-f0-9]{64}",str(staged_sha)):
