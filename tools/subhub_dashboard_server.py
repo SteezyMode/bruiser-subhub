@@ -1792,18 +1792,25 @@ def jellyfin_source_arguments(doc):
         flag="--movie-id" if kind=="movie_ids" else "--item-id"
         return [part for jid in sorted(ids) for part in (flag,jid)]
     if set(doc) in ({"library_folder","kind"},{"library_genre","kind"},
-                    {"library_category","kind"}):
+                    {"library_category","kind"},{"library_series","kind"}):
         kind=doc["kind"]
         if kind not in ("Movie","Episode"):
             raise ValueError("invalid_source_library_kind")
         if "library_category" in doc:
             category=doc["library_category"]
-            if (kind!="Movie" or not isinstance(category,str)
+            if (not isinstance(category,str)
                     or not 1<=len(category)<=120
                     or any(ord(ch)<32 for ch in category)):
-                raise ValueError("invalid_combined_movie_folder")
-            media_browser.browse(kind="Movie",category=category)
-            return ["--library-category",category,"--library-kind","Movie"]
+                raise ValueError("invalid_media_category")
+            media_browser.browse(kind=kind,category=category)
+            return ["--library-category",category,"--library-kind",kind]
+        if "library_series" in doc:
+            title=doc["library_series"]
+            if (kind!="Episode" or not isinstance(title,str)
+                    or not 1<=len(title)<=160
+                    or any(ord(ch)<32 for ch in title)):
+                raise ValueError("invalid_library_series")
+            return ["--library-series",title,"--library-kind","Episode"]
         if "library_folder" in doc:
             folder=doc["library_folder"]
             if (not isinstance(folder,str) or not folder.startswith("/")
@@ -1888,8 +1895,10 @@ def start_jellyfin_source(doc):
                if "library_folder" in doc else
                {"library_genre":doc["library_genre"],"kind":doc["kind"]}
                if "library_genre" in doc else
-               {"library_category":doc["library_category"],"kind":"Movie"}
+               {"library_category":doc["library_category"],"kind":doc["kind"]}
                if "library_category" in doc else
+               {"library_series":doc["library_series"],"kind":"Episode"}
+               if "library_series" in doc else
                {"series":doc["series"],
                 "seasons":sorted(doc.get("seasons",[])),
                 "picks":[[p["season"],p["episode"]] for p in
@@ -1998,7 +2007,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 params=parse_qs(urlsplit(self.path).query,keep_blank_values=True)
                 if (len(urlsplit(self.path).query)>1000 or
-                        set(params)-{"kind","folder","query","page","state","genre","category"} or
+                        set(params)-{"kind","folder","query","page","state","genre","category","series"} or
                         any(len(v)!=1 for v in params.values())):
                     raise ValueError("invalid_library_browse_request")
                 data=media_browser.browse(
@@ -2008,7 +2017,8 @@ class Handler(BaseHTTPRequestHandler):
                     page=int(params.get("page",["0"])[0]),
                     state=params.get("state",["all"])[0],
                     genre=params.get("genre",[""])[0],
-                    category=params.get("category",[""])[0])
+                    category=params.get("category",[""])[0],
+                    series=params.get("series",[""])[0])
                 self.write(200,json.dumps(data,ensure_ascii=False).encode("utf-8"))
             except (ValueError,OSError,RuntimeError,TypeError,sqlite3.Error) as exc:
                 self.write(400,json.dumps(
