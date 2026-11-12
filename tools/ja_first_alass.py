@@ -20,6 +20,7 @@ from urllib.parse import quote
 
 import ja_first_publish_staged as gate
 import ja_first_ffsubsync as ff
+import ja_first_srt_normalize as structure
 import ja_first_obvious_quality as quality
 
 BINARY = Path.home() / "bruiser-pilot/sync-compare.WfaxCBpD/alass-linux64"
@@ -95,34 +96,39 @@ def prepare(jid,sid,*,aligner=None,independently_verified_tail=False):
     runtime=float(record.get("video_seconds") or 0)
     if not 600<=runtime<=4*3600 or abs(gate.subprocess_duration(video)-runtime)>0.5:
         raise RuntimeError("original_video_has_changed")
-    src_metrics=gate.validate_srt(raw,runtime)
-    if src_metrics["cues"]!=int(record.get("cues") or -1):
-        raise RuntimeError("staging_cue_count_has_changed")
-    quality.require_not_garbage(raw)
+    source,repair=structure.normalize(
+        raw,expected_timestamps=int(record.get("cues") or -1))
+    src_metrics=gate.validate_srt(source,runtime)
+    quality.require_not_garbage(source)
     if aligner is None:
         # A successful ALASS exit does not mean a usable subtitle. Validate
         # the result *inside* reference selection, so failed EN-reference
         # output falls through to the video's audio instead of stopping here.
         def validate_trial(candidate):
-            normalized=ff.keep_source_dialogue(raw,candidate)
+            normalized=ff.keep_source_dialogue(source,candidate)
             if gate.validate_srt(normalized,runtime)!=src_metrics:
                 raise RuntimeError("alass_subtitle_health_changed")
-            assess(raw,normalized,runtime)
+            assess(source,normalized,runtime)
             return normalized
-        aligned,reference_type=align(video,raw,validator=validate_trial)
+        aligned,reference_type=align(video,source,validator=validate_trial)
     else:
-        aligned=aligner(video,raw)
+        aligned=aligner(video,source)
         reference_type="test_or_external"
     if not 0<len(aligned)<=MAX_ALIGNED_SIZE:
         raise RuntimeError("invalid_alass_output_size")
     # Treat ALASS as a timing engine, not a dialogue editor. Formatting-only
     # differences are repaired using exact source dialogue for each cue.
-    aligned=ff.keep_source_dialogue(raw,aligned)
+    aligned=ff.keep_source_dialogue(source,aligned)
     # Existing QA confirms Japanese content/coverage did not disappear.
     if gate.validate_srt(aligned,runtime)!=src_metrics:
         raise RuntimeError("alass_subtitle_health_changed")
-    metrics=assess(raw,aligned,runtime,
+    metrics=assess(source,aligned,runtime,
                    independently_verified_tail=independently_verified_tail)
+    if source != raw:
+        # The correction is not an unmodified provider original, even when
+        # ALASS finds that all surviving timestamps already match.
+        metrics["mode"]="aligned"
+        metrics["structural_repair"]=repair
     metrics["alignment_reference"]=reference_type
     return {
         "jid":jid,"sid":sid,"row":row,"video":video,
