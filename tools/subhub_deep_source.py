@@ -333,9 +333,14 @@ def run(jid):
         return {"result":"retry_source","reason":"providers_incomplete_or_deferred",
                 "candidates_examined":len(tried)}
     # Trust neither errors nor a silently truncated provider candidate page.
-    if len(search.get("candidates") or [])>=120 or (
-            int(search.get("provider_total") or 0)>100 and
-            len(search.get("candidates") or [])>=100):
+    # Broad provider endpoints sometimes show dozens of unrelated hits.
+    # If the provider reports more results than we could retain, unseen,
+    # lower-ranked real releases may still exist. Never declare them absent.
+    reported=int(search.get("provider_total") or 0)
+    retained=len(search.get("candidates") or [])+len(
+        search.get("rejected_candidates") or [])
+    if (len(search.get("candidates") or [])>=120 or
+            reported>100 and retained<reported):
         return {"result":"retry_source","reason":"candidate_search_truncated",
                 "candidates_examined":len(tried)}
     # A parallel source search or new Japanese track invalidates the final
