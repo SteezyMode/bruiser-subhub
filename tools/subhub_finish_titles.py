@@ -23,7 +23,7 @@ ROOT=Path.home()/"bruiser-pilot/ja-first-inventory"
 DB=ROOT/"finish-scope-items.sqlite3"
 ID=re.compile(r"[0-9a-f]{32}\Z")
 STATES=frozenset(("source_pending","source_active","source_retry",
-    "plamo_queued","plamo_active","covered_initial",
+    "plamo_queued","plamo_active","covered_initial","covered_observed",
     "published_source","published_plamo"))
 FILTERS=frozenset(("all","current","sourcing","plamo","published","covered"))
 LIMIT=75
@@ -118,7 +118,7 @@ def _filter(state):
     if state=="published":
         return "state IN ('published_source','published_plamo')"
     if state=="covered":
-        return "state IN ('covered_initial','published_source','published_plamo')"
+        return "state IN ('covered_initial','covered_observed','published_source','published_plamo')"
     return "1=1"
 
 
@@ -209,7 +209,9 @@ def legacy(receipt,state="all",page=0):
                 continue
             event,jid=match.group(1),match.group(2)
             status={
-                "COVERED":"published_source",
+                # The pre-instrumentation worker did not record whether
+                # coverage was genuinely NEW versus already installed.
+                "COVERED":"covered_observed",
                 "PLAMO_QUEUE":"plamo_queued",
                 "PLAMO_PUBLISHED":"published_plamo",
                 "PLAMO_RETRY":"plamo_queued",
@@ -251,14 +253,15 @@ def legacy(receipt,state="all",page=0):
                   ("published_source","published_plamo")]
     else:
         selected=[r for r in rows if r["state"] in
-                  ("published_source","published_plamo")]
+                  ("covered_observed","published_source","published_plamo")]
     selected=sorted(selected,key=lambda r:(
         0 if r["state"] in ("source_active","plamo_active") else 1,
         r["title"].casefold()))
     total=len(selected)
     return {"source":"recent_worker_journal","complete_history":False,
             "note":"Reconstructed from recent journal lines only; older title "
-                   "events may be absent. Existing coverage is not counted.",
+                   "events may be absent. FINISH_COVERED is not proof of a "
+                   "new publication and preexisting Japanese is not counted.",
             "state":state,"page":page,"total_matching":total,
             "more":(page+1)*LIMIT<total,
             "counts":dict(Counter(r["state"] for r in rows)),
