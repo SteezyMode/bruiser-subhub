@@ -336,6 +336,97 @@ def contiguous_words(full, needle):
                for i in range(len(full) - len(needle) + 1))
 
 
+# These are acquisition eligibility checks, NEVER authority to publish.
+# A release-year difference of one is common for festival vs theatrical dates.
+MOVIE_RELEASE_TOKENS={
+    "web","webdl","webrip","bluray","bdrip","brrip","dvdrip","hdtv",
+    "1080p","720p","2160p","extended","remux","sub","subs",
+    "japanese","ja","jp","jpn","jpa","srt","ass","vtt",
+}
+JP_RELEASE_TAGS={"ja","jp","jpn","jpa","japanese"}
+RELEASE_YEAR=re.compile(r"(?:19|20)\d{2}\Z")
+
+
+def movie_identity_ok(row,result):
+    """Exact film-name evidence for trial staging, not a timing verdict.
+
+    A one-year festival/release discrepancy is allowed only with the full
+    film title and the year appearing adjacent to that title. An exact
+    language-tagged title WITHOUT any year can also be worth acquiring.
+    No broad substring matching: Maniac must not match Nymphomaniac;
+    unrelated movies with the same S/E/keyword remain rejected.
+    """
+    year=str(row.get("year") or "")
+    title=tokens(row.get("title"))
+    if not re.fullmatch(r"\d{4}",year) or not title:
+        return False
+    aliases=[title]
+    # Official movie titles sometimes append a descriptive subtitle after
+    # ':' whereas provider releases use the short title (e.g. Borat).
+    before_colon=str(row.get("title") or "").split(":",1)[0]
+    if ":" in str(row.get("title") or ""):
+        short=tokens(before_colon)
+        if (short!=title and len("".join(short))>=5
+                and len(short)>=1):
+            aliases.append(short)
+
+    matched_year=False
+    matched_yearless=False
+    contradictory=False
+    for original in (result.get("filename"),result.get("release_info")):
+        words=tokens(original)
+        if not words:
+            continue
+        # A saved Japanese provider response with a filename clearly ending
+        # in ".eng"/".english" is not safe to download for JA acquisition.
+        raw=str(original or "").casefold().strip()
+        if re.search(r"(?:^|[._ -])(?:eng|english)(?:\.(?:srt|ass|vtt))?$",raw):
+            return False
+        # Normal provider decorations are okay; embedded year conflicts are
+        # not silently ignored or reinterpreted as the target year.
+        for alias in aliases:
+            for i in range(len(words)-len(alias)+1):
+                if words[i:i+len(alias)]!=alias:
+                    continue
+                left=words[i-1] if i else ""
+                right=words[i+len(alias)] if i+len(alias)<len(words) else ""
+                nearby=[w for w in (left,right) if RELEASE_YEAR.fullmatch(w)]
+                if any(abs(int(w)-int(year))>1 for w in nearby):
+                    contradictory=True
+                    continue
+                if nearby:
+                    matched_year=True
+                elif alias==title and i==0 and not any(
+                    RELEASE_YEAR.fullmatch(w) for w in words
+                ) and (len(words)==len(title) or
+                       right in MOVIE_RELEASE_TOKENS):
+                    matched_yearless=True
+        # Providers frequently abbreviate an EXACT title by appending
+        # '-jp', '-jpa', etc. This must be the WHOLE title, not a substring.
+        # For punctuation-heavy film names, V/H/S -> VHS is accepted only
+        # with a Japanese suffix and no other unverified words/year.
+        if not any(RELEASE_YEAR.fullmatch(w) for w in words):
+            stripped=list(words)
+            jp_tag=False
+            if stripped and stripped[-1] in JP_RELEASE_TAGS:
+                stripped.pop()
+                jp_tag=True
+            elif stripped:
+                for tag in ("japanese","jpa","jpn","jp","ja"):
+                    if stripped[-1].endswith(tag) and len(stripped[-1])>len(tag):
+                        stripped[-1]=stripped[-1][:-len(tag)]
+                        jp_tag=True
+                        break
+            if (jp_tag and stripped and
+                    (stripped==title or
+                     len("".join(title))>=3 and
+                     "".join(stripped)=="".join(title))):
+                matched_yearless=True
+    # An explicit year conflict is more authoritative than an undated
+    # title-only match, even when another provider field looks plausible.
+    return not contradictory and (matched_year or matched_yearless)
+
+
 def identity_ok(row, result):
     """Conservative: identity candidate only, never permission to publish."""
     if (result.get("provider") != "opensubtitles"
@@ -346,45 +437,10 @@ def identity_ok(row, result):
                                 str(result.get("subtitle_id") or ""))):
         return False
 
-    name = str(result.get("filename") or "")
-    release = str(result.get("release_info") or "")
-    if row.get("kind") == "Movie":
-        # Title/year is enough to stage a reviewable candidate; an absent
-        # IMDb ID does not mean subtitle files are impossible to match.
-        # Keep strict same-title + year checks below, then timing/QA/no-clobber.
-        year = str(row.get("year") or "")
-        title = tokens(row.get("title"))
-        if not re.fullmatch(r"\d{4}", year) or not title:
-            return False
-        found = False
-        exact_title_without_year = False
-        for text in (name, release):
-            words = tokens(text)
-            for i in range(len(words) - len(title) + 1):
-                if words[i:i + len(title)] != title:
-                    continue
-                neighbors = [words[i - 1] if i else "",
-                             words[i + len(title)] if i + len(title) < len(words) else ""]
-                if any(re.fullmatch(r"(?:19|20)\d{2}", w) and w != year
-                       for w in neighbors):
-                    return False
-                if year in neighbors:
-                    found = True
-                elif (len(title) >= 2 and i == 0
-                      and not any(re.fullmatch(r"(?:19|20)\d{2}", word)
-                                  for word in words)
-                      and (len(words) == len(title) or
-                           words[len(title)] in {
-                               "web", "webdl", "webrip", "bluray", "bdrip",
-                               "brrip", "dvdrip", "hdtv", "1080p", "720p",
-                               "2160p", "extended", "remux", "sub", "subs",
-                               "japanese", "ja", "srt", "ass"
-                           })):
-                    # Provider search already targeted this movie. No-year
-                    # exact-title releases are worth STAGING, never enough to
-                    # bypass the same-video timing/QA gate for publication.
-                    exact_title_without_year = True
-        return found or exact_title_without_year
+    name=str(result.get("filename") or "")
+    release=str(result.get("release_info") or "")
+    if row.get("kind")=="Movie":
+        return movie_identity_ok(row,result)
 
     if row.get("kind") == "Episode":
         season, number = row.get("season"), row.get("episode")
