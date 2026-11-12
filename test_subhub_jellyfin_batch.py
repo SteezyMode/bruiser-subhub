@@ -342,6 +342,50 @@ class DashboardJellyfinControls(unittest.TestCase):
             with self.assertRaises(ValueError):
                 dashboard.jellyfin_source_arguments(req)
 
+    def test_browse_source_requests_are_validated_and_use_existing_worker(self):
+        with patch.object(dashboard.media_browser,"browse",
+                          return_value={"items":[]}) as browse:
+            folder=dashboard.jellyfin_source_arguments(
+                {"library_folder":"/media/Movies/Drama","kind":"Movie"})
+            genre=dashboard.jellyfin_source_arguments(
+                {"library_genre":"Drama","kind":"Movie"})
+        self.assertEqual(folder,["--library-folder","/media/Movies/Drama",
+                                 "--library-kind","Movie"])
+        self.assertEqual(genre,["--library-genre","Drama","--library-kind","Movie"])
+        self.assertEqual(browse.call_count,2)
+        self.assertEqual(dashboard.jellyfin_source_arguments(
+            {"item_ids":["b"*32,"a"*32]}),
+            ["--item-id","a"*32,"--item-id","b"*32])
+        for doc in ({"item_ids":["a"*32]*2},
+                    {"item_ids":["g"*32]},
+                    {"library_folder":"/media/Movies/../Movies","kind":"Movie"},
+                    {"library_genre":"Drama","kind":"invalid"}):
+            with self.assertRaises(ValueError):
+                dashboard.jellyfin_source_arguments(doc)
+
+    def test_browser_folder_launch_is_source_only_and_has_twenty_search_cap(self):
+        calls=[]
+        def run(command,**kwargs):
+            calls.append(command)
+            if len(calls)==1:
+                return SimpleNamespace(returncode=0,stdout='{"eligible": 25}',stderr="")
+            return SimpleNamespace(returncode=0,stdout="Running as unit...",stderr="")
+        with patch.object(dashboard,"unit_active",return_value=False), \
+             patch.object(dashboard,"translation_busy",return_value=False), \
+             patch.object(dashboard,"JELLYFIN_SOURCE_EXEC",Path(__file__)), \
+             patch.object(dashboard.media_browser,"browse",return_value={"items":[]}), \
+             patch.object(dashboard.subprocess,"run",side_effect=run):
+            result=dashboard.start_jellyfin_source(
+                {"library_folder":"/media/Movies/Drama","kind":"Movie"})
+        self.assertEqual(result["eligible"],25)
+        self.assertEqual(result["max_searches_this_run"],20)
+        self.assertIn("--library-folder",calls[0])
+        self.assertIn("--library-folder",calls[1])
+        self.assertIn("--max-searches",calls[1])
+        self.assertEqual(calls[1][calls[1].index("--max-searches")+1],"20")
+        self.assertNotIn("--series",calls[1])
+        self.assertNotIn("--plamo",calls[1])
+
     def test_background_start_previews_exact_scope_then_uses_systemd(self):
         calls=[]
         def run(command,**kwargs):
