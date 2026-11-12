@@ -983,23 +983,43 @@ async function refreshStatus(){
     const d=await getJson("/api/status");
     latest=d;
     const finish=d.finish_scope||{};
-    $("finish-job").hidden=!finish.active&&!finish.series;
-    if(finish.active||finish.series){
+    $("finish-job").hidden=!finish.active&&!finish.series&&
+      !["completed","waiting_retry"].includes(finish.state);
+    if(!$("finish-job").hidden){
       const p=finish.source_progress||null;
-      $("finish-job-title").textContent=(finish.series||"Selected series")+" · completion";
-      $("finish-job-status").textContent=finish.active?
+      $("finish-job-title").textContent=(finish.series||"Selected movies")+" · completion";
+      $("finish-job-status").textContent=finish.active&&finish.state==="waiting_retry"?
+        "Waiting for automatic retry":finish.active?
         "Running · "+(finish.phase==="source"?"finding/fixing Japanese":
           finish.phase==="intensive_recovery"?"intensive ALASS recovery":
           finish.phase==="translation"?"PLaMo translation":
           finish.phase||"starting"):finish.state||"Unknown";
+      const flow=finish.flow_counts||null;
+      const validFlow=!!(flow&&Number.isInteger(flow.total)&&flow.total>0);
       const intense=!!(finish.active&&finish.phase==="intensive_recovery"&&
         finish.intensive_progress&&finish.intensive_progress.seasons_total>0);
       const q=finish.intensive_progress||{};
       const validSource=!!(finish.active&&finish.phase==="source"&&p&&
         Number.isInteger(p.total)&&p.total>0&&Number.isInteger(p.processed));
-      const valid=validSource||intense;
+      const valid=validFlow||validSource||intense;
       $("finish-source-meter").hidden=!valid;
-      if(intense){
+      if(validFlow){
+        const percent=Math.max(0,Math.min(100,100*flow.covered/flow.total));
+        $("finish-source-fill").style.width=percent+"%";
+        $("finish-source-meter").setAttribute("aria-valuenow",String(Math.round(percent)));
+        $("finish-source-meter").setAttribute("aria-valuetext",
+          flow.covered+" of "+flow.total+" exact media files covered; "+
+          flow.source+" sourcing; "+flow.plamo+" PLaMO");
+        $("finish-job-details").textContent=
+          flow.covered+" / "+flow.total+" covered · "+
+          flow.source+" awaiting/attempting Japanese sources · "+
+          flow.plamo+" in PLaMO fallback · "+
+          flow.source_attempts+" source attempts · "+
+          flow.plamo_attempts+" translation attempts";
+        $("finish-source-current").textContent="Now: "+
+          (finish.current||"Selecting next file")+
+          (finish.last_issue?" · Last hold: "+finish.last_issue:"");
+      }else if(intense){
         const percent=Math.max(0,Math.min(100,100*q.seasons_done/q.seasons_total));
         $("finish-source-fill").style.width=percent+"%";
         $("finish-source-meter").setAttribute("aria-valuenow",String(Math.round(percent)));
@@ -1087,7 +1107,8 @@ async function refreshStatus(){
           (batch.state==="interrupted"?" · interrupted":"");
     }
     $("current-work").textContent=finishActive?
-       "Series completion: "+escapeText((d.finish_scope?.source_progress||{}).current||
+       "Subtitle completion: "+escapeText((d.finish_scope||{}).current||
+         (d.finish_scope?.source_progress||{}).current||
          (d.finish_scope||{}).phase||"Preparing"):jellyfin?
        "Japanese source: "+escapeText((d.jellyfin_source||{}).current||"Preparing"):
        batch.active&&batch.current?"PLaMo: "+batch.series+" "+batch.current:
