@@ -43,6 +43,23 @@ def identity_ok(row,candidate):
             or candidate.get("forced") is True
             or not SUBDL_ID.fullmatch(str(candidate.get("subtitle_id") or ""))):
         return False
+    if row.get("kind")=="Movie":
+        # Do not trust result popularity or arbitrary other-film hits. Require
+        # the exact movie title AND release year near it in saved provider text.
+        year=str(row.get("year") or "")
+        title=stage.tokens(row.get("title"))
+        if not title or not re.fullmatch(r"\\d{4}",year):
+            return False
+        for value in (candidate.get("filename"),candidate.get("release_info")):
+            words=stage.tokens(value)
+            for i in range(len(words)-len(title)+1):
+                if words[i:i+len(title)] != title:
+                    continue
+                left=words[i-1] if i else ""
+                right=words[i+len(title)] if i+len(title)<len(words) else ""
+                if year in (left,right):
+                    return True
+        return False
     if row.get("kind")!="Episode":
         return False
     expected={(row["season"],row["episode"])}
@@ -51,9 +68,7 @@ def identity_ok(row,candidate):
     if tags and tags!=expected:
         return False
     matches=set(candidate.get("matches") or [])
-    # The source was discovered by a series-title and explicit S/E request.
-    # Require episode evidence from result metadata or filename.
-    return expected==tags or "episode" in matches and "season" in matches
+    return expected==tags or ("episode" in matches and "season" in matches)
 
 
 def private_candidate(jid,row,subtitle_id=None):
@@ -81,7 +96,8 @@ def numeric_id(remote):
 def archive_srt(blob,row,candidate,runtime):
     if not zipfile.is_zipfile(BytesIO(blob)):
         raise RuntimeError("subdl_archive_not_zip")
-    expected={(row["season"],row["episode"])}
+    movie=row.get("kind")=="Movie"
+    expected={(row["season"],row["episode"])} if not movie else set()
     options=[]
     with zipfile.ZipFile(BytesIO(blob)) as arc:
         members=[m for m in arc.infolist()
@@ -91,13 +107,25 @@ def archive_srt(blob,row,candidate,runtime):
         for item in members:
             if not 0<item.file_size<=2_000_000:
                 continue
-            tags=stage.named_episode(Path(item.filename).stem)
-            if tags and tags!=expected:
-                continue
-            # Never take an unnumbered entry out of a multi-episode archive.
-            if not tags and len(members)!=1:
-                continue
-            priority=1 if tags==expected else 0
+            if movie:
+                # Multiple SRTs in a movie ZIP are different releases; a
+                # provider's movie identity is not sufficient to choose one
+                # randomly. Require file title/year or a sole .srt member.
+                words=stage.tokens(Path(item.filename).stem)
+                title=stage.tokens(row.get("title"))
+                year=str(row.get("year") or "")
+                match=any(words[i:i+len(title)]==title
+                          for i in range(len(words)-len(title)+1)) if title else False
+                if len(members)>1 and (not match or year not in words):
+                    continue
+                priority=2 if match and year in words else 1 if len(members)==1 else 0
+            else:
+                tags=stage.named_episode(Path(item.filename).stem)
+                if tags and tags!=expected:
+                    continue
+                if not tags and len(members)!=1:
+                    continue
+                priority=1 if tags==expected else 0
             options.append((priority,item))
         options.sort(key=lambda pair:-pair[0])
         for _,member in options:
@@ -228,8 +256,17 @@ def main():
                 return
             errors.append("HTTP_"+str(exc.code))
         except (RuntimeError,OSError,ValueError,zipfile.BadZipFile) as exc:
-            errors.append(type(exc).__name__)
-    print("SUBDL_HELD:",",".join(errors[:3]),flush=True)
+            reason=str(exc).split(":",1)[0]
+            if (isinstance(exc, RuntimeError) and reason in {
+                "subdl_archive_not_zip",
+                "subdl_archive_too_many_entries",
+                "subdl_no_correct_episode_japanese_srt"
+            }):
+                print("SUBDL_REJECTED:",reason,flush=True)
+            else:
+                errors.append(type(exc).__name__)
+    if errors:
+        print("SUBDL_HELD:",",".join(errors[:3]),flush=True)
 
 
 if __name__=="__main__":
