@@ -46,6 +46,20 @@ The prior **191-film source-failure audit** reconstructed four categories in the
 **Links:** [PR #91](https://github.com/SteezyMode/bruiser-subhub/pull/91) · [existing candidate recovery issue #64](https://github.com/SteezyMode/bruiser-subhub/issues/64) · [search recall issue #89](https://github.com/SteezyMode/bruiser-subhub/issues/89).
 
 
+## Follow-up: two more confirmed published + SubDL content rejection (Nov 12)
+
+Owner installed pinned revision **6695f9d39b09d795d053091aa2be81fbcaf3e47a** using `--install-only`, with backup `/home/optiplex/bruiser-pilot/subhub-control/.ja-library-source-backup-qvay0o3b`. Dashboard passed live health checks, workers stayed stopped.
+
+- **Late Night with the Devil (2024), confirmed PUBLISHED**: Jellyfin `c56f7de05115e6162920b9295e2218d7`, OpenSubtitles `10806108`; **1,343 cues**, ALASS same-video embedded English, **+15.755 s**. Create-only `.ja.srt` location: `/mnt/BigDisk/Video/Movies/Horror/Late.Night.with.the.Devil.2023.1080p.AMZN.WEBRip.1400MB.DD5.1.x264-GalaxyRG[TGx]/Late.Night.with.the.Devil.2023.1080p.AMZN.WEBRip.1400MB.DD5.1.x264-GalaxyRG.ja.srt`. Final SHA256 `80854d70b5e85dcc35a71989b15790b6004a33a8f836db1d904900d28a5655b0`, `BRUISER_PUBLISH_ITEM result=published`, `published_new:1`.
+- **The Witch (2016 catalog; video 2015), confirmed PUBLISHED**: Jellyfin `aa41799d85d1f138a4d56b2385fd00fc`, OpenSubtitles `10285361`; **868 cues**, ALASS video_audio, **−15.542 s**. Create-only `.ja.srt` location: `/mnt/BigDisk/Video/Movies/Horror/The Witch (2015) [1080p] [YTS.AG]/The.Witch.2015.1080p.BluRay.x264-[YTS.AG].ja.srt`. Final SHA256 `4dad6aaf1f2faff5016fdb12937422b20ffd05435eea500a03d86baa51b38d29`, `BRUISER_PUBLISH_ITEM result=published`, `published_new:1`.
+- **Double Blind**, SubDL `3746725-8668631`: after fixing pre-HTTP ledger route, the next attempt reached actual SubDL ZIP/archive inspection. It **failed** `subdl_no_correct_episode_japanese_srt`, i.e. no usable member passed the existing SRT selector/validator. **No stage created, not published.** The archive was fetched in this attempt; it may have consumed one SubDL download allowance. Exact ZIP member names/validation failure are unknown, because the current implementation discards detailed rejection causes. Do not call it a successfully staged title or assume the video lacks an appropriate release.
+- **Green Room** remains staged and held for `staged_srt_multiple_timestamps_per_block`. A subsequent owner command to inspect structural defects raised `ModuleNotFoundError: No module named 'subhub_source_failure_audit'` because the inspection-only script is not in the installer SOURCE_FILES. **No Green Room content inspection occurred.** Correct approach: fetch that read-only audit script directly to a private temp path and run `find_structural_defects` on the known staged original; do not modify original or publish from a guessed separator fix.
+
+**Cumulative verified result for this recovery effort: five actual new Japanese sidecars published** (Smile 2, Autopsy of Jane Doe, Spirited Away, Late Night with the Devil, The Witch). No editorial Japanese translation scoring or Jellyfin playback spot check was provided; don't confuse synchronization-gate `pass` with a qualitative translation grade.
+
+Next: diagnose Green Room's exact multi-timestamp blocks from its saved file (no network/quotas). For SubDL, add safe, specific archive-member and content-rejection diagnostics and consider a bounded original-ZIP cache to prevent repeated quota-consuming downloads, rather than blindly redownloading. [REC] remains duration-held.
+
+---
 ## Five-film owner staging pilot — later Nov 12, 2026
 
 Owner installed source revision 93fa0a3fcef4f33077d8c38a1b8fc953a9e942fc with --install-only; backup /home/optiplex/bruiser-pilot/subhub-control/.ja-library-source-backup-auxco34y. Health checks passed, workers stayed stopped. Saved candidates were downloaded/staged only; publication passes were dry-run; **no new media sidecars published in this pilot**.
