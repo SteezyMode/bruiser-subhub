@@ -174,6 +174,19 @@ class PipelineRecoveryTests(unittest.TestCase):
             self.assertTrue(progress.deterministic_stage_rejection(
                 "unrecognized_subtitle_timing_or_encoding"))
 
+    def test_exact_title_no_year_is_eligible_but_other_films_rejected(self):
+        movie={"kind":"Movie","title":"The Substance","year":2024}
+        candidate={"provider":"opensubtitles","subtitle_id":"1234567",
+                   "language":"ja","filename":"The.Substance.BluRay.ja.srt",
+                   "release_info":"The Substance BluRay","grade":"review"}
+        self.assertTrue(stage.identity_ok(movie,candidate))
+        self.assertFalse(stage.identity_ok(movie,dict(
+            candidate,filename="The.Substance.2010.BluRay.ja.srt",
+            release_info="The Substance 2010 BluRay")))
+        self.assertFalse(stage.identity_ok(movie,dict(
+            candidate,filename="The.Substance.of.Other.Movies.ja.srt",
+            release_info="Other Movie")))
+
     def test_new_japanese_sidecar_excludes_stale_library_candidate(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp)
