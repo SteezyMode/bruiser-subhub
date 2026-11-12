@@ -77,6 +77,65 @@ class StructuralNormalizationTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError,"staged_srt_cue_order_invalid"):
             norm.normalize(source,expected_timestamps=4)
 
+    def test_strict_first_cue_release_note_only_excluded_when_requested(self):
+        note="「1：50：50の動画に合わせていますが、若干のズレあり」"
+        raw=(cue(1,"00:00:12,849","00:00:19,849",note)+
+             cue(2,"00:01:00,000","00:01:02,000","私はここにいる")+
+             cue(3,"00:02:00,000","00:02:02,000","もう帰ろう"))
+        before,report=norm.normalize(raw,expected_timestamps=3)
+        self.assertIs(before,raw)
+        self.assertEqual(report["technical_release_notes_excluded"],0)
+        derived,changed=norm.normalize(raw,expected_timestamps=3,
+                                        trial_release_note=True)
+        self.assertEqual(changed["technical_release_notes_excluded"],1)
+        self.assertEqual(changed["retained_dialogue_cues"],2)
+        self.assertNotIn(note.encode(),derived)
+        self.assertIn("私はここにいる".encode(),derived)
+        self.assertIn("もう帰ろう".encode(),derived)
+        self.assertEqual(raw.count("私はここにいる".encode()),1)
+
+    def test_spoken_dialogue_with_duration_stays(self):
+        raw=(cue(1,"00:00:10,000","00:00:12,000",
+                 "1：50：50の映画を昨日見たよ")+
+             cue(2,"00:00:15,000","00:00:16,000","はい"))
+        output,record=norm.normalize(raw,expected_timestamps=2,
+                                     trial_release_note=True)
+        self.assertIs(output,raw)
+        self.assertEqual(record["technical_release_notes_excluded"],0)
+
+    def test_single_small_reversal_swaps_entire_time_text_pairs_trial_only(self):
+        raw=(cue(1,"00:00:10,000","00:00:11,000","始めます")+
+             cue(2,"00:12:58,028","00:12:59,900","いいね")+
+             cue(3,"00:12:56,401","00:12:57,200","頭の回路が変なの")+
+             cue(4,"00:13:02,000","00:13:04,000","続けて"))
+        with self.assertRaisesRegex(RuntimeError,"cue_order_invalid"):
+            norm.normalize(raw,expected_timestamps=4)
+        modified,info=norm.normalize(raw,expected_timestamps=4,
+                                     trial_local_swap=True)
+        self.assertEqual(info["local_timestamp_swaps"],
+                         [{"original_cues":[2,3],"jump_ms":1627}])
+        self.assertEqual(info["retained_dialogue_cues"],4)
+        self.assertLess(modified.index("頭の回路が変なの".encode()),
+                        modified.index("いいね".encode()))
+        for text in ("始めます","頭の回路が変なの","いいね","続けて"):
+            self.assertEqual(raw.count(text.encode()),modified.count(text.encode()))
+
+    def test_large_or_nonadjacent_reversal_remains_held_in_trial(self):
+        raw=(cue(1,"00:00:10,000","00:00:11,000","あ")+
+             cue(2,"00:00:30,000","00:00:31,000","い")+
+             cue(3,"00:00:20,000","00:00:21,000","う")+
+             cue(4,"00:00:40,000","00:00:41,000","え"))
+        with self.assertRaisesRegex(RuntimeError,"cue_order_invalid"):
+            norm.normalize(raw,expected_timestamps=4,trial_local_swap=True)
+        # A too-small swap cannot sort this entire sequence either.
+        nested=(cue(1,"00:00:10,000","00:00:11,000","あ")+
+                cue(2,"00:00:11,800","00:00:13,000","い")+
+                cue(3,"00:00:11,000","00:00:12,000","う")+
+                cue(4,"00:00:11,400","00:00:14,000","え"))
+        with self.assertRaisesRegex(RuntimeError,"cue_order_invalid"):
+            norm.normalize(nested,expected_timestamps=4,
+                           trial_local_swap=True)
+
     def test_invalid_clock_and_truncated_bytes_fail_closed(self):
         with self.assertRaisesRegex(RuntimeError,"invalid_staged_srt_clock"):
             norm.normalize(cue(1,"00:99:01,000","00:99:03,000","はい"))
