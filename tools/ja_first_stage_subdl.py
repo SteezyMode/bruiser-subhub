@@ -155,6 +155,8 @@ def archive_srt(blob,row,candidate,runtime):
                  if not m.is_dir() and m.filename.lower().endswith(".srt")]
         if len(arc.infolist())>MAX_MEMBERS:
             raise RuntimeError("subdl_archive_too_many_entries")
+        if not members:
+            raise RuntimeError("subdl_archive_no_srt_members")
         for item in members:
             if not 0<item.file_size<=2_000_000:
                 continue
@@ -178,20 +180,42 @@ def archive_srt(blob,row,candidate,runtime):
                     continue
                 priority=1 if tags==expected else 0
             options.append((priority,item))
+        if not options:
+            raise RuntimeError("subdl_archive_no_matching_srt_member")
         options.sort(key=lambda pair:-pair[0])
+        rejected=[]
         for _,member in options:
             try:
                 raw=arc.read(member)
-                for encoding in ("utf-8-sig","utf-16","cp932","shift_jis"):
-                    try:
-                        content=raw.decode(encoding).encode("utf-8")
-                        qa=publisher.validate_srt(content,runtime)
-                        return content,qa,member.filename
-                    except (UnicodeError,RuntimeError,ValueError):
-                        continue
             except (RuntimeError,ValueError,zipfile.BadZipFile):
+                rejected.append("member_unreadable")
                 continue
-    raise RuntimeError("subdl_no_correct_episode_japanese_srt")
+            decoded=False
+            for encoding in ("utf-8-sig","utf-16","cp932","shift_jis"):
+                try:
+                    content=raw.decode(encoding).encode("utf-8")
+                except UnicodeError:
+                    continue
+                decoded=True
+                try:
+                    qa=publisher.validate_srt(content,runtime)
+                    return content,qa,member.filename
+                except (RuntimeError,ValueError) as exc:
+                    # Stable error category only. Filename, raw provider bytes,
+                    # private paths and arbitrary exception strings stay out
+                    # of the shared progress and dashboard logs.
+                    code=str(exc).split(":",1)[0]
+                    if re.fullmatch(r"[A-Za-z0-9_]{1,85}",code):
+                        rejected.append(code)
+                    else:
+                        rejected.append("content_validation_error")
+            if not decoded:
+                rejected.append("member_undecodable")
+    # Distinguish no matching ZIP member from an identity-matching SRT that
+    # fails Japanese content, duration or structural validation. This matters
+    # when quota is exhausted: an error should not imply no provider result.
+    reason=",".join(sorted(set(rejected))[:3]) or "unknown"
+    raise RuntimeError("subdl_archive_srt_rejected:"+reason)
 
 
 def download(candidate):
@@ -308,12 +332,10 @@ def main():
             errors.append("HTTP_"+str(exc.code))
         except (RuntimeError,OSError,ValueError,zipfile.BadZipFile) as exc:
             reason=str(exc).split(":",1)[0]
-            if (isinstance(exc, RuntimeError) and reason in {
-                "subdl_archive_not_zip",
-                "subdl_archive_too_many_entries",
-                "subdl_no_correct_episode_japanese_srt"
-            }):
-                print("SUBDL_REJECTED:",reason,flush=True)
+            if isinstance(exc, RuntimeError) and (
+                    reason.startswith("subdl_archive_") or
+                    reason=="subdl_no_correct_episode_japanese_srt"):
+                print("SUBDL_REJECTED:",str(exc)[:150],flush=True)
             else:
                 # Only expose a safe fixed-code error token, never a URL,
                 # provider credential, media path or arbitrary exception text.
