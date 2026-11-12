@@ -37,6 +37,27 @@ class SourceFailureAuditTests(unittest.TestCase):
                 self.assertIn("さようなら",samples[2])
             self.assertEqual(subtitle.read_bytes(),saved)
 
+    def test_malformed_multicue_and_control_characters_are_located_read_only(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)
+            staged=root/"staged"
+            staged.mkdir()
+            path=staged/"sample.ja.srt"
+            content=(
+                "1\n00:00:01,000 --> 00:00:02,000\nあいうえお\n"
+                "2\n00:00:03,000 --> 00:00:04,000\nかきくけこ\n\n"
+                "3\n00:00:05,000 --> 00:00:06,000\nさしすせそ\x1f\n"
+            ).encode("utf-8")
+            path.write_bytes(content)
+            with patch.object(audit,"ROOT",root):
+                result=audit.find_structural_defects(path)
+            self.assertEqual(result["blocks"],2)
+            self.assertEqual(result["timestamp_lines"],3)
+            self.assertEqual(result["blocks_with_multiple_timestamps"],1)
+            self.assertEqual(result["control_character_occurrences"],1)
+            self.assertIn("U+001F",str(result["examples"]))
+            self.assertEqual(path.read_bytes(),content)
+
     def test_provider_incomplete_never_claimed_no_results(self):
         r=search(outcome="none",gates={
             "opensubtitles":"ok","subdl":"cooldown"})
