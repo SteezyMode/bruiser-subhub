@@ -112,7 +112,7 @@ def command(args, label, on_line=None):
         return p.wait()
 
 
-def selected_media(series, seasons):
+def selected_media(series=None, seasons=(), *, movie_ids=(), movie_scope=None):
     """Select every exact Jellyfin file; duplicate episode versions remain separate."""
     # Dashboard controller runs from a different installation directory
     # than the canonical host source engine; resolve it explicitly.
@@ -121,20 +121,57 @@ def selected_media(series, seasons):
     import subhub_deep_source as deep
     chosen=[]
     seen=set()
+    if not series and bool(movie_ids)==bool(movie_scope):
+        raise ValueError("choose_exact_movie_ids_or_scope")
+    if movie_scope and movie_scope not in deep.stage.movie_scope.SCOPES:
+        raise ValueError("invalid_movie_scope")
+    ids=set(movie_ids)
+    if len(ids)!=len(movie_ids) or any(
+            not isinstance(jid,str) or not re.fullmatch(r"[a-f0-9]{32}",jid)
+            for jid in ids):
+        raise ValueError("invalid_movie_selection")
     for row in deep.inventory.load_latest_manifest():
-        if (not isinstance(row,dict) or row.get("kind")!="Episode"
-                or row.get("series_title")!=series
-                or row.get("season") not in seasons):
+        if not isinstance(row,dict):
+            continue
+        if series:
+            if (row.get("kind")!="Episode" or row.get("series_title")!=series
+                    or row.get("season") not in seasons):
+                continue
+        elif (row.get("kind")!="Movie" or
+              (ids and str(row.get("jellyfin_id") or "") not in ids) or
+              (movie_scope and not deep.stage.movie_scope.matches(row,movie_scope))):
             continue
         jid=str(row.get("jellyfin_id") or "")
         if not re.fullmatch(r"[a-f0-9]{32}",jid) or jid in seen:
             raise RuntimeError("duplicate_or_invalid_selected_jellyfin_id")
         seen.add(jid)
-        chosen.append((int(row["season"]),int(row["episode"]),jid))
+        chosen.append((int(row["season"]),int(row["episode"]),jid)
+                      if series else (0,0,jid))
     chosen.sort()
+    if ids and len(chosen)!=len(ids):
+        raise RuntimeError("requested_movie_not_in_jellyfin_inventory")
     if not chosen:
         raise RuntimeError("selected_scope_not_in_jellyfin_inventory")
     return chosen
+
+
+def movie_plan(movie_ids=(), movie_scope=None):
+    """Read-only exact movie coverage preview; no provider calls or AI."""
+    selected=selected_media(movie_ids=movie_ids,movie_scope=movie_scope)
+    if str(SOURCE.parent) not in sys.path:
+        sys.path.insert(0,str(SOURCE.parent))
+    import subhub_deep_source as deep
+    rows={str(row.get("jellyfin_id")):row for row in
+          deep.inventory.load_latest_manifest() if isinstance(row,dict)}
+    covered=sum(rows[jid].get("status") in
+                ("existing_japanese_subtitle","japanese_audio")
+                or deep.stage.japanese_sidecar_exists(
+                    Path(str(rows[jid].get("host_path") or "")))
+                for _,_,jid in selected)
+    return {"series":"","seasons":[],"total":len(selected),
+            "covered":covered,"missing":len(selected)-covered,
+            "source_first":len(selected)-covered,"plamo_ready":0,
+            "picks":[]}
 
 
 def valid_source_exhaustion(jid):
@@ -147,19 +184,21 @@ def valid_source_exhaustion(jid):
     return len(matches)==1 and deep.validate_exhausted(jid,matches[0])
 
 
-def run(series, seasons=()):
+def run(series=None, seasons=(), *, movie_ids=(), movie_scope=None):
     """One owner action: source every selected file, auto PLaMO proven misses.
 
     Incomplete providers and temporary errors stay in SOURCE, with autonomous
     paced retry. The operator may stop the job, but no per-title review is
     required. PLaMO can start only with an exact validated source receipt.
     """
-    before=plan(series,seasons)
-    selection=selected_media(series,before["seasons"])
+    before=(plan(series,seasons) if series else
+            movie_plan(movie_ids,movie_scope))
+    selection=(selected_media(series,before["seasons"]) if series else
+               selected_media(movie_ids=movie_ids,movie_scope=movie_scope))
     pending={jid:(season,episode) for season,episode,jid in selection}
     finished=set()
     total=len(selection)
-    receipt={"schema":"subhub-finish-scope-v1","series":series,
+    receipt={"schema":"subhub-finish-scope-v1","series":series or "",
              "seasons":before["seasons"],"phase":"source",
              "state":"running","before":{k:v for k,v in before.items()
                                          if k!="picks"},
@@ -169,7 +208,9 @@ def run(series, seasons=()):
              "current":"","last_issue":""}
     write_state(receipt)
     print("FINISH_BEGIN",json.dumps({"total_exact_files":total,
-          "series":series,"seasons":before["seasons"]},ensure_ascii=False),
+          "series":series or "","seasons":before["seasons"],
+          "movie_scope":movie_scope or "",
+          "movie_ids":len(movie_ids)},ensure_ascii=False),
           flush=True)
     # Dict retains state for this process; source-exhaustion receipts and
     # PLaMO checkpoints are independently durable across a restarted job.
@@ -262,19 +303,30 @@ def run(series, seasons=()):
 
 def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--series",required=True)
+    one=p.add_mutually_exclusive_group(required=True)
+    one.add_argument("--series")
+    one.add_argument("--movie-id",action="append",default=[])
+    one.add_argument("--movie-scope")
     p.add_argument("--season",type=int,action="append",default=[])
     p.add_argument("--run",action="store_true")
     opts=p.parse_args(argv)
-    if not opts.series or len(opts.series)>160 or any(
-            ord(ch)<32 for ch in opts.series):
+    if opts.series and (len(opts.series)>160 or any(
+            ord(ch)<32 for ch in opts.series)):
         p.error("invalid series")
     if len(opts.season)>60 or len(set(opts.season))!=len(opts.season) or any(
             not 1<=s<=60 for s in opts.season):
         p.error("invalid seasons")
+    if not opts.series and opts.season:
+        p.error("--season requires --series")
+    if opts.movie_scope and opts.movie_scope not in (
+            "all","movies-no-anime","horror-drama-folders"):
+        p.error("invalid movie scope")
     if opts.run:
-        return run(opts.series,opts.season)
-    print(json.dumps(plan(opts.series,opts.season),ensure_ascii=False))
+        return run(opts.series,opts.season,movie_ids=opts.movie_id,
+                   movie_scope=opts.movie_scope)
+    preview=(plan(opts.series,opts.season) if opts.series else
+             movie_plan(opts.movie_id,opts.movie_scope))
+    print(json.dumps(preview,ensure_ascii=False))
     return 0
 
 
