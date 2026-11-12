@@ -978,7 +978,7 @@ def configured_source_scope():
             return "unavailable"
         record=json.loads(path.read_text("utf-8"))
         if isinstance(record,dict) and set(record)=={"scope"} and record["scope"] in (
-                "all","horror-drama-folders"):
+                "all","horror-drama-folders","movies-no-anime"):
             return record["scope"]
     except (OSError,ValueError,TypeError):
         pass
