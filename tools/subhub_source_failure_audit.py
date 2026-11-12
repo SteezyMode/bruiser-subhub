@@ -86,9 +86,19 @@ def stages():
 
 
 def journal_events(state):
+    # Scope reconstruction to the actual persisted Finish job start, not a
+    # hard-coded date that will silently miss the next household batch.
+    started=int(state.get("started_at") or 0)
+    if started<=0:
+        # Older receipts lack a start timestamp: retain original audit
+        # fallback so those still work, without guessing a future run.
+        since="2026-11-11 00:00:00"
+    else:
+        since=datetime.fromtimestamp(max(0,started-300),timezone.utc).strftime(
+            "%Y-%m-%d %H:%M:%S UTC")
     cmd=["journalctl","--user","-u",
          "bruiser-subhub-finish-scope.service",
-         "--since","2026-11-11 00:00:00","--no-pager","-o","json"]
+         "--since",since,"--no-pager","-o","json"]
     run=subprocess.run(cmd,capture_output=True,text=True,check=True,timeout=90)
     events=[]
     for line in run.stdout.splitlines():
