@@ -154,6 +154,57 @@ class PipelineRecoveryTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError,"shift_would_invalidate_cue"):
             shifted.shift_srt(early,26.1)
 
+    def test_technical_opening_note_cleaned_in_trusted_offset_fallback_too(self):
+        """All synchronizers must consume the same derived dialogue-only SRT."""
+        from tools import ja_first_publish_shifted as shifted
+        from tools import ja_first_ffsubsync as ff
+        from unittest.mock import call
+        def clock(ms):
+            h,ms=divmod(ms,3600000)
+            m,ms=divmod(ms,60000)
+            sec,ms=divmod(ms,1000)
+            return f"{h:02}:{m:02}:{sec:02},{ms:03}"
+        blocks=[
+            "1\n00:00:12,849 --> 00:00:19,849\n"
+            "「1：50：50の動画に合わせていますが、若干のズレあり」"]
+        for i in range(80):
+            start=31000+i*5000
+            blocks.append(f"{i+2}\n{clock(start)} --> "
+                          f"{clock(start+2000)}\n日本語台詞 {i+1}")
+        raw=("\n\n".join(blocks)+"\n").encode("utf-8")
+        original_sha=__import__("hashlib").sha256(raw).hexdigest()
+        first={"status":"shift_needed","reference_trust":"trusted_embedded",
+               "matching_start_fraction":0.999,"best_offset_seconds":20.0}
+        second={"status":"fit","reference_trust":"trusted_embedded",
+                "matching_start_fraction":0.999,"best_offset_seconds":0.0}
+        media=Path("/mock/film.mkv")
+        row=self.row(media)
+        with patch.object(shifted.gate,"read_inventory",return_value=row), \
+             patch.object(shifted.gate,"safe_media_path",return_value=media), \
+             patch.object(shifted.gate,"ffprobe_streams",
+                          return_value=([],None)), \
+             patch.object(shifted.gate,"check_no_existing_ja"), \
+             patch.object(shifted,"staged_rows",return_value=[("1234",)]), \
+             patch.object(shifted.gate,"verify_search_identity"), \
+             patch.object(shifted.gate,"read_staging",
+                          return_value=(None,raw,{"video_seconds":1200,
+                                                  "cues":81})), \
+             patch.object(shifted.gate,"subprocess_duration",return_value=1200), \
+             patch.object(shifted.gate,"validate_srt",
+                          side_effect=lambda data,runtime: {
+                              "cues":len(ff.parse_cues(data))}), \
+             patch.object(shifted.audit,"inspect",side_effect=[first,second]):
+            result=shifted.preparation(self.ID)
+        self.assertEqual(__import__("hashlib").sha256(result["raw"]).hexdigest(),
+                         original_sha)
+        self.assertEqual(result["structural_repair"][
+            "technical_release_notes_excluded"],1)
+        self.assertEqual(len(ff.parse_cues(result["adjusted"])),80)
+        self.assertNotIn("1：50：50".encode("utf-8"),result["adjusted"])
+        self.assertEqual(result["adjusted"].count("日本語台詞".encode()),80)
+        self.assertIn(b"00:00:11,000",result["adjusted"])
+        self.assertIn("1：50：50".encode("utf-8"),raw)
+
     def test_stage_failure_receipt_expires_but_alignment_receipts_remain(self):
         with tempfile.TemporaryDirectory() as temp:
             db=Path(temp)/"candidate.sqlite3"
