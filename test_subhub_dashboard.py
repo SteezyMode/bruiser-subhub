@@ -155,6 +155,23 @@ class StatusTests(unittest.TestCase):
         self.assertIn('$("finish-job").hidden=!finish.active',html)
         self.assertIn('$("batch-overview").hidden=!batch.active',html)
 
+    def test_unresolved_subtitles_are_saved_results_not_prominent_review_tasks(self):
+        html=dashboard.HTML.read_text(encoding="utf-8")
+        self.assertNotIn("Set aside for review",html)
+        self.assertIn('<details class="review" id="jellyfin-unresolved" hidden>',html)
+        self.assertIn('titles without new Japanese subtitles (saved results; no action needed)',html)
+        self.assertIn('$("jellyfin-unresolved").hidden=!exceptions.length',html)
+        self.assertIn('id="jellyfin-saved-queue" hidden',html)
+        self.assertIn('["paused","interrupted"].includes(p.state)',html)
+        # A paused queue can still resume, but only from collapsed history.
+        start=html.index('<details id="history">')
+        end=html.index("</details>",start)
+        self.assertIn('id="jellyfin-job-continue"',html[start:end])
+        self.assertNotIn('id="jellyfin-job-continue"',html[:start])
+        # Only actively running workers own progress bars.
+        self.assertIn('$("jellyfin-job").hidden=!p.active',html)
+        self.assertIn('$("batch-overview").hidden=!batch.active',html)
+
     def test_browse_gui_queues_a_combined_movie_folder(self):
         html=dashboard.HTML.read_text(encoding="utf-8")
         self.assertIn('category:browseModel.category',html)
