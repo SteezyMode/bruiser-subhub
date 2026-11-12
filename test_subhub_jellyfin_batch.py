@@ -159,6 +159,52 @@ class GenericJellyfinBatch(unittest.TestCase):
         self.assertEqual(json.loads(output.getvalue())["eligible"],2)
         execute.assert_not_called()
 
+    def test_other_scope_recent_miss_is_not_researched_immediately(self):
+        rows=[dict(movie("a"*32,"Film A"),
+                   host_path="/media/Movies/Horror/Film A.mkv",
+                   genres=["Horror","Drama"]),
+              dict(movie("b"*32,"Film B"),
+                   host_path="/media/Movies/Drama/Film B.mkv",
+                   genres=["Drama"])]
+        horror=batch.selector(library_category="Horror",library_kind="Movie")
+        drama=batch.selector(library_category="Drama",library_kind="Movie")
+        attempted=1000000
+        prior=batch.fresh_state(rows[:1],horror,now=attempted)
+        prior["items"][0].update(
+            status="held",reason="no_verified_japanese_from_available_providers",
+            attempted_at=attempted)
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            os.chmod(root,0o700)
+            with patch.object(batch,"STATE",root/"job.json"):
+                batch.write_state(prior,batch.scoped_state_file(horror))
+                recent=batch.recent_media_outcomes(now=attempted+5)
+                state=batch.fresh_state(rows,drama,now=attempted+5,recent=recent)
+                self.assertEqual(state["pass_total"],1)
+                self.assertEqual(state["items"][0]["status"],"held")
+                self.assertEqual(state["items"][1]["status"],"queued")
+                later=batch.fresh_state(rows,drama,now=attempted+21*3600,
+                                        recent=batch.recent_media_outcomes(
+                                            now=attempted+21*3600))
+                self.assertEqual(later["pass_total"],2)
+                self.assertTrue(all(x["status"]=="queued" for x in later["items"]))
+
+    def test_tv_categories_and_series_queue_only_missing_episodes(self):
+        rows=[
+            dict(tv("a"*32,1,1,series="Nature"),genres=["Documentary"],
+                 host_path="/media/Shows/Nature/Season 01/E1.mkv"),
+            dict(tv("b"*32,1,2,series="Nature",
+                    status="existing_japanese_subtitle"),
+                 genres=["Documentary"],
+                 host_path="/media/Shows/Nature/Season 01/E2.mkv"),
+            dict(tv("c"*32,1,1,series="Comedy"),genres=["Comedy"],
+                 host_path="/media/Shows/Comedy/Season 01/E1.mkv")]
+        docs=batch.choose(rows,library_category="Documentary",
+                          library_kind="Episode")
+        self.assertEqual([r["jellyfin_id"] for r in docs],["a"*32])
+        show=batch.choose(rows,library_series="Nature",library_kind="Episode")
+        self.assertEqual([r["jellyfin_id"] for r in show],["a"*32])
+
     def test_actual_cli_preview_accepts_folder_and_genre(self):
         rows=[
             dict(movie("b"*32,"Missing"),host_path="/media/Movies/Drama/B.mkv",
@@ -430,9 +476,16 @@ class DashboardJellyfinControls(unittest.TestCase):
         self.assertEqual(args,[
             "--library-category","Horror","--library-kind","Movie"])
         browse.assert_called_once_with(kind="Movie",category="Horror")
-        with self.assertRaisesRegex(ValueError,"invalid_combined_movie_folder"):
-            dashboard.jellyfin_source_arguments(
-                {"library_category":"Horror","kind":"Episode"})
+        with patch.object(dashboard.media_browser,"browse",
+                          return_value={"items":[]}) as browse:
+            tv_args=dashboard.jellyfin_source_arguments(
+                {"library_category":"Documentary","kind":"Episode"})
+        self.assertEqual(tv_args,["--library-category","Documentary",
+                                  "--library-kind","Episode"])
+        browse.assert_called_once_with(kind="Episode",category="Documentary")
+        self.assertEqual(dashboard.jellyfin_source_arguments(
+            {"library_series":"Nature Series","kind":"Episode"}),
+            ["--library-series","Nature Series","--library-kind","Episode"])
 
     def test_browse_source_requests_are_validated_and_use_existing_worker(self):
         with patch.object(dashboard.media_browser,"browse",

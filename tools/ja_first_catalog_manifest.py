@@ -204,6 +204,15 @@ def classify(item, series, mounts, sidecache):
             str((parent or {}).get("Name") or "").strip()
             or str(item.get("SeriesName") or "").strip()
         )
+        # Jellyfin usually categorizes *series*, not each episode. Carry
+        # those actual Jellyfin genres into the episode inventory so the
+        # browser's Documentary/Comedy/etc. collections are complete.
+        existing={g.casefold() for g in data["genres"]}
+        for genre in (parent or {}).get("Genres") or []:
+            if (isinstance(genre,str) and 1<=len(genre)<=60 and
+                    genre.casefold() not in existing and len(data["genres"])<20):
+                data["genres"].append(genre)
+                existing.add(genre.casefold())
 
     path = data["host_path"]
     if not path:

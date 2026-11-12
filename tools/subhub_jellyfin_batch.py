@@ -31,10 +31,12 @@ try:
     from . import benchmark_subtitle_search_paths as benchmark
     from . import ja_first_stage_saved_batch as stage
     from . import ja_first_autofill as autofill
+    from . import subhub_media_categories as media_categories
 except ImportError:
     import benchmark_subtitle_search_paths as benchmark
     import ja_first_stage_saved_batch as stage
     import ja_first_autofill as autofill
+    import subhub_media_categories as media_categories
 
 SOURCE_DIR = Path(__file__).resolve().parent
 STATE = Path.home() / "bruiser-pilot/ja-first-inventory/jellyfin-source-batch.json"
@@ -76,11 +78,11 @@ def movie_category(path):
 
 def choose(rows, *, series=None, seasons=(), picks=(), movie_ids=(),
            item_ids=(), library_folder=None, library_genre=None,
-           library_kind=None, library_category=None):
+           library_kind=None, library_category=None, library_series=None):
     """Select catalogued media, not arbitrary filesystem search results."""
     scopes=sum(bool(x) for x in (
         series,movie_ids,item_ids,library_folder,library_genre,
-        library_category))
+        library_category,library_series))
     if scopes!=1:
         raise ValueError("select_exactly_one_library_selection")
     selected = []
@@ -123,19 +125,28 @@ def choose(rows, *, series=None, seasons=(), picks=(), movie_ids=(),
         if library_kind not in ("Movie","Episode"):
             raise ValueError("invalid_library_kind")
         if library_category:
-            if (library_kind!="Movie" or
-                    not isinstance(library_category,str) or
+            if (not isinstance(library_category,str) or
                     not 1<=len(library_category)<=120 or
                     any(ord(ch)<32 for ch in library_category)):
-                raise ValueError("invalid_combined_movie_folder")
+                raise ValueError("invalid_media_category")
             selected=[r for r in rows if isinstance(r,dict) and
-                      r.get("kind")=="Movie" and
+                      r.get("kind")==library_kind and
                       isinstance(r.get("host_path"),str) and
-                      movie_category(r["host_path"]) is not None and
-                      movie_category(r["host_path"]).casefold()==
-                      library_category.casefold()]
+                      library_category.casefold() in {
+                          x.casefold() for x in media_categories.categories(
+                              r["kind"],r["host_path"],r.get("genres") or [])}]
             if not selected:
-                raise ValueError("combined_movie_folder_not_in_Jellyfin_catalog")
+                raise ValueError("media_category_not_in_Jellyfin_catalog")
+        elif library_series:
+            if (library_kind!="Episode" or
+                    not isinstance(library_series,str) or
+                    not 1<=len(library_series)<=160):
+                raise ValueError("invalid_library_series")
+            selected=[r for r in rows if isinstance(r,dict) and
+                      r.get("kind")=="Episode" and
+                      r.get("series_title")==library_series]
+            if not selected:
+                raise ValueError("library_series_not_in_Jellyfin_catalog")
         elif library_folder:
             folder=PurePosixPath(library_folder)
             if (not isinstance(library_folder,str) or
@@ -183,7 +194,7 @@ def choose(rows, *, series=None, seasons=(), picks=(), movie_ids=(),
 
 def selector(series=None,seasons=(),picks=(),movie_ids=(),
              item_ids=(),library_folder=None,library_genre=None,
-             library_kind=None,library_category=None):
+             library_kind=None,library_category=None,library_series=None):
     if series:
         return {"series":series,"seasons":sorted(set(seasons)),
                 "picks":[[a,b] for a,b in sorted(set(picks))]}
@@ -196,7 +207,9 @@ def selector(series=None,seasons=(),picks=(),movie_ids=(),
     if library_genre:
         return {"library_genre":library_genre,"kind":library_kind}
     if library_category:
-        return {"library_category":library_category,"kind":"Movie"}
+        return {"library_category":library_category,"kind":library_kind}
+    if library_series:
+        return {"library_series":library_series,"kind":"Episode"}
     raise ValueError("missing_source_selection")
 
 
@@ -243,6 +256,49 @@ def read_scoped_state(selection):
     return old if old and old.get("selector")==selection else None
 
 
+def recent_media_outcomes(now=None):
+    """Read prior per-scope outcomes *by Jellyfin ID*, across all GUI scopes.
+
+    Switching Horror folder/genre/checked rows must not re-search the same
+    film. This reuses durable owner-only receipts and does not add another
+    database or erase any previous queue. Retries remain possible after the
+    established cooldown or when the search strategy changes.
+    """
+    now=int(time.time()) if now is None else int(now)
+    if not STATE.parent.exists():
+        return {}
+    if STATE.parent.is_symlink() or not STATE.parent.is_dir():
+        raise RuntimeError("private_batch_state_directory_unsafe")
+    files=[STATE,*STATE.parent.glob("jellyfin-source-scope-*.json")]
+    if len(files)>5000:
+        raise RuntimeError("too_many_saved_source_scopes_for_safe_retry_check")
+    recent={}
+    for file in files:
+        if not file.exists():
+            continue
+        doc=read_state(file)
+        if not doc or doc.get("search_strategy")!=SEARCH_STRATEGY:
+            continue
+        for item in doc.get("items") or []:
+            if not isinstance(item,dict):
+                continue
+            jid=item.get("id")
+            status=item.get("status")
+            try:
+                tried=int(item.get("attempted_at") or 0)
+            except (ValueError,TypeError):
+                continue
+            if (not isinstance(jid,str) or not JID.fullmatch(jid) or
+                    status not in ("no_match","held","deferred") or
+                    tried<=0 or tried>now or now-tried>=COOLDOWN_SEC):
+                continue
+            if tried>int(recent.get(jid,{}).get("attempted_at") or 0):
+                recent[jid]={
+                    "status":status,"attempted_at":tried,
+                    "reason":str(item.get("reason") or "")[:120]}
+    return recent
+
+
 def write_state(doc,path=None):
     """Atomic 0600 receipt. Browser refreshes never mutate it."""
     path=path or STATE
@@ -260,7 +316,7 @@ def write_state(doc,path=None):
         Path(tmp).unlink(missing_ok=True)
 
 
-def fresh_state(rows,chosen,prior=None,now=None):
+def fresh_state(rows,chosen,prior=None,now=None,recent=None):
     now=now or int(time.time())
     old={}
     if prior and prior.get("selector")==chosen:
@@ -272,17 +328,29 @@ def fresh_state(rows,chosen,prior=None,now=None):
         prev=old.get(jid,{})
         state=prev.get("status","queued")
         tried=int(prev.get("attempted_at") or 0)
+        reason=str(prev.get("reason") or "")[:120]
+        # A recent attempt in another folder, genre or explicit ID selection
+        # carries over solely as a search cooldown, never as JP coverage.
+        other=(recent or {}).get(jid) or {}
+        external_time=int(other.get("attempted_at") or 0)
+        if (external_time>tried and external_time<=now and
+                now-external_time<COOLDOWN_SEC and
+                other.get("status") in ("no_match","held","deferred")):
+            state=other["status"]
+            tried=external_time
+            reason=str(other.get("reason") or "")[:120]
         # One-time recovery sweep when the underlying search strategy changes:
         # old SubBuzz HTTP 500 and single-provider misses never proved absence.
-        if prior and prior.get("search_strategy") != SEARCH_STRATEGY and state in (
-                "held","no_match","deferred"):
+        if (prior and prior.get("search_strategy") != SEARCH_STRATEGY and
+                external_time<=int(prev.get("attempted_at") or 0) and
+                state in ("held","no_match","deferred")):
             state="queued"
         elif state in ("no_match","deferred") and now-tried >= COOLDOWN_SEC:
             state="queued"
         if state in ("running","interrupted","paused"):
             state="queued"
         items.append({"id":jid,"label":item_label(row),
-                      "status":state,"reason":str(prev.get("reason") or "")[:120],
+                      "status":state,"reason":reason,
                       "attempted_at":tried})
     previous=[]
     if prior and prior.get("selector")!=chosen:
@@ -507,13 +575,20 @@ def recover_via_sublarr(row, *, remaining_searches, checkpoint):
         return "held",0 if is_cached else 1
     def try_both():
         downloaded=0
+        limited=[]
         for source,command,receipt in (
                 ("OpenSubtitles",os_stage,"STAGED:"),
                 ("SubDL",subdl_stage,"STAGED_SUBDL:")):
             state,n=try_provider(command,source,receipt)
             downloaded+=n
-            if state in ("published","deferred"):
-                return state,downloaded,source.lower()
+            if state=="published":
+                return "published",downloaded,source.lower()
+            if state=="deferred":
+                # Provider quotas are independent: OpenSubtitles 429 must not
+                # prevent a saved SubDL candidate from being staged/published.
+                limited.append(source.lower())
+        if limited:
+            return "deferred",downloaded,"+".join(limited)
         return "unavailable",downloaded,""
 
     # A previously downloaded, verified Japanese stage must get a publishing
@@ -704,6 +779,7 @@ def main(argv=None):
     exclusive.add_argument("--library-folder")
     exclusive.add_argument("--library-genre")
     exclusive.add_argument("--library-category")
+    exclusive.add_argument("--library-series")
     parser.add_argument("--library-kind",choices=("Movie","Episode"))
     parser.add_argument("--season",action="append",type=int,default=[])
     parser.add_argument("--pick",action="append",default=[])
@@ -715,10 +791,10 @@ def main(argv=None):
     if not 1<=args.max_searches<=MAX_SEARCHES:
         parser.error("max 200 provider searches per pass")
     if (args.movie_id or args.item_id or args.library_folder or args.library_genre
-            or args.library_category) and (
+            or args.library_category or args.library_series) and (
             args.season or args.pick):
         parser.error("season/pick requires --series")
-    if bool(args.library_folder or args.library_genre or args.library_category) != bool(args.library_kind):
+    if bool(args.library_folder or args.library_genre or args.library_category or args.library_series) != bool(args.library_kind):
         parser.error("--library-kind required only for --library-folder/--library-genre")
     if args.job_id and not re.fullmatch(r"[a-f0-9]{16}",args.job_id):
         parser.error("invalid dashboard job ID")
@@ -735,7 +811,8 @@ def main(argv=None):
              "library_folder":args.library_folder,
              "library_genre":args.library_genre,
              "library_kind":args.library_kind,
-             "library_category":args.library_category}
+             "library_category":args.library_category,
+             "library_series":args.library_series}
     chosen=choose(rows,**options)
     plan=selector(**options)
     if not chosen:
@@ -746,8 +823,10 @@ def main(argv=None):
         # The dashboard should show 0/47, not 0/78, on a resumed pass:
         # completed/held items remain saved but are not re-attempted.
         prior=read_scoped_state(plan)
-        pending=fresh_state(chosen,plan,prior)["pass_total"]
+        recent=recent_media_outcomes()
+        pending=fresh_state(chosen,plan,prior,recent=recent)["pass_total"]
         print(json.dumps({"eligible":pending,"selected":len(chosen),
+                          "recently_checked":len(chosen)-pending,
                           "selector":plan,
                           "max_searches_this_run":args.max_searches,
                           "mode":"PREVIEW_NO_PROVIDER_CALLS"},ensure_ascii=False))
@@ -758,7 +837,7 @@ def main(argv=None):
     try:
         stage.private_root()
         prior=read_scoped_state(plan)
-        doc=fresh_state(chosen,plan,prior)
+        doc=fresh_state(chosen,plan,prior,recent=recent_media_outcomes())
         doc["job_id"]=args.job_id
         doc["search_cap"]=args.max_searches
         print("JELLYFIN_BATCH_BEGIN",json.dumps({

@@ -206,7 +206,7 @@ details>summary{cursor:pointer}
  </form>
  <p id="browse-counts" class="small muted"></p>
  <div class="browse-toolbar">
-  <button id="browse-select-page" type="button" class="quiet">Select visible missing</button>
+  <button id="browse-select-page" type="button" class="quiet">Select all missing</button>
   <button id="browse-clear" type="button" class="quiet">Clear selection</button>
   <strong id="browse-selected-count" class="small">0 selected</strong>
  </div>
@@ -366,20 +366,22 @@ async function ownerPost(path,payload){
   return data;
 }
 
-const browseModel={kind:"Movie",folder:"",category:"",genre:"",query:"",state:"all",
+const browseModel={kind:"Movie",folder:"",category:"",series:"",genre:"",query:"",state:"all",
                    page:0,items:[],data:null,history:[]};
 const browseSelected=new Set();
 function browseSetCount(){
   const n=browseSelected.size;
   const counts=browseModel.data?.scope_counts||{};
-  const folderOrGenre=!!browseModel.folder||!!browseModel.category||!!browseModel.genre;
+  const folderOrGenre=!!browseModel.folder||!!browseModel.category||
+    !!browseModel.genre||!!browseModel.series;
   const scoped=n===0&&folderOrGenre&&!browseModel.query.trim();
   const missing=Number(counts.needs_japanese||0);
   $("browse-selected-count").textContent=n+" selected";
   $("browse-source").textContent=n?"Find Japanese for "+n+" selected":
+    browseModel.series?"Find Japanese in "+browseModel.series:
     browseModel.genre?"Find Japanese in "+browseModel.genre:
     browseModel.category?"Find Japanese in "+browseModel.category:
-    browseModel.folder?"Find Japanese in this folder":"Select a folder or movies";
+    browseModel.folder?"Find Japanese in this folder":"Choose a category or titles";
   $("browse-source").disabled=busy||!!latest.workersBusy||
     !latest.jellyfin_source?.available||n>300||
     !(n>0||(scoped&&missing>0&&missing<=500));
@@ -405,9 +407,11 @@ function browseEntry(name,description,callback){
 }
 function browseNavigate(folder){
   browseModel.history.push({folder:browseModel.folder,category:browseModel.category,
+                           series:browseModel.series,
                            genre:browseModel.genre,query:browseModel.query,page:browseModel.page});
   browseModel.folder=folder.path||"";
   browseModel.category=folder.category||"";
+  browseModel.series=folder.series||"";
   browseModel.genre="";
   $("browse-genre").value="";
   browseModel.query="";$("browse-query").value="";
@@ -419,7 +423,9 @@ function renderBrowse(data){
   $("browse-movies").setAttribute("aria-pressed",String(browseModel.kind==="Movie"));
   $("browse-episodes").setAttribute("aria-pressed",String(browseModel.kind==="Episode"));
   $("browse-back").disabled=!browseModel.history.length;
-  $("browse-path").textContent=browseModel.category||browseModel.folder||
+  $("browse-path").textContent=(browseModel.series?
+    browseModel.category+" / "+browseModel.series:"")||
+    browseModel.category||browseModel.folder||
     (browseModel.genre?browseModel.genre+" · "+
       (browseModel.kind==="Movie"?"Movies":"Television"):
       browseModel.kind==="Movie"?"All movie libraries":"All TV libraries");
@@ -490,7 +496,7 @@ function renderBrowse(data){
 async function loadBrowse(){
   const query=new URLSearchParams({
     kind:browseModel.kind,folder:browseModel.folder,category:browseModel.category,
-    genre:browseModel.genre,
+    series:browseModel.series,genre:browseModel.genre,
     query:browseModel.query,page:String(browseModel.page),state:browseModel.state
   });
   $("browse-feedback").textContent="Loading saved Jellyfin inventory…";
@@ -514,10 +520,12 @@ async function browseSource(){
     payload={item_ids:[...browseSelected]};
   }else if(browseModel.query.trim()){
     $("browse-feedback").textContent="Select matching movie titles first.";return;
+  }else if(browseModel.series){
+    payload={library_series:browseModel.series,kind:"Episode"};
   }else if(browseModel.genre){
     payload={library_genre:browseModel.genre,kind:browseModel.kind};
   }else if(browseModel.category){
-    payload={library_category:browseModel.category,kind:"Movie"};
+    payload={library_category:browseModel.category,kind:browseModel.kind};
   }else if(browseModel.folder){
     payload={library_folder:browseModel.folder,kind:browseModel.kind};
   }else{
@@ -1050,7 +1058,7 @@ function renderJellyfinJob(d){
   $("jellyfin-job-continue").disabled=busy||!!d.workersBusy;
   if(resumable){
     const scope=p.selector||{};
-    const name=scope.library_category||scope.library_genre||
+    const name=scope.library_series||scope.library_category||scope.library_genre||
       scope.library_folder?.split("/").pop()||scope.series||
       (scope.item_ids?"Selected media":"Selected movies");
     $("jellyfin-saved-queue-label").textContent=
@@ -1065,7 +1073,7 @@ function renderJellyfinJob(d){
   const percent=total?Math.round(100*finished/total):0;
   const scope=p.selector||{};
   $("jellyfin-job-title").textContent=(scope.series||
-    scope.library_category||scope.library_genre||
+    scope.library_series||scope.library_category||scope.library_genre||
     scope.library_folder?.split("/").pop()||
     (scope.item_ids?"Selected media":"Selected movies"))+
     " · Japanese sourcing";
@@ -1687,13 +1695,14 @@ $("jellyfin-job-stop").addEventListener("click",()=>stopJob("/api/jellyfin-sourc
 $("jellyfin-job-continue").addEventListener("click",async()=>{
   const p=(latest.jellyfin_source||{}),scope=p.selector||{};
   if(!scope.series&&!scope.item_ids&&!scope.movie_ids&&!scope.library_folder&&
-      !scope.library_genre&&!scope.library_category){
+      !scope.library_genre&&!scope.library_category&&!scope.library_series){
     toast("No resumable source job selected.");return;}
   const payload=scope.series?{series:scope.series}:
     scope.item_ids?{item_ids:scope.item_ids}:
     scope.movie_ids?{movie_ids:scope.movie_ids}:
     scope.library_folder?{library_folder:scope.library_folder,kind:scope.kind}:
-    scope.library_category?{library_category:scope.library_category,kind:"Movie"}:
+    scope.library_category?{library_category:scope.library_category,kind:scope.kind}:
+    scope.library_series?{library_series:scope.library_series,kind:"Episode"}:
     {library_genre:scope.library_genre,kind:scope.kind};
   if(scope.series&&Array.isArray(scope.picks)&&scope.picks.length)
     payload.picks=scope.picks.map(p=>({season:p[0],episode:p[1]}));
@@ -1714,12 +1723,14 @@ $("stop-sourcing").addEventListener("click",()=>stopJob("/api/source-season/stop
 $("stop-translation").addEventListener("click",()=>stopJob("/api/translation/stop"));
 
 $("browse-movies").addEventListener("click",()=>{
-  browseModel.kind="Movie";browseModel.folder="";browseModel.category="";browseModel.genre="";
+  browseModel.kind="Movie";browseModel.folder="";browseModel.category="";
+  browseModel.series="";browseModel.genre="";
   browseModel.query="";browseModel.page=0;browseModel.history=[];
   $("browse-query").value="";browseSelected.clear();loadBrowse();
 });
 $("browse-episodes").addEventListener("click",()=>{
-  browseModel.kind="Episode";browseModel.folder="";browseModel.category="";browseModel.genre="";
+  browseModel.kind="Episode";browseModel.folder="";browseModel.category="";
+  browseModel.series="";browseModel.genre="";
   browseModel.query="";browseModel.page=0;browseModel.history=[];
   $("browse-query").value="";browseSelected.clear();loadBrowse();
 });
@@ -1734,6 +1745,7 @@ $("browse-search").addEventListener("submit",event=>{
 });
 $("browse-genre").addEventListener("change",()=>{
   browseModel.genre=$("browse-genre").value;browseModel.folder="";browseModel.category="";
+  browseModel.series="";
   browseModel.query="";$("browse-query").value="";
   browseModel.page=0;browseModel.history=[];loadBrowse();
 });
@@ -1741,10 +1753,41 @@ $("browse-state").addEventListener("change",()=>{
   browseModel.state=$("browse-state").value;
   browseModel.page=0;loadBrowse();
 });
-$("browse-select-page").addEventListener("click",()=>{
-  for(const item of browseModel.items)
-    if(item.state==="needs_japanese")browseSelected.add(item.jellyfin_id);
-  renderBrowse(browseModel.data);
+$("browse-select-page").addEventListener("click",async()=>{
+  // "All" means all matching missing titles across every results page,
+  // not only the 41/80 checkboxes rendered in the current page.
+  if(busy)return;
+  if(!browseModel.category&&!browseModel.series&&!browseModel.folder&&
+      !browseModel.genre&&!browseModel.query.trim()){
+    $("browse-feedback").textContent="Open a category or search first.";
+    return;
+  }
+  busy=true;browseSetCount();
+  const ids=new Set();
+  try{
+    for(let page=0;page<=1000;page++){
+      const params=new URLSearchParams({
+        kind:browseModel.kind,folder:browseModel.folder,
+        category:browseModel.category,series:browseModel.series,
+        genre:browseModel.genre,query:browseModel.query,
+        page:String(page),state:"needs_japanese"
+      });
+      const data=await getJson("/api/library/browse?"+params.toString());
+      for(const item of data.items||[])
+        if(item.state==="needs_japanese")ids.add(item.jellyfin_id);
+      if(ids.size>300)throw Error(
+        "More than 300 missing titles here. Leave all unchecked and use Find Japanese "+
+        "to queue the entire category instead.");
+      if(!data.more)break;
+      if(page===1000)throw Error("Too many result pages to select.");
+    }
+    browseSelected.clear();
+    for(const id of ids)browseSelected.add(id);
+    if(browseModel.data)renderBrowse(browseModel.data);
+    $("browse-feedback").textContent=ids.size+" missing titles selected across all pages.";
+  }catch(err){
+    $("browse-feedback").textContent="Could not select all: "+err.message;
+  }finally{busy=false;browseSetCount();}
 });
 $("browse-clear").addEventListener("click",()=>{
   browseSelected.clear();if(browseModel.data)renderBrowse(browseModel.data);

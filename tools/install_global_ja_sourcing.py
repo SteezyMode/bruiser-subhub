@@ -52,6 +52,7 @@ SOURCE_FILES=(
     "ja_first_stage_subdl_batch.py",
     "subhub_download_ledger.py",
     "subhub_jellyfin_batch.py",
+    "subhub_media_categories.py",
     "subhub_deep_source.py",
     "subhub_source_failure_audit.py",
     "subhub_plamo_source_repass.py",
@@ -69,6 +70,7 @@ NEW_SOURCE_FILES=frozenset({
     "ja_first_stage_subdl_batch.py",
     "subhub_download_ledger.py",
     "subhub_jellyfin_batch.py",
+    "subhub_media_categories.py",
     "subhub_deep_source.py",
     "subhub_source_failure_audit.py",
     "subhub_plamo_source_repass.py",
@@ -81,6 +83,7 @@ DASH_FILES=(
     "subhub_finish_scope.py",
     "subhub_finish_titles.py",
     "subhub_library_browser.py",
+    "subhub_media_categories.py",
     "ja_first_source_tracker.py",
     "subhub_library_coverage.py",
     "subhub_season_sources.py",
@@ -222,7 +225,8 @@ def main():
         target=DASH/name
         secure_file(target,allow_new=name in {
             "subhub_library_coverage.py","subhub_translation_batch.py",
-            "subhub_finish_scope.py","subhub_finish_titles.py","subhub_library_browser.py"})
+            "subhub_finish_scope.py","subhub_finish_titles.py","subhub_library_browser.py",
+            "subhub_media_categories.py"})
         destinations[("dashboard",name)]=target
     for name in AI_FILES:
         target=AI/name
