@@ -48,7 +48,7 @@ def identity_ok(row,candidate):
         # the exact movie title AND release year near it in saved provider text.
         year=str(row.get("year") or "")
         title=stage.tokens(row.get("title"))
-        if not title or not re.fullmatch(r"\\d{4}",year):
+        if not title or not re.fullmatch(r"\d{4}",year):
             return False
         for value in (candidate.get("filename"),candidate.get("release_info")):
             words=stage.tokens(value)
