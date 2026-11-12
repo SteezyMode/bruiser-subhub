@@ -63,6 +63,20 @@ class StructuralNormalizationTests(unittest.TestCase):
                                     "staged_srt_multiple_timestamps_per_block"):
             norm.normalize(raw,expected_timestamps=2)
 
+    def test_out_of_order_detected_with_exact_cue_numbers_and_no_mutation(self):
+        source=(cue(1,"00:00:10,000","00:00:11,000","はじめ")+
+                cue(2,"00:00:30,000","00:00:31,000","次の場面")+
+                cue(3,"00:00:20,000","00:00:21,000","その前")+
+                cue(4,"00:00:40,000","00:00:41,000","最後"))
+        result=norm.inspect_timestamp_reversals(source)
+        self.assertEqual(result["timestamp_reversals"],1)
+        self.assertEqual(result["examples"][0]["prior_block"],2)
+        self.assertEqual(result["examples"][0]["later_block"],3)
+        self.assertEqual(result["examples"][0]["backward_jump_seconds"],10)
+        self.assertIn("その前",result["examples"][0]["later_text"])
+        with self.assertRaisesRegex(RuntimeError,"staged_srt_cue_order_invalid"):
+            norm.normalize(source,expected_timestamps=4)
+
     def test_invalid_clock_and_truncated_bytes_fail_closed(self):
         with self.assertRaisesRegex(RuntimeError,"invalid_staged_srt_clock"):
             norm.normalize(cue(1,"00:99:01,000","00:99:03,000","はい"))
