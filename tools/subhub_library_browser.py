@@ -74,10 +74,12 @@ def snapshot():
             continue
         parent=str(PurePosixPath(path).parent)
         status=str(r.get("status") or "")
-        has_ja=(status in ("existing_japanese_subtitle","japanese_audio")
+        # A newly published JA sidecar takes precedence over stale inventory.
+        has_ja=(status=="existing_japanese_subtitle"
                 or coverage._sidecar(path,listing))
         state=("covered" if has_ja else
-               "needs_japanese" if status in coverage.KNOWN_MISSING
+               "audio_only" if status=="japanese_audio" else
+               "needs_japanese" if status=="ready_ja_search"
                else "unverified")
         files[jid]={
             "jellyfin_id":jid,"kind":r["kind"],
@@ -87,6 +89,8 @@ def snapshot():
             "season":r.get("season") if type(r.get("season")) is int else None,
             "episode":r.get("episode") if type(r.get("episode")) is int else None,
             "folder":parent,"root":root_for(path,r["kind"]),
+            "genres":[g for g in (r.get("genres") or [])
+                      if isinstance(g,str) and 1<=len(g)<=60][:20],
             "state":state,"source_status":status}
     rows=list(files.values())
     _CACHE.update(signature=signature,until=now+90,
@@ -94,8 +98,10 @@ def snapshot():
     return rows,_CACHE["generated"]
 
 
-def browse(*, kind="Movie", folder="", query="", page=0, state="all"):
-    if kind not in KINDS or state not in ("all","needs_japanese","covered","unverified"):
+def browse(*, kind="Movie", folder="", query="", page=0, state="all",
+           genre=""):
+    if kind not in KINDS or state not in (
+            "all","needs_japanese","covered","audio_only","unverified"):
         raise ValueError("invalid_browse_filters")
     if not isinstance(query,str) or len(query)>100 or any(ord(c)<32 for c in query):
         raise ValueError("invalid_browse_query")
@@ -103,6 +109,14 @@ def browse(*, kind="Movie", folder="", query="", page=0, state="all"):
         raise ValueError("invalid_browse_page")
     rows,generated=snapshot()
     items=[r for r in rows if r["kind"]==kind]
+    available_genres=sorted({g for r in items for g in r["genres"]},
+                            key=str.casefold)
+    if genre:
+        matched=next((g for g in available_genres
+                      if g.casefold()==genre.casefold()),None)
+        if matched is None:
+            raise ValueError("genre_not_in_saved_jellyfin_inventory")
+        items=[r for r in items if matched in r["genres"]]
     roots={r["root"] for r in items}
     if folder:
         if (folder not in roots and not any(
@@ -126,7 +140,8 @@ def browse(*, kind="Movie", folder="", query="", page=0, state="all"):
             if child_path not in child:
                 child[child_path]={"path":child_path,
                     "label":PurePosixPath(child_path).name,
-                    "total":0,"covered":0,"needs_japanese":0,"unverified":0}
+                    "total":0,"covered":0,"needs_japanese":0,
+                    "audio_only":0,"unverified":0}
             child[child_path]["total"]+=1
             child[child_path][r["state"]]+=1
         direct=[r for r in selection if folder and r["folder"]==folder]
@@ -141,9 +156,11 @@ def browse(*, kind="Movie", folder="", query="", page=0, state="all"):
     total=len(direct)
     return {
         "kind":kind,"folder":folder,"query":query,"state":state,
+        "genre":genre,"genres":available_genres,
         "source":"saved_jellyfin_inventory_and_exact_media_paths",
         "generated_utc":generated,"scope_total":len(items),
-        "scope_counts":dict(grouped),
+        "scope_counts":{label:int(grouped[label]) for label in
+                        ("covered","needs_japanese","audio_only","unverified")},
         "folders":sorted(child.values(),key=lambda r:r["label"].casefold()),
         "items":direct[page*PAGE_SIZE:(page+1)*PAGE_SIZE],
         "page":page,"page_size":PAGE_SIZE,"matching_items":total,
