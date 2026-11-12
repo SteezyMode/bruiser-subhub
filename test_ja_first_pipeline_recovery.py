@@ -76,23 +76,76 @@ class PipelineRecoveryTests(unittest.TestCase):
             self.assertEqual(stage.choices({self.ID:row},history,set(),1,"movie")[0]
                              ["candidate"]["subtitle_id"],"2000")
 
-    def test_deterministic_full_failure_records_attempts_not_publication(self):
+    def _run_failed_alignment(self, candidates, alass_error, ff_error):
+        """Simulate mutable failure receipts without accessing actual media."""
         row=self.row("/mnt/2TB/Plex Expansion/Movies/Horror/Example Film 2024.mkv")
+        saved={}
+        def known(jid,sid,engine,key):
+            return saved.get((str(sid),engine))
+        def remember(jid,sid,engine,key,exc):
+            if progress.stable_failure(exc):
+                saved[(str(sid),engine)]=str(exc)
+                return True
+            return False
+        aligned=[]
+        def do_alass(jid,sid):
+            aligned.append(sid)
+            if isinstance(alass_error,BaseException):
+                raise alass_error
+            return alass_error(jid,sid)
         with patch.object(pub,"existing_verdict",return_value=("absent",row)), \
              patch.object(pub.progress,"fingerprint",return_value="f"*64), \
-             patch.object(pub.progress,"known",return_value=None), \
-             patch.object(pub.progress,"remember",return_value=True) as receipts, \
+             patch.object(pub.progress,"known",side_effect=known), \
+             patch.object(pub.progress,"remember",side_effect=remember), \
              patch.object(pub.alass,"available",return_value=True), \
-             patch.object(pub.alass,"prepare",side_effect=RuntimeError("alass_reordered_cues")), \
-             patch.object(pub.ff,"prepare",side_effect=RuntimeError("sync_cue_count_changed")), \
+             patch.object(pub.alass,"prepare",side_effect=do_alass), \
+             patch.object(pub.ff,"prepare",side_effect=ff_error), \
              patch.object(pub,"direct_candidate",return_value=None), \
              patch.object(pub.shifted,"preparation",
                           side_effect=RuntimeError("no_candidate_passed_trusted_sync_correction")):
-            with self.assertRaisesRegex(RuntimeError,
-                                         "no_candidate_passed_trusted_sync_correction"):
-                pub.choose(self.ID,[("1000","a"*64)],record_failures=True)
-        self.assertEqual([x.args[2] for x in receipts.call_args_list],
-                         ["alass","ffsubsync","final"])
+            with self.assertRaisesRegex(
+                    RuntimeError,"no_candidate_passed_trusted_sync_correction"):
+                pub.choose(self.ID,candidates,record_failures=True)
+        return saved,aligned
+
+    def test_deterministic_full_failure_records_attempts_not_publication(self):
+        saved,_=self._run_failed_alignment(
+            [("1000","a"*64)],RuntimeError("alass_reordered_cues"),
+            RuntimeError("sync_cue_count_changed"))
+        self.assertEqual(set(saved),
+                         {("1000","alass"),("1000","ffsubsync"),("final","final")})
+
+    def test_fourth_staged_candidate_must_not_be_marked_exhausted(self):
+        candidates=[(str(1000+i),f"{i:064x}") for i in range(4)]
+        saved,attempted=self._run_failed_alignment(
+            candidates,RuntimeError("alass_reordered_cues"),
+            RuntimeError("sync_cue_count_changed"))
+        self.assertNotIn(("final","final"),saved)
+        self.assertEqual(attempted,["1000","1001","1002"])
+        self.assertNotIn(("1003","alass"),saved)
+
+    def test_transient_alignment_failure_must_not_mark_title_exhausted(self):
+        saved,_=self._run_failed_alignment(
+            [("1000","a"*64)],RuntimeError("alass_failed_no_valid_output"),
+            RuntimeError("sync_cue_count_changed"))
+        self.assertNotIn(("final","final"),saved)
+        self.assertNotIn(("1000","alass"),saved)
+        self.assertIn(("1000","ffsubsync"),saved)
+
+    def test_next_action_requires_proven_final_failure_before_plamo(self):
+        with patch.object(pub.direct,"read_inventory",return_value={
+                 "host_path":"/tmp/movie.mkv","kind":"Movie"}), \
+             patch.object(pub.progress,"fingerprint",return_value="f"*64), \
+             patch.object(pub.progress,"known",return_value=None), \
+             patch.object(pub.progress,"next_action",
+                          return_value="offer_owner_reviewed_plamo_after_english_validation"), \
+             patch.object(pub.staging,"identity_ok",return_value=True), \
+             patch("builtins.print") as output:
+            pub.report_next_action(self.ID,[("1000","a"*64)])
+        combined=" ".join(str(x) for x in output.call_args_list)
+        self.assertIn("complete_or_retry_staged_validation",combined)
+        self.assertNotIn("owner_approval_required': True",combined)
+
 
     def test_source_journal_reports_next_action_without_model_running(self):
         events=[
