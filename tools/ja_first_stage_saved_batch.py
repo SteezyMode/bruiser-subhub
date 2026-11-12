@@ -396,7 +396,7 @@ def movie_identity_ok(row,result):
                     continue
                 if nearby:
                     matched_year=True
-                elif alias==title and i==0 and not any(
+                elif alias==title and len(title)>=2 and i==0 and not any(
                     RELEASE_YEAR.fullmatch(w) for w in words
                 ) and (len(words)==len(title) or
                        right in MOVIE_RELEASE_TOKENS):
