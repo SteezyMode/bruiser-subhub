@@ -47,6 +47,19 @@ def within(path,folder):
         return False
 
 
+def movie_category(row):
+    """First real folder under each Jellyfin movie root, on either drive.
+
+    A virtual collection; original media paths and their sidecars never move.
+    """
+    try:
+        parts=PurePosixPath(row["folder"]).relative_to(
+            PurePosixPath(row["root"])).parts
+    except (KeyError,TypeError,ValueError):
+        return "Unsorted"
+    return parts[0] if parts else "Unsorted"
+
+
 def snapshot():
     path=coverage.latest_manifest()
     if not path:
@@ -99,7 +112,7 @@ def snapshot():
 
 
 def browse(*, kind="Movie", folder="", query="", page=0, state="all",
-           genre=""):
+           genre="", category=""):
     if kind not in KINDS or state not in (
             "all","needs_japanese","covered","audio_only","unverified"):
         raise ValueError("invalid_browse_filters")
@@ -107,6 +120,9 @@ def browse(*, kind="Movie", folder="", query="", page=0, state="all",
         raise ValueError("invalid_browse_query")
     if type(page) is not int or page<0 or page>1000:
         raise ValueError("invalid_browse_page")
+    if (category and (kind!="Movie" or folder or not isinstance(category,str)
+                      or len(category)>120 or any(ord(c)<32 for c in category))):
+        raise ValueError("invalid_combined_movie_folder")
     rows,generated=snapshot()
     items=[r for r in rows if r["kind"]==kind]
     available_genres=sorted({g for r in items for g in r["genres"]},
@@ -118,6 +134,14 @@ def browse(*, kind="Movie", folder="", query="", page=0, state="all",
             raise ValueError("genre_not_in_saved_jellyfin_inventory")
         items=[r for r in items if matched in r["genres"]]
     roots={r["root"] for r in items}
+    if category:
+        available_categories={movie_category(row).casefold():movie_category(row)
+                              for row in items}
+        match=available_categories.get(category.casefold())
+        if match is None:
+            raise ValueError("combined_movie_folder_not_in_jellyfin_inventory")
+        items=[row for row in items if movie_category(row).casefold()==category.casefold()]
+        category=match
     if folder:
         if (folder not in roots and not any(
                 within(r["folder"],folder) and within(folder,r["root"])
@@ -130,7 +154,7 @@ def browse(*, kind="Movie", folder="", query="", page=0, state="all",
     if not query.strip() and not (genre and not folder):
         for r in selection:
             if not folder:
-                child_path=r["root"]
+                child_path=movie_category(r) if kind=="Movie" else r["root"]
             else:
                 # For movie genre/release folders, show the movies themselves
                 # instead of repeating every title as a folder AND a row.
@@ -142,7 +166,8 @@ def browse(*, kind="Movie", folder="", query="", page=0, state="all",
                 rel=PurePosixPath(r["folder"]).relative_to(PurePosixPath(folder))
                 child_path=str(PurePosixPath(folder)/rel.parts[0])
             if child_path not in child:
-                child[child_path]={"path":child_path,
+                child[child_path]={"path":child_path if kind!="Movie" or folder else "",
+                    "category":child_path if kind=="Movie" and not folder else "",
                     "label":PurePosixPath(child_path).name,
                     "total":0,"covered":0,"needs_japanese":0,
                     "audio_only":0,"unverified":0}
@@ -153,9 +178,9 @@ def browse(*, kind="Movie", folder="", query="", page=0, state="all",
         # folder, not just direct-child files. Keep folder navigation as an
         # optional narrowing control. Without this, a folder can say "5
         # missing" while displaying only one selectable movie.
-        direct=[r for r in selection if folder and (
+        direct=[r for r in selection if category or (folder and (
             within(r["folder"],folder) if kind=="Movie"
-            else r["folder"]==folder)]
+            else r["folder"]==folder))]
     else:
         term=query.strip().casefold()
         direct=[r for r in selection if term in (
@@ -166,7 +191,7 @@ def browse(*, kind="Movie", folder="", query="", page=0, state="all",
         r["episode"] or 0,r["title"].casefold(),r["jellyfin_id"]))
     total=len(direct)
     return {
-        "kind":kind,"folder":folder,"query":query,"state":state,
+        "kind":kind,"folder":folder,"category":category,"query":query,"state":state,
         "genre":genre,"genres":available_genres,
         "source":"saved_jellyfin_inventory_and_exact_media_paths",
         "generated_utc":generated,"scope_total":len(items),
