@@ -58,6 +58,10 @@ try:
     from . import subhub_library_browser as media_browser
 except ImportError:
     import subhub_library_browser as media_browser
+try:
+    from . import subhub_finish_titles as finish_titles
+except ImportError:
+    import subhub_finish_titles as finish_titles
 
 TRANSLATION_UNIT = "bruiser-subhub-translation-batch.service"
 FINISH_UNIT = "bruiser-subhub-finish-scope.service"
@@ -1927,6 +1931,23 @@ class Handler(BaseHTTPRequestHandler):
             except (OSError, ValueError, RuntimeError, TypeError, KeyError,
                     sqlite3.Error, json.JSONDecodeError):
                 self.write(503, b'{"error":"status_unavailable"}')
+        elif target == "/api/finish/items":
+            try:
+                params=parse_qs(urlsplit(self.path).query,keep_blank_values=True)
+                if (len(urlsplit(self.path).query)>100 or
+                        set(params)-{"state","page"} or
+                        any(len(v)!=1 for v in params.values())):
+                    raise ValueError("invalid_finish_items_query")
+                receipt=_private_jellyfin_json(finish_scope.STATE)
+                data=finish_titles.report(
+                    receipt,
+                    state=params.get("state",["all"])[0],
+                    page=int(params.get("page",["0"])[0]))
+                self.write(200,json.dumps(data,ensure_ascii=False).encode("utf-8"))
+            except (ValueError,OSError,RuntimeError,TypeError,sqlite3.Error,
+                    subprocess.TimeoutExpired,json.JSONDecodeError) as exc:
+                self.write(503,json.dumps(
+                    {"error":safe_text(str(exc),130)}).encode("utf-8"))
         elif target == "/api/library/browse":
             try:
                 params=parse_qs(urlsplit(self.path).query,keep_blank_values=True)
