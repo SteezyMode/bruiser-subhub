@@ -49,6 +49,14 @@ class MovieScopeTests(unittest.TestCase):
         self.assertFalse(scope.matches(anime,non_anime))
         anime_folder=media(self.four,"Animation, Anime/Films",jid="1"*32)
         self.assertFalse(scope.matches(anime_folder,non_anime))
+        anime_release=media(
+            self.four,
+            "Animated/[AnimeRG] Studio Ghibli Film Collection",
+            name="Spirited.Away.2001.mkv",jid="6"*32)
+        self.assertFalse(scope.matches(anime_release,non_anime))
+        self.assertTrue(scope.matches(
+            media(self.two,"Animated/Western Animated Films",jid="7"*32),
+            non_anime))
         nested=media(self.two,"Comedy/Anime",jid="2"*32)
         self.assertFalse(scope.matches(nested,non_anime))
         tagged=media(self.two,"Comedy",jid="3"*32)
