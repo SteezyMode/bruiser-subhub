@@ -15,8 +15,10 @@ import time
 
 try:
     from . import subhub_library_coverage as coverage
+    from . import subhub_media_categories as media_categories
 except ImportError:
     import subhub_library_coverage as coverage
+    import subhub_media_categories as media_categories
 
 KINDS=("Movie","Episode")
 MAX_ITEMS=50_000
@@ -111,8 +113,13 @@ def snapshot():
     return rows,_CACHE["generated"]
 
 
+def row_categories(row):
+    return media_categories.categories(
+        row["kind"],row["folder"]+"/movie-or-episode.mkv",row["genres"])
+
+
 def browse(*, kind="Movie", folder="", query="", page=0, state="all",
-           genre="", category=""):
+           genre="", category="", series=""):
     if kind not in KINDS or state not in (
             "all","needs_japanese","covered","audio_only","unverified"):
         raise ValueError("invalid_browse_filters")
@@ -120,9 +127,13 @@ def browse(*, kind="Movie", folder="", query="", page=0, state="all",
         raise ValueError("invalid_browse_query")
     if type(page) is not int or page<0 or page>1000:
         raise ValueError("invalid_browse_page")
-    if (category and (kind!="Movie" or folder or not isinstance(category,str)
+    if (category and (folder or not isinstance(category,str)
                       or len(category)>120 or any(ord(c)<32 for c in category))):
-        raise ValueError("invalid_combined_movie_folder")
+        raise ValueError("invalid_combined_media_category")
+    if (series and (kind!="Episode" or not category or folder
+                    or not isinstance(series,str) or len(series)>160
+                    or any(ord(c)<32 for c in series))):
+        raise ValueError("invalid_browse_series")
     rows,generated=snapshot()
     items=[r for r in rows if r["kind"]==kind]
     available_genres=sorted({g for r in items for g in r["genres"]},
@@ -135,13 +146,18 @@ def browse(*, kind="Movie", folder="", query="", page=0, state="all",
         items=[r for r in items if matched in r["genres"]]
     roots={r["root"] for r in items}
     if category:
-        available_categories={movie_category(row).casefold():movie_category(row)
-                              for row in items}
+        available_categories={label.casefold():label for row in items
+                              for label in row_categories(row)}
         match=available_categories.get(category.casefold())
         if match is None:
-            raise ValueError("combined_movie_folder_not_in_jellyfin_inventory")
-        items=[row for row in items if movie_category(row).casefold()==category.casefold()]
+            raise ValueError("media_category_not_in_jellyfin_inventory")
+        items=[row for row in items if
+               category.casefold() in {x.casefold() for x in row_categories(row)}]
         category=match
+    if series:
+        if series not in {r["series"] for r in items}:
+            raise ValueError("series_not_in_selected_jellyfin_category")
+        items=[r for r in items if r["series"]==series]
     if folder:
         if (folder not in roots and not any(
                 within(r["folder"],folder) and within(folder,r["root"])
@@ -151,49 +167,59 @@ def browse(*, kind="Movie", folder="", query="", page=0, state="all",
     grouped=Counter(r["state"] for r in items)
     selection=[r for r in items if state=="all" or r["state"]==state]
     child={}
-    if not query.strip() and not (genre and not folder) and not category:
-        for r in selection:
-            if not folder:
-                child_path=movie_category(r) if kind=="Movie" else r["root"]
-            else:
-                # For movie genre/release folders, show the movies themselves
-                # instead of repeating every title as a folder AND a row.
-                if kind=="Movie" and folder not in roots:
-                    continue
-                if r["folder"]==folder:
-                    continue
-                # One direct child directory below the current folder.
-                rel=PurePosixPath(r["folder"]).relative_to(PurePosixPath(folder))
-                child_path=str(PurePosixPath(folder)/rel.parts[0])
-            # Match a folder label case-insensitively across drive mounts.
-            group_key=child_path.casefold() if kind=="Movie" and not folder else child_path
-            if group_key not in child:
-                child[group_key]={"path":child_path if kind!="Movie" or folder else "",
-                    "category":child_path if kind=="Movie" and not folder else "",
-                    "label":PurePosixPath(child_path).name,
-                    "total":0,"covered":0,"needs_japanese":0,
-                    "audio_only":0,"unverified":0}
-            child[group_key]["total"]+=1
-            child[group_key][r["state"]]+=1
-        # A movie folder can contain one subfolder per title/release.
-        # Show all descendant *movie files* as selectable rows in the parent
-        # folder, not just direct-child files. Keep folder navigation as an
-        # optional narrowing control. Without this, a folder can say "5
-        # missing" while displaying only one selectable movie.
-        direct=[r for r in selection if category or (folder and (
-            within(r["folder"],folder) if kind=="Movie"
-            else r["folder"]==folder))]
+    def add_child(label, *, path="", category_name="", series_name=""):
+        key=(series_name or label).casefold() if not path else path
+        if key not in child:
+            child[key]={"path":path,"category":category_name,
+                        "series":series_name,"label":label,
+                        "total":0,"covered":0,"needs_japanese":0,
+                        "audio_only":0,"unverified":0}
+        return child[key]
+    if not query.strip() and not (genre and not folder) and not series:
+        if not folder and not category:
+            # The same Action/Documentary heading is shown ONCE, irrespective
+            # of the number of Jellyfin roots or media mounts behind it.
+            for row in selection:
+                for label in row_categories(row):
+                    group=add_child(label,category_name=label)
+                    group["total"]+=1
+                    group[row["state"]]+=1
+            direct=[]
+        elif category and kind=="Episode":
+            # TV collections show series, not a wall of individual episodes.
+            for row in selection:
+                label=row["series"] or "Unknown series"
+                group=add_child(label,category_name=category,series_name=label)
+                group["total"]+=1
+                group[row["state"]]+=1
+            direct=[]
+        else:
+            if kind=="Episode" and folder:
+                for row in selection:
+                    if row["folder"]==folder:
+                        continue
+                    rel=PurePosixPath(row["folder"]).relative_to(
+                        PurePosixPath(folder))
+                    path=str(PurePosixPath(folder)/rel.parts[0])
+                    group=add_child(PurePosixPath(path).name,path=path)
+                    group["total"]+=1
+                    group[row["state"]]+=1
+            direct=[r for r in selection if (
+                category and kind=="Movie" or
+                folder and (within(r["folder"],folder) if kind=="Movie"
+                            else r["folder"]==folder))]
     else:
         term=query.strip().casefold()
-        direct=[r for r in selection if term in (
+        direct=[r for r in selection if (not term or term in (
             r["title"]+" "+r["series"]+" "+
-            PurePosixPath(r["folder"]).name).casefold()]
+            PurePosixPath(r["folder"]).name).casefold())]
     direct.sort(key=lambda r:(
         (r["series"] or r["title"]).casefold(),r["season"] or 0,
         r["episode"] or 0,r["title"].casefold(),r["jellyfin_id"]))
     total=len(direct)
     return {
-        "kind":kind,"folder":folder,"category":category,"query":query,"state":state,
+        "kind":kind,"folder":folder,"category":category,"series":series,
+        "query":query,"state":state,
         "genre":genre,"genres":available_genres,
         "source":"saved_jellyfin_inventory_and_exact_media_paths",
         "generated_utc":generated,"scope_total":len(items),
