@@ -1785,7 +1785,7 @@ def jellyfin_source_arguments(doc):
     if set(doc) in ({"movie_ids"},{"item_ids"}):
         kind="movie_ids" if "movie_ids" in doc else "item_ids"
         ids=doc[kind]
-        if (not isinstance(ids,list) or not 1<=len(ids)<=20 or
+        if (not isinstance(ids,list) or not 1<=len(ids)<=300 or
                 any(not isinstance(jid,str) or not re.fullmatch(r"[a-f0-9]{32}",jid)
                     for jid in ids) or len(set(ids))!=len(ids)):
             raise ValueError("invalid_selected_source_ids")
