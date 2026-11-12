@@ -175,7 +175,11 @@ class StatusTests(unittest.TestCase):
     def test_browse_gui_queues_a_combined_movie_folder(self):
         html=dashboard.HTML.read_text(encoding="utf-8")
         self.assertIn('category:browseModel.category',html)
-        self.assertIn('payload={library_category:browseModel.category,kind:"Movie"}',html)
+        self.assertIn('payload={library_category:browseModel.category,kind:browseModel.kind}',html)
+        self.assertIn('id="browse-select-page"',html)
+        self.assertIn('state:"needs_japanese"',html)
+        self.assertIn('if(!data.more)break;',html)
+        self.assertIn('browseModel.series=folder.series||""',html)
         self.assertIn('scope.library_category?',html)
         self.assertIn('id="browse-source"',html)
 
