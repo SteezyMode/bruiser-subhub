@@ -57,6 +57,52 @@ class GenericJellyfinBatch(unittest.TestCase):
         with self.assertRaises(ValueError):
             batch.choose(self.rows,movie_ids=["f"*32,"f"*32])
 
+    def test_browse_media_selection_uses_only_Jellyfin_catalog_and_missing_JP(self):
+        rows=[
+            dict(movie("a"*32,"Film A"),host_path="/media/Movies/Drama/Film A.mkv",
+                 genres=["Drama"]),
+            dict(movie("b"*32,"Film B"),host_path="/media/Movies/Drama/B/Film B.mkv",
+                 genres=["Drama"]),
+            dict(movie("c"*32,"Film C",status="existing_japanese_subtitle"),
+                 host_path="/media/Movies/Drama/Film C.mkv",genres=["Drama"]),
+            dict(movie("d"*32,"Film D"),host_path="/media/Movies/Action/Film D.mkv",
+                 genres=["Action"]),
+            dict(tv("e"*32,1,1),host_path="/media/Shows/Example Show/S01E01.mkv",
+                 genres=["Drama"]),
+        ]
+        folder=batch.choose(rows,library_folder="/media/Movies/Drama",
+                            library_kind="Movie")
+        self.assertEqual({r["jellyfin_id"] for r in folder},{"a"*32,"b"*32})
+        genre=batch.choose(rows,library_genre="Drama",library_kind="Movie")
+        self.assertEqual({r["jellyfin_id"] for r in genre},{"a"*32,"b"*32})
+        selected=batch.choose(rows,item_ids=["b"*32,"e"*32,"c"*32])
+        self.assertEqual({r["jellyfin_id"] for r in selected},{"b"*32,"e"*32})
+        self.assertEqual(batch.selector(
+            library_folder="/media/Movies/Drama",library_kind="Movie"),
+            {"library_folder":"/media/Movies/Drama","kind":"Movie"})
+        with self.assertRaisesRegex(ValueError,"folder_not_in"):
+            batch.choose(rows,library_folder="/media/Movies/DramaWrong",
+                         library_kind="Movie")
+        with self.assertRaisesRegex(ValueError,"item_selection_not_in"):
+            batch.choose(rows,item_ids=["f"*32])
+
+    def test_folder_resume_does_not_requeue_completed_or_held_movies(self):
+        rows=[
+            dict(movie("a"*32,"Film A"),host_path="/media/Movies/Drama/A.mkv"),
+            dict(movie("b"*32,"Film B"),host_path="/media/Movies/Drama/B.mkv"),
+        ]
+        selected=batch.choose(rows,library_folder="/media/Movies/Drama",
+                              library_kind="Movie")
+        plan=batch.selector(library_folder="/media/Movies/Drama",library_kind="Movie")
+        first=batch.fresh_state(selected,plan,now=10000)
+        first["items"][0]["status"]="published"
+        first["items"][1]["status"]="held"
+        first["items"][1]["attempted_at"]=10000
+        second=batch.fresh_state(selected,plan,first,now=10005)
+        self.assertEqual(second["pass_total"],0)
+        self.assertEqual(second["items"][0]["status"],"published")
+        self.assertEqual(second["items"][1]["status"],"held")
+
     def test_subdl_stage_can_select_exact_episode_without_publishing(self):
         from tools import ja_first_stage_subdl as subdl
         row=tv("a"*32,8,6,series="Example Show")
