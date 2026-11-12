@@ -139,9 +139,11 @@ details>summary{cursor:pointer}
 
 <section class="panel" id="library-sourcing">
  <h2>Entire library · Japanese sourcing</h2>
- <p class="small muted">Search all eligible movies and TV episodes, recover old misses with title-based queries, stage candidates, repair timing and publish without overwriting. Runs in provider-limited batches. No PLaMo.</p>
+ <p class="small muted">Search all eligible movies and TV episodes, recover old misses with title-based queries, stage candidates, repair timing and publish without overwriting. The Japanese-only search button remains available separately; Finish also handles PLaMO fallback.</p>
  <div class="row">
-  <button id="source-library" class="primary" type="button" disabled>Find Japanese subtitles throughout library</button>
+  <button id="finish-movie-scope" class="primary" type="button" disabled>Finish movies in selected scope</button>
+  <button id="stop-finish-movies" type="button" class="quiet" hidden>Stop movie completion</button>
+  <button id="source-library" type="button" disabled>Japanese sourcing only</button>
   <button id="stop-library" type="button" class="quiet" hidden>Stop current library pass</button>
  </div>
  <p id="library-source-selection" class="small muted">Selected scope: reading owner settings…</p>
@@ -1109,6 +1111,13 @@ async function refreshStatus(){
         " · Held "+(daily.publish_holds||0):
         daily.active?" · Work is active; detailed counts unavailable":" · No recent progress data");
     $("source-library").disabled=busy||!((d.controls||{}).start_auto)||d.workersBusy;
+    $("finish-movie-scope").disabled=busy||d.workersBusy||
+      !["all","movies-no-anime","horror-drama-folders"].includes(setting)||
+      !d.finish_scope?.available;
+    $("finish-movie-scope").textContent=setting==="movies-no-anime"?
+      "Finish non-anime movies":setting==="horror-drama-folders"?
+      "Finish Horror + Drama movies":"Finish movie library";
+    $("stop-finish-movies").hidden=!d.finish_scope?.active;
     $("stop-library").hidden=!((d.controls||{}).stop_auto);
     $("library-source-note").textContent=source&&!scoped?
       ((d.source_job||{}).scope==="horror-drama-folders"?
@@ -1201,6 +1210,19 @@ async function librarySourceAction(stop){
   }catch(err){toast("Library sourcing: "+err.message);}
   finally{busy=false;await refreshStatus();}
 }
+$("finish-movie-scope").addEventListener("click",async()=>{
+  const scope=latest.source_config_scope||"";
+  if(busy||latest.workersBusy||
+     !["all","movies-no-anime","horror-drama-folders"].includes(scope))return;
+  busy=true;
+  try{
+    const result=await ownerPost("/api/finish/start",{movie_scope:scope});
+    toast(result.state==="already_covered"?"All selected movies are covered.":
+      "Movie completion started: Japanese sourcing and repairs, then automatic PLaMO for proven misses.");
+  }catch(err){toast("Movie completion: "+err.message);}
+  finally{busy=false;await refreshStatus();}
+});
+$("stop-finish-movies").addEventListener("click",()=>stopJob("/api/finish/stop"));
 $("source-library").addEventListener("click",()=>librarySourceAction(false));
 $("stop-library").addEventListener("click",()=>librarySourceAction(true));
 $("source-whole-series").addEventListener("click",async()=>{
