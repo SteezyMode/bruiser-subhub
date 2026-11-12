@@ -86,7 +86,7 @@ def eligible_constant_shift(before):
             fraction>=LARGE_SHIFT_MIN_MATCH and SHORT_SHIFT<offset<=MAX_SHIFT)
 
 
-def shift_srt(raw, offset_seconds):
+def shift_srt(raw, offset_seconds, *, runtime=None):
     """Shift candidate by -offset_seconds; preserve EVERY dialogue line.
 
     A positive alignment offset means the JA cue begins later than English.
@@ -117,6 +117,23 @@ def shift_srt(raw, offset_seconds):
         raise RuntimeError("too_few_srt_timestamps_for_safe_shift")
     if SRT_TIMESTAMP.sub("<timing>", source) != SRT_TIMESTAMP.sub("<timing>", changed):
         raise RuntimeError("non_timing_subtitle_text_changed")
+    if runtime is not None:
+        import math
+        if not math.isfinite(float(runtime)) or runtime<=0:
+            raise RuntimeError("shift_video_duration_unavailable")
+        previous_start=-1
+        count=0
+        for m in SRT_TIMESTAMP.finditer(changed):
+            start=milliseconds(m["start"])
+            end=milliseconds(m["end"])
+            if start<previous_start or end<=start:
+                raise RuntimeError("shifted_subtitle_cues_not_chronological")
+            if end>runtime*1000+1000:
+                raise RuntimeError("shifted_subtitle_exceeds_video_duration")
+            previous_start=start
+            count+=1
+        if count!=replacements:
+            raise RuntimeError("shifted_subtitle_cue_count_changed")
     return changed.encode("utf-8"), replacements
 
 
@@ -198,7 +215,7 @@ def preparation(jid):
             if not eligible_constant_shift(before):
                 continue
             offset = float(before["best_offset_seconds"])
-            shifted, num = shift_srt(raw, offset)
+            shifted, num = shift_srt(raw, offset, runtime=runtime)
             if num != initial_qa["cues"]:
                 raise RuntimeError("shift_did_not_rewrite_all_srt_timestamps")
             corrected_qa = gate.validate_srt(shifted, runtime)
