@@ -29,6 +29,27 @@ class DryRunComparisonTests(unittest.TestCase):
         self.assertFalse(result["validated_independently"])
         self.assertFalse(result["reordered"])
 
+    def test_missing_metadata_cue_is_identified_without_approving_sync(self):
+        def varied(times,labels):
+            def stamp(x):
+                h,rem=divmod(x,3600)
+                m,sec=divmod(rem,60)
+                return f"{h:02d}:{m:02d}:{sec:02d},000"
+            parts=[f"{i}\n{stamp(t)} --> {stamp(t+1)}\n{label}"
+                   for i,(t,label) in enumerate(zip(times,labels),1)]
+            return ("\n\n".join(parts)+"\n").encode("utf-8")
+        names=["字幕版の注意書き"]+[f"台詞の番号{i}" for i in range(1,11)]
+        source=varied(list(range(10,120,10)),names)
+        output=varied(list(range(22,122,10)),names[1:])
+        result=trial._evaluate(source,output,145)
+        self.assertFalse(result["safe_dialogue"])
+        self.assertEqual(result["failure"],"cue_count_changed")
+        self.assertEqual(result["matching_dialogue_cues"],10)
+        self.assertEqual(result["cue_edits"][0]["source_cues"][0]["number"],1)
+        self.assertIn("注意書き",result["cue_edits"][0]["source_cues"][0]["text"])
+        self.assertTrue(result["diagnostic_only"])
+        self.assertNotIn("validated_independently",result)
+
     def test_changed_japanese_or_missing_cue_never_passes(self):
         original=srt([10,20,30,40,50,60,70,80,90])
         self.assertEqual(
