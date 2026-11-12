@@ -45,9 +45,11 @@ def matches(row, scope="all"):
                 relative = path.relative_to(root)
             except ValueError:
                 continue
-            return not any(
-                "anime" in {t for t in re.split(r"[^a-z]+", part.casefold()) if t}
-                for part in relative.parts[:-1])
+            # Folder release groups can prefix the anime marker without a
+            # separator, e.g. "[AnimeRG] Studio Ghibli". Keep testing only
+            # directories, never the media filename; "Animated" stays valid.
+            return not any(re.search(r"(?i)(?<![a-z])anime", part)
+                           for part in relative.parts[:-1])
         return True
     value = row.get("host_path")
     if not isinstance(value, str) or not value.startswith("/"):
