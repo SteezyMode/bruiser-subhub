@@ -103,6 +103,52 @@ class PipelineRecoveryTests(unittest.TestCase):
                 selected=stage.choices({self.ID:row},history,set(),1,"movie")
             self.assertEqual(selected[0]["candidate"]["subtitle_id"],"2000")
 
+    def test_trusted_direct_fit_agrees_with_timing_auditor(self):
+        from tools import ja_first_publish_staged as gate
+        strong={"status":"fit","reference_trust":"trusted_embedded",
+                "matching_start_fraction":0.954,"best_offset_seconds":0.3}
+        self.assertTrue(gate.trusted_direct_fit(strong))
+        self.assertFalse(gate.trusted_direct_fit(dict(strong,best_offset_seconds=0.8)))
+        self.assertFalse(gate.trusted_direct_fit(dict(strong,reference_trust="untrusted_sidecar")))
+        self.assertFalse(gate.trusted_direct_fit(dict(strong,matching_start_fraction=0.50)))
+        self.assertFalse(gate.trusted_direct_fit(dict(strong,status="uncertain")))
+
+    def test_large_constant_shift_requires_near_perfect_independent_match(self):
+        from tools import ja_first_publish_shifted as shifted
+        found={"status":"shift_needed","reference_trust":"trusted_embedded",
+               "matching_start_fraction":0.989,"best_offset_seconds":26.1}
+        self.assertTrue(shifted.eligible_constant_shift(found))
+        self.assertFalse(shifted.eligible_constant_shift(dict(
+            found,matching_start_fraction=0.955)))
+        self.assertFalse(shifted.eligible_constant_shift(dict(
+            found,reference_trust="untrusted_sidecar")))
+        self.assertFalse(shifted.eligible_constant_shift(dict(
+            found,best_offset_seconds=32.0)))
+        self.assertTrue(shifted.eligible_constant_shift(dict(
+            found,matching_start_fraction=0.955,best_offset_seconds=1.1)))
+
+    def test_shift_26_seconds_preserves_every_subtitle_dialogue_and_timing(self):
+        from tools import ja_first_publish_shifted as shifted
+        from tools import ja_first_publish_staged as gate
+        def clock(ms):
+            hh,x=divmod(ms,3600000)
+            mm,x=divmod(x,60000)
+            ss,m=divmod(x,1000)
+            return f"{hh:02d}:{mm:02d}:{ss:02d},{m:03d}"
+        raw=("\\n\\n".join(
+            f"{i+1}\\n{clock(31000+i*3700)} --> {clock(32000+i*3700)}"
+            "\\n日本語のセリフ"
+            for i in range(140))+"\\n").encode("utf-8")
+        corrected,num=shifted.shift_srt(raw,26.1)
+        self.assertEqual(num,140)
+        self.assertEqual(gate.validate_srt(raw,1200),
+                         gate.validate_srt(corrected,1200))
+        self.assertIn(b"00:00:04,900",corrected)
+        self.assertNotIn(b"00:00:31,000",corrected)
+        self.assertEqual(corrected.count("日本語のセリフ".encode()),140)
+        with self.assertRaisesRegex(RuntimeError,"shift_would_invalidate_cue"):
+            shifted.shift_srt(raw,31.5)
+
     def test_stage_failure_receipt_expires_but_alignment_receipts_remain(self):
         with tempfile.TemporaryDirectory() as temp:
             db=Path(temp)/"candidate.sqlite3"
