@@ -166,6 +166,14 @@ def stage_one(jid, candidate):
             (jid,stage_id) in stage.rejected_duration_candidates()):
         return "rejected", "previously_staged_or_rejected"
     if provider == "opensubtitles":
+        # The saved-batch selector already honors deterministic failed-download
+        # cache entries. Check the same cache here so an expected zero-selection
+        # result is an exhausted RELEASE, not a permanent retry of this title.
+        row=stage.read_inventory().get(jid)
+        if row is not None and stage.known_rejected_download(row,candidate):
+            print("DEEP_SOURCE_STAGE_SKIPPED:",jid,sid,
+                  "cached_malformed_download",flush=True)
+            return "rejected", "cached_malformed_download"
         cmd = [HERE/"ja_first_stage_saved_batch.py", "--jellyfin-id",jid,
                "--kind","all","--budget","1","--subtitle-id",sid,
                "--exhaustive","--apply"]
@@ -187,8 +195,18 @@ def stage_one(jid, candidate):
             "STAGE_REJECTED:" in out or
             "SUBDL_REJECTED:" in out):
         return "rejected", "invalid_candidate_bytes"
-    # Missing stage receipts do not prove the provider has no valid source.
-    return "retry", "stage_result_not_proven"
+    # An opaque no-stage result is NOT source exhaustion. Emit actual
+    # subprocess evidence so the operator can fix the systemic problem;
+    # never spin on a generic message with no diagnostic.
+    details=[line.strip() for line in (out+"\n"+err).splitlines()
+             if any(tag in line for tag in (
+                 "Selected:", "SUBDL_SAVED_CANDIDATES:",
+                 "STAGING ERROR:", "SUBDL_HELD:", "SUBDL_STAGE_HELD:",
+                 "HELD:", "BATCH RESULT:", "No new high-confidence"))]
+    summary=" | ".join(details[-3:])[:450] or "no_stage_receipt_or_error"
+    print("DEEP_SOURCE_STAGE_UNRESOLVED:",jid,provider,sid,
+          "returncode",rc,summary,flush=True)
+    return "retry", provider+":stage_unresolved"
 
 
 def refresh_search(jid):
