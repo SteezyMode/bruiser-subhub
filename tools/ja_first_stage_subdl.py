@@ -261,7 +261,12 @@ def main():
             }):
                 print("SUBDL_REJECTED:",reason,flush=True)
             else:
-                errors.append(type(exc).__name__)
+                # Only expose a safe fixed-code error token, never a URL,
+                # provider credential, media path or arbitrary exception text.
+                code=str(exc).split(":",1)[0]
+                if not re.fullmatch(r"[A-Za-z0-9_]{1,90}",code):
+                    code="unclassified"
+                errors.append(type(exc).__name__+":"+code)
     if errors:
         print("SUBDL_HELD:",",".join(errors[:3]),flush=True)
 
