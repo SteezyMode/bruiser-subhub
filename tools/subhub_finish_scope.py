@@ -395,6 +395,7 @@ def run(series=None, seasons=(), *, movie_ids=(), movie_scope=None,
             write_state(receipt)
             result={}
             def accept(line):
+                receipt["last_real_output_at"]=int(time.time())
                 if line.startswith("DEEP_SOURCE_RESULT:"):
                     try:
                         result.update(json.loads(line.split(":",1)[1]))
@@ -412,8 +413,7 @@ def run(series=None, seasons=(), *, movie_ids=(), movie_scope=None,
             def heartbeat(pid,silent):
                 receipt.update(worker_pid=pid,heartbeat_at=int(time.time()),
                                output_silent_seconds=max(0,int(silent)))
-                if silent==0:
-                    receipt["last_real_output_at"]=int(time.time())
+                # Do NOT reset the real-output clock from a heartbeat.
                 write_state(receipt)
             rc=command([DEEP_SOURCE,"--jellyfin-id",jid,"--run"],
                        "deep_source_"+jid[:8],on_line=accept,
@@ -459,17 +459,18 @@ def run(series=None, seasons=(), *, movie_ids=(), movie_scope=None,
                            item_started_at=int(time.time()),
                            plamo_attempts=receipt["plamo_attempts"]+1)
             write_state(receipt)
+            def plamo_output(line):
+                receipt["last_real_output_at"]=int(time.time())
+                receipt["detail"]=line.strip()[:160]
+                write_state(receipt)
+            def plamo_heartbeat(pid,silent):
+                receipt.update(worker_pid=pid,heartbeat_at=int(time.time()),
+                               output_silent_seconds=max(0,int(silent)))
+                write_state(receipt)
             rc=command([AUTO_PLAMO,"--jellyfin-id",jid,
                         "--source-exhausted-auto","--apply"],
-                       "plamo_"+jid[:8],
-                       on_heartbeat=lambda pid,silent: (
-                           receipt.update(worker_pid=pid,
-                                          heartbeat_at=int(time.time()),
-                                          output_silent_seconds=int(silent),
-                                          last_real_output_at=int(time.time())
-                                          if silent==0 else receipt.get(
-                                              "last_real_output_at",0)),
-                           write_state(receipt)))
+                       "plamo_"+jid[:8],on_line=plamo_output,
+                       on_heartbeat=plamo_heartbeat)
             receipt.update(worker_pid=0,heartbeat_at=int(time.time()))
             if rc==0:
                 plamo.remove(jid)
