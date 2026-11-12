@@ -44,34 +44,10 @@ def identity_ok(row,candidate):
             or not SUBDL_ID.fullmatch(str(candidate.get("subtitle_id") or ""))):
         return False
     if row.get("kind")=="Movie":
-        # Do not trust result popularity or arbitrary other-film hits. Require
-        # the exact movie title AND release year near it in saved provider text.
-        year=str(row.get("year") or "")
-        title=stage.tokens(row.get("title"))
-        if not title or not re.fullmatch(r"\d{4}",year):
-            return False
-        for value in (candidate.get("filename"),candidate.get("release_info")):
-            words=stage.tokens(value)
-            for i in range(len(words)-len(title)+1):
-                if words[i:i+len(title)] != title:
-                    continue
-                left=words[i-1] if i else ""
-                right=words[i+len(title)] if i+len(title)<len(words) else ""
-                if any(re.fullmatch(r"(?:19|20)\d{2}",w) and w!=year
-                       for w in (left,right)):
-                    return False
-                if year in (left,right):
-                    return True
-                if (len(title)>=2 and i==0 and
-                        not any(re.fullmatch(r"(?:19|20)\d{2}",w)
-                                for w in words) and
-                        (len(words)==len(title) or
-                         words[len(title)] in {
-                             "web", "webdl", "webrip", "bluray", "bdrip",
-                             "dvdrip", "1080p", "720p", "2160p",
-                             "ja", "sub", "subs", "japanese"})):
-                    return True
-        return False
+        # Share the conservative film identity predicate with OpenSubtitles.
+        # Only the download/stage transport differs; publication still
+        # requires exact-video synchronization and Japanese-content QA.
+        return stage.movie_identity_ok(row,candidate)
     if row.get("kind")!="Episode":
         return False
     expected={(row["season"],row["episode"])}
