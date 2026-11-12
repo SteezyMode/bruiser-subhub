@@ -107,7 +107,7 @@ def parse(events):
             line = line.strip()
             if line.startswith("SOURCE SCOPE:"):
                 scope=line.partition(":")[2].strip()
-                if scope in ("all","horror-drama-folders"):
+                if scope in ("all","horror-drama-folders","movies-no-anime"):
                     state["scope"]=scope
             elif line.startswith("RUNNING_SOURCES_ONLY_CYCLE"):
                 m = RE_LIMITS.search(line)
