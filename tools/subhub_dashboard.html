@@ -206,7 +206,7 @@ details>summary{cursor:pointer}
  </form>
  <p id="browse-counts" class="small muted"></p>
  <div class="browse-toolbar">
-  <button id="browse-select-page" type="button" class="quiet">Select visible missing</button>
+  <button id="browse-select-page" type="button" class="quiet">Select all missing</button>
   <button id="browse-clear" type="button" class="quiet">Clear selection</button>
   <strong id="browse-selected-count" class="small">0 selected</strong>
  </div>
@@ -1753,10 +1753,41 @@ $("browse-state").addEventListener("change",()=>{
   browseModel.state=$("browse-state").value;
   browseModel.page=0;loadBrowse();
 });
-$("browse-select-page").addEventListener("click",()=>{
-  for(const item of browseModel.items)
-    if(item.state==="needs_japanese")browseSelected.add(item.jellyfin_id);
-  renderBrowse(browseModel.data);
+$("browse-select-page").addEventListener("click",async()=>{
+  // "All" means all matching missing titles across every results page,
+  // not only the 41/80 checkboxes rendered in the current page.
+  if(busy)return;
+  if(!browseModel.category&&!browseModel.series&&!browseModel.folder&&
+      !browseModel.genre&&!browseModel.query.trim()){
+    $("browse-feedback").textContent="Open a category or search first.";
+    return;
+  }
+  busy=true;browseSetCount();
+  const ids=new Set();
+  try{
+    for(let page=0;page<=1000;page++){
+      const params=new URLSearchParams({
+        kind:browseModel.kind,folder:browseModel.folder,
+        category:browseModel.category,series:browseModel.series,
+        genre:browseModel.genre,query:browseModel.query,
+        page:String(page),state:"needs_japanese"
+      });
+      const data=await getJson("/api/library/browse?"+params.toString());
+      for(const item of data.items||[])
+        if(item.state==="needs_japanese")ids.add(item.jellyfin_id);
+      if(ids.size>300)throw Error(
+        "More than 300 missing titles here. Leave all unchecked and use Find Japanese "+
+        "to queue the entire category instead.");
+      if(!data.more)break;
+      if(page===1000)throw Error("Too many result pages to select.");
+    }
+    browseSelected.clear();
+    for(const id of ids)browseSelected.add(id);
+    if(browseModel.data)renderBrowse(browseModel.data);
+    $("browse-feedback").textContent=ids.size+" missing titles selected across all pages.";
+  }catch(err){
+    $("browse-feedback").textContent="Could not select all: "+err.message;
+  }finally{busy=false;browseSetCount();}
 });
 $("browse-clear").addEventListener("click",()=>{
   browseSelected.clear();if(browseModel.data)renderBrowse(browseModel.data);
