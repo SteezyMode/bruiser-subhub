@@ -70,7 +70,8 @@ def normalize(raw,*,expected_timestamps=None):
         raise RuntimeError("staged_srt_timestamps_mismatch_saved_record")
     if stamp_total<1:
         raise RuntimeError("staged_srt_no_timestamps")
-    blocks=re.split(r"\r?\n[ \t]*\r?\n",original.strip(" \t\r\n"))
+    blocks=[b for b in re.split(r"\r?\n[ \t]*\r?\n",
+               original.strip(" \t\r\n")) if b.strip(" \t\r\n")]
     parsed=[]
     empty=0
     invalid_controls=0
