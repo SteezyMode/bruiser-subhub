@@ -1239,6 +1239,17 @@ def finish_scope_status():
     result={"active":active,"available":available,"state":state,
             "phase":safe_text(doc.get("phase"),42),
             "series":safe_text(doc.get("series"),160),
+            "current":safe_text(doc.get("current"),160),
+            "last_issue":safe_text(doc.get("last_issue"),160),
+            "flow_counts":{
+                "total":int_value(doc.get("total_exact_files")),
+                "covered":int_value(doc.get("covered_exact_files")),
+                "source":int_value(doc.get("source_pending")),
+                "plamo":int_value(doc.get("plamo_pending")),
+                "round":int_value(doc.get("round")),
+                "source_attempts":int_value(doc.get("source_attempts")),
+                "plamo_attempts":int_value(doc.get("plamo_attempts"))}
+                if "total_exact_files" in doc else None,
             "seasons":doc.get("seasons",[]),
             "missing_before":int_value(before.get("missing")),
             "covered_before":int_value(before.get("covered")),
@@ -1252,7 +1263,7 @@ def finish_scope_status():
                 "published":int_value(doc.get("intensive_published")),
                 "current":safe_text(doc.get("intensive_current"),120)}
                 if active and doc.get("phase")=="intensive_recovery" else None}
-    if active and doc.get("phase")=="source":
+    if active and doc.get("phase")=="source" and "total_exact_files" not in doc:
         try:
             result["source_progress"]=finish_source_progress(doc)
         except (OSError,ValueError,TypeError,RuntimeError,json.JSONDecodeError):
