@@ -38,6 +38,7 @@ SRT = re.compile(
     r"[ \t]*(\d{1,3}:)?\d{2}:\d{2}[,.]\d{2,3}"
 )
 TIMING_THRESHOLD = 0.75
+DIRECT_FIT_MAX_OFFSET = 0.5  # Consistent with timing-auditor 'fit' definition
 EXPECTED_ID_PATTERN = re.compile(r"[a-f0-9]{32}\Z")
 
 
@@ -267,6 +268,21 @@ def metadata_label(row):
     return f'{row.get("title")} ({row.get("year")})'
 
 
+def trusted_direct_fit(timing):
+    """Only allow strong SAME-VIDEO subtitle references with an actual fit.
+
+    The timing auditor defines 'fit' at <=0.5 s, not <=0.2 s. Hold
+    larger offsets for the separately verified correction path.
+    """
+    try:
+        return (timing.get("status")=="fit"
+                and timing.get("reference_trust")=="trusted_embedded"
+                and float(timing["matching_start_fraction"])>=TIMING_THRESHOLD
+                and abs(float(timing["best_offset_seconds"]))<=DIRECT_FIT_MAX_OFFSET)
+    except (ValueError,TypeError,KeyError,AttributeError):
+        return False
+
+
 def preflight(jid, sid):
     if not EXPECTED_ID_PATTERN.fullmatch(jid) or not sid.isdigit():
         raise RuntimeError("invalid_requested_identity")
@@ -294,10 +310,7 @@ def preflight(jid, sid):
     check_no_existing_ja(video, streams)
 
     timing = inspect(row, content)
-    if (timing.get("status") != "fit"
-            or timing.get("reference_trust") != "trusted_embedded"
-            or timing.get("matching_start_fraction", 0) < TIMING_THRESHOLD
-            or abs(timing.get("best_offset_seconds", 999)) > 0.2):
+    if not trusted_direct_fit(timing):
         raise RuntimeError("trusted_embedded_timing_gate_not_met:" + timing.get("status", "unknown"))
     # Staging validator established the media duration from ffprobe.
     runtime = float(metrics.get("video_seconds") or 0)
