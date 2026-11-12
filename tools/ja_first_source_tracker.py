@@ -8,7 +8,7 @@ the viewer. No extra Python packages required.
 from __future__ import annotations
 
 import argparse
-from collections import deque
+from collections import Counter, deque
 from datetime import datetime
 import json
 import re
