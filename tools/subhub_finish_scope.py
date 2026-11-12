@@ -116,9 +116,12 @@ def selected_media(series=None, seasons=(), *, movie_ids=(), movie_scope=None):
     """Select every exact Jellyfin file; duplicate episode versions remain separate."""
     # Dashboard controller runs from a different installation directory
     # than the canonical host source engine; resolve it explicitly.
-    if str(SOURCE.parent) not in sys.path:
-        sys.path.insert(0,str(SOURCE.parent))
-    import subhub_deep_source as deep
+    try:
+        from . import subhub_deep_source as deep
+    except ImportError:
+        if str(SOURCE.parent) not in sys.path:
+            sys.path.insert(0,str(SOURCE.parent))
+        import subhub_deep_source as deep
     chosen=[]
     seen=set()
     if not series and bool(movie_ids)==bool(movie_scope):
@@ -158,9 +161,12 @@ def selected_media(series=None, seasons=(), *, movie_ids=(), movie_scope=None):
 def movie_plan(movie_ids=(), movie_scope=None):
     """Read-only exact movie coverage preview; no provider calls or AI."""
     selected=selected_media(movie_ids=movie_ids,movie_scope=movie_scope)
-    if str(SOURCE.parent) not in sys.path:
-        sys.path.insert(0,str(SOURCE.parent))
-    import subhub_deep_source as deep
+    try:
+        from . import subhub_deep_source as deep
+    except ImportError:
+        if str(SOURCE.parent) not in sys.path:
+            sys.path.insert(0,str(SOURCE.parent))
+        import subhub_deep_source as deep
     rows={str(row.get("jellyfin_id")):row for row in
           deep.inventory.load_latest_manifest() if isinstance(row,dict)}
     covered=sum(rows[jid].get("status") in
@@ -176,9 +182,12 @@ def movie_plan(movie_ids=(), movie_scope=None):
 
 def valid_source_exhaustion(jid):
     """Revalidate exact video and completed provider search before model use."""
-    if str(SOURCE.parent) not in sys.path:
-        sys.path.insert(0,str(SOURCE.parent))
-    import subhub_deep_source as deep
+    try:
+        from . import subhub_deep_source as deep
+    except ImportError:
+        if str(SOURCE.parent) not in sys.path:
+            sys.path.insert(0,str(SOURCE.parent))
+        import subhub_deep_source as deep
     matches=[r for r in deep.inventory.load_latest_manifest()
              if isinstance(r,dict) and r.get("jellyfin_id")==jid]
     return len(matches)==1 and deep.validate_exhausted(jid,matches[0])
