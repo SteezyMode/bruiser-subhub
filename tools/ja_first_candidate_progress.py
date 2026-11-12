@@ -174,7 +174,13 @@ def remember(jid,sid,engine,key,exc,*,db_path=None):
     if path.parent.is_symlink() or not path.parent.is_dir() or path.parent.stat().st_mode & 0o077:
         raise RuntimeError("unsafe_candidate_failure_directory")
     _secure_readable(path)
-    with sqlite3.connect(path,timeout=12) as con:
+    import os
+    old_umask=os.umask(0o077)
+    try:
+        con=sqlite3.connect(path,timeout=12)
+    finally:
+        os.umask(old_umask)
+    with con:
         con.execute("""CREATE TABLE IF NOT EXISTS failures(
           jellyfin_id TEXT NOT NULL, subtitle_id TEXT NOT NULL,
           engine TEXT NOT NULL, fingerprint TEXT NOT NULL,
