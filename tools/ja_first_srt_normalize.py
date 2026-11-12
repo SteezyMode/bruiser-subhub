@@ -75,6 +75,8 @@ def normalize(raw,*,expected_timestamps=None):
     empty=0
     invalid_controls=0
     for k,block in enumerate(blocks,1):
+        if len(ARROWS.findall(block))>1:
+            raise RuntimeError("staged_srt_multiple_timestamps_per_block")
         lines=block.strip(" \t\r\n").splitlines()
         ix=int(bool(lines and lines[0].strip().isdigit()))
         if len(lines)<ix+1:
