@@ -329,6 +329,10 @@ function browseSetCount(){
   $("browse-selected-count").textContent=browseSelected.size+" selected missing";
   $("browse-finish-selected").disabled=busy||!!latest.workersBusy||
     !browseSelected.size||!latest.finish_scope?.available;
+  const counts=browseModel.data?.scope_counts||{};
+  $("browse-finish-folder").disabled=busy||!!latest.workersBusy||
+    !latest.finish_scope?.available||!!browseModel.query.trim()||
+    !Number(counts.needs_japanese||0);
 }
 function browseEntry(name,description,callback){
   const button=document.createElement("button");
@@ -1228,8 +1232,14 @@ async function refreshStatus(){
           flow.plamo+" in PLaMO fallback · "+
           flow.source_attempts+" source attempts · "+
           flow.plamo_attempts+" translation attempts";
+        const elapsed=Math.max(0,Number(finish.item_elapsed_seconds)||0);
+        const totalElapsed=Math.max(0,Number(finish.elapsed_seconds)||0);
         $("finish-source-current").textContent="Now: "+
           (finish.current||"Selecting next file")+
+          (finish.detail?" · "+finish.detail:"")+
+          (elapsed?" · This file "+Math.floor(elapsed/60)+"m "+
+                     (elapsed%60)+"s":"")+
+          (totalElapsed?" · Job "+Math.floor(totalElapsed/60)+"m":"")+
           (finish.last_issue?" · Last hold: "+finish.last_issue:"");
       }else if(intense){
         const percent=Math.max(0,Math.min(100,100*q.seasons_done/q.seasons_total));
@@ -1278,10 +1288,7 @@ async function refreshStatus(){
       setting==="movies-no-anime"?"Selected for every run: non-anime movies only":
       setting==="all"?"Selected for every run: all eligible library media":
       "Selected scope unreadable; source service will reject invalid settings";
-    $("source-library").textContent=setting==="horror-drama-folders"?
-      "Find Japanese subtitles · Horror + Drama/Suspense":
-      setting==="movies-no-anime"?"Find Japanese subtitles · Non-anime movies":
-      "Find Japanese subtitles throughout library";
+    $("source-library").textContent="Run Japanese-only sourcing (scheduled scope)";
     renderLibrarySourceProgress(d);
     renderDownloadUsage(d);
     const t=d.translation||{};
@@ -1293,10 +1300,11 @@ async function refreshStatus(){
     const jobState=(d.jellyfin_source||{}).state||"";
     const jobStarting=jobState==="starting"||jobState==="no_progress";
     d.workersBusy=source||ai||finishActive||jobStarting||!!(d.movie_source||{}).active;
+    browseSetCount();
     renderJellyfinJob(d);
     d.aiAvailable=!!(d.season_translation||{}).available;
     const scoped=!!(d.season_sources||{}).active;
-    $("run-status").textContent=finishActive?"Series completion active":
+    $("run-status").textContent=finishActive?"Subtitle completion active":
       jellyfin?"Jellyfin source batch active":
       jobStarting?"Jellyfin source batch starting":
       scoped?"Selected sourcing active":ai?"PLaMo active":source?"Source worker active":
