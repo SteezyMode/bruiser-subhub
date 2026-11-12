@@ -132,6 +132,10 @@ def browse(*, kind="Movie", folder="", query="", page=0, state="all",
             if not folder:
                 child_path=r["root"]
             else:
+                # For movie genre/release folders, show the movies themselves
+                # instead of repeating every title as a folder AND a row.
+                if kind=="Movie" and folder not in roots:
+                    continue
                 if r["folder"]==folder:
                     continue
                 # One direct child directory below the current folder.
