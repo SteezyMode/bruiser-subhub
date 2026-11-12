@@ -24,9 +24,6 @@ class CandidateProgressTests(unittest.TestCase):
         self.assertGreater(progress.release_match(row,matched),
                            progress.release_match(row,wrong))
         self.assertGreater(progress.release_match(row,matched),0)
-        self.assertEqual(progress.release_match(
-            {"host_path":"/Movies/Example.Film.2024.mkv"},
-            {"filename":"Example.Film.2024.ja.srt"}),0) if False else None
 
     def test_fingerprint_changes_when_media_english_or_code_changes(self):
         with tempfile.TemporaryDirectory() as temp:
