@@ -1023,8 +1023,9 @@ function renderJellyfinJob(d){
   if((d.finish_scope||{}).active){
     $("jellyfin-job").hidden=true;return;
   }
-  $("jellyfin-job").hidden=!p.known&&!p.active;
-  if(!p.known&&!p.active)return;
+  // Saved receipts belong in history, not the default Current job panel.
+  $("jellyfin-job").hidden=!p.active;
+  if(!p.active)return;
   // Count ONLY episodes selected for this run. A failed/no-match episode
   // advances the same meter as a publication; saved results stay separate.
   const known=Number.isInteger(p.pass_total)&&Number.isInteger(p.pass_processed);
@@ -1336,8 +1337,7 @@ async function refreshStatus(){
     const d=await getJson("/api/status");
     latest=d;
     const finish=d.finish_scope||{};
-    $("finish-job").hidden=!finish.active&&!finish.series&&
-      !["completed","waiting_retry"].includes(finish.state);
+    $("finish-job").hidden=!finish.active;
     if(!$("finish-job").hidden){
       const p=finish.source_progress||null;
       $("finish-job-title").textContent=(finish.series||"Selected movies")+" · completion";
@@ -1356,7 +1356,8 @@ async function refreshStatus(){
         Number.isInteger(p.total)&&p.total>0&&Number.isInteger(p.processed));
       const valid=validFlow||validSource||intense;
       $("finish-source-meter").hidden=!valid;
-      const unique=validFlow&&flow.unique_instrumented;
+      // One meaningful coverage bar only, not a second "examined" bar.
+      const unique=false;
       $("finish-queue-row").hidden=!unique;
       $("finish-queue-meter").hidden=!unique;
       if(unique){
@@ -1495,7 +1496,7 @@ async function refreshStatus(){
          jobState==="failed_before_progress"?"Source job did not start":"Idle"):
       "Idle";
     const batch=(d.season_translation||{}).progress||{};
-    $("batch-overview").hidden=!batch.known;
+    $("batch-overview").hidden=!batch.active;
     if(batch.known){
       $("batch-count").textContent=(batch.active?"Current PLaMo batch":"Previous PLaMo batch")+
           " · "+batch.finished+"/"+batch.total+" episodes finished";
@@ -1520,6 +1521,7 @@ async function refreshStatus(){
     const sourcePhase=daily.active?"RUNNING":daily.metrics_available?
       daily.phase==="source_completed"?"FINISHED":
       daily.phase==="source_held"?"FAILED":"STOPPED":"IDLE";
+    $("scheduled-source-summary").hidden=!daily.active;
     $("scheduled-source-summary").textContent=
       "Automatic Japanese sourcing: "+sourcePhase+
       (daily.scope==="movies-no-anime"?" · Non-anime movies":
@@ -1550,7 +1552,9 @@ async function refreshStatus(){
     $("quota").textContent=(d.source_job||{}).provider_limited||
       (d.download_usage||{}).today_quota_blocked?"Provider denied downloads today":
       "Limit unverified";
-    $("job-progress").textContent=escapeText(d.phase_label||"No active work");
+    $("job-progress").hidden=!d.workersBusy;
+    $("job-progress").textContent=d.workersBusy?
+      escapeText(d.phase_label||"Working"):"";
     $("stop-sourcing").hidden=!scoped;
     $("stop-translation").hidden=!(d.season_translation||{}).active;
     $("movie-stop").hidden=!(d.movie_source||{}).active;
