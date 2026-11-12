@@ -55,7 +55,13 @@ def queue_position(row, action, tasks):
     if known is None:
         return (300, priority(row))
     queued_action, state, rank, path = known
-    if state != "pending":
+    # Failed alignment does not exhaust an entire title if another saved
+    # Japanese release is available. Permit STAGING (not re-searching) an
+    # alternative when the old coverage snapshot calls the title held.
+    held_alternate=(action=="stage" and state=="held" and
+                    queued_action in ("align_existing_staged_ja",
+                                      "download_saved_ja","review_saved_ja"))
+    if state != "pending" and not held_alternate:
         return None
     if str(row.get("host_path") or "") != path:
         return None
