@@ -341,8 +341,9 @@ def fresh_state(rows,chosen,prior=None,now=None,recent=None):
             reason=str(other.get("reason") or "")[:120]
         # One-time recovery sweep when the underlying search strategy changes:
         # old SubBuzz HTTP 500 and single-provider misses never proved absence.
-        if prior and prior.get("search_strategy") != SEARCH_STRATEGY and state in (
-                "held","no_match","deferred"):
+        if (prior and prior.get("search_strategy") != SEARCH_STRATEGY and
+                external_time<=int(prev.get("attempted_at") or 0) and
+                state in ("held","no_match","deferred")):
             state="queued"
         elif state in ("no_match","deferred") and now-tried >= COOLDOWN_SEC:
             state="queued"
