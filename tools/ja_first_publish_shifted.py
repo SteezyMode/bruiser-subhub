@@ -32,6 +32,7 @@ from urllib.parse import quote
 
 import ja_first_publish_staged as gate
 import ja_first_stage_timing_audit as audit
+import ja_first_srt_normalize as structure
 
 MIN_MATCH = 0.95
 MAX_SHIFT = 30.0
@@ -198,10 +199,14 @@ def preparation(jid):
                 raise RuntimeError("invalid_original_video_duration")
             if abs(gate.subprocess_duration(video) - runtime) > 0.5:
                 raise RuntimeError("video_duration_changed_since_staging")
-            initial_qa = gate.validate_srt(raw, runtime)
-            if initial_qa["cues"] != int(metrics.get("cues") or -1):
-                raise RuntimeError("original_staged_cue_count_changed")
-            before = audit.inspect(row, raw)
+            # Uniform preparation across all existing source sync routes.
+            # The SAVED provider original remains immutable, and its total
+            # timestamp count must match its database record before repair.
+            source, repair = structure.normalize(
+                raw, expected_timestamps=int(metrics.get("cues") or -1),
+                trial_release_note=True, trial_local_swap=True)
+            initial_qa = gate.validate_srt(source, runtime)
+            before = audit.inspect(row, source)
             detail = {
                 "subtitle_id": sid,
                 "original_timing": {
@@ -215,7 +220,7 @@ def preparation(jid):
             if not eligible_constant_shift(before):
                 continue
             offset = float(before["best_offset_seconds"])
-            shifted, num = shift_srt(raw, offset, runtime=runtime)
+            shifted, num = shift_srt(source, offset, runtime=runtime)
             if num != initial_qa["cues"]:
                 raise RuntimeError("shift_did_not_rewrite_all_srt_timestamps")
             corrected_qa = gate.validate_srt(shifted, runtime)
@@ -239,7 +244,7 @@ def preparation(jid):
                 "sid": sid, "row": row, "video": video,
                 "target": gate.video_target(video),
                 "before": before, "after": after,
-                "raw": raw, "adjusted": shifted,
+                "raw": raw, "adjusted": shifted, "structural_repair":repair,
             })
         except (OSError, RuntimeError, ValueError, sqlite3.Error) as exc:
             print("CANDIDATE HELD:", sid, type(exc).__name__,
@@ -282,6 +287,7 @@ def save_derived(best):
         "source_sha256": hashlib.sha256(best["raw"]).hexdigest(),
         "adjusted_sha256": digest,
         "offset_applied_seconds": -best["before"]["best_offset_seconds"],
+        "structural_repair":best.get("structural_repair"),
         "before": best["before"],
         "after": best["after"],
         "file_name": name,
