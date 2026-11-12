@@ -41,6 +41,7 @@ SOURCE_FILES=(
     "ja_first_publish_staged.py",
     "ja_first_publish_shifted.py",
     "ja_first_publish_queue.py",
+    "ja_first_srt_normalize.py",
     "ja_first_alass.py",
     "ja_first_ffsubsync.py",
     # Existing Jellyfin-backed provider adapter, not a new provider service.
@@ -198,6 +199,7 @@ def main():
         target=HOST/name
         secure_file(target,allow_new=name in {
             "ja_first_movie_scope.py",
+            "ja_first_srt_normalize.py",
             "ja_first_candidate_progress.py",
             "ja_first_alass.py",
             "benchmark_subtitle_search_paths.py",
