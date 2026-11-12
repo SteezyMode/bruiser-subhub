@@ -18,7 +18,7 @@ import fcntl
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import selectors
 import signal
@@ -59,10 +59,14 @@ def item_label(row):
     return str(row.get("title") or "")[:120]
 
 
-def choose(rows, *, series=None, seasons=(), picks=(), movie_ids=()):
-    """The real Jellyfin inventory, not filesystem title searches."""
-    if bool(series) == bool(movie_ids):
-        raise ValueError("select_exactly_one_series_or_movie_selection")
+def choose(rows, *, series=None, seasons=(), picks=(), movie_ids=(),
+           item_ids=(), library_folder=None, library_genre=None,
+           library_kind=None):
+    """Select catalogued media, not arbitrary filesystem search results."""
+    scopes=sum(bool(x) for x in (
+        series,movie_ids,item_ids,library_folder,library_genre))
+    if scopes!=1:
+        raise ValueError("select_exactly_one_library_selection")
     selected = []
     if series:
         if not isinstance(series, str) or not (1 <= len(series) <= 160):
@@ -88,15 +92,44 @@ def choose(rows, *, series=None, seasons=(), picks=(), movie_ids=()):
             raise ValueError("series_or_episode_selection_not_in_Jellyfin_catalog")
         if wanted_picks - {(r["season"],r["episode"]) for r in selected}:
             raise ValueError("selected_episode_missing_from_Jellyfin_catalog")
-    else:
-        ids = set(movie_ids)
-        if len(ids) != len(movie_ids) or any(
+    elif movie_ids or item_ids:
+        ids = set(movie_ids or item_ids)
+        if len(ids) != len(movie_ids or item_ids) or any(
                 not isinstance(j,str) or not JID.fullmatch(j) for j in ids):
-            raise ValueError("invalid_movie_ids")
+            raise ValueError("invalid_item_ids")
         selected = [r for r in rows if isinstance(r,dict) and
-                    r.get("kind")=="Movie" and r.get("jellyfin_id") in ids]
+                    (not movie_ids or r.get("kind")=="Movie")
+                    and r.get("kind") in ("Movie","Episode")
+                    and r.get("jellyfin_id") in ids]
         if len(selected) != len(ids):
-            raise ValueError("movie_selection_not_in_Jellyfin_catalog")
+            raise ValueError("item_selection_not_in_Jellyfin_catalog")
+    else:
+        if library_kind not in ("Movie","Episode"):
+            raise ValueError("invalid_library_kind")
+        if library_folder:
+            folder=PurePosixPath(library_folder)
+            if (not isinstance(library_folder,str) or
+                    not library_folder.startswith("/") or
+                    ".." in folder.parts or
+                    len(library_folder)>1000):
+                raise ValueError("invalid_library_folder")
+            selected = [r for r in rows if isinstance(r,dict) and
+                        r.get("kind")==library_kind and
+                        isinstance(r.get("host_path"),str) and
+                        PurePosixPath(r["host_path"]).is_relative_to(folder)]
+            if not selected:
+                raise ValueError("folder_not_in_Jellyfin_catalog")
+        else:
+            if (not isinstance(library_genre,str)
+                    or not 1<=len(library_genre)<=60
+                    or any(ord(ch)<32 for ch in library_genre)):
+                raise ValueError("invalid_library_genre")
+            selected = [r for r in rows if isinstance(r,dict) and
+                        r.get("kind")==library_kind and
+                        library_genre.casefold() in {
+                            str(g).casefold() for g in r.get("genres") or []}]
+            if not selected:
+                raise ValueError("genre_not_in_Jellyfin_catalog")
 
     if len(selected) > MAX_ITEMS:
         raise ValueError("selection_too_large_split_into_batches")
@@ -116,11 +149,21 @@ def choose(rows, *, series=None, seasons=(), picks=(), movie_ids=()):
     return result
 
 
-def selector(series=None,seasons=(),picks=(),movie_ids=()):
+def selector(series=None,seasons=(),picks=(),movie_ids=(),
+             item_ids=(),library_folder=None,library_genre=None,
+             library_kind=None):
     if series:
         return {"series":series,"seasons":sorted(set(seasons)),
                 "picks":[[a,b] for a,b in sorted(set(picks))]}
-    return {"movie_ids":sorted(movie_ids)}
+    if movie_ids:
+        return {"movie_ids":sorted(movie_ids)}
+    if item_ids:
+        return {"item_ids":sorted(item_ids)}
+    if library_folder:
+        return {"library_folder":library_folder,"kind":library_kind}
+    if library_genre:
+        return {"library_genre":library_genre,"kind":library_kind}
+    raise ValueError("missing_source_selection")
 
 
 def _safe_state_root(path):
@@ -623,6 +666,10 @@ def main(argv=None):
     exclusive=parser.add_mutually_exclusive_group(required=True)
     exclusive.add_argument("--series")
     exclusive.add_argument("--movie-id",action="append")
+    exclusive.add_argument("--item-id",action="append")
+    exclusive.add_argument("--library-folder")
+    exclusive.add_argument("--library-genre")
+    parser.add_argument("--library-kind",choices=("Movie","Episode"))
     parser.add_argument("--season",action="append",type=int,default=[])
     parser.add_argument("--pick",action="append",default=[])
     parser.add_argument("--max-searches",type=int,default=20)
@@ -632,8 +679,11 @@ def main(argv=None):
     args=parser.parse_args(argv)
     if not 1<=args.max_searches<=MAX_SEARCHES:
         parser.error("max 200 provider searches per pass")
-    if args.movie_id and (args.season or args.pick):
+    if (args.movie_id or args.item_id or args.library_folder or args.library_genre) and (
+            args.season or args.pick):
         parser.error("season/pick requires --series")
+    if (args.library_folder or args.library_genre) != bool(args.library_kind):
+        parser.error("--library-kind required only for --library-folder/--library-genre")
     if args.job_id and not re.fullmatch(r"[a-f0-9]{16}",args.job_id):
         parser.error("invalid dashboard job ID")
     picks=[]
@@ -644,7 +694,11 @@ def main(argv=None):
         picks.append((int(m.group(1)),int(m.group(2))))
     rows=benchmark.load_latest_manifest()
     options={"series":args.series,"seasons":args.season,
-             "picks":picks,"movie_ids":args.movie_id or []}
+             "picks":picks,"movie_ids":args.movie_id or [],
+             "item_ids":args.item_id or [],
+             "library_folder":args.library_folder,
+             "library_genre":args.library_genre,
+             "library_kind":args.library_kind}
     chosen=choose(rows,**options)
     plan=selector(**options)
     if not chosen:
