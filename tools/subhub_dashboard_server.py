@@ -1283,7 +1283,8 @@ def finish_scope_status():
                 "source_attempts":int_value(doc.get("source_attempts")),
                 "plamo_attempts":int_value(doc.get("plamo_attempts")),
                 "attempted_unique":int_value(doc.get("attempted_unique")),
-                "initially_covered":int_value(doc.get("initially_covered"))}
+                "initially_covered":int_value(doc.get("initially_covered")),
+                "unique_instrumented":"attempted_unique" in doc}
                 if "total_exact_files" in doc else None,
             "seasons":doc.get("seasons",[]),
             "missing_before":int_value(before.get("missing")),
