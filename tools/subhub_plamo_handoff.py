@@ -66,13 +66,14 @@ def eligible(db, jid=None, limit=15, owner_review=False):
     params.append(limit)
     if owner_review:
         target_sql="t.target IN ('ja','review') "
-        action = """AND m.kind='Episode' AND (
-                    (t.target='ja' AND t.state IN ('pending','held')
+        action = """AND (
+                    (m.kind IN ('Episode','Movie') AND t.target='ja'
+                     AND t.state IN ('pending','held')
                      AND t.action IN ('review_saved_ja','download_saved_ja',
                          'align_existing_staged_ja','search_ja')
                      AND (t.state='held' OR t.action='review_saved_ja'))
-                    OR (t.target='review' AND t.state='pending'
-                        AND t.action='review_uncertain'))"""
+                    OR (m.kind='Episode' AND t.target='review'
+                        AND t.state='pending' AND t.action='review_uncertain'))"""
     else:
         target_sql="t.target='ja' "
         action = """AND t.state='pending'
@@ -112,7 +113,7 @@ def validate_row(row, owner_review=False):
             if (row["target"]!="review" or row["kind"]!="Episode"
                     or row["state"]!="pending"):
                 raise RuntimeError("unlabeled_audio_review_not_eligible")
-        elif (row["target"]!="ja" or row["kind"]!="Episode" or
+        elif (row["target"]!="ja" or row["kind"] not in ("Movie","Episode") or
                 row["action"] not in OWNER_REVIEW_ACTIONS or
                 row["state"] not in ("pending","held") or
                 (row["state"] != "held" and row["action"] != "review_saved_ja") or
@@ -835,7 +836,7 @@ def main(argv=None):
                        help="translate exactly one eligible title with proven GPU engine")
     parser.add_argument("--jellyfin-id",help="exact Jellyfin item ID; mandatory for writes")
     parser.add_argument("--owner-reviewed-source",action="store_true",
-                        help="Explicit owner AI fallback for one reviewed/held searched episode")
+                        help="Explicit owner AI fallback for one reviewed/held searched movie or episode")
     parser.add_argument("--limit",type=int,default=15)
     parser.add_argument("--explicit-movie-pilot",action="store_true",
                         help="owner-opt-in newly added movie before queue refresh; no JA provider attempts")
@@ -848,7 +849,7 @@ def main(argv=None):
     if args.owner_reviewed_source and (args.explicit_movie_pilot or
                                       not args.jellyfin_id or
                                       not (args.prepare or args.apply)):
-        parser.error("--owner-reviewed-source requires an exact queued episode")
+        parser.error("--owner-reviewed-source requires an exact queued movie or episode")
     if args.explicit_movie_pilot:
         if not (args.prepare or args.apply) or not args.movie_path:
             parser.error("--explicit-movie-pilot requires --prepare or --apply and --movie-path")
