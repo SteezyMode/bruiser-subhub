@@ -57,6 +57,7 @@ class ScopeCompletionTests(unittest.TestCase):
         with mock.patch.object(finish,"plan",return_value=before), \
              mock.patch.object(finish,"selected_media",
                                return_value=[(9,1,first),(9,2,second)]), \
+             mock.patch.object(finish,"initial_covered",return_value=set()), \
              mock.patch.object(finish,"command",side_effect=invoke), \
              mock.patch.object(finish,"valid_source_exhaustion",return_value=True), \
              mock.patch.object(finish,"write_state") as save, \
@@ -85,6 +86,7 @@ class ScopeCompletionTests(unittest.TestCase):
         with mock.patch.object(finish,"plan",return_value=before), \
              mock.patch.object(finish,"selected_media",
                                return_value=[(9,1,jid)]), \
+             mock.patch.object(finish,"initial_covered",return_value=set()), \
              mock.patch.object(finish,"command",side_effect=invoke), \
              mock.patch.object(finish,"write_state") as save, \
              mock.patch.object(finish.time,"sleep") as sleep:
