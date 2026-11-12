@@ -213,7 +213,7 @@ details>summary{cursor:pointer}
  <p id="movie-search-state" class="small muted"></p>
  <div class="row">
   <label>Release year <input id="movie-year" type="number" min="1880" max="2100" style="width:92px"></label>
-  <button id="movie-start" class="primary" type="button">Find Japanese subtitles</button>
+  <button id="movie-start" class="primary" type="button">Finish Japanese subtitles</button>
   <button id="movie-plamo" type="button" hidden>Queue movie for PLaMo (find and sync English first)</button>
   <button id="movie-stop" type="button" hidden>Stop movie job</button>
  </div>
@@ -645,14 +645,13 @@ function openMovie(movie){
     (movie.fallback_ready?" · Source-first fallback task ready":""):
     "No saved Japanese provider search for this file yet";
   $("movie-start").disabled=present||unknown;
-  $("movie-plamo").hidden=!movie.fallback_ready||
-    !["none","review","plausible"].includes(movie.search_outcome)||present||unknown;
+  $("movie-plamo").hidden=true; // one completion action, never a manual AI decision
   $("movie-plamo").disabled=busy||!latest.aiAvailable||!!latest.workersBusy;
   const year=movie.path.match(/(?:19|20)\d{2}/);
   $("movie-year").value=year?year[0]:"";
   $("movie-feedback").textContent=present?
     "Already covered. Existing Japanese subtitles are never overwritten automatically.":
-    "Source-first. English downloads for PLaMo must be exact-video verified, synchronized, and pass QA.";
+    "Finish runs Japanese sourcing and all available timing repairs first, then automatically uses PLaMo only after proven source exhaustion.";
   window.scrollTo({top:$("movie-panel").offsetTop-18,behavior:"smooth"});
 }
 async function movieTranslate(){
@@ -675,8 +674,14 @@ async function movieAction(stop){
   busy=true;
   try{
     let result;
-    if(stop)result=await ownerPost("/api/movie/stop",{});
-    else{
+    if(stop){
+      result=await ownerPost(latest.finish_scope?.active?
+        "/api/finish/stop":"/api/movie/stop",{});
+    }else if(/^[a-f0-9]{32}$/.test(selectedMovie.jellyfin_id||"")){
+      result=await ownerPost("/api/finish/start",
+            {movie_ids:[selectedMovie.jellyfin_id]});
+    }else{
+      // Older unindexed movie path: preserve the existing source-only pilot.
       const year=Number($("movie-year").value);
       if(!Number.isInteger(year)||year<1880||year>2100)throw Error("Enter the correct release year.");
       const parent=selectedMovie.path.split("/").slice(-2,-1)[0]||"";
@@ -684,7 +689,9 @@ async function movieAction(stop){
       const title=name.length>=3?name:($("title-search").value.trim()||selectedMovie.filename.split(".")[0]);
       result=await ownerPost("/api/movie/start",{video:selectedMovie.path,title,year});
     }
-    $("movie-feedback").textContent=stop?"Movie worker stopping.":"Japanese subtitle sourcing started for the exact movie file.";
+    $("movie-feedback").textContent=stop?"Subtitle job stopping.":
+      result.state==="already_covered"?"Already covered by Japanese subtitles.":
+      "One-action completion started: try Japanese releases and repairs, then PLaMO only if exhausted.";
   }catch(err){$("movie-feedback").textContent="Not started: "+err.message;}
   finally{busy=false;await refreshStatus();}
 }
