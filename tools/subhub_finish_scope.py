@@ -137,6 +137,16 @@ def selected_media(series, seasons):
     return chosen
 
 
+def valid_source_exhaustion(jid):
+    """Revalidate exact video and completed provider search before model use."""
+    if str(SOURCE.parent) not in sys.path:
+        sys.path.insert(0,str(SOURCE.parent))
+    import subhub_deep_source as deep
+    matches=[r for r in deep.inventory.load_latest_manifest()
+             if isinstance(r,dict) and r.get("jellyfin_id")==jid]
+    return len(matches)==1 and deep.validate_exhausted(jid,matches[0])
+
+
 def run(series, seasons=()):
     """One owner action: source every selected file, auto PLaMO proven misses.
 
@@ -204,10 +214,7 @@ def run(series, seasons=()):
         for jid in list(plamo):
             # A refreshed provider search or changed media invalidates a
             # former exhaustion proof. Re-route automatically to sourcing.
-            import subhub_deep_source as deep
-            matches=[r for r in deep.inventory.load_latest_manifest()
-                     if isinstance(r,dict) and r.get("jellyfin_id")==jid]
-            if len(matches)!=1 or not deep.validate_exhausted(jid,matches[0]):
+            if not valid_source_exhaustion(jid):
                 plamo.remove(jid)
                 pending[jid]=next(((sn,number) for sn,number,mid in selection
                                    if mid==jid),(0,0))
