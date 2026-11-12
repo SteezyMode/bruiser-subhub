@@ -169,6 +169,24 @@ class PipelineRecoveryTests(unittest.TestCase):
             self.assertTrue(progress.deterministic_stage_rejection(
                 "unrecognized_subtitle_timing_or_encoding"))
 
+    def test_new_japanese_sidecar_excludes_stale_library_candidate(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)
+            video=root/"Example Film 2024.mkv"
+            video.write_bytes(b"movie")
+            (root/"Example Film 2024.ja.srt").write_text("already covered")
+            row=self.row(video)
+            history=[(self.ID,json.dumps({"candidates":[{
+                "subtitle_id":"1000","provider":"opensubtitles","score":90,
+                "grade":"plausible","language":"ja",
+                "filename":"Example.Film.2024.ja.srt"}]}))]
+            with patch.object(stage,"identity_ok",return_value=True), \
+                 patch.object(stage,"rejected_duration_candidates",return_value=set()), \
+                 patch.object(stage,"alternate_ready",return_value=True), \
+                 patch.object(stage.priorities,"active_coverage_queue",return_value=None):
+                selected=stage.choices({self.ID:row},history,set(),1,"movie")
+            self.assertEqual(selected,[])
+
     def test_stage_next_saved_release_is_ranked_not_redownloaded(self):
         row=self.row("/mnt/2TB/Plex Expansion/Movies/Horror/Example Film 2024 1080p BluRay.mkv")
         history=[(self.ID,json.dumps({"candidates":[
