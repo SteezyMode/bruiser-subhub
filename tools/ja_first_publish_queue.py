@@ -369,7 +369,7 @@ def main():
                         help="publish already-staged JA only for this Jellyfin series")
     parser.add_argument("--season", type=int, default=None,
                         help="optional season number; requires --series")
-    parser.add_argument("--scope",choices=("all",movie_scope.SCOPE),default="all",
+    parser.add_argument("--scope",choices=movie_scope.SCOPES,default="all",
                         help="filter staged publication to selected movie folders")
     args = parser.parse_args()
     if args.jellyfin_id and not direct.EXPECTED_ID_PATTERN.fullmatch(args.jellyfin_id):
