@@ -783,7 +783,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--budget", type=int, default=12, help="1..600 provider-search requests")
     ap.add_argument("--jellyfin-id",default="",help="search one real catalog item by its external title/season/episode identity")
-    ap.add_argument("--scope",choices=("all",movie_scope.SCOPE),default="all",
+    ap.add_argument("--scope",choices=movie_scope.SCOPES,default="all",
                     help="filter searches to specified existing movie categories")
     ap.add_argument("--self-test", action="store_true")
     ap.add_argument("--report", action="store_true", help="print stored results; no provider searches")

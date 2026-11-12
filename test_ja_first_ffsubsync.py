@@ -155,6 +155,73 @@ class FFSubsyncPipelineTests(unittest.TestCase):
         self.assertEqual(result["assessment"]["mode"],"corrected")
         self.assertEqual(result["assessment"]["overlap_repaired_cues"],15)
 
+    def _prepared_structural_trial(self, raw):
+        jid="e"*32
+        runtime=1900.0
+        captured=[]
+        # Isolate the existing audio matcher: this test verifies that the real
+        # preparer receives the safe derived SRT and retains original bytes.
+        def aligner(video,source):
+            captured.append(source)
+            return source
+        def simple_qa(data,duration):
+            return {"cues":len(sync.parse_cues(data)),
+                    "japanese_cue_fraction":1.0}
+        with patch.object(sync.gate,"read_inventory",
+                          return_value={"host_path":"/mock/film.mkv"}), \
+             patch.object(sync.gate,"verify_search_identity"), \
+             patch.object(sync.gate,"read_staging",
+                          return_value=(Path("/stage/original.srt"),raw,
+                                        {"video_seconds":runtime,
+                                         "cues":len(sync.parse_cues(raw))})), \
+             patch.object(sync.gate,"safe_media_path",
+                          return_value=Path("/mock/film.mkv")), \
+             patch.object(sync.gate,"ffprobe_streams",
+                          return_value=([{"codec_type":"audio"}],None)), \
+             patch.object(sync.gate,"check_no_existing_ja"), \
+             patch.object(sync.gate,"subprocess_duration",return_value=runtime), \
+             patch.object(sync.gate,"video_target",
+                          return_value=Path("/mock/film.ja.srt")), \
+             patch.object(sync.gate,"validate_srt",side_effect=simple_qa), \
+             patch.object(sync.source_quality,"require_not_garbage",
+                          return_value={"verdict":"pass"}), \
+             patch.object(sync,"check_alignment",
+                          return_value={"mode":"original","cues":0}):
+            result=sync.prepare(jid,"1234",aligner=aligner)
+        self.assertEqual(result["original"],raw)
+        self.assertEqual(result["chosen"],captured[0])
+        self.assertEqual(result["assessment"]["mode"],"corrected")
+        return result
+
+    def test_standard_preparation_automatically_skips_only_technical_release_note(self):
+        raw=(
+            "1\n00:00:12,849 --> 00:00:19,849\n"
+            "「1：50：50の動画に合わせていますが、若干のズレあり」\n\n"
+            "2\n00:01:00,000 --> 00:01:01,000\n日本語の台詞\n\n"
+            "3\n00:02:00,000 --> 00:02:02,000\n字幕のテスト\n").encode("utf-8")
+        result=self._prepared_structural_trial(raw)
+        self.assertEqual(result["assessment"]["structural_repair"][
+            "technical_release_notes_excluded"],1)
+        self.assertNotIn("合わせています".encode("utf-8"),result["chosen"])
+        self.assertIn("日本語の台詞".encode("utf-8"),result["chosen"])
+
+    def test_standard_preparation_keeps_both_texts_when_small_cues_invert(self):
+        raw=(
+            "1\n00:12:55,000 --> 00:12:55,900\n前のセリフ\n\n"
+            "2\n00:12:58,028 --> 00:12:59,900\nいいね\n\n"
+            "3\n00:12:56,401 --> 00:12:57,200\n頭の回路が変なの\n\n"
+            "4\n00:13:02,000 --> 00:13:03,000\n続き\n"
+        ).encode("utf-8")
+        result=self._prepared_structural_trial(raw)
+        self.assertEqual(result["assessment"]["structural_repair"][
+            "local_timestamp_swaps"],
+            [{"original_cues":[2,3],"jump_ms":1627}])
+        output=result["chosen"]
+        self.assertLess(output.index("頭の回路が変なの".encode()),
+                        output.index("いいね".encode()))
+        for word in ("前のセリフ","いいね","頭の回路が変なの","続き"):
+            self.assertEqual(output.count(word.encode("utf-8")),1)
+
     def test_bind_translation_is_ro_mount_safe(self):
         with tempfile.TemporaryDirectory() as directory:
             folder=Path(directory)/"library"

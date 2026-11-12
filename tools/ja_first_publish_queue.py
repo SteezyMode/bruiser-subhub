@@ -44,6 +44,8 @@ import ja_first_publish_shifted as shifted
 import ja_first_ffsubsync as ff
 import ja_first_alass as alass
 import ja_first_priority as priorities
+import ja_first_candidate_progress as progress
+import ja_first_stage_saved_batch as staging
 
 MAX_ROWS = 3000
 MAX_TITLES = 1000
@@ -232,46 +234,159 @@ def report_title(row):
     return title if title else "media " + str(row.get("jellyfin_id") or "unknown")
 
 
-def choose(jid, candidates):
+def choose(jid, candidates, *, intensive_only=False, record_failures=False):
     published_state, row = existing_verdict(jid, candidates)
     if published_state != "absent":
         return published_state, row, None
-    # Prefer the existing standalone alass engine: unlike the older
-    # ffsubsync route it preserves split / frame-rate corrections instead of
-    # rejecting all nonuniform shifts. All source, QA, and no-overwrite gates
-    # remain inherited from the existing SubHub publisher.
-    if alass.available():
-        for sid, _ in candidates[:3]:
+    if intensive_only:
+        # Keep explicit diagnostic mode separate from the daily pipeline.
+        if not alass.available():
+            raise RuntimeError("intensive_alass_unavailable")
+        tried_hashes=set()
+        for sid,digest in candidates:
+            if digest in tried_hashes:
+                print("  ALASS INTENSIVE SKIP:",sid,
+                      "identical_saved_subtitle",flush=True)
+                continue
+            tried_hashes.add(digest)
             try:
-                ready = alass.prepare(jid, sid)
-                print("  ALASS:", sid, json.dumps(ready["assessment"]), flush=True)
-                return "ready_alass", row, ready
-            except (ValueError, OSError, RuntimeError, KeyError, sqlite3.Error,
-                    subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-                print("  ALASS HELD:", sid, type(exc).__name__,
-                      str(exc)[:95], flush=True)
-    else:
-        print("  ALASS: binary not installed on host; using existing ffsubsync", flush=True)
-    # Fall back to audio-derived ffsubsync for the same candidates.
-    for sid, _ in candidates[:3]:
+                ready=alass.intensive_prepare(jid,sid)
+                print("  ALASS INTENSIVE:",sid,
+                      json.dumps(ready["assessment"]),flush=True)
+                return "ready_alass",row,ready
+            except (ValueError,OSError,RuntimeError,KeyError,sqlite3.Error,
+                    subprocess.CalledProcessError,subprocess.TimeoutExpired) as exc:
+                print("  ALASS INTENSIVE HELD:",sid,type(exc).__name__,
+                      str(exc)[:140],flush=True)
+        raise RuntimeError("intensive_candidates_unverified")
+
+    # One durable title-level receipt prevents redundant direct/offset probes
+    # as well as redundant ALASS work. Adding a new staged release changes the
+    # fingerprint automatically; so does an actual media or code change.
+    combined=progress.group_digest(candidates)
+    final_key=progress.fingerprint(row["host_path"],combined,"final")
+    old=progress.known(jid,"final","final",final_key)
+    if old:
+        print("  UNCHANGED_FAILURE_SKIPPED:",jid,old[:110],flush=True)
+        return "held_unchanged",row,None
+
+    def cached_attempt(engine,sid,digest,func):
+        key=progress.fingerprint(row["host_path"],digest,engine)
+        prior=progress.known(jid,sid,engine,key)
+        if prior:
+            print("  KNOWN_CANDIDATE_FAILURE_SKIPPED:",engine,sid,
+                  prior[:95],flush=True)
+            return None
         try:
-            ready = ff.prepare(jid, sid)
-            print("  FFSUBSYNC:", sid, json.dumps(ready["assessment"]),
-                  flush=True)
-            return "ready_ffsubsync", row, ready
-        except (ValueError, OSError, RuntimeError, KeyError, sqlite3.Error,
-                subprocess.CalledProcessError,
-                subprocess.TimeoutExpired) as exc:
-            print("  FFSUBSYNC HELD:", sid, type(exc).__name__,
-                  str(exc)[:95], flush=True)
-    # The pre-existing trusted embedded-English alignment remains a
-    # conservative independent fallback when audio matching cannot conclude.
-    result = direct_candidate(jid, candidates)
+            return func()
+        except (ValueError,OSError,RuntimeError,KeyError,sqlite3.Error,
+                subprocess.CalledProcessError,subprocess.TimeoutExpired) as exc:
+            if record_failures:
+                progress.remember(jid,sid,engine,key,exc)
+            print("  "+engine.upper()+" HELD:",sid,
+                  type(exc).__name__,str(exc)[:105],flush=True)
+            return None
+
+    # Previously held candidates never crowd a newer release out of the
+    # bounded budget. The ledger skips identical bytes against unchanged
+    # media/implementation, while allowing a different staged subtitle.
+    if alass.available():
+        attempts=0
+        hashes=set()
+        for sid,digest in candidates:
+            if digest in hashes:
+                print("  DUPLICATE_STAGE_SKIPPED:",sid,flush=True)
+                continue
+            hashes.add(digest)
+            key=progress.fingerprint(row["host_path"],digest,"alass")
+            if progress.known(jid,sid,"alass",key):
+                print("  KNOWN_CANDIDATE_FAILURE_SKIPPED: alass",sid,flush=True)
+                continue
+            attempts+=1
+            ready=cached_attempt("alass",sid,digest,
+                                 lambda sid=sid:alass.prepare(jid,sid))
+            if ready is not None:
+                print("  ALASS:",sid,json.dumps(ready["assessment"]),flush=True)
+                return "ready_alass",row,ready
+    else:
+        print("  ALASS unavailable: ffsubsync fallback only",flush=True)
+
+    attempts=0
+    hashes=set()
+    for sid,digest in candidates:
+        if digest in hashes:
+            continue
+        hashes.add(digest)
+        key=progress.fingerprint(row["host_path"],digest,"ffsubsync")
+        if progress.known(jid,sid,"ffsubsync",key):
+            print("  KNOWN_CANDIDATE_FAILURE_SKIPPED: ffsubsync",sid,flush=True)
+            continue
+        attempts+=1
+        ready=cached_attempt("ffsubsync",sid,digest,
+                             lambda sid=sid:ff.prepare(jid,sid))
+        if ready is not None:
+            print("  FFSUBSYNC:",sid,json.dumps(ready["assessment"]),flush=True)
+            return "ready_ffsubsync",row,ready
+
+    # Existing trusted-reference and small-offset paths are preserved.
+    # Record only deterministic complete holds, never transient I/O errors.
+    result=direct_candidate(jid,candidates)
     if result is not None:
-        return "ready_direct", row, result
-    print("  NO DIRECT FIT; evaluating trusted small-offset correction", flush=True)
-    selected = shifted.preparation(jid)
-    return "ready_corrected", row, selected
+        return "ready_direct",row,result
+    print("  NO DIRECT FIT; evaluating trusted small-offset correction",flush=True)
+    try:
+        selected=shifted.preparation(jid)
+        return "ready_corrected",row,selected
+    except (ValueError,OSError,RuntimeError,KeyError,sqlite3.Error) as exc:
+        if record_failures and progress.stable_failure(exc) and alass.available():
+            # A final "sources exhausted" receipt is valid ONLY when every
+            # distinct staged subtitle was actually tried by both engines,
+            # or already has a deterministic receipt for unchanged inputs.
+            # Otherwise (transient docker/timeout error, missing binary)
+            # cache PER-CANDIDATE holds
+            # but never block the entire film or offer AI prematurely.
+            distinct={}
+            for sid,digest in candidates:
+                distinct.setdefault(digest,sid)
+            exhaustive=all(
+                progress.known(jid,sid,engine,
+                    progress.fingerprint(row["host_path"],digest,engine))
+                for digest,sid in distinct.items()
+                for engine in ("alass","ffsubsync")
+            )
+            if exhaustive:
+                progress.remember(jid,"final","final",final_key,exc)
+            else:
+                print("  TITLE_FAILURE_NOT_CACHED: pending or transient "
+                      "candidate alignment remains",flush=True)
+        raise
+
+
+def report_next_action(jid,candidates):
+    """Report actionable source state; never run a model or spend quota."""
+    try:
+        row=direct.read_inventory(jid,allow_existing_ja=True)
+        complete=progress.known(
+            jid,"final","final",
+            progress.fingerprint(row["host_path"],
+                                 progress.group_digest(candidates),"final"))
+        action=progress.next_action(
+            jid,(sid for sid,_ in candidates),
+            accept_candidate=lambda c:staging.identity_ok(row,c))
+        # Fallback may only be offered after EVERY staged candidate was
+        # exhausted with stable failures. Incomplete tests mean retry/inspect,
+        # even when provider search itself returned a final result.
+        if not complete and action in (
+            "offer_owner_reviewed_plamo_after_english_validation",
+            "stage_alternate_saved_japanese"):
+            action="complete_or_retry_staged_validation"
+    except (ValueError,OSError,RuntimeError,KeyError,sqlite3.Error):
+        action="review_candidate_and_source_state"
+    print("NEXT_ACTION:",json.dumps({
+        "jellyfin_id":jid,"action":action,
+        "owner_approval_required":action.startswith("offer_owner"),
+        "english_validation_required":action.startswith("offer_owner")
+    },sort_keys=True),flush=True)
 
 
 def publish_selected(jid, kind, chosen):
@@ -333,6 +448,9 @@ def main():
                         help="maximum distinct titles to examine 1..1000")
     parser.add_argument("--apply", action="store_true",
                         help="create at most --limit new Japanese subtitle sidecars")
+    parser.add_argument("--intensive-only", action="store_true",
+                        help="second pass for already-held staged candidates; compare ALASS"
+                             " settings and independent references before any publication")
     parser.add_argument("--queue-staged-only", action="store_true",
                         help="only titles with pending staged-JA work in Bruiser coverage queue")
     parser.add_argument("--jellyfin-id", default="",
@@ -341,7 +459,7 @@ def main():
                         help="publish already-staged JA only for this Jellyfin series")
     parser.add_argument("--season", type=int, default=None,
                         help="optional season number; requires --series")
-    parser.add_argument("--scope",choices=("all",movie_scope.SCOPE),default="all",
+    parser.add_argument("--scope",choices=movie_scope.SCOPES,default="all",
                         help="filter staged publication to selected movie folders")
     args = parser.parse_args()
     if args.jellyfin_id and not direct.EXPECTED_ID_PATTERN.fullmatch(args.jellyfin_id):
@@ -381,6 +499,10 @@ def main():
               len({str(item[0]) for item in records}), flush=True)
     title_groups = unique_titles(records, args.max_titles)
     print("=== UNIFIED JAPANESE SUBTITLE PUBLISH QUEUE ===", flush=True)
+    if args.intensive_only:
+        print("RECOVERY: intensive ALASS second pass; cached stages only;"
+              " each failed candidate isolated; require independent timing agreement",
+              flush=True)
     print("Staged candidates:", len(records),
           "| unique titles:", len(title_groups),
           "| max new sidecars:", args.limit,
@@ -393,9 +515,14 @@ def main():
         print("MEDIA:", jid, "| candidate IDs:",
               ",".join(sid for sid, _ in candidates), flush=True)
         try:
-            kind, row, value = choose(jid, candidates)
+            kind, row, value = (choose(jid, candidates, intensive_only=True)
+                                if args.intensive_only else choose(
+                                    jid,candidates,record_failures=args.apply))
             print("RESULT:", report_title(row), "|", kind, flush=True)
             counts[kind] += 1
+            if kind=="held_unchanged":
+                report_next_action(jid,candidates)
+                continue
             if kind.startswith("published_"):
                 if args.apply:
                     mark_completed(jid)
@@ -421,6 +548,8 @@ def main():
                 "jellyfin_id": jid, "result": "held",
                 "reason": type(exc).__name__ + ": " + str(exc)[:120]
             }, sort_keys=True), flush=True)
+            if not args.intensive_only:
+                report_next_action(jid,candidates)
     print("QUEUE SUMMARY:", json.dumps(dict(counts)), flush=True)
     print("No provider searches, downloads or translation jobs.", flush=True)
     if not args.apply:

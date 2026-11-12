@@ -28,17 +28,20 @@ from urllib.request import urlopen
 REPO="SteezyMode/bruiser-subhub"
 HOST=Path.home()/"bruiser-pilot/subhub-control"
 DASH=Path.home()/".local/share/bruiser-subhub-dashboard"
+AI=Path.home()/"bruiser-pilot/plamo3-ab"
 SOURCE_FILES=(
     "ja_first_search_pilot.py",
     "ja_first_movie_scope.py",
     "ja_first_cycle.py",
     "ja_first_priority.py",
+    "ja_first_candidate_progress.py",
     "ja_first_catalog_manifest.py",
     "ja_first_stage_saved_batch.py",
     "ja_first_stage_timing_audit.py",
     "ja_first_publish_staged.py",
     "ja_first_publish_shifted.py",
     "ja_first_publish_queue.py",
+    "ja_first_srt_normalize.py",
     "ja_first_alass.py",
     "ja_first_ffsubsync.py",
     # Existing Jellyfin-backed provider adapter, not a new provider service.
@@ -46,14 +49,38 @@ SOURCE_FILES=(
     "probe_jellyfin_remote_subtitle.py",
     "ja_first_stage_jellyfin.py",
     "ja_first_stage_subdl.py",
+    "ja_first_stage_subdl_batch.py",
     "subhub_download_ledger.py",
     "subhub_jellyfin_batch.py",
+    "subhub_deep_source.py",
+    "subhub_source_failure_audit.py",
+    "subhub_plamo_source_repass.py",
     "ja_first_autofill.py",
 )
+NEW_SOURCE_FILES=frozenset({
+    "ja_first_movie_scope.py",
+    "ja_first_srt_normalize.py",
+    "ja_first_candidate_progress.py",
+    "ja_first_alass.py",
+    "benchmark_subtitle_search_paths.py",
+    "probe_jellyfin_remote_subtitle.py",
+    "ja_first_stage_jellyfin.py",
+    "ja_first_stage_subdl.py",
+    "ja_first_stage_subdl_batch.py",
+    "subhub_download_ledger.py",
+    "subhub_jellyfin_batch.py",
+    "subhub_deep_source.py",
+    "subhub_source_failure_audit.py",
+    "subhub_plamo_source_repass.py",
+})
+AI_FILES=("subhub_plamo_handoff.py",)
 DASH_FILES=(
     "subhub_dashboard_server.py",
     "subhub_dashboard.html",
     "subhub_translation_batch.py",
+    "subhub_finish_scope.py",
+    "subhub_finish_titles.py",
+    "subhub_library_browser.py",
     "ja_first_source_tracker.py",
     "subhub_library_coverage.py",
     "subhub_season_sources.py",
@@ -84,6 +111,7 @@ BUSY_UNITS=(
     "bruiser-subhub-batch.service", "bruiser-subhub-translation-batch.service",
     "bruiser-subhub-movie-ja.service",
     "bruiser-subhub-jellyfin-source.service",
+    "bruiser-subhub-finish-scope.service",
 )
 MAX_BYTES=400_000
 
@@ -170,7 +198,7 @@ def main():
     if not re.fullmatch("[0-9a-f]{40}",args.commit):
         parser.error("--commit needs one full 40-character Git commit hash")
 
-    for folder in (HOST,DASH,DASH_JOB_ROOT,DASH_UNIT_DIR):
+    for folder in (HOST,DASH,AI,DASH_JOB_ROOT,DASH_UNIT_DIR):
         secure_directory(folder)
     if DASH_JOB_ROOT.stat().st_mode & 0o077:
         fail("Private source-job inventory is not owner-only")
@@ -188,22 +216,18 @@ def main():
     destinations={}
     for name in SOURCE_FILES:
         target=HOST/name
-        secure_file(target,allow_new=name in {
-            "ja_first_movie_scope.py",
-            "ja_first_alass.py",
-            "benchmark_subtitle_search_paths.py",
-            "probe_jellyfin_remote_subtitle.py",
-            "ja_first_stage_jellyfin.py",
-            "ja_first_stage_subdl.py",
-            "subhub_download_ledger.py",
-            "subhub_jellyfin_batch.py",
-        })
+        secure_file(target,allow_new=name in NEW_SOURCE_FILES)
         destinations[("source",name)]=target
     for name in DASH_FILES:
         target=DASH/name
         secure_file(target,allow_new=name in {
-            "subhub_library_coverage.py","subhub_translation_batch.py"})
+            "subhub_library_coverage.py","subhub_translation_batch.py",
+            "subhub_finish_scope.py","subhub_finish_titles.py","subhub_library_browser.py"})
         destinations[("dashboard",name)]=target
+    for name in AI_FILES:
+        target=AI/name
+        secure_file(target)
+        destinations[("ai",name)]=target
 
     print("FETCHING fixed revision:",args.commit)
     files={}
@@ -212,6 +236,7 @@ def main():
     # Avoid replacing host files with a version that cannot even parse.
     assert "strategy_version" in files[("source","ja_first_search_pilot.py")].decode()
     assert 'id="source-library"' in files[("dashboard","subhub_dashboard.html")].decode()
+    assert "def indexed_jellyfin_english" in files[("ai","subhub_plamo_handoff.py")].decode()
     root=Path(tempfile.mkdtemp(prefix=".ja-lib-pref-",dir=HOST))
     backup=None
     updated=[]

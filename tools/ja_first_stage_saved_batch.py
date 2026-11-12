@@ -16,9 +16,11 @@ from __future__ import annotations
 try:
     from . import ja_first_priority as priorities
     from . import subhub_download_ledger as ledger
+    from . import ja_first_candidate_progress as candidate_progress
 except ImportError:
     import ja_first_priority as priorities
     import subhub_download_ledger as ledger
+    import ja_first_candidate_progress as candidate_progress
 
 import argparse
 try:
@@ -334,6 +336,97 @@ def contiguous_words(full, needle):
                for i in range(len(full) - len(needle) + 1))
 
 
+# These are acquisition eligibility checks, NEVER authority to publish.
+# A release-year difference of one is common for festival vs theatrical dates.
+MOVIE_RELEASE_TOKENS={
+    "web","webdl","webrip","bluray","bdrip","brrip","dvdrip","hdtv",
+    "1080p","720p","2160p","extended","remux","sub","subs",
+    "japanese","ja","jp","jpn","jpa","srt","ass","vtt",
+}
+JP_RELEASE_TAGS={"ja","jp","jpn","jpa","japanese"}
+RELEASE_YEAR=re.compile(r"(?:19|20)\d{2}\Z")
+
+
+def movie_identity_ok(row,result):
+    """Exact film-name evidence for trial staging, not a timing verdict.
+
+    A one-year festival/release discrepancy is allowed only with the full
+    film title and the year appearing adjacent to that title. An exact
+    language-tagged title WITHOUT any year can also be worth acquiring.
+    No broad substring matching: Maniac must not match Nymphomaniac;
+    unrelated movies with the same S/E/keyword remain rejected.
+    """
+    year=str(row.get("year") or "")
+    title=tokens(row.get("title"))
+    if not re.fullmatch(r"\d{4}",year) or not title:
+        return False
+    aliases=[title]
+    # Official movie titles sometimes append a descriptive subtitle after
+    # ':' whereas provider releases use the short title (e.g. Borat).
+    before_colon=str(row.get("title") or "").split(":",1)[0]
+    if ":" in str(row.get("title") or ""):
+        short=tokens(before_colon)
+        if (short!=title and len("".join(short))>=5
+                and len(short)>=1):
+            aliases.append(short)
+
+    matched_year=False
+    matched_yearless=False
+    contradictory=False
+    for original in (result.get("filename"),result.get("release_info")):
+        words=tokens(original)
+        if not words:
+            continue
+        # A saved Japanese provider response with a filename clearly ending
+        # in ".eng"/".english" is not safe to download for JA acquisition.
+        raw=str(original or "").casefold().strip()
+        if re.search(r"(?:^|[._ -])(?:eng|english)(?:\.(?:srt|ass|vtt))?$",raw):
+            return False
+        # Normal provider decorations are okay; embedded year conflicts are
+        # not silently ignored or reinterpreted as the target year.
+        for alias in aliases:
+            for i in range(len(words)-len(alias)+1):
+                if words[i:i+len(alias)]!=alias:
+                    continue
+                left=words[i-1] if i else ""
+                right=words[i+len(alias)] if i+len(alias)<len(words) else ""
+                nearby=[w for w in (left,right) if RELEASE_YEAR.fullmatch(w)]
+                if any(abs(int(w)-int(year))>1 for w in nearby):
+                    contradictory=True
+                    continue
+                if nearby:
+                    matched_year=True
+                elif alias==title and len(title)>=2 and i==0 and not any(
+                    RELEASE_YEAR.fullmatch(w) for w in words
+                ) and (len(words)==len(title) or
+                       right in MOVIE_RELEASE_TOKENS):
+                    matched_yearless=True
+        # Providers frequently abbreviate an EXACT title by appending
+        # '-jp', '-jpa', etc. This must be the WHOLE title, not a substring.
+        # For punctuation-heavy film names, V/H/S -> VHS is accepted only
+        # with a Japanese suffix and no other unverified words/year.
+        if not any(RELEASE_YEAR.fullmatch(w) for w in words):
+            stripped=list(words)
+            jp_tag=False
+            if stripped and stripped[-1] in JP_RELEASE_TAGS:
+                stripped.pop()
+                jp_tag=True
+            elif stripped:
+                for tag in ("japanese","jpa","jpn","jp","ja"):
+                    if stripped[-1].endswith(tag) and len(stripped[-1])>len(tag):
+                        stripped[-1]=stripped[-1][:-len(tag)]
+                        jp_tag=True
+                        break
+            if (jp_tag and stripped and
+                    (stripped==title or
+                     len("".join(title))>=3 and
+                     "".join(stripped)=="".join(title))):
+                matched_yearless=True
+    # An explicit year conflict is more authoritative than an undated
+    # title-only match, even when another provider field looks plausible.
+    return not contradictory and (matched_year or matched_yearless)
+
+
 def identity_ok(row, result):
     """Conservative: identity candidate only, never permission to publish."""
     if (result.get("provider") != "opensubtitles"
@@ -344,30 +437,10 @@ def identity_ok(row, result):
                                 str(result.get("subtitle_id") or ""))):
         return False
 
-    name = str(result.get("filename") or "")
-    release = str(result.get("release_info") or "")
-    if row.get("kind") == "Movie":
-        # Title/year is enough to stage a reviewable candidate; an absent
-        # IMDb ID does not mean subtitle files are impossible to match.
-        # Keep strict same-title + year checks below, then timing/QA/no-clobber.
-        year = str(row.get("year") or "")
-        title = tokens(row.get("title"))
-        if not re.fullmatch(r"\d{4}", year) or not title:
-            return False
-        found = False
-        for text in (name, release):
-            words = tokens(text)
-            for i in range(len(words) - len(title) + 1):
-                if words[i:i + len(title)] != title:
-                    continue
-                neighbors = [words[i - 1] if i else "",
-                             words[i + len(title)] if i + len(title) < len(words) else ""]
-                if any(re.fullmatch(r"(?:19|20)\d{2}", w) and w != year
-                       for w in neighbors):
-                    return False
-                if year in neighbors:
-                    found = True
-        return found
+    name=str(result.get("filename") or "")
+    release=str(result.get("release_info") or "")
+    if row.get("kind")=="Movie":
+        return movie_identity_ok(row,result)
 
     if row.get("kind") == "Episode":
         season, number = row.get("season"), row.get("episode")
@@ -439,7 +512,50 @@ def rejected_duration_candidates():
     return rejected
 
 
-def choices(inventory, searches, already, budget, kind, only_id=None, scope="all"):
+def known_rejected_download(row,candidate):
+    """Previously downloaded malformed subtitle, not an untried release."""
+    # A stale inventory may name a missing media file; selection must not
+    # abort the whole library run. The existing per-title staging preflight
+    # will reject that file without spending a provider download.
+    video=Path(str(row.get("host_path") or ""))
+    if not video.is_file() or video.is_symlink():
+        return False
+    key=candidate_progress.fingerprint(
+        video,candidate_progress.saved_candidate_digest(candidate),"stage")
+    prior=candidate_progress.known(
+        str(row["jellyfin_id"]),str(candidate["subtitle_id"]),"stage",key,
+        max_age_seconds=30*86400)
+    if prior:
+        print("  REJECTED_DOWNLOAD_SKIPPED:",row.get("title"),
+              candidate.get("subtitle_id"),prior[:75],flush=True)
+    return bool(prior)
+
+
+def alternate_ready(row):
+    """Do not spend a second download while an existing stage is untried.
+
+    A recorded, deterministic final alignment hold permits trying a DIFFERENT
+    saved provider release on the next pass. A staging-duration rejection is
+    already excluded from this set and requires no publication trial.
+    """
+    if not STAGE_DB.exists() and not STAGE_DB.is_symlink():
+        return True
+    private_file(STAGE_DB)
+    jid=str(row.get("jellyfin_id") or "")
+    with sqlite3.connect("file:"+quote(str(STAGE_DB.resolve()),safe="/")+
+                         "?mode=ro",uri=True,timeout=10) as db:
+        rows=db.execute(
+            "SELECT subtitle_id,sha256 FROM staged "
+            "WHERE jellyfin_id=? AND status='staged'",(jid,)).fetchall()
+    if not rows:
+        return True
+    key=candidate_progress.fingerprint(
+        row["host_path"],candidate_progress.group_digest(rows),"final")
+    return bool(candidate_progress.known(jid,"final","final",key))
+
+
+def choices(inventory, searches, already, budget, kind, only_id=None, scope="all",
+            subtitle_id=None, exhaustive=False):
     queue = priorities.active_coverage_queue()
     already = set(already) | rejected_duration_candidates()
     possible = []
@@ -464,11 +580,31 @@ def choices(inventory, searches, already, budget, kind, only_id=None, scope="all
             continue
         candidates = (result.get("candidates") or []) if isinstance(result, dict) else []
         plausible = [c for c in candidates if isinstance(c, dict)
+                     and (subtitle_id is None or str(c.get("subtitle_id")) == subtitle_id)
                      and identity_ok(row, c)
-                     and (str(jid), str(c["subtitle_id"])) not in already]
+                     and (str(jid), str(c["subtitle_id"])) not in already
+                     and not known_rejected_download(row,c)]
         if not plausible:
             continue
+        # A long-running library snapshot can lag behind sidecars published
+        # by yesterday's job. Check existing local subtitles BEFORE consuming
+        # a limited staging slot. This is a filename-only, read-only check,
+        # not an attempt to judge or modify the existing subtitle.
+        video=Path(str(row.get("host_path") or ""))
+        if (not only_id and video.is_file() and not video.is_symlink()
+                and japanese_sidecar_exists(video)):
+            print("  COVERED_SINCE_CATALOG:",str(row.get("title") or
+                  row.get("series_title") or jid),flush=True)
+            continue
+        if not only_id and not exhaustive and not alternate_ready(row):
+            # A prior stage is waiting for its FIRST publication decision.
+            # Another download now would consume provider quota unnecessarily.
+            continue
+        # Prefer the release/edition matching the actual video, not just
+        # provider search score. This ranks candidates; it never proves sync.
         plausible.sort(key=lambda r: (
+            0 if r.get("grade","plausible")=="plausible" else 1,
+            -candidate_progress.release_match(row,r),
             -int(r.get("score") or 0),
             str(r.get("subtitle_id") or "")
         ))
@@ -482,7 +618,8 @@ def choices(inventory, searches, already, budget, kind, only_id=None, scope="all
         if kind == "episode" and row["kind"] != "Episode":
             continue
         possible.append((order, -int(c.get("score") or 0), label.casefold(),
-                         str(jid), {"row": row, "candidate": c, "label": label}))
+                         str(jid), {"row": row, "candidate": c, "label": label,
+                           "release_rank": candidate_progress.release_match(row,c)}))
     possible.sort(key=lambda x: x[:4])
     # Download saved high-confidence JA sources across BOTH media types in
     # queue order. Never use an arbitrary percentage split.
@@ -694,6 +831,22 @@ def run_one(job, database):
     # Account BEFORE interpreting the final worker outcome: a downloaded file
     # still consumes allowance if its Japanese text or timing later fails QA.
     record_native_download_attempt(result.stdout,report)
+    # A provider can deliver bytes immediately rejected as malformed. The
+    # previous daily run then redownloaded the SAME bad file without a stage.
+    # Cache only when bytes actually arrived and the local content validator
+    # rejected them (never auth/quota/docker/ffprobe/I/O).
+    received=re.findall(r"(?m)^SUBHUB_DOWNLOAD_RECEIVED: ([0-9]{1,7})$",result.stdout)
+    if (len(received)==1 and 0<int(received[0])<=2_000_000 and
+            report.get("result")=="blocked" and
+            report.get("error_type")=="RuntimeError" and
+            candidate_progress.deterministic_stage_rejection(report.get("error"))):
+        key=candidate_progress.fingerprint(
+            row["host_path"],candidate_progress.saved_candidate_digest(candidate),"stage")
+        candidate_progress.remember(
+            str(row["jellyfin_id"]),str(candidate["subtitle_id"]),"stage",key,
+            RuntimeError(str(report["error"])))
+        print("  SAVED_REJECTED_DOWNLOAD:",candidate["subtitle_id"],
+              str(report["error"])[:90],flush=True)
     if not lines:
         raise RuntimeError("container_staging_result_missing")
     if result.returncode or report.get("result") not in (
@@ -773,7 +926,11 @@ def main():
     cli.add_argument("--budget", type=int, default=3,
                      help="maximum staged OpenSubtitles downloads: 1..200")
     cli.add_argument("--jellyfin-id",default="",help="stage a saved Japanese candidate for one exact item")
-    cli.add_argument("--scope",choices=("all",movie_scope.SCOPE),default="all")
+    cli.add_argument("--scope",choices=movie_scope.SCOPES,default="all")
+    cli.add_argument("--subtitle-id",default="",
+                     help="one exact saved OpenSubtitles release; requires --jellyfin-id")
+    cli.add_argument("--exhaustive",action="store_true",
+                     help="owner-selected deep recovery: permit alternate releases while previous stages are held")
     cli.add_argument("--kind", choices=("all", "movie", "episode"),
                      default="all")
     cli.add_argument("--require-embedded-en", action="store_true",
@@ -790,6 +947,9 @@ def main():
         cli.error("--budget must be 1..200")
     if opts.jellyfin_id and not re.fullmatch(r"[a-f0-9]{32}",opts.jellyfin_id):
         cli.error("--jellyfin-id must be an exact Jellyfin ID")
+    if opts.subtitle_id and (not opts.jellyfin_id or
+            not re.fullmatch(r"[1-9][0-9]{3,13}",opts.subtitle_id)):
+        cli.error("--subtitle-id requires an exact --jellyfin-id and numeric provider ID")
     inventory = read_inventory()
     history = read_saved_searches()
     already = read_staged()
@@ -797,7 +957,8 @@ def main():
         # Search at most 24 manifest-confirmed candidate rows. Never probe
         # thousands of media files for a small acquisition budget.
         pool = choices(inventory, history, already, 24, opts.kind,
-                       only_id=opts.jellyfin_id or None, scope=opts.scope)
+                       only_id=opts.jellyfin_id or None, scope=opts.scope,
+                       subtitle_id=opts.subtitle_id or None, exhaustive=opts.exhaustive)
         selected = []
         considered = 0
         for option in pool:
@@ -818,13 +979,15 @@ def main():
               flush=True)
     else:
         selected = choices(inventory, history, already, opts.budget, opts.kind,
-                           only_id=opts.jellyfin_id or None, scope=opts.scope)
+                           only_id=opts.jellyfin_id or None, scope=opts.scope,
+                           subtitle_id=opts.subtitle_id or None, exhaustive=opts.exhaustive)
     print("=== JAPANESE SUBTITLE STAGING BATCH ===", flush=True)
     print("Available saved search entries:", len(history), "| scope:",opts.scope,flush=True)
     print("Selected:", len(selected), "| budget:", opts.budget, flush=True)
     for i, job in enumerate(selected, 1):
         print(f'  [{i}] {job["label"]} | OpenSubtitles ID '
-              f'{job["candidate"]["subtitle_id"]}', flush=True)
+              f'{job["candidate"]["subtitle_id"]}' +
+              ' | release-rank ' + str(job["release_rank"]), flush=True)
     if not selected:
         if opts.require_embedded_en:
             print("No candidate with a confirmed embedded English text track "

@@ -8,7 +8,7 @@ the viewer. No extra Python packages required.
 from __future__ import annotations
 
 import argparse
-from collections import deque
+from collections import Counter, deque
 from datetime import datetime
 import json
 import re
@@ -95,6 +95,7 @@ def parse(events):
         "published": 0, "publish_holds": 0,
         "provider_limited": False,
         "existing_recognized": 0,
+        "skipped_unchanged": 0, "next_actions": {},
         "current": "",
         "recent": [],
     }
@@ -102,12 +103,13 @@ def parse(events):
     legacy_published = 0
     publisher_receipts = 0
     publisher_summaries = 0
+    next_actions=Counter()
     for _, message in entries:
         for line in message.splitlines():
             line = line.strip()
             if line.startswith("SOURCE SCOPE:"):
                 scope=line.partition(":")[2].strip()
-                if scope in ("all","horror-drama-folders"):
+                if scope in ("all","horror-drama-folders","movies-no-anime"):
                     state["scope"]=scope
             elif line.startswith("RUNNING_SOURCES_ONLY_CYCLE"):
                 m = RE_LIMITS.search(line)
@@ -169,6 +171,8 @@ def parse(events):
                 state["current"] = name.split("|", 1)[0].strip()
                 if " | published_" in line:
                     state["existing_recognized"] += 1
+                if " | held_unchanged" in line:
+                    state["skipped_unchanged"] += 1
             elif line.startswith("PUBLISHED:"):
                 legacy_published += 1
                 notable.append("Published Japanese sidecar #" + str(legacy_published))
@@ -194,6 +198,18 @@ def parse(events):
                 elif state["phase"].startswith("QA"):
                     state["publish_holds"] += 1
                     notable.append("Subtitle held; no overwrite")
+            elif line.startswith("NEXT_ACTION:"):
+                try:
+                    action=json.loads(line.split(":",1)[1]).get("action")
+                    if action in ("stage_alternate_saved_japanese",
+                                  "retry_japanese_providers_after_reset",
+                                  "offer_owner_reviewed_plamo_after_english_validation",
+                                  "search_japanese","complete_or_retry_staged_validation",
+                                  "review_candidate_and_source_state",
+                                  "review_search_evidence"):
+                        next_actions[action]+=1
+                except (ValueError,AttributeError,TypeError):
+                    pass
             elif line.startswith("AUTOFILL_CYCLE_COMPLETE"):
                 state["complete"] = True
                 state["phase"] = ("Finished stages; sourcing stopped at provider limit"
@@ -212,6 +228,7 @@ def parse(events):
     # some emit both. They describe the same writes, never three new tracks.
     state["published"] = max(legacy_published, publisher_receipts,
                              publisher_summaries)
+    state["next_actions"]=dict(next_actions)
     state["recent"] = list(notable)
     return state
 

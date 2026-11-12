@@ -1,6 +1,7 @@
 """Offline, no-GPU tests of the queue-owned PLaMo subtitle handoff."""
 from pathlib import Path
 import json
+import hashlib
 import os
 import sqlite3
 import tempfile
@@ -168,8 +169,9 @@ class HandoffTests(unittest.TestCase):
                 ai.validate_row(row,owner_review=True)
                 with self.assertRaisesRegex(RuntimeError,"japanese_sourcing_not_exhausted"):
                     ai.validate_row(row)
-                with self.assertRaisesRegex(RuntimeError,"review_source_evidence"):
-                    ai.validate_row(dict(row,kind="Movie"),owner_review=True)
+                # A held Movie now receives the same owner-reviewed fallback
+                # path as a held Episode, but only with saved JA search proof.
+                ai.validate_row(dict(row,kind="Movie"),owner_review=True)
                 with sqlite3.connect(search) as db:
                     db.execute("UPDATE searches SET outcome='error'")
                 with self.assertRaisesRegex(RuntimeError,"review_source_evidence"):
@@ -468,6 +470,63 @@ class HandoffTests(unittest.TestCase):
                                   side_effect=RuntimeError("english_text_source_not_available")):
                     ai.saved_media(video,"fid",info,Daily,
                                    None,None,None,lambda p:Path(p))
+
+    def test_jellyfin_indexed_english_prevents_redownload_and_aligns_audio(self):
+        from types import SimpleNamespace
+        class Daily:
+            @staticmethod
+            def already_ja(video): return False
+            @staticmethod
+            def english_srt(video): return None
+        info={"audio_en":True,"ja":False,"embedded_en":None}
+        raw=b"1\n00:00:20,000 --> 00:00:22,000\nHello\n"
+        cues=[{"number":i,"english":"Text"} for i in range(1,151)]
+        small=SimpleNamespace(parse_srt=lambda text,limit:cues)
+        with tempfile.TemporaryDirectory() as folder:
+            video=Path(folder)/"Episode.mkv"
+            video.write_bytes(b"fixture")
+            with patch.object(ai,"indexed_jellyfin_english",return_value=raw) as indexed, \
+                 patch.object(ai,"acquire_exact_english") as search, \
+                 patch.object(ai,"normalize_external_english",return_value=raw), \
+                 patch.object(ai,"synchronize_external_english",
+                              return_value=(raw,{"mode":"audio_checked"})) as sync:
+                out=ai.saved_media(video,"a"*32,info,Daily,None,small,
+                                   None,lambda p:Path(p))
+            self.assertEqual(out[3],"jellyfin_indexed_audio_synced")
+            self.assertEqual(out[4]["mode"],"audio_checked")
+            self.assertEqual(out[2],hashlib.sha256(raw).hexdigest())
+            search.assert_not_called()
+            indexed.assert_called_once_with(video,"a"*32)
+            sync.assert_called_once()
+
+    def test_downloaded_english_indexed_without_sidecar_reaches_audio_sync(self):
+        from types import SimpleNamespace
+        class Daily:
+            @staticmethod
+            def already_ja(video): return False
+            @staticmethod
+            def english_srt(video): return None
+        info={"audio_en":True,"ja":False,"embedded_en":None}
+        raw=b"1\n00:00:20,000 --> 00:00:22,000\nHello\n"
+        cues=[{"number":i,"english":"Text"} for i in range(1,151)]
+        small=SimpleNamespace(parse_srt=lambda text,limit:cues)
+        with tempfile.TemporaryDirectory() as folder:
+            video=Path(folder)/"Episode.mkv"
+            video.write_bytes(b"fixture")
+            with patch.object(ai,"indexed_jellyfin_english",
+                              side_effect=[None,raw]) as indexed, \
+                 patch.object(ai,"acquire_exact_english") as search, \
+                 patch.object(ai,"normalize_external_english",return_value=raw), \
+                 patch.object(ai,"synchronize_external_english",
+                              return_value=(raw,{"mode":"audio_checked"})) as sync, \
+                 patch.object(ai.time,"sleep") as sleep:
+                out=ai.saved_media(video,"a"*32,info,Daily,None,small,
+                                   None,lambda p:Path(p))
+            self.assertEqual(out[3],"jellyfin_indexed_audio_synced")
+            self.assertEqual(indexed.call_count,2)
+            search.assert_called_once()
+            sync.assert_called_once()
+            sleep.assert_not_called()
 
     def test_orphan_english_source_after_crash_is_reprepared(self):
         from types import SimpleNamespace

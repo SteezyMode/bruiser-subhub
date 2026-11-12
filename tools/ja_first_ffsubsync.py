@@ -19,6 +19,7 @@ import tempfile
 
 import ja_first_publish_staged as gate
 import ja_first_obvious_quality as source_quality
+import ja_first_srt_normalize as structure
 from bruiser_ja_movie_rescue import health
 
 CONTAINER = "sublarr-pilot"
@@ -266,23 +267,29 @@ def prepare(jid,sid,*,aligner=align_in_container):
     runtime=float(metrics.get("video_seconds") or 0)
     if not 600<=runtime<=4*3600 or abs(gate.subprocess_duration(video)-runtime)>0.5:
         raise RuntimeError("video_changed_since_staging")
-    qa=gate.validate_srt(raw,runtime)
-    if qa["cues"] != int(metrics.get("cues") or -1):
-        raise RuntimeError("staged_cue_count_changed")
+    # Normalize only unambiguous technical defects in a private working copy.
+    # No relaxation of cue/text identity, health, or audio-timing acceptance.
+    source,repair=structure.normalize(
+        raw,expected_timestamps=int(metrics.get("cues") or -1),
+        trial_release_note=True,trial_local_swap=True)
+    qa=gate.validate_srt(source,runtime)
     # Cheap, high-recall corruption screen before the expensive audio sync.
     # It does not grade idiom choice, fluent machine translation, or meaning.
-    quality=source_quality.require_not_garbage(raw)
-    synced=aligner(video,raw)
+    quality=source_quality.require_not_garbage(source)
+    synced=aligner(video,source)
     # Sync tools may reflow text. Keep the original JA dialogue byte-for-byte
     # per cue; their output is only authority for candidate timestamps.
-    synced=keep_source_dialogue(raw,synced)
+    synced=keep_source_dialogue(source,synced)
     # Preserve source bytes; only touch the private aligned candidate.
     synced,overlap_report=repair_minor_overlaps(synced,runtime)
     if gate.validate_srt(synced,runtime)!=qa:
         raise RuntimeError("synced_srt_cue_or_language_changed")
-    decision=check_alignment(raw,synced,runtime)
+    decision=check_alignment(source,synced,runtime)
     decision.update(overlap_report)
-    chosen=raw if decision["mode"]=="original" else synced
+    chosen=source if decision["mode"]=="original" else synced
+    if source!=raw:
+        decision["mode"]="corrected"
+        decision["structural_repair"]=repair
     return {"jid":jid,"sid":sid,"row":row,"video":video,
             "target":gate.video_target(video),"original":raw,"chosen":chosen,
             "assessment":decision,"source_quality":quality}

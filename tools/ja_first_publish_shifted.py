@@ -4,7 +4,7 @@
 Use when a SubHub staged Japanese SRT has:
 - exact Jellyfin episode/movie identity and native OpenSubtitles history,
 - a trusted embedded English subtitle reference from the SAME video,
-- >=95% cue-start alignment at one constant offset within +/-2 seconds,
+- >=95% cue-start alignment for short <=2 s offsets, or >=98% for <=30 s,
 - a clean full-dialogue Japanese SRT.
 
 Default: read-only evaluation. --apply: preserve a separate corrected copy
@@ -32,9 +32,12 @@ from urllib.parse import quote
 
 import ja_first_publish_staged as gate
 import ja_first_stage_timing_audit as audit
+import ja_first_srt_normalize as structure
 
 MIN_MATCH = 0.95
-MAX_SHIFT = 2.0
+MAX_SHIFT = 30.0
+SHORT_SHIFT = 2.0
+LARGE_SHIFT_MIN_MATCH = 0.98  # Strong independent cue-start agreement only
 AFTER_OFFSET_MAX = 0.20
 MAX_CANDIDATES = 8
 ID = re.compile(r"[a-f0-9]{32}\Z")
@@ -62,7 +65,29 @@ def stamp(value_ms):
     return f"{hours:02d}:{minutes:02d}:{seconds:02d},{ms:03d}"
 
 
-def shift_srt(raw, offset_seconds):
+def eligible_constant_shift(before):
+    """Long, *constant* offsets require near-perfect embedded-reference fit.
+
+    This does not broaden ALASS acceptance or trust external sidecars.
+    The existing full QA, timestamp boundary checks and after-shift
+    independent timing verification still apply.
+    """
+    if (before.get("status")!="shift_needed"
+            or before.get("reference_trust")!="trusted_embedded"):
+        return False
+    try:
+        fraction=float(before["matching_start_fraction"])
+        offset=abs(float(before["best_offset_seconds"]))
+    except (TypeError,KeyError,ValueError):
+        return False
+    import math
+    if not (math.isfinite(fraction) and math.isfinite(offset)):
+        return False
+    return (fraction>=MIN_MATCH and 0.5<offset<=SHORT_SHIFT or
+            fraction>=LARGE_SHIFT_MIN_MATCH and SHORT_SHIFT<offset<=MAX_SHIFT)
+
+
+def shift_srt(raw, offset_seconds, *, runtime=None):
     """Shift candidate by -offset_seconds; preserve EVERY dialogue line.
 
     A positive alignment offset means the JA cue begins later than English.
@@ -93,6 +118,23 @@ def shift_srt(raw, offset_seconds):
         raise RuntimeError("too_few_srt_timestamps_for_safe_shift")
     if SRT_TIMESTAMP.sub("<timing>", source) != SRT_TIMESTAMP.sub("<timing>", changed):
         raise RuntimeError("non_timing_subtitle_text_changed")
+    if runtime is not None:
+        import math
+        if not math.isfinite(float(runtime)) or runtime<=0:
+            raise RuntimeError("shift_video_duration_unavailable")
+        previous_start=-1
+        count=0
+        for m in SRT_TIMESTAMP.finditer(changed):
+            start=milliseconds(m["start"])
+            end=milliseconds(m["end"])
+            if start<previous_start or end<=start:
+                raise RuntimeError("shifted_subtitle_cues_not_chronological")
+            if end>runtime*1000+1000:
+                raise RuntimeError("shifted_subtitle_exceeds_video_duration")
+            previous_start=start
+            count+=1
+        if count!=replacements:
+            raise RuntimeError("shifted_subtitle_cue_count_changed")
     return changed.encode("utf-8"), replacements
 
 
@@ -157,10 +199,14 @@ def preparation(jid):
                 raise RuntimeError("invalid_original_video_duration")
             if abs(gate.subprocess_duration(video) - runtime) > 0.5:
                 raise RuntimeError("video_duration_changed_since_staging")
-            initial_qa = gate.validate_srt(raw, runtime)
-            if initial_qa["cues"] != int(metrics.get("cues") or -1):
-                raise RuntimeError("original_staged_cue_count_changed")
-            before = audit.inspect(row, raw)
+            # Uniform preparation across all existing source sync routes.
+            # The SAVED provider original remains immutable, and its total
+            # timestamp count must match its database record before repair.
+            source, repair = structure.normalize(
+                raw, expected_timestamps=int(metrics.get("cues") or -1),
+                trial_release_note=True, trial_local_swap=True)
+            initial_qa = gate.validate_srt(source, runtime)
+            before = audit.inspect(row, source)
             detail = {
                 "subtitle_id": sid,
                 "original_timing": {
@@ -171,14 +217,10 @@ def preparation(jid):
                 }
             }
             print("CANDIDATE:", json.dumps(detail), flush=True)
-            if (before.get("status") != "shift_needed"
-                    or before.get("reference_trust") != "trusted_embedded"
-                    or float(before.get("matching_start_fraction") or 0) < MIN_MATCH):
+            if not eligible_constant_shift(before):
                 continue
-            offset = float(before.get("best_offset_seconds") or 0)
-            if not 0.5 < abs(offset) <= MAX_SHIFT:
-                continue
-            shifted, num = shift_srt(raw, offset)
+            offset = float(before["best_offset_seconds"])
+            shifted, num = shift_srt(source, offset, runtime=runtime)
             if num != initial_qa["cues"]:
                 raise RuntimeError("shift_did_not_rewrite_all_srt_timestamps")
             corrected_qa = gate.validate_srt(shifted, runtime)
@@ -202,7 +244,7 @@ def preparation(jid):
                 "sid": sid, "row": row, "video": video,
                 "target": gate.video_target(video),
                 "before": before, "after": after,
-                "raw": raw, "adjusted": shifted,
+                "raw": raw, "adjusted": shifted, "structural_repair":repair,
             })
         except (OSError, RuntimeError, ValueError, sqlite3.Error) as exc:
             print("CANDIDATE HELD:", sid, type(exc).__name__,
@@ -245,6 +287,7 @@ def save_derived(best):
         "source_sha256": hashlib.sha256(best["raw"]).hexdigest(),
         "adjusted_sha256": digest,
         "offset_applied_seconds": -best["before"]["best_offset_seconds"],
+        "structural_repair":best.get("structural_repair"),
         "before": best["before"],
         "after": best["after"],
         "file_name": name,

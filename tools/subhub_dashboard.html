@@ -59,6 +59,17 @@ hr{border:0;border-top:1px solid var(--line);margin:17px 0}
 .fill{height:100%;background:#89acdf;width:0}
 #toast{min-height:19px;margin:12px 0;color:var(--dim)}
 #feedback{white-space:pre-wrap}
+.browse-tabs{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+.browse-tabs button[aria-pressed="true"]{border-color:var(--accent);background:#30445e}
+#browse-query{flex:1;min-width:180px}
+#browse-state,#browse-genre{background:#121923;color:var(--ink);border:1px solid #637084;border-radius:7px;padding:9px;max-width:100%}
+.browse-entry{display:flex;align-items:center;gap:10px;padding:10px 3px;border-top:1px solid #33404e}
+.browse-entry>div{min-width:0;flex:1;overflow-wrap:anywhere}
+.browse-folder{width:100%;text-align:left;background:transparent;border:0;border-top:1px solid #33404e;border-radius:0;padding:11px 5px}
+.browse-folder:hover{background:var(--surface2)}
+.browse-count{font-size:12px;color:var(--dim)}
+.browse-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:9px;margin:10px 0}
+#browse-items{max-height:540px;overflow-y:auto}
 details>summary{cursor:pointer}
 [hidden]{display:none!important}
 @media(max-width:720px){main{padding:15px}.panel{padding:15px}.result-list{grid-template-columns:1fr}#title-search{width:100%}header{align-items:start}}
@@ -71,7 +82,136 @@ details>summary{cursor:pointer}
  <div class="row"><span id="run-status" class="small muted">Checking workers…</span><a id="open-sublarr" class="tool-link" href="http://127.0.0.1:15765/" target="_blank" rel="noopener noreferrer" title="Opens Sublarr through the SubHub Mac/Linux SSH shortcut tunnel">Open Sublarr</a><button class="quiet" id="refresh">Refresh</button></div>
 </header>
 
-<section class="panel" id="library-coverage">
+<section class="panel" id="next-step" aria-live="polite">
+ <h2>Current job and next action</h2>
+ <p id="next-state">Checking work status…</p>
+ <p id="next-instruction" class="muted">Opening the dashboard does not start work.</p>
+ <p id="selected-coverage" class="small muted" hidden></p>
+ <button type="button" class="primary" id="next-action" hidden>Review titles</button>
+</section>
+
+<section class="panel" id="active-work">
+ <div class="split"><h2>Active work</h2><span id="current-work" class="small muted">No current job</span></div>
+ <div class="status-strip"><span>Source: <strong id="source-state">—</strong></span><span>PLaMo: <strong id="plamo-state">—</strong></span><span>Provider allowance: <strong id="quota">Unverified</strong></span></div>
+ <p id="scheduled-source-summary" class="small muted" aria-live="polite">Checking automatic source worker…</p>
+ <details id="daily-downloads" class="review">
+ <summary>Provider usage and download history</summary>
+  <div class="split"><strong>Daily subtitle downloads (observed)</strong><span id="download-day" class="small muted">Japan time</span></div>
+  <p id="download-today" class="small">Waiting for recorded downloads</p>
+  <p id="download-providers" class="small muted">Limits and resets not yet verified.</p>
+  <details><summary>Last 7 days · downloaded / attempted / quota blocked</summary>
+   <div id="download-history" class="small muted"></div>
+  </details>
+  <p class="small muted">Counts only instrumented SubHub downloads after installation, not all Jellyfin, Sublarr or manual activity. Provider reset time and true account-wide allowance are still unknown.</p>
+ </details>
+ <div id="jellyfin-job" hidden>
+  <div class="split"><strong id="jellyfin-job-title">Jellyfin Japanese sourcing</strong><span class="small muted" id="jellyfin-job-state"></span></div>
+  <div class="meter" id="jellyfin-job-meter" role="progressbar" aria-label="Jellyfin sourcing episodes completed" aria-valuemin="0" aria-valuenow="0" aria-valuemax="100"><div class="fill" id="jellyfin-job-fill"></div></div>
+  <p class="small muted" id="jellyfin-job-details"></p>
+  <p class="small muted" id="jellyfin-job-current"></p>
+  <div class="row"><button id="jellyfin-job-continue" class="primary" type="button" hidden>Continue remaining</button><button id="jellyfin-job-stop" type="button" class="quiet" hidden>Stop source job</button></div>
+  <div id="jellyfin-job-holds" class="small muted" aria-live="polite"></div>
+  <details class="review"><summary>Technical activity</summary>
+   <div id="jellyfin-job-events" class="small muted" aria-live="polite"></div>
+  </details>
+ </div>
+ <div id="finish-job" hidden>
+  <div class="split"><strong id="finish-job-title">TV completion</strong><span id="finish-job-status" class="small muted"></span></div>
+  <div class="split" id="finish-queue-row" hidden><span>Queue examined at least once (not completed)</span><strong id="finish-queue-label" class="small muted">—</strong></div>
+  <div class="meter" id="finish-queue-meter" role="progressbar" aria-label="Distinct media files examined in current job" aria-valuemin="0" aria-valuenow="0" aria-valuemax="100" hidden><div class="fill" id="finish-queue-fill"></div></div>
+  <div class="split"><span>Japanese subtitles covered</span><strong id="finish-coverage-label" class="small muted">—</strong></div>
+  <div class="meter" id="finish-source-meter" role="progressbar" aria-label="Media files with Japanese subtitles or audio" aria-valuemin="0" aria-valuenow="0" aria-valuemax="100" hidden><div class="fill" id="finish-source-fill"></div></div>
+  <p id="finish-job-details" class="small muted"></p>
+  <p id="finish-monitor" class="small muted" aria-live="polite">Checking worker heartbeat…</p>
+  <p id="finish-source-current" class="small muted"></p>
+  <details id="finish-advanced-diagnostics" class="review">
+   <summary>Technical details</summary>
+   <p id="finish-raw-issue" class="small muted"></p>
+  </details>
+  <details id="finish-title-details" class="review" open>
+   <summary>Titles in this completion job</summary>
+   <div class="row" style="margin-top:12px">
+    <label for="finish-title-filter" class="small muted">Show</label>
+    <select id="finish-title-filter" aria-label="Filter completion titles">
+     <option value="all">Recent activity</option>
+     <option value="current">Now processing</option>
+     <option value="published">New Japanese subtitles</option>
+     <option value="plamo">Queued / running PLaMO</option>
+     <option value="sourcing">Still sourcing</option>
+     <option value="covered">All covered (including existing)</option>
+    </select>
+   </div>
+   <p id="finish-title-counts" class="small muted" aria-live="polite">Loading title history…</p>
+   <div id="finish-title-list" style="max-height:420px;overflow:auto" aria-live="polite"></div>
+   <div class="row" style="margin-top:9px">
+    <button id="finish-title-prev" type="button" class="quiet" disabled>Previous</button>
+    <span id="finish-title-page" class="small muted"></span>
+    <button id="finish-title-next" type="button" class="quiet" disabled>Next</button>
+   </div>
+  </details>
+  <button id="finish-stop" class="quiet" type="button" hidden>Stop completion job</button>
+ </div>
+ <div id="batch-overview" hidden>
+  <div class="split"><strong id="batch-count">PLaMo batch</strong><span id="batch-remaining" class="small muted"></span></div>
+  <div class="meter" role="progressbar" aria-label="PLaMo episodes finished" id="batch-meter" aria-valuemin="0" aria-valuenow="0" aria-valuemax="100"><div class="fill" id="batch-fill"></div></div>
+  <p id="batch-details" class="small muted"></p>
+ </div>
+ <p class="small muted" id="job-progress">Source events and saved cue checkpoints are shown here. Closing this page does not stop jobs.</p>
+ <div id="active-jobs"></div>
+ <details id="history"><summary>Previous jobs and review holds</summary><div id="past-jobs"></div><p id="recent-events" class="small muted"></p></details>
+ <div class="row" style="margin-top:12px"><button type="button" id="stop-sourcing" class="quiet" hidden>Stop selected sourcing</button><button type="button" id="stop-translation" class="quiet" hidden>Stop translation batch</button></div>
+</section>
+
+
+<section class="panel" id="library-browser">
+ <div class="split"><h2>Browse media</h2><span id="browse-total" class="small muted">Reading Jellyfin inventory…</span></div>
+ <p class="small muted">Explore actual movie and television folders or select a Jellyfin genre. Items already subtitled are shown but excluded from sourcing.</p>
+ <div class="browse-tabs">
+  <button id="browse-movies" type="button" aria-pressed="true">Movies</button>
+  <button id="browse-episodes" type="button" aria-pressed="false">Television</button>
+ </div>
+ <div class="row">
+  <button id="browse-back" type="button" class="quiet" disabled>Back</button>
+  <span id="browse-path" class="small muted">All movie folders</span>
+ </div>
+ <form id="browse-search" class="row" style="margin-top:12px">
+  <input id="browse-query" type="text" maxlength="100" placeholder="Search titles in this selection…" aria-label="Search media titles" autocomplete="off">
+  <select id="browse-genre" aria-label="Jellyfin genre">
+   <option value="">All genres</option>
+  </select>
+  <select id="browse-state" aria-label="Japanese subtitle coverage">
+   <option value="all">All coverage states</option>
+   <option value="needs_japanese">Missing JP subtitles</option>
+   <option value="covered">JP subtitles present</option>
+   <option value="audio_only">JP audio only</option>
+   <option value="unverified">Unverified</option>
+  </select>
+  <button type="submit">Search</button>
+ </form>
+ <p id="browse-counts" class="small muted"></p>
+ <div class="browse-toolbar">
+  <button id="browse-select-page" type="button" class="quiet">Select visible missing</button>
+  <button id="browse-clear" type="button" class="quiet">Clear selection</button>
+  <strong id="browse-selected-count" class="small">0 selected</strong>
+ </div>
+ <div id="browse-folders" aria-live="polite"></div>
+ <div id="browse-items" aria-live="polite"></div>
+ <div class="row" style="margin-top:12px">
+  <button id="browse-prev" type="button" class="quiet" disabled>Previous</button>
+  <span id="browse-page" class="small muted"></span>
+  <button id="browse-next" type="button" class="quiet" disabled>Next</button>
+ </div>
+ <div class="row" style="margin-top:14px">
+  <button id="browse-finish-selected" class="primary" type="button" disabled>Finish selected missing files</button>
+  <button id="browse-finish-folder" type="button" disabled>Finish all missing in this library</button>
+ </div>
+ <p id="browse-feedback" class="small muted" aria-live="polite">A Finish action attempts Japanese sourcing and timing repair, then PLaMO only for proven misses. JP-subtitled items are skipped.</p>
+</section>
+
+<details class="panel" id="library-details">
+ <summary>Library totals, sourcing controls and technical progress</summary>
+ <p class="small muted">Search and download counters show attempts, not completed Japanese subtitles.</p>
+ <section class="panel" id="library-coverage">
  <h2>Entire library · Japanese subtitle coverage</h2>
  <div class="status-strip" aria-live="polite">
   <span>JP subtitles <strong id="ja-total-present">—</strong></span>
@@ -85,9 +225,9 @@ details>summary{cursor:pointer}
 
 <section class="panel" id="library-sourcing">
  <h2>Entire library · Japanese sourcing</h2>
- <p class="small muted">Search all eligible movies and TV episodes, recover old misses with title-based queries, stage candidates, repair timing and publish without overwriting. Runs in provider-limited batches. No PLaMo.</p>
+ <p class="small muted">Search all eligible movies and TV episodes, recover old misses with title-based queries, stage candidates, repair timing and publish without overwriting. The Japanese-only search button remains available separately; Finish also handles PLaMO fallback.</p>
  <div class="row">
-  <button id="source-library" class="primary" type="button" disabled>Find Japanese subtitles throughout library</button>
+  <button id="source-library" type="button" disabled>Run Japanese-only sourcing</button>
   <button id="stop-library" type="button" class="quiet" hidden>Stop current library pass</button>
  </div>
  <p id="library-source-selection" class="small muted">Selected scope: reading owner settings…</p>
@@ -106,6 +246,7 @@ details>summary{cursor:pointer}
   <p class="small muted">Each bar measures the current bounded pass, not total library coverage. Subsequent passes may have different totals.</p>
  </div>
 </section>
+</details>
 
 <section class="panel">
  <h2>Find a movie or TV series</h2>
@@ -125,16 +266,23 @@ details>summary{cursor:pointer}
  </div>
  <div class="row"><button id="select-seasons" type="button" class="quiet">Select all seasons</button><button id="clear-seasons" type="button" class="quiet">Clear seasons</button></div>
  <div id="seasons" class="seasons" aria-label="Choose seasons"></div>
- <div class="status-strip" id="coverage-totals" aria-live="polite">Choose seasons to inspect subtitle coverage.</div>
- <div class="row"><button id="refresh-coverage" class="quiet" type="button" disabled>Recheck selected episode coverage</button></div>
- <div class="episode-controls">
-  <button id="source-selected" class="primary" type="button" disabled>Find Japanese for selected seasons / episodes</button>
-  <button id="source-whole-series" type="button">Retry missing Japanese · entire series</button>
-  <button id="translate-selected" type="button" disabled>Last resort: translate checked episodes</button>
-  <button id="translate-unresolved" type="button" disabled>Prepare PLaMo batch from unresolved Japanese searches</button>
+ <div class="status-strip" id="coverage-totals" aria-live="polite">Loading coverage…</div>
+ <div class="row" style="margin-top:12px">
+  <button id="finish-selected" class="primary" type="button" disabled>Finish selected season(s)</button>
+  <button id="finish-all" type="button" disabled>Finish whole series</button>
  </div>
- <p id="unresolved-preview" class="small muted">Select a TV series to see source-exhausted translation candidates.</p>
- <p id="action-note" class="small muted">Search real Jellyfin library items, download, sync and publish only verified Japanese subtitles. Whole series: up to 200 searches in one job; selected seasons: 20 searches per pass. PLaMo remains manual.</p>
+ <p class="small muted">One action: test available Japanese releases and timing repairs, then automatically translate only proven gaps with PLaMo. Provider delays remain queued for automatic retry. Existing subtitles are never overwritten.</p>
+ <details class="review"><summary>Manual sourcing and translation controls</summary>
+  <div class="row"><button id="refresh-coverage" class="quiet" type="button" disabled>Recheck selected episode coverage</button></div>
+  <div class="episode-controls">
+   <button id="source-selected" class="primary" type="button" disabled>Find Japanese for selected seasons / episodes</button>
+   <button id="source-whole-series" type="button">Retry missing Japanese · entire series</button>
+   <button id="translate-selected" type="button" disabled>Translate checked episodes with PLaMo</button>
+   <button id="translate-unresolved" type="button" disabled>Translate source-exhausted episodes with PLaMo</button>
+  </div>
+  <p id="unresolved-preview" class="small muted">Loading saved subtitle attempts…</p>
+  <p id="action-note" class="small muted">Use the two finish buttons for normal operation.</p>
+ </details>
  <div class="row">
   <button id="toggle-episodes" type="button" class="quiet" disabled>Review remaining episodes</button>
   <button id="clear-episodes" type="button" class="quiet" hidden>Clear checked episodes</button>
@@ -151,46 +299,14 @@ details>summary{cursor:pointer}
  <p id="movie-search-state" class="small muted"></p>
  <div class="row">
   <label>Release year <input id="movie-year" type="number" min="1880" max="2100" style="width:92px"></label>
-  <button id="movie-start" class="primary" type="button">Find Japanese subtitles</button>
+  <button id="movie-start" class="primary" type="button">Finish Japanese subtitles</button>
   <button id="movie-plamo" type="button" hidden>Queue movie for PLaMo (find and sync English first)</button>
   <button id="movie-stop" type="button" hidden>Stop movie job</button>
  </div>
  <p id="movie-feedback" class="small muted">Select the correct edition. Timing must pass validation before publication.</p>
 </section>
 
-<section class="panel">
- <div class="split"><h2>Active work</h2><span id="current-work" class="small muted">No current job</span></div>
- <div class="status-strip"><span>Source: <strong id="source-state">—</strong></span><span>PLaMo: <strong id="plamo-state">—</strong></span><span>Provider allowance: <strong id="quota">Unverified</strong></span></div>
- <div id="daily-downloads" class="review">
-  <div class="split"><strong>Daily subtitle downloads (observed)</strong><span id="download-day" class="small muted">Japan time</span></div>
-  <p id="download-today" class="small">Waiting for recorded downloads</p>
-  <p id="download-providers" class="small muted">Limits and resets not yet verified.</p>
-  <details><summary>Last 7 days · downloaded / attempted / quota blocked</summary>
-   <div id="download-history" class="small muted"></div>
-  </details>
-  <p class="small muted">Counts only instrumented SubHub downloads after installation, not all Jellyfin, Sublarr or manual activity. Provider reset time and true account-wide allowance are still unknown.</p>
- </div>
- <div id="jellyfin-job" hidden>
-  <div class="split"><strong id="jellyfin-job-title">Jellyfin Japanese sourcing</strong><span class="small muted" id="jellyfin-job-state"></span></div>
-  <div class="meter" id="jellyfin-job-meter" role="progressbar" aria-label="Jellyfin sourcing episodes completed" aria-valuemin="0" aria-valuenow="0" aria-valuemax="100"><div class="fill" id="jellyfin-job-fill"></div></div>
-  <p class="small muted" id="jellyfin-job-details"></p>
-  <p class="small muted" id="jellyfin-job-current"></p>
-  <div class="row"><button id="jellyfin-job-continue" class="primary" type="button" hidden>Continue remaining</button><button id="jellyfin-job-stop" type="button" class="quiet" hidden>Stop source job</button></div>
-  <div id="jellyfin-job-holds" class="small muted" aria-live="polite"></div>
-  <details class="review"><summary>Technical activity</summary>
-   <div id="jellyfin-job-events" class="small muted" aria-live="polite"></div>
-  </details>
- </div>
- <div id="batch-overview" hidden>
-  <div class="split"><strong id="batch-count">PLaMo batch</strong><span id="batch-remaining" class="small muted"></span></div>
-  <div class="meter" role="progressbar" aria-label="PLaMo episodes finished" id="batch-meter" aria-valuemin="0" aria-valuenow="0" aria-valuemax="100"><div class="fill" id="batch-fill"></div></div>
-  <p id="batch-details" class="small muted"></p>
- </div>
- <p class="small muted" id="job-progress">Source events and saved cue checkpoints are shown here. Closing this page does not stop jobs.</p>
- <div id="active-jobs"></div>
- <details id="history"><summary>Previous jobs and review holds</summary><div id="past-jobs"></div><p id="recent-events" class="small muted"></p></details>
- <div class="row" style="margin-top:12px"><button type="button" id="stop-sourcing" class="quiet" hidden>Stop selected sourcing</button><button type="button" id="stop-translation" class="quiet" hidden>Stop translation batch</button></div>
-</section>
+
 <p id="toast" role="status" aria-live="polite"></p>
 <footer class="small muted">Source-first, PLaMo fallback. Existing Japanese tracks and completed cue checkpoints are preserved. A timing pass is not a guarantee of perfect synchronization.</footer>
 </main>
@@ -201,6 +317,7 @@ const escapeText = v => String(v == null ? "" : v);
 let catalog=[], selectedSeries="", selectedMovie=null;
 let selectedSeasons=new Set(), coverage=new Map(), checked=new Set();
 let expanded=false, showCovered=false, busy=false, lastWorkers=false, latest={};
+let initializedSeasons=new Set();
 let unresolvedPreview=null;
 const key=(s,e)=>s+":"+e;
 const picksFor = kind => {
@@ -233,6 +350,167 @@ async function ownerPost(path,payload){
   if(!response.ok) throw Error(data.error||"Action rejected");
   return data;
 }
+
+const browseModel={kind:"Movie",folder:"",genre:"",query:"",state:"all",
+                   page:0,items:[],data:null,history:[]};
+const browseSelected=new Set();
+function browseSetCount(){
+  $("browse-selected-count").textContent=browseSelected.size+" selected missing";
+  $("browse-finish-selected").disabled=busy||!!latest.workersBusy||
+    !browseSelected.size||!latest.finish_scope?.available;
+  const counts=browseModel.data?.scope_counts||{};
+  $("browse-finish-folder").disabled=busy||!!latest.workersBusy||
+    !latest.finish_scope?.available||!!browseModel.query.trim()||
+    !Number(counts.needs_japanese||0);
+}
+function browseEntry(name,description,callback){
+  const button=document.createElement("button");
+  button.type="button";button.className="browse-folder";
+  const title=document.createElement("strong");title.textContent=name;
+  const detail=document.createElement("span");detail.className="browse-count";
+  detail.textContent=" · "+description;
+  button.append(title,detail);
+  button.addEventListener("click",callback);
+  return button;
+}
+function browseNavigate(folder){
+  browseModel.history.push({folder:browseModel.folder,genre:browseModel.genre,
+                           query:browseModel.query,page:browseModel.page});
+  browseModel.folder=folder;browseModel.genre="";
+  $("browse-genre").value="";
+  browseModel.query="";$("browse-query").value="";
+  browseModel.page=0;loadBrowse();
+}
+function renderBrowse(data){
+  browseModel.items=Array.isArray(data.items)?data.items:[];
+  browseModel.data=data;
+  $("browse-movies").setAttribute("aria-pressed",String(browseModel.kind==="Movie"));
+  $("browse-episodes").setAttribute("aria-pressed",String(browseModel.kind==="Episode"));
+  $("browse-back").disabled=!browseModel.history.length;
+  $("browse-path").textContent=browseModel.folder||
+    (browseModel.genre?browseModel.genre+" · "+
+      (browseModel.kind==="Movie"?"Movies":"Television"):
+      browseModel.kind==="Movie"?"All movie libraries":"All TV libraries");
+  const counts=data.scope_counts||{};
+  $("browse-counts").textContent=
+    Number(counts.covered||0).toLocaleString()+" with JP subtitles · "+
+    Number(counts.needs_japanese||0).toLocaleString()+" missing JP subtitles · "+
+    Number(counts.audio_only||0).toLocaleString()+" JP audio only · "+
+    Number(counts.unverified||0).toLocaleString()+" unverified";
+  $("browse-total").textContent=Number(data.scope_total||0).toLocaleString()+
+    " indexed files in this scope";
+  const genreNode=$("browse-genre");
+  const value=browseModel.genre;
+  genreNode.replaceChildren();
+  const all=document.createElement("option");all.value="";all.textContent="All genres";
+  genreNode.append(all);
+  for(const genre of data.genres||[]){
+    const opt=document.createElement("option");opt.value=genre;opt.textContent=genre;
+    genreNode.append(opt);
+  }
+  genreNode.value=value;
+  const folders=$("browse-folders");folders.replaceChildren();
+  for(const folder of data.folders||[]){
+    folders.append(browseEntry(folder.label,
+      folder.needs_japanese+" missing · "+folder.covered+" subtitled · "+
+      folder.total+" files",()=>browseNavigate(folder.path)));
+  }
+  const list=$("browse-items");list.replaceChildren();
+  for(const item of browseModel.items){
+    const line=document.createElement("div");line.className="browse-entry";
+    const check=document.createElement("input");check.type="checkbox";
+    check.checked=browseSelected.has(item.jellyfin_id);
+    check.disabled=item.state!=="needs_japanese";
+    check.setAttribute("aria-label","Select "+item.title);
+    check.addEventListener("change",()=>{
+      if(check.checked)browseSelected.add(item.jellyfin_id);
+      else browseSelected.delete(item.jellyfin_id);
+      browseSetCount();
+    });
+    const text=document.createElement("div");
+    const title=document.createElement("strong");
+    const prefix=item.kind==="Episode"?
+      (item.series||"Unknown series")+" · S"+
+      String(item.season||0).padStart(2,"0")+"E"+
+      String(item.episode||0).padStart(2,"0")+" · ":"";
+    title.textContent=prefix+item.title+(item.year?" ("+item.year+")":"");
+    const sub=document.createElement("div");sub.className="detail";
+    sub.textContent=(
+      item.state==="covered"?"JP SUBTITLES PRESENT":
+      item.state==="audio_only"?"JP AUDIO ONLY · No JP subtitles identified":
+      item.state==="needs_japanese"?"MISSING JP SUBTITLES · Eligible for sourcing":
+      "COVERAGE UNVERIFIED · Not yet source-ready");
+    if(item.state==="covered")sub.classList.add("good");
+    if(item.state==="needs_japanese")sub.classList.add("warning");
+    text.append(title,sub);line.append(check,text);list.append(line);
+  }
+  if(!(data.folders||[]).length&&!browseModel.items.length){
+    const empty=document.createElement("p");empty.className="small muted";
+    empty.textContent="No matching media on this page.";
+    list.append(empty);
+  }
+  $("browse-prev").disabled=browseModel.page===0;
+  $("browse-next").disabled=!data.more;
+  $("browse-page").textContent="Page "+(browseModel.page+1)+
+    " · "+data.matching_items+" files in current view";
+  $("browse-finish-folder").disabled=busy||!!latest.workersBusy||
+    !latest.finish_scope?.available||!!browseModel.query.trim()||
+    Number(counts.needs_japanese||0)===0;
+  $("browse-finish-folder").textContent=browseModel.genre?
+    "Finish missing in "+browseModel.genre:
+    browseModel.folder?"Finish missing in this folder":
+    "Finish missing in "+(browseModel.kind==="Movie"?"Movies":"Television");
+  browseSetCount();
+}
+async function loadBrowse(){
+  const query=new URLSearchParams({
+    kind:browseModel.kind,folder:browseModel.folder,genre:browseModel.genre,
+    query:browseModel.query,page:String(browseModel.page),state:browseModel.state
+  });
+  $("browse-feedback").textContent="Loading saved Jellyfin inventory…";
+  try{
+    const data=await getJson("/api/library/browse?"+query.toString());
+    renderBrowse(data);
+    $("browse-feedback").textContent="Checked items are only missing-Japanese titles. "+
+      "Existing JP subtitles, including newer sidecars, are excluded automatically.";
+  }catch(err){
+    $("browse-feedback").textContent="Library browse unavailable: "+err.message;
+    $("browse-finish-folder").disabled=true;
+    $("browse-finish-selected").disabled=true;
+  }
+}
+async function browseFinish(selected){
+  if(busy||!!latest.workersBusy)return;
+  let payload;
+  if(selected){
+    const ids=[...browseSelected];
+    if(!ids.length)return;
+    payload={item_ids:ids};
+  }else if(browseModel.query.trim()){
+    $("browse-feedback").textContent=
+      "Clear the search text before finishing a whole library or genre.";
+    return;
+  }else if(browseModel.genre){
+    payload={library_genre:browseModel.genre,kind:browseModel.kind};
+  }else if(browseModel.folder){
+    payload={library_folder:browseModel.folder};
+  }else{
+    payload={library_group:browseModel.kind};
+  }
+  busy=true;browseSetCount();
+  try{
+    const result=await ownerPost("/api/finish/start",payload);
+    $("browse-feedback").textContent=result.state==="already_covered"?
+      "Everything eligible in this selection is already covered.":
+      "Completion started for "+result.accepted+
+      " missing files. Japanese sourcing/repair first, then PLaMO for proven misses.";
+    browseSelected.clear();
+    await refreshStatus();browseSetCount();
+  }catch(err){
+    $("browse-feedback").textContent="Finish not started: "+err.message;
+  }finally{busy=false;browseSetCount();}
+}
+
 async function loadCatalog(){
   try{
     const data=await getJson("/api/translation/catalog");
@@ -317,10 +595,31 @@ async function translateUnresolved(){
   }catch(err){showMessage("PLaMo not started: "+err.message,true);}
   finally{busy=false;await refreshStatus();await refreshUnresolved();renderCoverage();}
 }
+async function finishScope(all){
+  if(busy||!selectedSeries)return;
+  const seasons=[...selectedSeasons].sort((a,b)=>a-b);
+  if(!all&&(!seasons.length||seasons.some(s=>!coverage.has(s)))){
+    showMessage("Season coverage is still loading. Try again after all selected seasons load.",true);
+    return;
+  }
+  if(latest.workersBusy){showMessage("Another worker is running. Finish can start after it ends.",true);return;}
+  const scope=all?"the entire series":seasons.length===1?
+    "Season "+seasons[0]:seasons.length+" selected seasons";
+  busy=true;renderCoverage();
+  try{
+    const doc=all?{series:selectedSeries,all:true}:{series:selectedSeries,seasons};
+    const result=await ownerPost("/api/finish/start",doc);
+    showMessage(result.state==="already_covered"?
+      "Already covered: all episodes in this selection have Japanese subtitles.":
+      "Started one-action completion for "+scope+". Japanese sourcing and PLaMO fallback will run automatically; provider waits remain queued.");
+  }catch(err){showMessage("Not started: "+err.message,true);}
+  finally{busy=false;await refreshStatus();renderCoverage();}
+}
 function openSeries(entry){
   selectedSeries=entry.series;
   selectedMovie=null;
-  selectedSeasons.clear();coverage.clear();checked.clear();expanded=false;
+  selectedSeasons.clear();coverage.clear();checked.clear();expanded=true;
+  initializedSeasons.clear();
   unresolvedPreview=null;
   $("tv-panel").hidden=false;$("movie-panel").hidden=true;
   $("series-heading").textContent=entry.series;
@@ -328,6 +627,7 @@ function openSeries(entry){
   for(const n of entry.seasons){
     const label=document.createElement("label");label.className="season-choice";
     const input=document.createElement("input");input.type="checkbox";input.value=String(n);
+    input.checked=true;selectedSeasons.add(n);
     input.addEventListener("change",async()=>{
       if(input.checked){selectedSeasons.add(n);await loadSeason(n);}
       else{selectedSeasons.delete(n);coverage.delete(n);pruneChecked();}
@@ -335,8 +635,16 @@ function openSeries(entry){
     });
     label.append(input,document.createTextNode("Season "+n));host.append(label);
   }
-  $("episode-details").hidden=true;$("toggle-episodes").textContent="Review remaining episodes";
+  $("episode-details").hidden=false;$("toggle-episodes").textContent="Hide episode details";
   $("feedback").hidden=true;renderCoverage();refreshUnresolved();
+  // Read existing queue/sidecar coverage, not providers. Load the whole series.
+  (async()=>{
+    for(let i=0;i<entry.seasons.length;i+=4){
+      if(selectedSeries!==entry.series)return;
+      await Promise.all(entry.seasons.slice(i,i+4).map(loadSeason));
+      renderCoverage();
+    }
+  })().catch(()=>showMessage("Some seasons could not be read. Use Refresh to retry.",true));
   window.scrollTo({top:$("tv-panel").offsetTop-18,behavior:"smooth"});
 }
 function pruneChecked(){
@@ -370,15 +678,17 @@ function renderCoverage(){
   const checkedEligible=checked.size?picksFor("translate").length:0;
   const scopeCount=coverage.size+"/"+selectedSeasons.size;
   $("coverage-totals").textContent=selectedSeasons.size?
-    "Selected seasons only · "+scopeCount+" loaded · "+
-    n.covered+" / "+n.total+" episodes with Japanese · "+
-    missing+" without Japanese in this selection (not entire-series total) · "+
-    n.review+" timing/verification or other reviews · "+
-    n.sourcing+" sourcing · "+n.needs_english+" need English · "+
-    eligible+" currently eligible for PLaMo. "+
-    "Source: saved coverage queue and checked sidecars; may lag Jellyfin.":
-    "Choose seasons to inspect. Counts describe loaded selections, not the whole series.";
+    missing+" missing Japanese · "+n.covered+" with Japanese in "+
+    scopeCount+" loaded/selected seasons. Saved queue and sidecars; may lag Jellyfin.":
+    "Select seasons to inspect Japanese subtitle coverage.";
   $("refresh-coverage").disabled=busy||!selectedSeasons.size;
+  $("finish-selected").disabled=busy||!selectedSeasons.size||
+    coverage.size!==selectedSeasons.size||!!latest.workersBusy||
+    !latest.finish_scope?.available;
+  $("finish-all").disabled=busy||!!latest.workersBusy||
+    !latest.finish_scope?.available;
+  $("finish-selected").textContent=selectedSeasons.size===1?
+    "Finish selected season":"Finish selected seasons ("+selectedSeasons.size+")";
   $("source-selected").disabled=busy||!selectedSeasons.size||latest.workersBusy;
   $("source-whole-series").disabled=busy||latest.workersBusy;
   $("translate-selected").disabled=busy||!checkedEligible||latest.workersBusy||!latest.aiAvailable;
@@ -392,20 +702,22 @@ function renderCoverage(){
     checkedEligible+" selected / "+eligible+" eligible)";
   $("toggle-episodes").disabled=!n.total;
   $("action-note").textContent=checked.size?
-    checked.size+" episode(s) checked. PLaMo accepts only those currently eligible ("+
-    checkedEligible+"); sourcing is a separate action.":
-    "No episodes checked. Reviewing the list never starts translation. Select individual episodes for PLaMo, or source selected seasons separately. "+
-    "The missing count is not a count of PLaMo-ready episodes.";
+    checked.size+" episode(s) selected. Find Japanese first; translate only when recovery is exhausted.":
+    "Review the missing episodes below. A PLaMo option is not proof that Japanese sourcing is exhausted.";
   if(expanded)renderEpisodes();
+  if(Object.keys(latest).length)renderNextStep(latest);
 }
 function statusName(item){
-  if(item.status==="covered")return "Japanese subtitles present";
-  if(item.can_source && (item.search?.plausible_candidates||0)>0)
-    return "Japanese subtitle match found · try sourcing first";
-  if(item.can_source)return "Needs Japanese sourcing or timing repair";
-  if(item.can_translate)return "PLaMo translation available";
-  if(item.status==="needs_english")return "Needs English subtitles for translation";
-  return "Needs attention";
+  if(item.next_action)return item.next_action;
+  // Backward-compatible display for an older dashboard server.
+  if(item.status==="covered")return "READY · Japanese subtitles present";
+  if(item.reason==="duplicate_episode_versions")return "REVIEW · Duplicate episode files";
+  if((item.search?.plausible_candidates||0)>0)
+    return "REPAIR · Japanese candidate found; check timing";
+  if(item.status==="needs_english")return "GET ENGLISH · Search/sync or transcribe with Whisper";
+  if(item.can_source)return "SEARCH · Japanese subtitles";
+  if(item.can_translate)return "PLAMO OPTION · Recheck Japanese availability";
+  return "REVIEW · Verify subtitles and media identity";
 }
 function renderEpisodes(){
   const host=$("episode-details");
@@ -420,10 +732,15 @@ function renderEpisodes(){
   for(const [season,report] of [...coverage].sort((a,b)=>a[0]-b[0])){
     const items=report.items.filter(it=>showCovered||it.status!=="covered");
     const card=document.createElement("details");card.className="season-card";
-    card.dataset.season=String(season);card.open=openSeasons.has(String(season));
+    card.dataset.season=String(season);
+    // First time a season loads, expand it so missing titles are actually visible.
+    // Once the owner closes it, later status refreshes respect that choice.
+    card.open=openSeasons.has(String(season))||!initializedSeasons.has(season);
+    initializedSeasons.add(season);
     const title=document.createElement("summary");
     const incomplete=report.items.filter(it=>it.status!=="covered").length;
-    title.textContent="Season "+season+" · "+incomplete+" remaining · "+report.covered+" Japanese present";
+    title.textContent="Season "+season+" · "+(incomplete?
+      incomplete+" missing Japanese":"Japanese subtitles present for all episodes");
     card.append(title);
     const body=document.createElement("div");body.className="body";
     if(!items.length){
@@ -575,14 +892,13 @@ function openMovie(movie){
     (movie.fallback_ready?" · Source-first fallback task ready":""):
     "No saved Japanese provider search for this file yet";
   $("movie-start").disabled=present||unknown;
-  $("movie-plamo").hidden=!movie.fallback_ready||
-    !["none","review","plausible"].includes(movie.search_outcome)||present||unknown;
+  $("movie-plamo").hidden=true; // one completion action, never a manual AI decision
   $("movie-plamo").disabled=busy||!latest.aiAvailable||!!latest.workersBusy;
   const year=movie.path.match(/(?:19|20)\d{2}/);
   $("movie-year").value=year?year[0]:"";
   $("movie-feedback").textContent=present?
     "Already covered. Existing Japanese subtitles are never overwritten automatically.":
-    "Source-first. English downloads for PLaMo must be exact-video verified, synchronized, and pass QA.";
+    "Finish runs Japanese sourcing and all available timing repairs first, then automatically uses PLaMo only after proven source exhaustion.";
   window.scrollTo({top:$("movie-panel").offsetTop-18,behavior:"smooth"});
 }
 async function movieTranslate(){
@@ -605,8 +921,14 @@ async function movieAction(stop){
   busy=true;
   try{
     let result;
-    if(stop)result=await ownerPost("/api/movie/stop",{});
-    else{
+    if(stop){
+      result=await ownerPost(latest.finish_scope?.active?
+        "/api/finish/stop":"/api/movie/stop",{});
+    }else if(/^[a-f0-9]{32}$/.test(selectedMovie.jellyfin_id||"")){
+      result=await ownerPost("/api/finish/start",
+            {movie_ids:[selectedMovie.jellyfin_id]});
+    }else{
+      // Older unindexed movie path: preserve the existing source-only pilot.
       const year=Number($("movie-year").value);
       if(!Number.isInteger(year)||year<1880||year>2100)throw Error("Enter the correct release year.");
       const parent=selectedMovie.path.split("/").slice(-2,-1)[0]||"";
@@ -614,7 +936,9 @@ async function movieAction(stop){
       const title=name.length>=3?name:($("title-search").value.trim()||selectedMovie.filename.split(".")[0]);
       result=await ownerPost("/api/movie/start",{video:selectedMovie.path,title,year});
     }
-    $("movie-feedback").textContent=stop?"Movie worker stopping.":"Japanese subtitle sourcing started for the exact movie file.";
+    $("movie-feedback").textContent=stop?"Subtitle job stopping.":
+      result.state==="already_covered"?"Already covered by Japanese subtitles.":
+      "One-action completion started: try Japanese releases and repairs, then PLaMO only if exhausted.";
   }catch(err){$("movie-feedback").textContent="Not started: "+err.message;}
   finally{busy=false;await refreshStatus();}
 }
@@ -680,6 +1004,11 @@ function renderDownloadUsage(d){
 }
 function renderJellyfinJob(d){
   const p=d.jellyfin_source||{};
+  // An active finish job owns a separate child source; hide the obsolete
+  // independent Jellyfin job's saved failure rather than mislabel the run.
+  if((d.finish_scope||{}).active){
+    $("jellyfin-job").hidden=true;return;
+  }
   $("jellyfin-job").hidden=!p.known&&!p.active;
   if(!p.known&&!p.active)return;
   // Count ONLY episodes selected for this run. A failed/no-match episode
@@ -727,7 +1056,7 @@ function renderLibrarySourceProgress(d){
   if(!known)return;
   const scopedFolder=p.scope==="horror-drama-folders";
   $("library-live-heading").textContent=(active?"Live sourcing pass":"Previous sourcing pass")+
-    (scopedFolder?" · Horror + Drama/Suspense (2TB + 4TB)":" · All eligible media");
+    (scopedFolder?" · Horror + Drama/Suspense (2TB + 4TB)":p.scope==="movies-no-anime"?" · Non-anime movies":" · All eligible media");
   $("library-live-phase").textContent=escapeText(p.phase_label||p.phase||"");
   const bar=(kind,done,planned)=>{
     const current=Math.max(0,Number(done)||0);
@@ -763,7 +1092,17 @@ function renderLibrarySourceProgress(d){
     " · Errors: "+(p.search_errors||0)+
     " · Deferred: "+(p.search_deferred||0)+
     " · Staged: "+(p.staged||0)+" · Published: "+(p.published||0)+
-    " · Held: "+((p.stage_holds||0)+(p.publish_holds||0));
+    " · Held: "+((p.stage_holds||0)+(p.publish_holds||0))+
+    (p.skipped_unchanged?" · Skipped unchanged: "+p.skipped_unchanged:"");
+  const actions=p.next_actions||{};
+  const pending=[
+    [actions.stage_alternate_saved_japanese,"alternate Japanese release"],
+    [actions.retry_japanese_providers_after_reset,"provider retry needed"],
+    [actions.offer_owner_reviewed_plamo_after_english_validation,"PLaMo review available"]
+  ].filter(([count])=>Number(count)>0).map(([count,label])=>count+" "+label);
+  if(pending.length){
+    $("library-live-summary").textContent+=" · Next: "+pending.join(" / ");
+  }
   $("library-live-current").textContent=p.search_stopped_early?
     "Search stopped early: "+escapeText(p.search_stop_reason||"Provider unavailable")+
     ". Staging and publication may have continued with previously saved results.":
@@ -802,33 +1141,335 @@ function renderGlobalCoverage(data){
     Number(c.subtitle_sidecars_found_since_snapshot||0)+
     " · Tracks embedded since this inventory was created need another catalog scan.";
 }
+function renderNextStep(d){
+  const source=d.source_job||{}, job=d.jellyfin_source||{};
+  const translation=d.season_translation||{};
+  const finish=d.finish_scope||{};
+  const sourceRunning=!!source.active||!!d.source_active;
+  const plamoRunning=!!translation.active||!!((d.translation||{}).american_dad_batch||{}).active;
+  let title,reason,target="lookup",label="Find a title";
+  if(finish.active){
+    title=(finish.series||"Selected show")+" — finishing Japanese subtitles";
+    const p=finish.source_progress;
+    const q=finish.intensive_progress;
+    reason=finish.phase==="intensive_recovery"&&q?
+      "Intensive synchronization: "+q.seasons_done+"/"+q.seasons_total+
+      " seasons examined, "+q.titles_checked+" titles checked, "+
+      q.trials+" ALASS trials, "+q.published+" Japanese subtitles published. "+
+      "Currently: "+(q.current||"preparing next candidate"):
+      p&&p.total?
+      p.processed+" / "+p.total+" episodes processed in this source pass; "+
+      p.published+" published, "+p.downloads+" downloaded. "+
+      "PLaMo follows only for eligible gaps.":
+      finish.phase==="translation"?
+      "Intensive recovery finished; PLaMo is handling eligible gaps.":
+      "Sourcing started; waiting for its first checkpoint.";
+    target="active-work";label="View completion progress";
+  }else if(job.active){
+    title=((job.selector||{}).series||"Selected media")+" — Japanese sourcing running";
+    reason="Wait for the actual published subtitles. Search attempts and downloaded candidates are not completed results.";
+    target="active-work";label="View active work";
+  }else if(sourceRunning){
+    title=(source.scope==="horror-drama-folders"?"Horror and Drama/Suspense":"Library")+" — Japanese sourcing running";
+    reason="Let this run continue. You can inspect another show's coverage without interrupting it.";
+    target="active-work";label="View active work";
+  }else if(plamoRunning){
+    title="PLaMo translation running";
+    reason="Only published Japanese sidecars count as complete. Check holds under Active work.";
+    target="active-work";label="View active work";
+  }else if(source.search_stopped_early||source.provider_limited){
+    title="Last source search stopped early";
+    reason="Provider limits deferred unfinished work. The missing titles are still missing; revisit them when allowance returns.";
+    target="library-details";label="Review source limits";
+  }else if(job.known&&job.state==="paused"){
+    title="Previous Japanese source job paused";
+    reason="Inspect unfinished items and continue that job, not a duplicate pass.";
+    target="active-work";label="Review unfinished work";
+  }else if(job.known&&job.state==="failed_before_progress"){
+    title="Previous Japanese source job failed to start";
+    reason="Inspect the recorded error before retrying.";
+    target="active-work";label="Review failure";
+  }else{
+    title="No source or translation job active";
+    reason="Find a movie or series below. See which titles have Japanese subtitles before starting more work.";
+  }
+  $("next-state").textContent=title;
+  $("next-instruction").textContent=reason;
+  const note=$("selected-coverage");
+  if(selectedSeries&&selectedSeasons.size){
+    const items=[...coverage.values()].flatMap(x=>x.items||[]);
+    const covered=items.filter(x=>x.status==="covered").length;
+    const missing=items.length-covered;
+    note.textContent=items.length?
+      selectedSeries+" — "+missing+" still missing Japanese in "+
+      coverage.size+" loaded season(s); "+covered+" with Japanese. Saved queue/sidecars may lag Jellyfin.":
+      selectedSeries+" — loading subtitle coverage…";
+    note.hidden=false;
+    if(!finish.active&&!job.active&&!sourceRunning&&!plamoRunning){
+      target="tv-panel";label="Review missing episodes";
+    }
+  }else note.hidden=true;
+  const button=$("next-action");
+  button.hidden=false;button.textContent=label;button.dataset.target=target;
+}
+$("next-action").addEventListener("click",()=>{
+  const target=$("next-action").dataset.target||"lookup";
+  if(target==="library-details")$("library-details").open=true;
+  if(target==="tv-panel"){
+    expanded=true;$("episode-details").hidden=false;
+    $("toggle-episodes").textContent="Hide episode details";renderEpisodes();
+  }
+  $(target)?.scrollIntoView({block:"start",behavior:"smooth"});
+  if(target==="lookup")$("title-search").focus();
+});
+
+
+const titleHistory={filter:"all",page:0,lastFetch:0,pending:false,jobKey:""};
+function titleStateName(value){
+  return {
+    source_pending:"Waiting to be sourced",
+    source_active:"Sourcing Japanese now",
+    source_retry:"Sourcing retry needed",
+    plamo_queued:"Queued for PLaMO",
+    plamo_active:"PLaMO translating now",
+    covered_initial:"Already had Japanese",
+    published_source:"New Japanese subtitles · sourced/repaired",
+    published_plamo:"New Japanese subtitles · PLaMO"
+  }[value]||value.replaceAll("_"," ");
+}
+async function loadFinishTitles(force=false){
+  const view=$("finish-title-details");
+  if(!view.open||titleHistory.pending)return;
+  const now=Date.now();
+  if(!force&&now-titleHistory.lastFetch<12000)return;
+  titleHistory.pending=true;
+  titleHistory.lastFetch=now;
+  const query=new URLSearchParams({state:titleHistory.filter,
+                                  page:String(titleHistory.page)});
+  try{
+    const report=await getJson("/api/finish/items?"+query.toString());
+    const counts=report.counts||{};
+    const sourced=Number(counts.published_source||0);
+    const translated=Number(counts.published_plamo||0);
+    const waiting=Number(counts.plamo_queued||0)+Number(counts.plamo_active||0);
+    const old=Number(counts.covered_initial||0);
+    const partial=report.complete_history===false;
+    $("finish-title-counts").textContent=partial?
+      "Recent job journal only; older entries may be missing. "+
+      sourced+" sourced/repaired · "+translated+" PLaMO finished · "+
+      waiting+" queued/running PLaMO visible.":
+      sourced+" newly sourced/repaired · "+translated+" newly translated · "+
+      old+" covered before this job · "+waiting+" queued/running PLaMO.";
+    const list=$("finish-title-list");list.replaceChildren();
+    for(const item of report.items||[]){
+      const line=document.createElement("div");
+      line.className="browse-entry";
+      const main=document.createElement("div");
+      const name=document.createElement("strong");
+      name.textContent=item.title||item.jellyfin_id;
+      const meta=document.createElement("div");
+      meta.className="small muted";
+      meta.textContent=titleStateName(item.state);
+      main.append(name,meta);
+      if(item.detail){
+        const detail=document.createElement("details");
+        detail.className="review";
+        const summary=document.createElement("summary");
+        summary.textContent="Technical details";
+        const reason=document.createElement("p");
+        reason.className="small muted";
+        reason.textContent=item.detail;
+        detail.append(summary,reason);
+        main.append(detail);
+      }
+      line.append(main);list.append(line);
+    }
+    if(!(report.items||[]).length){
+      const line=document.createElement("p");
+      line.className="small muted";
+      line.textContent="No titles in this category yet.";
+      list.append(line);
+    }
+    const total=Number(report.total_matching||0);
+    $("finish-title-page").textContent=total+
+      " matching titles · page "+(titleHistory.page+1)+
+      (partial?" · recent records only":"");
+    $("finish-title-prev").disabled=titleHistory.page===0;
+    $("finish-title-next").disabled=!report.more;
+  }catch(error){
+    $("finish-title-counts").textContent="Title history unavailable: "+error.message;
+  }finally{titleHistory.pending=false;}
+}
+$("finish-title-filter").addEventListener("change",()=>{
+  titleHistory.filter=$("finish-title-filter").value;
+  titleHistory.page=0;loadFinishTitles(true);
+});
+$("finish-title-prev").addEventListener("click",()=>{
+  if(titleHistory.page>0){titleHistory.page--;loadFinishTitles(true);}
+});
+$("finish-title-next").addEventListener("click",()=>{
+  titleHistory.page++;loadFinishTitles(true);
+});
+$("finish-title-details").addEventListener("toggle",()=>{
+  if($("finish-title-details").open)loadFinishTitles(true);
+});
+
 async function refreshStatus(){
   try{
     const d=await getJson("/api/status");
     latest=d;
+    const finish=d.finish_scope||{};
+    $("finish-job").hidden=!finish.active&&!finish.series&&
+      !["completed","waiting_retry"].includes(finish.state);
+    if(!$("finish-job").hidden){
+      const p=finish.source_progress||null;
+      $("finish-job-title").textContent=(finish.series||"Selected movies")+" · completion";
+      $("finish-job-status").textContent=finish.active&&finish.state==="waiting_retry"?
+        "Waiting for automatic retry":finish.active?
+        "Running · "+(finish.phase==="source"?"finding/fixing Japanese":
+          finish.phase==="intensive_recovery"?"intensive ALASS recovery":
+          finish.phase==="translation"?"PLaMo translation":
+          finish.phase||"starting"):finish.state||"Unknown";
+      const flow=finish.flow_counts||null;
+      const validFlow=!!(flow&&Number.isInteger(flow.total)&&flow.total>0);
+      const intense=!!(finish.active&&finish.phase==="intensive_recovery"&&
+        finish.intensive_progress&&finish.intensive_progress.seasons_total>0);
+      const q=finish.intensive_progress||{};
+      const validSource=!!(finish.active&&finish.phase==="source"&&p&&
+        Number.isInteger(p.total)&&p.total>0&&Number.isInteger(p.processed));
+      const valid=validFlow||validSource||intense;
+      $("finish-source-meter").hidden=!valid;
+      const unique=validFlow&&flow.unique_instrumented;
+      $("finish-queue-row").hidden=!unique;
+      $("finish-queue-meter").hidden=!unique;
+      if(unique){
+        const visited=Math.min(flow.total,flow.initially_covered+flow.attempted_unique);
+        const percent=100*visited/flow.total;
+        $("finish-queue-label").textContent=visited+" / "+flow.total+" examined";
+        $("finish-queue-fill").style.width=percent+"%";
+        $("finish-queue-meter").setAttribute("aria-valuenow",String(Math.round(percent)));
+        $("finish-queue-meter").setAttribute("aria-valuetext",
+          visited+" of "+flow.total+" media files covered initially or attempted at least once");
+      }
+      if(validFlow){
+        const percent=Math.max(0,Math.min(100,100*flow.covered/flow.total));
+        $("finish-coverage-label").textContent=flow.covered+" / "+flow.total;
+        $("finish-source-fill").style.width=percent+"%";
+        $("finish-source-meter").setAttribute("aria-valuenow",String(Math.round(percent)));
+        $("finish-source-meter").setAttribute("aria-valuetext",
+          flow.covered+" of "+flow.total+" exact media files covered; "+
+          flow.source+" sourcing; "+flow.plamo+" PLaMO");
+        $("finish-job-details").textContent=
+          flow.covered+" covered (includes preexisting) · "+
+          flow.source+" still sourcing · "+
+          flow.plamo+" queued for PLaMO · "+
+          flow.source_attempts+" total source attempts (including retries) · "+
+          flow.plamo_attempts+" PLaMO attempts";
+        const elapsed=Math.max(0,Number(finish.item_elapsed_seconds)||0);
+        const totalElapsed=Math.max(0,Number(finish.elapsed_seconds)||0);
+        $("finish-source-current").textContent="Now: "+
+          (finish.current||"Selecting next file")+
+          (finish.detail?" · "+finish.detail:"")+
+          (elapsed?" · This file "+Math.floor(elapsed/60)+"m "+
+                     (elapsed%60)+"s":"")+
+          (totalElapsed?" · Job "+Math.floor(totalElapsed/60)+"m":"");
+      }else if(intense){
+        const percent=Math.max(0,Math.min(100,100*q.seasons_done/q.seasons_total));
+        $("finish-source-fill").style.width=percent+"%";
+        $("finish-source-meter").setAttribute("aria-valuenow",String(Math.round(percent)));
+        $("finish-source-meter").setAttribute("aria-valuetext",
+          q.seasons_done+" of "+q.seasons_total+" seasons examined; "+
+          q.trials+" intensive timing trials; "+q.published+" published");
+        $("finish-job-details").textContent=
+          q.seasons_done+" / "+q.seasons_total+" seasons examined · "+
+          q.titles_checked+" staged titles checked · "+q.trials+" timing trials · "+
+          q.published+" Japanese subtitles published";
+        $("finish-source-current").textContent="Now: "+(q.current||"Selecting next staged subtitle");
+      }else if(validSource){
+        const percent=Math.max(0,Math.min(100,100*p.processed/p.total));
+        $("finish-source-fill").style.width=percent+"%";
+        $("finish-source-meter").setAttribute("aria-valuenow",String(Math.round(percent)));
+        $("finish-source-meter").setAttribute("aria-valuetext",
+          p.processed+" of "+p.total+" episodes processed; "+p.published+" Japanese subtitles published");
+        $("finish-job-details").textContent=
+          p.processed+" / "+p.total+" episodes processed · "+
+          p.searches+" searches · "+p.downloads+" downloads · "+
+          p.published+" Japanese subtitles published · "+
+          p.held+" held · "+p.no_match+" no match · "+p.deferred+" deferred";
+        const age=Math.max(0,p.age_seconds||0);
+        $("finish-source-current").textContent=
+          "Now: "+(p.current||"Preparing next episode")+
+          " · "+String(p.phase||"").replaceAll("_"," ")+
+          (age>120?" · No checkpoint for "+age+" seconds":"");
+      }else{
+        $("finish-job-details").textContent=finish.remaining+
+          " Japanese subtitles still missing in scope (last coverage check). "+
+          (finish.state==="completed"?"All selected episodes covered.":
+           finish.state==="partial"?"Some remain unresolved.": "");
+        $("finish-source-current").textContent=finish.active&&finish.phase==="source"?
+          "Preparing source pass; awaiting its first real checkpoint.":
+          finish.active&&finish.phase==="translation"?"PLaMo is running; see translation activity below.":"";
+      }
+      const monitor=finish.monitor||"unknown";
+      const outputAge=Number(finish.real_output_age_seconds);
+      let status="";
+      if(monitor==="child_process_alive"){
+        status="Child process alive (PID "+finish.worker_pid+") · "+
+          (Number.isFinite(outputAge)?outputAge+"s since last real output":
+           "Waiting for first output");
+        if(outputAge>=600)status+=" · Long silence: check for stalled alignment";
+      }else if(monitor==="heartbeat_lost"){
+        status="WARNING: no worker heartbeat for "+
+          finish.heartbeat_age_seconds+"s. Possible stalled controller.";
+      }else if(monitor==="scheduled_retry"){
+        status="Waiting for automatic provider/AI retry · "+
+          Math.ceil(Number(finish.retry_in_seconds||0)/60)+" min remaining";
+      }else if(monitor==="old_worker_without_heartbeat"){
+        status="Older installed worker: no heartbeat support. Service is active, "+
+          "but this dashboard cannot verify child liveness.";
+      }else if(monitor==="preparing_next_process"){
+        status="Controller heartbeat fresh; preparing the next operation.";
+      }else if(monitor==="stopped"){
+        status="Worker stopped · "+(finish.state||"unknown");
+      }else{
+        status="Monitoring not yet available";
+      }
+      $("finish-monitor").textContent=status;
+      $("finish-raw-issue").textContent=
+        finish.last_issue?"Most recent technical hold: "+finish.last_issue:
+        "No technical hold recorded.";
+      $("finish-stop").hidden=!finish.active;
+      const jobKey=String(finish.active)+"|"+String(finish.series)+"|"+
+        String(finish.elapsed_seconds||0).slice(0,2);
+      if(!titleHistory.jobKey)titleHistory.jobKey=jobKey;
+      loadFinishTitles();
+    }
     renderGlobalCoverage(d);
+    renderNextStep(d);
     const setting=d.source_config_scope||"unavailable";
     $("library-source-selection").textContent=setting==="horror-drama-folders"?
       "Selected for every run: Horror + Drama/Suspense movie folders on BOTH drives":
+      setting==="movies-no-anime"?"Selected for every run: non-anime movies only":
       setting==="all"?"Selected for every run: all eligible library media":
       "Selected scope unreadable; source service will reject invalid settings";
-    $("source-library").textContent=setting==="horror-drama-folders"?
-      "Find Japanese subtitles · Horror + Drama/Suspense":
-      "Find Japanese subtitles throughout library";
+    $("source-library").textContent="Run Japanese-only sourcing (scheduled scope)";
     renderLibrarySourceProgress(d);
     renderDownloadUsage(d);
     const t=d.translation||{};
     const legacy=!!(t.american_dad_batch||{}).active;
     const jellyfin=!!(d.jellyfin_source||{}).active;
+    const finishActive=!!(d.finish_scope||{}).active;
     const source=!!d.source_active||!!(d.season_sources||{}).active||jellyfin;
     const ai=!!(d.season_translation||{}).active||legacy||Number(t.active_jobs||0)>0;
     const jobState=(d.jellyfin_source||{}).state||"";
     const jobStarting=jobState==="starting"||jobState==="no_progress";
-    d.workersBusy=source||ai||jobStarting||!!(d.movie_source||{}).active;
+    d.workersBusy=source||ai||finishActive||jobStarting||!!(d.movie_source||{}).active;
+    browseSetCount();
     renderJellyfinJob(d);
     d.aiAvailable=!!(d.season_translation||{}).available;
     const scoped=!!(d.season_sources||{}).active;
-    $("run-status").textContent=jellyfin?"Jellyfin source batch active":
+    $("run-status").textContent=finishActive?"Subtitle completion active":
+      jellyfin?"Jellyfin source batch active":
       jobStarting?"Jellyfin source batch starting":
       scoped?"Selected sourcing active":ai?"PLaMo active":source?"Source worker active":
       (d.jellyfin_source||{}).known?
@@ -849,21 +1490,44 @@ async function refreshStatus(){
           (batch.blocked?" · "+batch.blocked+" blocked":"")+
           (batch.state==="interrupted"?" · interrupted":"");
     }
-    $("current-work").textContent=jellyfin?
+    $("current-work").textContent=finishActive?
+       "Subtitle completion: "+escapeText((d.finish_scope||{}).current||
+         (d.finish_scope?.source_progress||{}).current||
+         (d.finish_scope||{}).phase||"Preparing"):jellyfin?
        "Japanese source: "+escapeText((d.jellyfin_source||{}).current||"Preparing"):
        batch.active&&batch.current?"PLaMo: "+batch.series+" "+batch.current:
        escapeText(d.current_item||d.phase_label||"No current job");
     $("source-state").textContent=jellyfin?"Jellyfin series batch":
       scoped?"Selected episodes":source?"Running":"Idle";
+    const daily=d.source_job||{};
+    const sourcePhase=daily.active?"RUNNING":daily.metrics_available?
+      daily.phase==="source_completed"?"FINISHED":
+      daily.phase==="source_held"?"FAILED":"STOPPED":"IDLE";
+    $("scheduled-source-summary").textContent=
+      "Automatic Japanese sourcing: "+sourcePhase+
+      (daily.scope==="movies-no-anime"?" · Non-anime movies":
+       daily.scope==="horror-drama-folders"?" · Horror / Drama movies":" · All media")+
+      (daily.metrics_available?
+        " · "+(daily.phase_label||"")+
+        " · Searches "+(daily.search_completed||0)+"/"+(daily.search_planned||0)+
+        " · Staged "+(daily.staged||0)+
+        " · Publish checks "+(daily.publish_title_checked||0)+"/"+(daily.publish_title_planned||0)+
+        " · Published "+(daily.published||0)+
+        " · Held "+(daily.publish_holds||0):
+        daily.active?" · Work is active; detailed counts unavailable":" · No recent progress data");
     $("source-library").disabled=busy||!((d.controls||{}).start_auto)||d.workersBusy;
     $("stop-library").hidden=!((d.controls||{}).stop_auto);
     $("library-source-note").textContent=source&&!scoped?
       ((d.source_job||{}).scope==="horror-drama-folders"?
         "Only Horror and Drama/Suspense movie folders on both drives are being searched and published. ":
+        (d.source_job||{}).scope==="movies-no-anime"?
+        "Non-anime movie sourcing is running. ":
         "Library-wide Japanese sourcing is running. ")+
        "Search history and results are retained; no PLaMo runs.":
       (setting==="horror-drama-folders"?
        "Future source runs target Horror and Drama/Suspense movies on both drives; saved searches stay skipped until eligible for retry.":
+       setting==="movies-no-anime"?
+       "Future source runs target non-anime movies; saved searches stay skipped until eligible for retry.":
        "Future source runs target all eligible library media; saved searches remain skipped until eligible for retry.");
     $("plamo-state").textContent=ai?"Running":d.aiAvailable?"Ready":"Handoff not installed";
     $("quota").textContent=(d.source_job||{}).provider_limited||
@@ -888,6 +1552,9 @@ async function stopJob(path){
   catch(err){toast("Could not stop job: "+err.message);}
   await refreshStatus();
 }
+$("finish-selected").addEventListener("click",()=>finishScope(false));
+$("finish-all").addEventListener("click",()=>finishScope(true));
+$("finish-stop").addEventListener("click",()=>stopJob("/api/finish/stop"));
 $("lookup").addEventListener("submit",lookup);
 $("refresh").addEventListener("click",async()=>{await loadCatalog();await refreshStatus();
   if(selectedSeries){
@@ -929,7 +1596,9 @@ async function librarySourceAction(stop){
   if(!stop&&!confirm(
     (latest&&latest.source_config_scope==="horror-drama-folders"?
      "Start Japanese sourcing for existing Horror + Drama/Suspense movie folders on BOTH drives?":
-     "Start Japanese sourcing for all eligible movies and episodes?")+
+     latest&&latest.source_config_scope==="movies-no-anime"?
+      "Start Japanese sourcing for non-anime movies only?":
+      "Start Japanese sourcing for all eligible movies and episodes?")+
     " Saved search history and provider limits are respected; no PLaMo or media replacement."
   ))return;
   busy=true;
@@ -980,7 +1649,53 @@ $("movie-stop").addEventListener("click",()=>movieAction(true));
 $("movie-plamo").addEventListener("click",movieTranslate);
 $("stop-sourcing").addEventListener("click",()=>stopJob("/api/source-season/stop"));
 $("stop-translation").addEventListener("click",()=>stopJob("/api/translation/stop"));
-loadCatalog();refreshStatus();setInterval(refreshStatus,5000);
+
+$("browse-movies").addEventListener("click",()=>{
+  browseModel.kind="Movie";browseModel.folder="";browseModel.genre="";
+  browseModel.query="";browseModel.page=0;browseModel.history=[];
+  $("browse-query").value="";browseSelected.clear();loadBrowse();
+});
+$("browse-episodes").addEventListener("click",()=>{
+  browseModel.kind="Episode";browseModel.folder="";browseModel.genre="";
+  browseModel.query="";browseModel.page=0;browseModel.history=[];
+  $("browse-query").value="";browseSelected.clear();loadBrowse();
+});
+$("browse-back").addEventListener("click",()=>{
+  const previous=browseModel.history.pop();if(!previous)return;
+  Object.assign(browseModel,previous);
+  $("browse-query").value=browseModel.query;loadBrowse();
+});
+$("browse-search").addEventListener("submit",event=>{
+  event.preventDefault();browseModel.query=$("browse-query").value.trim();
+  browseModel.page=0;loadBrowse();
+});
+$("browse-genre").addEventListener("change",()=>{
+  browseModel.genre=$("browse-genre").value;browseModel.folder="";
+  browseModel.query="";$("browse-query").value="";
+  browseModel.page=0;browseModel.history=[];loadBrowse();
+});
+$("browse-state").addEventListener("change",()=>{
+  browseModel.state=$("browse-state").value;
+  browseModel.page=0;loadBrowse();
+});
+$("browse-select-page").addEventListener("click",()=>{
+  for(const item of browseModel.items)
+    if(item.state==="needs_japanese")browseSelected.add(item.jellyfin_id);
+  renderBrowse(browseModel.data);
+});
+$("browse-clear").addEventListener("click",()=>{
+  browseSelected.clear();if(browseModel.data)renderBrowse(browseModel.data);
+});
+$("browse-prev").addEventListener("click",()=>{
+  if(browseModel.page>0){browseModel.page--;loadBrowse();}
+});
+$("browse-next").addEventListener("click",()=>{
+  if(browseModel.data?.more){browseModel.page++;loadBrowse();}
+});
+$("browse-finish-selected").addEventListener("click",()=>browseFinish(true));
+$("browse-finish-folder").addEventListener("click",()=>browseFinish(false));
+
+loadCatalog();refreshStatus();loadBrowse();setInterval(refreshStatus,5000);
 </script>
 </body>
 </html>

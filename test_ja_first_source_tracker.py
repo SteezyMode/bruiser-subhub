@@ -29,6 +29,18 @@ class SourceTrackerTests(unittest.TestCase):
         self.assertIn("25s",output)
         self.assertIn("Current: Together",output)
 
+    def test_new_movie_only_scope_is_reported_not_all_media(self):
+        events=[
+            e(100,"RUNNING_SOURCES_ONLY_CYCLE search_budget=600 stage_budget=200 publish_limit=200"),
+            e(101,"SOURCE SCOPE: movies-no-anime"),
+            e(102,"=== DISCOVERY ==="),
+            e(103,"Search requests planned: 103 | budget: 600"),
+            e(104,"[1/103] SEARCHING: Happiness (1998)"),
+        ]
+        d=monitor.parse(events)
+        self.assertEqual(d["scope"],"movies-no-anime")
+        self.assertEqual(d["search_planned"],103)
+
     def test_second_run_does_not_merge_old_counts(self):
         events=[
             e(10,"RUNNING_SOURCES_ONLY_CYCLE search_budget=8 stage_budget=2 publish_limit=3"),

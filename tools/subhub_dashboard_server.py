@@ -45,13 +45,27 @@ try:
     from . import subhub_season_sources as season_sources
 except ImportError:
     import subhub_season_sources as season_sources
+try:
+    from . import subhub_finish_scope as finish_scope
+except ImportError:
+    import subhub_finish_scope as finish_scope
 
 try:
     from . import subhub_library_coverage as global_coverage
 except ImportError:
     import subhub_library_coverage as global_coverage
+try:
+    from . import subhub_library_browser as media_browser
+except ImportError:
+    import subhub_library_browser as media_browser
+try:
+    from . import subhub_finish_titles as finish_titles
+except ImportError:
+    import subhub_finish_titles as finish_titles
 
 TRANSLATION_UNIT = "bruiser-subhub-translation-batch.service"
+FINISH_UNIT = "bruiser-subhub-finish-scope.service"
+FINISH_EXEC = Path(__file__).with_name("subhub_finish_scope.py")
 SEASON_SOURCE_UNIT = "bruiser-subhub-season-sources.service"
 SEASON_SOURCE_EXEC = Path(__file__).with_name("subhub_season_sources.py")
 BATCH_EXEC = Path(__file__).with_name("subhub_translation_batch.py")
@@ -528,7 +542,7 @@ def scheduled_source_activity(active, max_lines=5000):
           "search_partial":0,"search_deferred":0,"search_stopped_early":False,"search_stop_reason":"",
           "stage_attempts":0,"stage_planned":0,"staged":0,"stage_holds":0,
           "publish_title_checked":0,"publish_title_planned":0,"published":0,
-          "publish_holds":0}
+          "publish_holds":0,"skipped_unchanged":0,"next_actions":{}}
     now=time.monotonic()
     if (_SOURCE_CACHE["state"] is not None and
             _SOURCE_CACHE.get("active") is active and
@@ -590,7 +604,9 @@ def scheduled_source_activity(active, max_lines=5000):
               "publish_title_checked":details.get("publish_title_checked",0),
               "publish_title_planned":details.get("publish_title_planned",0),
               "published":details.get("published",0),
-              "publish_holds":details.get("publish_holds",0)}
+              "publish_holds":details.get("publish_holds",0),
+              "skipped_unchanged":details.get("skipped_unchanged",0),
+              "next_actions":details.get("next_actions",{})}
     except (OSError,ValueError,RuntimeError,KeyError,TypeError,subprocess.TimeoutExpired) as exc:
         data={**idle,"active":active,"phase":"source_running",
               "phase_label":"Source worker active — progress unavailable",
@@ -826,8 +842,9 @@ def start_movie_source(doc):
             or not path.is_file() or not any(path.is_relative_to(root)
                                             for root in MOVIE_ROOTS)):
         raise ValueError("selected_movie_no_longer_available")
-    if (unit_active(BATCH_UNIT) or unit_active(SCHEDULED_UNIT)
-            or unit_active(SEASON_SOURCE_UNIT) or unit_active(JELLYFIN_SOURCE_UNIT)
+    if (unit_active(FINISH_UNIT) or unit_active(BATCH_UNIT) or
+            unit_active(SCHEDULED_UNIT) or unit_active(SEASON_SOURCE_UNIT)
+            or unit_active(JELLYFIN_SOURCE_UNIT)
             or unit_active(MOVIE_UNIT) or translation_busy()):
         raise RuntimeError("another_source_or_translation_worker_is_active")
     if not movie_source_status()["available"]:
@@ -863,8 +880,9 @@ def start_movie_translation(doc):
     if (evidence.get("jellyfin_id")!=jid or not evidence.get("fallback_ready")
             or evidence.get("search_outcome") not in ("none","review","plausible")):
         raise RuntimeError("movie_not_in_verified_japanese_fallback_queue")
-    if (unit_active(BATCH_UNIT) or unit_active(SCHEDULED_UNIT)
-            or unit_active(SEASON_SOURCE_UNIT) or unit_active(JELLYFIN_SOURCE_UNIT)
+    if (unit_active(FINISH_UNIT) or unit_active(BATCH_UNIT) or
+            unit_active(SCHEDULED_UNIT) or unit_active(SEASON_SOURCE_UNIT)
+            or unit_active(JELLYFIN_SOURCE_UNIT)
             or unit_active(MOVIE_UNIT) or translation_busy()):
         raise RuntimeError("another_source_or_translation_worker_is_active")
     if not season_batch.ENGINE.is_file() or season_batch.ENGINE.is_symlink():
@@ -970,7 +988,7 @@ def configured_source_scope():
             return "unavailable"
         record=json.loads(path.read_text("utf-8"))
         if isinstance(record,dict) and set(record)=={"scope"} and record["scope"] in (
-                "all","horror-drama-folders"):
+                "all","horror-drama-folders","movies-no-anime"):
             return record["scope"]
     except (OSError,ValueError,TypeError):
         pass
@@ -987,6 +1005,7 @@ def status_payload():
     result=live_source_snapshot(result,scheduled_source_activity(scheduled))
     result["translation"]=translation_snapshot()
     result["season_translation"]=season_batch_status()
+    result["finish_scope"]=finish_scope_status()
     result["season_sources"]=season_sources_status()
     result["jellyfin_source"]=jellyfin_source_status()
     result["download_usage"]=download_ledger_status()
@@ -1019,6 +1038,8 @@ def source_controls(action):
             raise RuntimeError("season_source_active_cannot_start_source_worker")
         if unit_active(JELLYFIN_SOURCE_UNIT):
             raise RuntimeError("Jellyfin source batch already running")
+        if unit_active(FINISH_UNIT):
+            raise RuntimeError("TV completion job already running")
     if action=="start-auto":
         if manual or scheduled:
             raise RuntimeError("Source job already running")
@@ -1060,7 +1081,7 @@ def control_availability():
     scheduled=unit_active(SCHEDULED_UNIT)
     can_start=not manual and not scheduled and not unit_active(SEASON_SOURCE_UNIT)
     if can_start:
-        can_start=not translation_busy() and not unit_active(JELLYFIN_SOURCE_UNIT)
+        can_start=not translation_busy() and not unit_active(JELLYFIN_SOURCE_UNIT) and not unit_active(FINISH_UNIT)
     return {"available":True,
             "start_auto":can_start,
             "stop_auto":scheduled,
@@ -1156,6 +1177,269 @@ def season_batch_status():
     }
 
 
+
+def finish_source_progress(receipt):
+    """Read the active scope's real child checkpoint, not an old GUI launch.
+
+    A finish worker runs the existing source engine as a subprocess, so
+    bruiser-subhub-jellyfin-source.service is correctly inactive. Its JSON
+    checkpoint still advances every episode and every ~10 seconds.
+    """
+    source=_private_jellyfin_json(JELLYFIN_SOURCE_STATE)
+    if not source or source.get("schema")!="jellyfin-source-batch-v1":
+        return None
+    series=receipt.get("series")
+    seasons=receipt.get("seasons")
+    expected={"series":series,"seasons":seasons,"picks":[]}
+    if source.get("selector")!=expected:
+        return None
+    try:
+        # Reject yesterday's source pass with the same series/season selection.
+        # Both timestamps are set when each actual worker begins, in UTC.
+        from datetime import datetime
+        launch=datetime.fromisoformat(receipt["updated_utc"]).timestamp()
+        started=float(source.get("started_at") or 0)
+        if started < launch-3:
+            return None
+    except (KeyError,ValueError,TypeError,OverflowError):
+        return None
+    items=source.get("items")
+    if not isinstance(items,list) or len(items)>500:
+        return None
+    counts=Counter(str(x.get("status")) for x in items if isinstance(x,dict))
+    total=int_value(source.get("pass_total"))
+    processed=int_value(source.get("pass_processed"))
+    # Work counters and publication outcomes are deliberately distinct.
+    return {
+        "processed":min(max(0,processed),max(0,total)),
+        "total":max(0,total),
+        "phase":safe_text(source.get("phase"),56),
+        "current":safe_text(source.get("current"),145),
+        "searches":int_value(source.get("searches_this_run")),
+        "downloads":int_value(source.get("downloads_this_run")),
+        "published":counts["published"],
+        "covered":counts["covered"],
+        "held":counts["held"],
+        "deferred":counts["deferred"],
+        "no_match":counts["no_match"],
+        "age_seconds":max(0,int(time.time())-int_value(source.get("updated_at"))),
+        "worker_state":safe_text(source.get("state"),32),
+    }
+
+
+def finish_scope_status():
+    active=unit_active(FINISH_UNIT)
+    available=FINISH_EXEC.is_file() and not FINISH_EXEC.is_symlink()
+    try:
+        doc=_private_jellyfin_json(finish_scope.STATE)
+        if doc and doc.get("schema")!="subhub-finish-scope-v1":
+            doc=None
+    except (OSError,ValueError,TypeError,RuntimeError,json.JSONDecodeError):
+        doc=None
+    if not doc:
+        return {"active":active,"available":available,
+                "state":"starting" if active else "idle"}
+    state=str(doc.get("state") or "unknown")
+    if state in ("starting","running") and not active:
+        state="interrupted"
+    before=doc.get("before") or {}
+    after=doc.get("after") or {}
+    now=int(time.time())
+    heartbeat_at=int_value(doc.get("heartbeat_at"))
+    last_output_at=int_value(doc.get("last_real_output_at"))
+    worker_pid=int_value(doc.get("worker_pid"))
+    heartbeat_age=max(0,now-heartbeat_at) if heartbeat_at else None
+    last_event_or_start=last_output_at or int_value(doc.get("item_started_at"))
+    silent_age=(max(0,now-last_event_or_start)
+                if last_event_or_start else None)
+    if not active:
+        monitor="stopped"
+    elif state=="waiting_retry":
+        monitor="scheduled_retry"
+    elif not heartbeat_at:
+        monitor="old_worker_without_heartbeat"
+    elif heartbeat_age>35:
+        monitor="heartbeat_lost"
+    elif worker_pid>0:
+        monitor="child_process_alive"
+    else:
+        monitor="preparing_next_process"
+    result={"active":active,"available":available,"state":state,
+            "phase":safe_text(doc.get("phase"),42),
+            "series":safe_text(doc.get("series"),160),
+            "current":safe_text(doc.get("current"),160),
+            "detail":safe_text(doc.get("detail"),160),
+            "elapsed_seconds":max(0,int(time.time())-int_value(
+                doc.get("started_at"))) if doc.get("started_at") else 0,
+            "item_elapsed_seconds":max(0,int(time.time())-int_value(
+                doc.get("item_started_at"))) if doc.get("item_started_at") else 0,
+            "last_issue":safe_text(doc.get("last_issue"),160),
+            "monitor":monitor,
+            "heartbeat_age_seconds":heartbeat_age,
+            "real_output_age_seconds":silent_age,
+            "worker_pid":worker_pid,
+            "retry_in_seconds":max(0,int_value(doc.get("next_retry_at"))-now)
+                               if state=="waiting_retry" else None,
+            "flow_counts":{
+                "total":int_value(doc.get("total_exact_files")),
+                "covered":int_value(doc.get("covered_exact_files")),
+                "source":int_value(doc.get("source_pending")),
+                "plamo":int_value(doc.get("plamo_pending")),
+                "round":int_value(doc.get("round")),
+                "source_attempts":int_value(doc.get("source_attempts")),
+                "plamo_attempts":int_value(doc.get("plamo_attempts")),
+                "attempted_unique":int_value(doc.get("attempted_unique")),
+                "initially_covered":int_value(doc.get("initially_covered")),
+                "unique_instrumented":"attempted_unique" in doc}
+                if "total_exact_files" in doc else None,
+            "seasons":doc.get("seasons",[]),
+            "missing_before":int_value(before.get("missing")),
+            "covered_before":int_value(before.get("covered")),
+            "remaining":int_value(doc.get("remaining",
+                after.get("missing",before.get("missing")))),
+            "intensive_progress":{
+                "seasons_done":int_value(doc.get("intensive_seasons_done")),
+                "seasons_total":int_value(doc.get("intensive_seasons_total")),
+                "trials":int_value(doc.get("intensive_trials")),
+                "titles_checked":int_value(doc.get("intensive_titles_checked")),
+                "published":int_value(doc.get("intensive_published")),
+                "current":safe_text(doc.get("intensive_current"),120)}
+                if active and doc.get("phase")=="intensive_recovery" else None}
+    if active and doc.get("phase")=="source" and "total_exact_files" not in doc:
+        try:
+            result["source_progress"]=finish_source_progress(doc)
+        except (OSError,ValueError,TypeError,RuntimeError,json.JSONDecodeError):
+            result["source_progress"]=None
+    return result
+
+
+def start_finish_scope(doc):
+    """One owner action for selected TV seasons, exact movies or movie scope."""
+    if not isinstance(doc,dict):
+        raise ValueError("invalid_finish_scope")
+    series=""
+    selected=[]
+    movie_ids=[]
+    movie_scope=None
+    item_ids=[]
+    library_folder=None
+    library_group=None
+    library_genre=None
+    library_kind=None
+    if set(doc)=={"library_genre","kind"} and isinstance(
+            doc["library_genre"],str) and doc["kind"] in ("Movie","Episode"):
+        library_genre=doc["library_genre"]
+        library_kind=doc["kind"]
+        preview=finish_scope.movie_plan(
+            library_genre=library_genre,library_kind=library_kind)
+        kind="library_genre"
+    elif set(doc)=={"item_ids"} and isinstance(doc["item_ids"],list):
+        item_ids=doc["item_ids"]
+        if (not 1<=len(item_ids)<=300 or
+                len(set(str(v) for v in item_ids))!=len(item_ids) or
+                any(not isinstance(v,str) or not re.fullmatch("[a-f0-9]{32}",v)
+                    for v in item_ids)):
+            raise ValueError("invalid_selected_media")
+        preview=finish_scope.movie_plan(item_ids=item_ids)
+        kind="selected_items"
+    elif set(doc)=={"library_folder"} and isinstance(doc["library_folder"],str):
+        library_folder=doc["library_folder"]
+        preview=finish_scope.movie_plan(library_folder=library_folder)
+        kind="library_folder"
+    elif set(doc)=={"library_group"} and doc["library_group"] in ("Movie","Episode"):
+        library_group=doc["library_group"]
+        preview=finish_scope.movie_plan(library_group=library_group)
+        kind="library_group"
+    elif set(doc)=={"movie_ids"} and isinstance(doc["movie_ids"],list):
+        movie_ids=doc["movie_ids"]
+        if not 1<=len(movie_ids)<=100 or len(movie_ids)!=len(set(
+                str(v) for v in movie_ids)) or any(
+                not isinstance(v,str) or not re.fullmatch("[a-f0-9]{32}",v)
+                for v in movie_ids):
+            raise ValueError("invalid_movie_ids")
+        preview=finish_scope.movie_plan(movie_ids)
+        kind="selected_movies"
+    elif set(doc)=={"movie_scope"} and isinstance(doc["movie_scope"],str):
+        movie_scope=doc["movie_scope"]
+        preview=finish_scope.movie_plan(movie_scope=movie_scope)
+        kind="movie_scope"
+    elif isinstance(doc.get("series"),str):
+        series=doc["series"]
+        if set(doc)=={"series","all"} and doc["all"] is True:
+            selected=[]
+        elif set(doc)=={"series","seasons"} and isinstance(doc["seasons"],list):
+            selected=doc["seasons"]
+            if (not selected or len(selected)>60 or
+                    any(type(x) is not int or not 1<=x<=60 for x in selected) or
+                    len(set(selected))!=len(selected)):
+                raise ValueError("invalid_finish_seasons")
+        else:
+            raise ValueError("choose_selected_seasons_or_all")
+        preview=finish_scope.plan(series,selected)
+        kind="whole_series" if not selected else "selected_seasons"
+    else:
+        raise ValueError("invalid_finish_scope")
+    if (unit_active(FINISH_UNIT) or unit_active(BATCH_UNIT) or
+            unit_active(SCHEDULED_UNIT) or unit_active(SEASON_SOURCE_UNIT) or
+            unit_active(JELLYFIN_SOURCE_UNIT) or unit_active(MOVIE_UNIT) or
+            translation_busy()):
+        raise RuntimeError("another_source_or_translation_worker_is_active")
+    if not FINISH_EXEC.is_file() or FINISH_EXEC.is_symlink():
+        raise RuntimeError("finish_scope_controller_not_installed")
+    if (not finish_scope.DEEP_SOURCE.is_file() or
+            finish_scope.DEEP_SOURCE.is_symlink() or
+            not finish_scope.AUTO_PLAMO.is_file() or
+            finish_scope.AUTO_PLAMO.is_symlink()):
+        raise RuntimeError("exhaustive_source_or_plamo_worker_not_installed")
+    if preview["missing"]==0:
+        return {"ok":True,"state":"already_covered",
+                "covered":preview["covered"]}
+    receipt={"schema":"subhub-finish-scope-v1","state":"starting",
+             "phase":"starting","series":series,"seasons":preview["seasons"],
+             "before":{k:v for k,v in preview.items() if k!="picks"}}
+    finish_scope.write_state(receipt)
+    args=[sys.executable,"-B","-u",str(FINISH_EXEC),"--run"]
+    if series:
+        args.extend(("--series",series))
+        for sn in selected:
+            args.extend(("--season",str(sn)))
+    elif movie_scope:
+        args.extend(("--movie-scope",movie_scope))
+    elif library_folder:
+        args.extend(("--library-folder",library_folder))
+    elif library_group:
+        args.extend(("--library-group",library_group))
+    elif library_genre:
+        args.extend(("--library-genre",library_genre,
+                     "--library-kind",library_kind))
+    elif item_ids:
+        for jid in item_ids:
+            args.extend(("--item-id",jid))
+    else:
+        for jid in movie_ids:
+            args.extend(("--movie-id",jid))
+    command=["systemd-run","--user","--unit=bruiser-subhub-finish-scope",
+             "--collect","--property=KillMode=control-group","--",*args]
+    result=subprocess.run(command,capture_output=True,text=True,
+                          stdin=subprocess.DEVNULL,timeout=20,check=False)
+    if result.returncode:
+        receipt.update(state="launch_failed",phase="start_failed")
+        finish_scope.write_state(receipt)
+        raise RuntimeError("finish_scope_start_failed:"+safe_text(
+            result.stderr or result.stdout,140))
+    return {"ok":True,"accepted":preview["missing"],"covered":preview["covered"],
+            "scope":kind}
+
+def stop_finish_scope():
+    if not unit_active(FINISH_UNIT):
+        raise RuntimeError("no_finish_scope_worker_running")
+    p=subprocess.run(["systemctl","--user","stop","--no-block",FINISH_UNIT],
+                     capture_output=True,text=True,timeout=15,check=False)
+    if p.returncode:
+        raise RuntimeError("finish_scope_stop_failed")
+    return {"ok":True,"action":"stop-finish-scope"}
+
+
 def start_season_translation(doc):
     """Reject unsafe/conflicting work before passing exact selection to systemd."""
     if not isinstance(doc, dict):
@@ -1184,7 +1468,7 @@ def start_season_translation(doc):
         season_batch.validate(series, season, count, start)
     else:
         raise ValueError("invalid_batch_request")
-    if (unit_active(BATCH_UNIT) or unit_active(SCHEDULED_UNIT)
+    if (unit_active(FINISH_UNIT) or unit_active(BATCH_UNIT) or unit_active(SCHEDULED_UNIT)
             or unit_active(SEASON_SOURCE_UNIT) or unit_active(JELLYFIN_SOURCE_UNIT)
             or translation_busy()):
         raise RuntimeError("another_source_or_translation_worker_is_active")
@@ -1284,8 +1568,9 @@ def start_season_sources(doc):
         picks = None
     else:
         raise ValueError("invalid_season_source_request")
-    if (unit_active(BATCH_UNIT) or unit_active(SCHEDULED_UNIT)
-            or unit_active(SEASON_SOURCE_UNIT) or unit_active(JELLYFIN_SOURCE_UNIT)
+    if (unit_active(FINISH_UNIT) or unit_active(BATCH_UNIT) or
+            unit_active(SCHEDULED_UNIT) or unit_active(SEASON_SOURCE_UNIT)
+            or unit_active(JELLYFIN_SOURCE_UNIT)
             or translation_busy()):
         raise RuntimeError("another_source_or_translation_worker_is_active")
     if not season_sources_status()["available"]:
@@ -1532,8 +1817,9 @@ def jellyfin_source_arguments(doc):
 
 
 def start_jellyfin_source(doc):
-    if (unit_active(BATCH_UNIT) or unit_active(SCHEDULED_UNIT)
-            or unit_active(SEASON_SOURCE_UNIT) or unit_active(JELLYFIN_SOURCE_UNIT)
+    if (unit_active(FINISH_UNIT) or unit_active(BATCH_UNIT) or
+            unit_active(SCHEDULED_UNIT) or unit_active(SEASON_SOURCE_UNIT)
+            or unit_active(JELLYFIN_SOURCE_UNIT)
             or unit_active(MOVIE_UNIT) or translation_busy()):
         raise RuntimeError("another_source_or_translation_worker_is_active")
     if not JELLYFIN_SOURCE_EXEC.is_file() or JELLYFIN_SOURCE_EXEC.is_symlink():
@@ -1645,6 +1931,41 @@ class Handler(BaseHTTPRequestHandler):
             except (OSError, ValueError, RuntimeError, TypeError, KeyError,
                     sqlite3.Error, json.JSONDecodeError):
                 self.write(503, b'{"error":"status_unavailable"}')
+        elif target == "/api/finish/items":
+            try:
+                params=parse_qs(urlsplit(self.path).query,keep_blank_values=True)
+                if (len(urlsplit(self.path).query)>100 or
+                        set(params)-{"state","page"} or
+                        any(len(v)!=1 for v in params.values())):
+                    raise ValueError("invalid_finish_items_query")
+                receipt=_private_jellyfin_json(finish_scope.STATE)
+                data=finish_titles.report(
+                    receipt,
+                    state=params.get("state",["all"])[0],
+                    page=int(params.get("page",["0"])[0]))
+                self.write(200,json.dumps(data,ensure_ascii=False).encode("utf-8"))
+            except (ValueError,OSError,RuntimeError,TypeError,sqlite3.Error,
+                    subprocess.TimeoutExpired,json.JSONDecodeError) as exc:
+                self.write(503,json.dumps(
+                    {"error":safe_text(str(exc),130)}).encode("utf-8"))
+        elif target == "/api/library/browse":
+            try:
+                params=parse_qs(urlsplit(self.path).query,keep_blank_values=True)
+                if (len(urlsplit(self.path).query)>1000 or
+                        set(params)-{"kind","folder","query","page","state","genre"} or
+                        any(len(v)!=1 for v in params.values())):
+                    raise ValueError("invalid_library_browse_request")
+                data=media_browser.browse(
+                    kind=params.get("kind",["Movie"])[0],
+                    folder=params.get("folder",[""])[0],
+                    query=params.get("query",[""])[0],
+                    page=int(params.get("page",["0"])[0]),
+                    state=params.get("state",["all"])[0],
+                    genre=params.get("genre",[""])[0])
+                self.write(200,json.dumps(data,ensure_ascii=False).encode("utf-8"))
+            except (ValueError,OSError,RuntimeError,TypeError,sqlite3.Error) as exc:
+                self.write(400,json.dumps(
+                    {"error":safe_text(str(exc),130)}).encode("utf-8"))
         elif target == "/api/movies/search":
             try:
                 params=parse_qs(urlsplit(self.path).query)
@@ -1720,7 +2041,8 @@ class Handler(BaseHTTPRequestHandler):
             "/api/source-season/start","/api/source-season/stop",
             "/api/jellyfin-source/start","/api/jellyfin-source/stop",
             "/api/movie/start","/api/movie/stop",
-            "/api/translation/movie/start"):
+            "/api/translation/movie/start","/api/finish/start",
+            "/api/finish/stop"):
             self.write(405,b'{"error":"controls_not_available_in_v0_1"}')
             return
         origin=self.headers.get("Origin","")
@@ -1740,7 +2062,7 @@ class Handler(BaseHTTPRequestHandler):
                 != "application/json" or not size.isdecimal() or
                  int(size) > (16000 if target in (
                      "/api/translation/start","/api/source-season/start",
-                     "/api/jellyfin-source/start")
+                     "/api/jellyfin-source/start","/api/finish/start")
                      else 1200 if target in ("/api/movie/start",
                                             "/api/translation/movie/start") else 2)):
             self.write(403,b'{"error":"owner_control_access_denied"}')
@@ -1748,7 +2070,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if target in ("/api/translation/start","/api/source-season/start",
                           "/api/movie/start","/api/jellyfin-source/start",
-                          "/api/translation/movie/start"):
+                          "/api/translation/movie/start","/api/finish/start"):
                 if not (2 <= int(size) <= (
                         1200 if target in ("/api/movie/start",
                                            "/api/translation/movie/start") else 16000)):
@@ -1756,6 +2078,8 @@ class Handler(BaseHTTPRequestHandler):
                 request = json.loads(self.rfile.read(int(size)).decode("utf-8"))
                 value = (start_season_translation(request)
                          if target == "/api/translation/start"
+                         else start_finish_scope(request)
+                         if target == "/api/finish/start"
                          else start_movie_translation(request)
                          if target == "/api/translation/movie/start"
                          else start_movie_source(request)
@@ -1774,6 +2098,8 @@ class Handler(BaseHTTPRequestHandler):
                     value = stop_season_sources()
                 elif target == "/api/jellyfin-source/stop":
                     value = stop_jellyfin_source()
+                elif target == "/api/finish/stop":
+                    value = stop_finish_scope()
                 else:
                     value=source_controls(target.rsplit("/",1)[-1])
             self.write(200,json.dumps(value).encode("utf-8"))

@@ -66,13 +66,14 @@ def eligible(db, jid=None, limit=15, owner_review=False):
     params.append(limit)
     if owner_review:
         target_sql="t.target IN ('ja','review') "
-        action = """AND m.kind='Episode' AND (
-                    (t.target='ja' AND t.state IN ('pending','held')
+        action = """AND (
+                    (m.kind IN ('Episode','Movie') AND t.target='ja'
+                     AND t.state IN ('pending','held')
                      AND t.action IN ('review_saved_ja','download_saved_ja',
                          'align_existing_staged_ja','search_ja')
                      AND (t.state='held' OR t.action='review_saved_ja'))
-                    OR (t.target='review' AND t.state='pending'
-                        AND t.action='review_uncertain'))"""
+                    OR (m.kind='Episode' AND t.target='review'
+                        AND t.state='pending' AND t.action='review_uncertain'))"""
     else:
         target_sql="t.target='ja' "
         action = """AND t.state='pending'
@@ -112,7 +113,7 @@ def validate_row(row, owner_review=False):
             if (row["target"]!="review" or row["kind"]!="Episode"
                     or row["state"]!="pending"):
                 raise RuntimeError("unlabeled_audio_review_not_eligible")
-        elif (row["target"]!="ja" or row["kind"]!="Episode" or
+        elif (row["target"]!="ja" or row["kind"] not in ("Movie","Episode") or
                 row["action"] not in OWNER_REVIEW_ACTIONS or
                 row["state"] not in ("pending","held") or
                 (row["state"] != "held" and row["action"] != "review_saved_ja") or
@@ -137,6 +138,35 @@ def validate_row(row, owner_review=False):
              (row["target"]=="ja" and row["state"]=="held"
               and row["action"] in OWNER_REVIEW_ACTIONS))):
         raise RuntimeError("english_text_not_indicated")
+
+
+
+
+def automatic_exhausted_row(jid):
+    """Auto PLaMo may run only after a completed exact-video source proof."""
+    # PLaMO is installed under plamo3-ab, while the source engine lives
+    # in subhub-control. Use the actual host source installation.
+    source_home=HOME / "bruiser-pilot/subhub-control"
+    if str(source_home) not in sys.path:
+        sys.path.insert(0,str(source_home))
+    import subhub_deep_source as deep
+    if not JELLYFIN_ID.fullmatch(str(jid or "")):
+        raise RuntimeError("invalid_auto_fallback_identity")
+    matches=[r for r in deep.inventory.load_latest_manifest()
+             if isinstance(r,dict) and r.get("jellyfin_id")==jid]
+    if len(matches)!=1 or matches[0].get("status")!="ready_ja_search":
+        raise RuntimeError("auto_fallback_inventory_not_source_ready")
+    item=matches[0]
+    if not deep.validate_exhausted(jid,item):
+        raise RuntimeError("source_exhaustion_proof_missing_or_stale")
+    video=Path(str(item.get("host_path") or ""))
+    if deep.stage.japanese_sidecar_exists(video):
+        raise RuntimeError("japanese_arrived_after_source_exhaustion")
+    return {"jellyfin_id":jid,"path":str(video),
+            "kind":item["kind"],"title":str(item.get("title") or ""),
+            "series":str(item.get("series_title") or ""),
+            "action":"source_exhausted_auto","target":"ja",
+            "state":"held","english_text":int(bool(item.get("english_text")))}
 
 
 def explicit_movie_pilot(jid, movie_path, source, safe_media_path):
@@ -409,6 +439,22 @@ def acquire_exact_english(video, jid, kind, source):
           " timing=unverified_pending_ffsubsync",flush=True)
 
 
+def indexed_jellyfin_english(video, jid):
+    """Retrieve an already-indexed English stream for this exact video.
+
+    This is read-only: no provider search or download, and no sidecar write.
+    Reuse the same strict Jellyfin ID/path and track validator used by the JA
+    intensive recovery worker. The audio alignment gate still runs below.
+    """
+    from importlib import import_module
+    try:
+        reader=import_module("ja_first_alass")
+    except ImportError:
+        print("SUBHUB_AI_ENGLISH_INDEXED unavailable_reader",flush=True)
+        return None
+    return reader._intensive_jellyfin_english(video,jid)
+
+
 def synchronize_external_english(video, original, source, sync):
     """Try ffsubsync, then existing ALASS; accept corrected *timing* only.
 
@@ -464,18 +510,28 @@ def saved_media(video, jid, info, daily, source, small, sync, safe_media_path,
         if not allow_unlabeled_audio:
             raise RuntimeError("english_audio_not_verified")
         verify_owner_unlabeled_audio(video)
+    indexed_raw=None
     if info["embedded_en"] is None and daily.english_srt(video) is None:
-        print("SUBHUB_AI_ENGLISH_MISSING source_search_for_exact_video",flush=True)
-        acquire_exact_english(video,jid,kind,source)
-        # Jellyfin may finish writing its downloaded sidecar shortly after
-        # the API accepts it. Poll briefly instead of misclassifying success
-        # as a missing English source; never repeat the provider request.
-        for _ in range(12):
-            if daily.english_srt(video) is not None:
-                break
-            time.sleep(1)
-        if daily.english_srt(video) is None:
-            raise RuntimeError("english_download_not_available_as_sidecar")
+        # Jellyfin may already hold a saved EN subtitle in its own metadata
+        # rather than beside the video. Do not waste a second provider credit.
+        indexed_raw=indexed_jellyfin_english(video,jid)
+        if indexed_raw is None:
+            print("SUBHUB_AI_ENGLISH_MISSING source_search_for_exact_video",flush=True)
+            acquire_exact_english(video,jid,kind,source)
+            # The RemoteSearch POST may store the subtitle in Jellyfin
+            # metadata instead of the media folder. Both are valid sources;
+            # neither is trusted for timing until exact-video audio sync.
+            for attempt in range(12):
+                if daily.english_srt(video) is not None:
+                    break
+                indexed_raw=indexed_jellyfin_english(video,jid)
+                if indexed_raw is not None:
+                    break
+                if attempt<11:
+                    time.sleep(1)
+            if daily.english_srt(video) is None and indexed_raw is None:
+                raise RuntimeError(
+                    "english_download_not_available_as_sidecar_or_indexed_stream")
     if info["embedded_en"] is not None:
         result = subprocess.run(
             ["ffmpeg","-nostdin","-hide_banner","-loglevel","error",
@@ -490,11 +546,19 @@ def saved_media(video, jid, info, daily, source, small, sync, safe_media_path,
         timing = {"mode":"same_file_embedded"}
     else:
         candidate = daily.english_srt(video)
-        if (candidate is None or candidate.is_symlink() or
-                not candidate.is_file() or candidate.stat().st_size > 2_000_000):
-            raise RuntimeError("external_english_source_unsafe")
-        raw = candidate.read_bytes()
-        provenance = "external_audio_synced"
+        if candidate is not None:
+            if (candidate.is_symlink() or not candidate.is_file() or
+                    candidate.stat().st_size > 2_000_000):
+                raise RuntimeError("external_english_source_unsafe")
+            raw = candidate.read_bytes()
+            provenance = "external_audio_synced"
+        elif indexed_raw is not None:
+            raw = indexed_raw
+            provenance = "jellyfin_indexed_audio_synced"
+            print("SUBHUB_AI_ENGLISH_INDEXED recovered_without_sidecar",
+                  flush=True)
+        else:
+            raise RuntimeError("english_text_source_not_available")
         normalized = normalize_external_english(raw, sync)
         aligned,timing=synchronize_external_english(
             video,normalized,source,sync)
@@ -800,8 +864,10 @@ def main(argv=None):
     group.add_argument("--apply",action="store_true",
                        help="translate exactly one eligible title with proven GPU engine")
     parser.add_argument("--jellyfin-id",help="exact Jellyfin item ID; mandatory for writes")
+    parser.add_argument("--source-exhausted-auto",action="store_true",
+                        help="fallback only after exhaustive JA sourcing proof")
     parser.add_argument("--owner-reviewed-source",action="store_true",
-                        help="Explicit owner AI fallback for one reviewed/held searched episode")
+                        help="Explicit owner AI fallback for one reviewed/held searched movie or episode")
     parser.add_argument("--limit",type=int,default=15)
     parser.add_argument("--explicit-movie-pilot",action="store_true",
                         help="owner-opt-in newly added movie before queue refresh; no JA provider attempts")
@@ -811,17 +877,22 @@ def main(argv=None):
         parser.error("--limit must be 1..50")
     if (args.prepare or args.apply) and not args.jellyfin_id:
         parser.error("--prepare/--apply requires --jellyfin-id")
+    if args.source_exhausted_auto and (args.owner_reviewed_source or
+                                       args.explicit_movie_pilot or
+                                       not args.jellyfin_id or
+                                       not (args.prepare or args.apply)):
+        parser.error("--source-exhausted-auto requires exact ID and --apply/--prepare")
     if args.owner_reviewed_source and (args.explicit_movie_pilot or
                                       not args.jellyfin_id or
                                       not (args.prepare or args.apply)):
-        parser.error("--owner-reviewed-source requires an exact queued episode")
+        parser.error("--owner-reviewed-source requires an exact queued movie or episode")
     if args.explicit_movie_pilot:
         if not (args.prepare or args.apply) or not args.movie_path:
             parser.error("--explicit-movie-pilot requires --prepare or --apply and --movie-path")
     elif args.movie_path:
         parser.error("--movie-path is only valid with --explicit-movie-pilot")
     rows = []
-    if not args.explicit_movie_pilot:
+    if not args.explicit_movie_pilot and not args.source_exhausted_auto:
         with safe_db(QUEUE) as db:
             rows=eligible(db,args.jellyfin_id,args.limit,
                           owner_review=args.owner_reviewed_source)
@@ -843,6 +914,10 @@ def main(argv=None):
         if args.owner_reviewed_source:
             print("SUBHUB_AI_OWNER_REVIEW_FALLBACK media="+row["jellyfin_id"]+
                   " action="+row["action"]+" state="+row["state"],flush=True)
+    if args.source_exhausted_auto:
+        row=automatic_exhausted_row(args.jellyfin_id)
+        print("SUBHUB_AI_AUTOMATIC_SOURCE_EXHAUSTED media="+row["jellyfin_id"],
+              flush=True)
     if args.explicit_movie_pilot:
         if recent_running_source():
             raise RuntimeError("source_batch_still_running_retry_after_it_finishes")
@@ -867,7 +942,13 @@ def main(argv=None):
         fcntl.flock(lock.fileno(),fcntl.LOCK_EX|fcntl.LOCK_NB)
         if recent_running_source():
             raise RuntimeError("source_batch_still_running_retry_after_it_finishes")
-        if not args.explicit_movie_pilot:
+        if args.source_exhausted_auto:
+            check=automatic_exhausted_row(args.jellyfin_id)
+            if check["path"]!=row["path"]:
+                raise RuntimeError("automatic_source_video_changed")
+            row=check
+            mod=modules()
+        elif not args.explicit_movie_pilot:
             if args.owner_reviewed_source:
                 # Recheck the queue and source proof immediately before GPU use.
                 with safe_db(QUEUE) as db:

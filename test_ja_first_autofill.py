@@ -62,6 +62,57 @@ class SourceAutofillTests(unittest.TestCase):
             self.assertEqual(cmd[cmd.index("--stage-budget")+1],"200")
             self.assertEqual(cmd[cmd.index("--publish-limit")+1],"200")
 
+    def test_manual_once_bounds_all_stages_without_persisting_overrides(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            calls=[]
+            class Dummy:
+                returncode=0
+            with patch.object(auto,"ROOT",Path(tmp)), \
+                 patch.object(auto,"ensure_installed"), \
+                 patch.object(auto,"config",return_value=settings(0)), \
+                 patch.object(auto,"selected_source_scope",return_value="movies-no-anime"), \
+                 patch.object(auto,"refresh_manifest"), \
+                 patch.object(auto.subprocess,"run",
+                              side_effect=lambda args,**kw:calls.append(args) or Dummy()):
+                auto.once(request=lambda endpoint,*args:{"is_searching":False},
+                          search_budget=12,stage_budget=8,publish_limit=15,
+                          scope="all")
+            self.assertEqual(len(calls),1)
+            cmd=calls[0]
+            self.assertEqual(cmd[cmd.index("--search-budget")+1],"12")
+            self.assertEqual(cmd[cmd.index("--stage-budget")+1],"8")
+            self.assertEqual(cmd[cmd.index("--publish-limit")+1],"15")
+            self.assertEqual(cmd[cmd.index("--scope")+1],"all")
+            self.assertIn("--sources-only",cmd)
+            self.assertNotIn("start-worker",cmd)
+
+    def test_manual_once_rejects_oversized_or_zero_budgets_before_side_effects(self):
+        for override in ({"search_budget":601},{"stage_budget":201},
+                         {"publish_limit":201},{"search_budget":0},
+                         {"stage_budget":0},{"publish_limit":0},
+                         {"scope":"invalid"}):
+            with patch.object(auto,"ensure_installed") as check:
+                with self.assertRaises(RuntimeError):
+                    auto.once(**override)
+                check.assert_not_called()
+
+    def test_explicit_manual_search_does_not_consume_saved_scheduled_budget(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            path=root/"next-budget.json"
+            with patch.object(auto,"ROOT",root), \
+                 patch.object(auto,"NEXT_BUDGET_FILE",path):
+                auto.set_next_run_budget(45)
+                class Dummy:
+                    returncode=0
+                with patch.object(auto,"ensure_installed"), \
+                     patch.object(auto,"config",return_value=settings(0)), \
+                     patch.object(auto,"refresh_manifest"), \
+                     patch.object(auto.subprocess,"run",return_value=Dummy()):
+                    auto.once(request=lambda endpoint,*args:{"is_searching":False},
+                              search_budget=10,stage_budget=2,publish_limit=2)
+                self.assertEqual(auto.next_run_budget(),(45,True))
+
     def test_enable_creates_only_own_units_and_hands_off_search(self):
         with tempfile.TemporaryDirectory() as tmp:
             base=Path(tmp)

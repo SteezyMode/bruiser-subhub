@@ -88,6 +88,27 @@ class SeasonBatchTests(unittest.TestCase):
             batch.selected_multi_plan("It's Always Sunny in Philadelphia",
                 [{"season":20,"episode":1}],path=self.dbpath)
 
+    def test_episode_next_action_and_duplicate_row_are_explicit(self):
+        report = batch.season_report("It's Always Sunny in Philadelphia", 1,
+                                     path=self.dbpath)
+        by_ep = {x["episode"]: x for x in report["items"]}
+        self.assertTrue(by_ep[1]["next_action"].startswith("READY"))
+        self.assertTrue(by_ep[3]["next_action"].startswith("SEARCH"))
+        self.assertTrue(by_ep[5]["next_action"].startswith("GET ENGLISH"))
+        self.assertTrue(by_ep[2]["next_action"].startswith("SEARCH") or
+                        by_ep[2]["next_action"].startswith("PLAMO"))
+        with sqlite3.connect(self.dbpath) as db:
+            db.execute("INSERT INTO media VALUES(?,?,?,?,?,?,?,?,?)",
+                ("/media/IASIP/alternate-S01E03.mkv", "a"*32, "Duplicate",
+                 "It's Always Sunny in Philadelphia", "Episode","1","3",1,0))
+        report = batch.season_report("It's Always Sunny in Philadelphia", 1,
+                                     path=self.dbpath)
+        duplicate = next(x for x in report["items"] if x["episode"] == 3)
+        self.assertEqual(duplicate["next_action"],
+                         "REVIEW · Japanese on 0/2 editions; choose version")
+        self.assertFalse(duplicate["can_translate"])
+        self.assertFalse(duplicate["can_source"])
+
     def test_unresolved_batch_is_derived_from_saved_queue_and_skips_source_repair(self):
         plan=batch.unresolved_plan(
             "It's Always Sunny in Philadelphia",path=self.dbpath)

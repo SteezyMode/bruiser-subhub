@@ -38,6 +38,62 @@ class MovieScopeTests(unittest.TestCase):
         self.assertFalse(scope.matches(self.tv,scope.SCOPE))
         self.assertFalse(scope.matches(media(self.two,"Other/Horror"),scope.SCOPE))
 
+    def test_all_movies_without_anime_never_includes_tv_or_anime_section(self):
+        non_anime=scope.MOVIES_NO_ANIME
+        self.assertTrue(scope.matches(self.horror,non_anime))
+        self.assertTrue(scope.matches(self.drama,non_anime))
+        self.assertTrue(scope.matches(self.outside,non_anime))
+        self.assertTrue(scope.matches(self.title_only,non_anime))
+        self.assertFalse(scope.matches(self.tv,non_anime))
+        anime=media(self.two,"Anime",jid="f"*32)
+        self.assertFalse(scope.matches(anime,non_anime))
+        anime_folder=media(self.four,"Animation, Anime/Films",jid="1"*32)
+        self.assertFalse(scope.matches(anime_folder,non_anime))
+        anime_release=media(
+            self.four,
+            "Animated/[AnimeRG] Studio Ghibli Film Collection",
+            name="Spirited.Away.2001.mkv",jid="6"*32)
+        self.assertFalse(scope.matches(anime_release,non_anime))
+        self.assertTrue(scope.matches(
+            media(self.two,"Animated/Western Animated Films",jid="7"*32),
+            non_anime))
+        nested=media(self.two,"Comedy/Anime",jid="2"*32)
+        self.assertFalse(scope.matches(nested,non_anime))
+        tagged=media(self.two,"Comedy",jid="3"*32)
+        tagged["genres"]=["Anime","Fantasy"]
+        self.assertFalse(scope.matches(tagged,non_anime))
+        western=media(self.two,"Animation",jid="4"*32)
+        western["genres"]=["Animation","Comedy"]
+        self.assertTrue(scope.matches(western,non_anime))
+        name_only=media(self.two,"Comedy",name="The.Anime.Movie.2005.mkv",jid="5"*32)
+        self.assertTrue(scope.matches(name_only,non_anime))
+
+    def test_movies_only_scope_applies_to_search_and_stage(self):
+        rows=[self.outside,self.horror,self.drama,self.tv,
+              media(self.two,"Anime",jid="f"*32)]
+        db=sqlite3.connect(":memory:")
+        self.addCleanup(db.close)
+        db.execute("CREATE TABLE searches (jellyfin_id TEXT, outcome TEXT,"
+                   " searched_at INTEGER, results_json TEXT)")
+        with patch.object(search.priorities,"active_coverage_queue",return_value=None), \
+             patch.object(search,"query_for",return_value={"language":"ja"}):
+            selected=search.pick(rows,db,600,scope=scope.MOVIES_NO_ANIME)
+        self.assertEqual({x["id"] for x in selected},
+                         {self.outside["jellyfin_id"],self.horror["jellyfin_id"],
+                          self.drama["jellyfin_id"]})
+        inventory={r["jellyfin_id"]:r for r in rows}
+        found=[(r["jellyfin_id"],json.dumps({"candidates":[
+            {"subtitle_id":i+1,"score":90,"provider":"opensubtitles"}]}))
+            for i,r in enumerate(rows)]
+        with patch.object(stage,"rejected_duration_candidates",return_value=set()), \
+             patch.object(stage.priorities,"active_coverage_queue",return_value=None), \
+             patch.object(stage,"identity_ok",return_value=True):
+            selected=stage.choices(inventory,found,set(),100,"all",
+                                   scope=scope.MOVIES_NO_ANIME)
+        self.assertEqual({x["row"]["jellyfin_id"] for x in selected},
+                         {self.outside["jellyfin_id"],self.horror["jellyfin_id"],
+                          self.drama["jellyfin_id"]})
+
     def test_existing_all_scope_unchanged(self):
         self.assertTrue(scope.matches(self.outside,"all"))
         self.assertTrue(scope.matches(self.tv,"all"))

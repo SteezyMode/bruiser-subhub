@@ -28,7 +28,7 @@ class ItemScopedPublisher(unittest.TestCase):
              patch.object(queue,"publish_selected") as publish, \
              contextlib.redirect_stdout(io.StringIO()) as output:
             queue.main()
-        take.assert_called_once_with(chosen,[("11947715","1"*64)])
+        take.assert_called_once_with(chosen,[("11947715","1"*64)],record_failures=False)
         publish.assert_not_called()
         self.assertIn("matching_stage_rows: 1",output.getvalue())
 

@@ -36,6 +36,11 @@ FILES = {
     "ja_first_search_pilot.py",
     "ja_first_priority.py",
     "ja_first_stage_saved_batch.py",
+    "ja_first_stage_subdl_batch.py",
+    "ja_first_stage_subdl.py",
+    "ja_first_stage_jellyfin.py",
+    "ja_first_srt_normalize.py",
+    "subhub_download_ledger.py",
     "ja_first_stage_timing_audit.py",
     "ja_first_publish_staged.py",
     "ja_first_publish_shifted.py",
@@ -54,6 +59,8 @@ FILES = {
 STEPS = (
     ("DISCOVERY", "ja_first_search_pilot.py", ("--budget", "8")),
     ("JAPANESE STAGING", "ja_first_stage_saved_batch.py",
+     ("--budget", "2", "--apply")),
+    ("SUBDL SAVED STAGING", "ja_first_stage_subdl_batch.py",
      ("--budget", "2", "--apply")),
     ("JA VERIFIED PUBLICATION", "ja_first_publish_queue.py",
      ("--limit", "2", "--max-titles", "10", "--apply")),
@@ -196,6 +203,7 @@ def run_step(folder, name, file, args):
     # Each stage remains bounded and durable if interrupted.
     minutes = {"ja_first_search_pilot.py": 90,
                "ja_first_stage_saved_batch.py": 150,
+               "ja_first_stage_subdl_batch.py": 180,
                "ja_first_publish_queue.py": 270}
     result = subprocess.run(
         [sys.executable, "-u", str(path), *args],
@@ -205,6 +213,22 @@ def run_step(folder, name, file, args):
     if result.returncode:
         raise RuntimeError(name.lower().replace(" ", "_") +
                            "_failed_rc_" + str(result.returncode))
+
+
+def native_download_attempts():
+    """Observed requests from the two native staging transports.
+
+    Used as a *per-cycle* upper bound, not as a guess of account-wide
+    provider allowances. Other routes still appear in the normal ledger.
+    """
+    path=ROOT/"subhub-provider-download-ledger.sqlite3"
+    if not path.exists() and not path.is_symlink():
+        return 0
+    with sqlite3.connect(ro_uri(path),uri=True,timeout=10) as db:
+        row=db.execute(
+            "SELECT count(*) FROM download_event WHERE route IN "
+            "('sublarr_native','sublarr_native_subdl')").fetchone()
+    return int(row[0])
 
 
 def cycle(folder, search_budget, stage_budget, publish_limit, fallback_budget, sources_only=False, scope="all"):
@@ -217,31 +241,39 @@ def cycle(folder, search_budget, stage_budget, publish_limit, fallback_budget, s
     if not 1 <= fallback_budget <= 20:
         raise RuntimeError("fallback_budget_outside_1_to_20")
     required_code(folder)
-    if scope not in ("all", "horror-drama-folders"):
+    if scope not in ("all", "horror-drama-folders", "movies-no-anime"):
         raise RuntimeError("unsupported_source_scope")
     print("SOURCE SCOPE:", scope, flush=True)
-    steps = [
-        ("DISCOVERY", "ja_first_search_pilot.py",
-         ("--budget", str(search_budget), "--scope", scope)),
-        ("STAGE CANDIDATES", "ja_first_stage_saved_batch.py",
-         ("--budget", str(stage_budget), "--scope", scope, "--apply")),
-        ("PUBLISH VERIFIED JA", "ja_first_publish_queue.py",
-         ("--limit", str(publish_limit), "--max-titles", "1000", "--scope", scope, "--apply")),
-    ]
-    if not sources_only:
-        steps.append(("QUEUE ENGLISH FALLBACK", "ja_first_gemma_fallback.py",
-                      ("--probe-budget", str(fallback_budget), "--queue-one")))
     print("=== ONE BOUNDED JAPANESE-FIRST PROCESSING CYCLE ===", flush=True)
     print("Limits:", json.dumps({
         "provider_searches": search_budget,
-        "JA_downloads": stage_budget,
+        "JA_download_attempts_combined": stage_budget,
         "new_JA_publications": publish_limit,
         "fallback_EN_candidates_probed": fallback_budget,
         "Gemma_jobs_queued": 0 if sources_only else 1,
         "Gemma_jobs_started": 0
     }), flush=True)
-    for name, file, args in steps:
-        run_step(folder, name, file, args)
+    run_step(folder, "DISCOVERY", "ja_first_search_pilot.py",
+             ("--budget",str(search_budget),"--scope",scope))
+    before=native_download_attempts()
+    run_step(folder, "STAGE OPENSUBTITLES", "ja_first_stage_saved_batch.py",
+             ("--budget",str(stage_budget),"--scope",scope,"--apply"))
+    used=max(0,native_download_attempts()-before)
+    remaining=max(0,stage_budget-used)
+    print("COMBINED_STAGE_ATTEMPTS:",used,"| remaining:",remaining,
+          "| provider balances remain independent",flush=True)
+    if remaining:
+        run_step(folder, "STAGE SAVED SUBDL", "ja_first_stage_subdl_batch.py",
+                 ("--budget",str(remaining),"--scope",scope,"--apply"))
+    else:
+        print("SUBDL STAGING DEFERRED: combined attempt budget consumed",
+              flush=True)
+    run_step(folder, "PUBLISH VERIFIED JA", "ja_first_publish_queue.py",
+             ("--limit",str(publish_limit),"--max-titles","1000",
+              "--scope",scope,"--apply"))
+    if not sources_only:
+        run_step(folder,"QUEUE ENGLISH FALLBACK","ja_first_gemma_fallback.py",
+                 ("--probe-budget",str(fallback_budget),"--queue-one"))
     print("CYCLE COMPLETE: durable state updated; no Gemma worker started.",
           flush=True)
     status()
@@ -297,8 +329,8 @@ def watch(folder, job_id=None, interval=10):
 
 def self_test():
     import inspect
-    assert len(FILES) == 17
-    assert len(STEPS) == 4
+    assert len(FILES) == 22
+    assert len(STEPS) == 5
     for _, file, args in STEPS:
         assert file in FILES
         assert isinstance(args, tuple)
@@ -326,7 +358,7 @@ def main(argv=None):
     parser.add_argument("--stage-budget", type=int, default=2)
     parser.add_argument("--publish-limit", type=int, default=2)
     parser.add_argument("--fallback-budget", type=int, default=8)
-    parser.add_argument("--scope", choices=("all","horror-drama-folders"),default="all")
+    parser.add_argument("--scope", choices=("all","horror-drama-folders","movies-no-anime"),default="all")
     parser.add_argument("--sources-only", action="store_true",
                         help="search, stage and sync Japanese only; do not queue AI fallback")
     args = parser.parse_args(argv)

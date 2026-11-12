@@ -248,8 +248,28 @@ def season_report(series, season, *, path=None):
     items = []
     for number, candidates in sorted(versions.items()):
         if len(candidates) != 1:
-            items.append({"episode":number,"title":str(candidates[0]["title"]),
-                          "status":"review","reason":"duplicate_episode_versions"})
+            # The queue may include multiple releases, old moved copies, or
+            # multiple active task joins for one file. Never silently select
+            # one edition for translation or conceal already-covered copies.
+            by_path = {}
+            for candidate in candidates:
+                by_path.setdefault(str(candidate["path"]), candidate)
+            editions=list(by_path.values())
+            found=sum(bool(_already_covered(row)) for row in editions)
+            all_covered=bool(editions) and found==len(editions)
+            items.append({
+                "episode":number,"title":str(editions[0]["title"]),
+                "status":"covered" if all_covered else "review",
+                "reason":"duplicate_episode_versions",
+                "can_source":False,"can_translate":False,
+                "version_count":len(editions),"versions_with_japanese":found,
+                "next_action":(
+                    "READY · Japanese subtitles present on both versions"
+                    if all_covered and len(editions)==2 else
+                    "READY · Japanese subtitles present on all versions"
+                    if all_covered else
+                    f"REVIEW · Japanese on {found}/{len(editions)} editions; choose version")
+            })
             continue
         row = candidates[0]
         action, state = str(row["action"] or ""), str(row["state"] or "")
@@ -330,6 +350,25 @@ def season_report(series, season, *, path=None):
                                   "no_japanese_candidate_found_in_last_search")
         if recover_english:
             item["reason"]="japanese_source_exhausted_english_will_be_searched_and_synced"
+        # One explicit next step per episode. Distinguish real Japanese tracks
+        # from candidates, provider searches, and translation readiness.
+        if covered:
+            item["next_action"] = "READY · Japanese subtitles present"
+        elif proof and int(proof.get("plausible_candidates") or 0) > 0:
+            item["next_action"] = "REPAIR · Japanese candidate found; check timing"
+        elif action in ("download_saved_ja", "align_existing_staged_ja",
+                        "review_saved_ja"):
+            item["next_action"] = "REVIEW · Saved Japanese candidate"
+        elif status == "needs_english":
+            item["next_action"] = "GET ENGLISH · Search/sync or transcribe with Whisper"
+        elif searched and proof["outcome"] == "none" and item["can_translate"]:
+            item["next_action"] = "PLAMO OPTION · Last Japanese search had no usable match"
+        elif item["can_source"]:
+            item["next_action"] = "SEARCH · Japanese subtitles"
+        elif item["can_translate"]:
+            item["next_action"] = "PLAMO OPTION · Verify Japanese availability first"
+        else:
+            item["next_action"] = "REVIEW · Media or subtitle status uncertain"
         if item["can_translate"]:
             item["jellyfin_id"] = jid
         items.append(item)

@@ -24,11 +24,13 @@ try:
     from . import ja_first_stage_jellyfin as jelly
     from . import ja_first_publish_staged as publisher
     from . import subhub_download_ledger as ledger
+    from . import ja_first_srt_normalize as structure
 except ImportError:
     import ja_first_stage_saved_batch as stage
     import ja_first_stage_jellyfin as jelly
     import ja_first_publish_staged as publisher
     import subhub_download_ledger as ledger
+    import ja_first_srt_normalize as structure
 
 PROVIDER="subdl"
 SCHEMA="sublarr-subdl-v1"
@@ -43,6 +45,11 @@ def identity_ok(row,candidate):
             or candidate.get("forced") is True
             or not SUBDL_ID.fullmatch(str(candidate.get("subtitle_id") or ""))):
         return False
+    if row.get("kind")=="Movie":
+        # Share the conservative film identity predicate with OpenSubtitles.
+        # Only the download/stage transport differs; publication still
+        # requires exact-video synchronization and Japanese-content QA.
+        return stage.movie_identity_ok(row,candidate)
     if row.get("kind")!="Episode":
         return False
     expected={(row["season"],row["episode"])}
@@ -51,12 +58,19 @@ def identity_ok(row,candidate):
     if tags and tags!=expected:
         return False
     matches=set(candidate.get("matches") or [])
-    # The source was discovered by a series-title and explicit S/E request.
-    # Require episode evidence from result metadata or filename.
-    return expected==tags or "episode" in matches and "season" in matches
+    # The broad provider endpoint also returns other shows with the same
+    # S/E numbers. Require actual series identity in the name OR verified
+    # provider series match, not episode numbers alone.
+    series=stage.tokens(row.get("series_title"))
+    texts=(candidate.get("filename"),candidate.get("release_info"))
+    named=any(stage.contiguous_words(stage.tokens(text),series)
+              for text in texts) if series else False
+    series_evidence=named or "series" in matches
+    return series_evidence and (expected==tags or
+                                {"episode","season"}.issubset(matches))
 
 
-def private_candidate(jid,row):
+def private_candidate(jid,row,subtitle_id=None):
     stage.private_file(stage.SEARCH_DB)
     with sqlite3.connect("file:"+str(stage.SEARCH_DB.resolve())+"?mode=ro",
                          uri=True,timeout=10) as db:
@@ -66,9 +80,10 @@ def private_candidate(jid,row):
         return []
     doc=json.loads(found[0])
     candidates=[c for c in doc.get("candidates",[])
-                if identity_ok(row,c)]
+                if identity_ok(row,c) and
+                (subtitle_id is None or str(c.get("subtitle_id"))==subtitle_id)]
     candidates.sort(key=lambda c:-int(c.get("score") or 0))
-    return candidates[:3]
+    return candidates
 
 
 def numeric_id(remote):
@@ -77,41 +92,140 @@ def numeric_id(remote):
     return sid,digest
 
 
+def cached_archive(candidate):
+    """Reuse saved provider ZIP bytes after one GET, including QA-rejected ZIPs.
+
+    A failed extraction must not burn tomorrow's quota just to see the same
+    release. Cache is private and bounded; never contains credentials or
+    untrusted paths from the provider. Media/staging DB remain untouched.
+    """
+    remote=str(candidate["subtitle_id"])
+    _,digest=numeric_id(remote)
+    stage.STAGED.mkdir(mode=0o700,exist_ok=True)
+    if (stage.STAGED.is_symlink() or not stage.STAGED.is_dir() or
+            stage.STAGED.stat().st_mode & 0o077):
+        raise RuntimeError("unsafe_private_staging_folder")
+    folder=stage.STAGED/"subdl-source-zips"
+    folder.mkdir(mode=0o700,exist_ok=True)
+    if (folder.is_symlink() or not folder.is_dir() or
+            folder.stat().st_mode & 0o077):
+        raise RuntimeError("unsafe_private_subdl_cache")
+    dest=folder/(digest+".zip")
+    if dest.is_symlink():
+        raise RuntimeError("unsafe_private_subdl_archive_symlink")
+    if dest.exists():
+        if (not dest.is_file() or dest.stat().st_mode & 0o077 or
+                not 0<dest.stat().st_size<=MAX_ARCHIVE):
+            raise RuntimeError("unsafe_private_subdl_archive")
+        raw=dest.read_bytes()
+        if not zipfile.is_zipfile(BytesIO(raw)):
+            raise RuntimeError("cached_subdl_archive_not_zip")
+        print("SUBDL_ARCHIVE_CACHE: hit (provider GET skipped)",flush=True)
+        return raw
+    blob=download(candidate)
+    # Only valid ZIP containers are cached. Invalid/no-byte provider replies
+    # must not poison the release's deterministic private cache entry.
+    if zipfile.is_zipfile(BytesIO(blob)):
+        try:
+            fd=os.open(str(dest),os.O_WRONLY|os.O_CREAT|os.O_EXCL|
+                       getattr(os,"O_NOFOLLOW",0),0o600)
+        except FileExistsError:
+            if (dest.is_symlink() or not dest.is_file()
+                    or dest.read_bytes()!=blob):
+                raise RuntimeError("conflicting_cached_subdl_archive")
+        else:
+            try:
+                with os.fdopen(fd,"wb") as out:
+                    out.write(blob)
+                    out.flush()
+                    os.fsync(out.fileno())
+            except BaseException:
+                dest.unlink(missing_ok=True)
+                raise
+        print("SUBDL_ARCHIVE_CACHE: saved for future validation",flush=True)
+    return blob
+
+
 def archive_srt(blob,row,candidate,runtime):
     if not zipfile.is_zipfile(BytesIO(blob)):
         raise RuntimeError("subdl_archive_not_zip")
-    expected={(row["season"],row["episode"])}
+    movie=row.get("kind")=="Movie"
+    expected={(row["season"],row["episode"])} if not movie else set()
     options=[]
     with zipfile.ZipFile(BytesIO(blob)) as arc:
         members=[m for m in arc.infolist()
                  if not m.is_dir() and m.filename.lower().endswith(".srt")]
         if len(arc.infolist())>MAX_MEMBERS:
             raise RuntimeError("subdl_archive_too_many_entries")
+        if not members:
+            raise RuntimeError("subdl_archive_no_srt_members")
         for item in members:
             if not 0<item.file_size<=2_000_000:
                 continue
-            tags=stage.named_episode(Path(item.filename).stem)
-            if tags and tags!=expected:
-                continue
-            # Never take an unnumbered entry out of a multi-episode archive.
-            if not tags and len(members)!=1:
-                continue
-            priority=1 if tags==expected else 0
+            if movie:
+                # Multiple SRTs in a movie ZIP are different releases; a
+                # provider's movie identity is not sufficient to choose one
+                # randomly. Require file title/year or a sole .srt member.
+                words=stage.tokens(Path(item.filename).stem)
+                title=stage.tokens(row.get("title"))
+                year=str(row.get("year") or "")
+                match=any(words[i:i+len(title)]==title
+                          for i in range(len(words)-len(title)+1)) if title else False
+                if len(members)>1 and (not match or year not in words):
+                    continue
+                priority=2 if match and year in words else 1 if len(members)==1 else 0
+            else:
+                tags=stage.named_episode(Path(item.filename).stem)
+                if tags and tags!=expected:
+                    continue
+                if not tags and len(members)!=1:
+                    continue
+                priority=1 if tags==expected else 0
             options.append((priority,item))
+        if not options:
+            raise RuntimeError("subdl_archive_no_matching_srt_member")
         options.sort(key=lambda pair:-pair[0])
+        rejected=[]
         for _,member in options:
             try:
                 raw=arc.read(member)
-                for encoding in ("utf-8-sig","utf-16","cp932","shift_jis"):
-                    try:
-                        content=raw.decode(encoding).encode("utf-8")
-                        qa=publisher.validate_srt(content,runtime)
-                        return content,qa,member.filename
-                    except (UnicodeError,RuntimeError,ValueError):
-                        continue
             except (RuntimeError,ValueError,zipfile.BadZipFile):
+                rejected.append("member_unreadable")
                 continue
-    raise RuntimeError("subdl_no_correct_episode_japanese_srt")
+            decoded=False
+            for encoding in ("utf-8-sig","utf-16","cp932","shift_jis"):
+                try:
+                    content=raw.decode(encoding).encode("utf-8")
+                except UnicodeError:
+                    continue
+                decoded=True
+                try:
+                    # SubDL archives may contain the same mechanical SRT
+                    # defects as saved OpenSubtitles stages. Normalize only
+                    # lossless, strictly validated defects; the original
+                    # bytes remain in the private ZIP cache as provenance.
+                    working,repair=structure.normalize(
+                        content,trial_release_note=True,trial_local_swap=True)
+                    qa=publisher.validate_srt(working,runtime)
+                    qa["original_zip_member_sha256"]=hashlib.sha256(raw).hexdigest()
+                    qa["structural_repair"]=repair
+                    return working,qa,member.filename
+                except (RuntimeError,ValueError) as exc:
+                    # Stable error category only. Filename, raw provider bytes,
+                    # private paths and arbitrary exception strings stay out
+                    # of the shared progress and dashboard logs.
+                    code=str(exc).split(":",1)[0]
+                    if re.fullmatch(r"[A-Za-z0-9_]{1,85}",code):
+                        rejected.append(code)
+                    else:
+                        rejected.append("content_validation_error")
+            if not decoded:
+                rejected.append("member_undecodable")
+    # Distinguish no matching ZIP member from an identity-matching SRT that
+    # fails Japanese content, duration or structural validation. This matters
+    # when quota is exhausted: an error should not imply no provider result.
+    reason=",".join(sorted(set(rejected))[:3]) or "unknown"
+    raise RuntimeError("subdl_archive_srt_rejected:"+reason)
 
 
 def download(candidate):
@@ -143,7 +257,7 @@ def stage_one(row,candidate,runtime):
     if (jid,sid) in stage.read_staged():
         print("STAGED_SUBDL:",jid,"source_id:",sid,"cached",flush=True)
         return
-    blob=download(candidate)
+    blob=cached_archive(candidate)
     raw,qa,member=archive_srt(blob,row,candidate,runtime)
     stage.STAGED.mkdir(mode=0o700,exist_ok=True)
     if stage.STAGED.is_symlink() or stage.STAGED.stat().st_mode & 0o077:
@@ -170,6 +284,8 @@ def stage_one(row,candidate,runtime):
         "source_series_title":str(row.get("series_title") or "")[:160],
         "source_season":row.get("season"),"source_episode":row.get("episode"),
         "source_archive_member":str(member)[:240],
+        "original_zip_member_sha256":qa.get("original_zip_member_sha256"),
+        "structural_repair":qa.get("structural_repair"),
         "format":"srt","bytes":len(raw),"sha256":checksum,
         "video_seconds":round(runtime,3),
         "cues":qa["cues"],
@@ -199,6 +315,8 @@ def stage_one(row,candidate,runtime):
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--jellyfin-id",required=True)
+    parser.add_argument("--subtitle-id",default="",
+                        help="exact saved SubDL release to attempt within deep source recovery")
     parser.add_argument("--apply",action="store_true")
     args=parser.parse_args()
     if not re.fullmatch(r"[a-f0-9]{32}",args.jellyfin_id):
@@ -207,7 +325,9 @@ def main():
     row=inventory.get(args.jellyfin_id)
     if not row or row.get("status")!="ready_ja_search":
         raise RuntimeError("media_not_eligible")
-    candidates=private_candidate(args.jellyfin_id,row)
+    if args.subtitle_id and not SUBDL_ID.fullmatch(args.subtitle_id):
+        parser.error("Invalid SubDL saved candidate ID")
+    candidates=private_candidate(args.jellyfin_id,row,args.subtitle_id or None)
     print("SUBDL_SAVED_CANDIDATES:",len(candidates),flush=True)
     if not candidates or not args.apply:
         return
@@ -223,8 +343,20 @@ def main():
                 return
             errors.append("HTTP_"+str(exc.code))
         except (RuntimeError,OSError,ValueError,zipfile.BadZipFile) as exc:
-            errors.append(type(exc).__name__)
-    print("SUBDL_HELD:",",".join(errors[:3]),flush=True)
+            reason=str(exc).split(":",1)[0]
+            if isinstance(exc, RuntimeError) and (
+                    reason.startswith("subdl_archive_") or
+                    reason=="subdl_no_correct_episode_japanese_srt"):
+                print("SUBDL_REJECTED:",str(exc)[:150],flush=True)
+            else:
+                # Only expose a safe fixed-code error token, never a URL,
+                # provider credential, media path or arbitrary exception text.
+                code=str(exc).split(":",1)[0]
+                if not re.fullmatch(r"[A-Za-z0-9_]{1,90}",code):
+                    code="unclassified"
+                errors.append(type(exc).__name__+":"+code)
+    if errors:
+        print("SUBDL_HELD:",",".join(errors[:3]),flush=True)
 
 
 if __name__=="__main__":
