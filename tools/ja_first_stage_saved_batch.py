@@ -473,6 +473,7 @@ def choices(inventory, searches, already, budget, kind, only_id=None, scope="all
         # Prefer the release/edition matching the actual video, not just
         # provider search score. This ranks candidates; it never proves sync.
         plausible.sort(key=lambda r: (
+            0 if r.get("grade","plausible")=="plausible" else 1,
             -candidate_progress.release_match(row,r),
             -int(r.get("score") or 0),
             str(r.get("subtitle_id") or "")
