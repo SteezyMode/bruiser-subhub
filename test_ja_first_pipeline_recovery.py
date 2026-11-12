@@ -53,9 +53,9 @@ class PipelineRecoveryTests(unittest.TestCase):
         def fake_run(command,**kwargs):
             body={"result":"blocked","error_type":"RuntimeError",
                   "error":"too_few_japanese_characters"}
-            stdout=("SUBHUB_DOWNLOAD_REQUEST: opensubtitles\\n"
-                    "SUBHUB_DOWNLOAD_RECEIVED: 1234\\n"
-                    "STAGE_RESULT_JSON:"+json.dumps(body)+"\\n")
+            stdout=("SUBHUB_DOWNLOAD_REQUEST: opensubtitles\n"
+                    "SUBHUB_DOWNLOAD_RECEIVED: 1234\n"
+                    "STAGE_RESULT_JSON:"+json.dumps(body)+"\n")
             return subprocess.CompletedProcess(command,1,stdout,"")
         with patch.object(stage,"duration_if_safe",return_value=1200), \
              patch.object(stage.subprocess,"run",side_effect=fake_run), \
@@ -69,8 +69,8 @@ class PipelineRecoveryTests(unittest.TestCase):
         def quota_run(command,**kwargs):
             body={"result":"blocked","error_type":"RuntimeError",
                   "error":"opensubtitles_pool_disabled_cooling_or_exhausted"}
-            stdout=("SUBHUB_DOWNLOAD_REQUEST: opensubtitles\\n"
-                    "STAGE_RESULT_JSON:"+json.dumps(body)+"\\n")
+            stdout=("SUBHUB_DOWNLOAD_REQUEST: opensubtitles\n"
+                    "STAGE_RESULT_JSON:"+json.dumps(body)+"\n")
             return subprocess.CompletedProcess(command,1,stdout,"")
         with patch.object(stage,"duration_if_safe",return_value=1200), \
              patch.object(stage.subprocess,"run",side_effect=quota_run), \
