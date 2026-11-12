@@ -74,6 +74,7 @@ class MovieStagingIdentityRegressions(unittest.TestCase):
             ("A Fistful of Dollars",1964,"1964"),
             ("The Cat Returns",2002,"Neko_No_Ongaeshi_2002.07.19"),
             ("The Platform",2019,"El_Hoyo_Japanese"),
+            ("Maniac",1980,"Maniac"),
             ("Ride the High Country",1962,
              "she-hulk-attorney-at-law-first-season_japanese-2880486.zip"),
         ]:
