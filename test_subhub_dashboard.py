@@ -106,6 +106,42 @@ class StatusTests(unittest.TestCase):
             finally:
                 dashboard._SOURCE_CACHE.update(old)
 
+    def test_finish_heartbeat_never_mistakes_liveness_for_progress(self):
+        receipt={"schema":"subhub-finish-scope-v1","state":"running",
+                 "phase":"source","total_exact_files":679,
+                 "covered_exact_files":287,"source_pending":302,
+                 "plamo_pending":90,"initially_covered":287,
+                 "attempted_unique":154,"source_attempts":154,
+                 "worker_pid":12345,"heartbeat_at":1000,
+                 "last_real_output_at":970,"started_at":900,
+                 "item_started_at":940,"updated_utc":"2026-11-12T00:00:00+00:00"}
+        with patch.object(dashboard,"unit_active",return_value=True), \
+             patch.object(dashboard,"_private_jellyfin_json",return_value=receipt), \
+             patch.object(dashboard.time,"time",return_value=1010):
+            status=dashboard.finish_scope_status()
+        self.assertEqual(status["monitor"],"child_process_alive")
+        self.assertEqual(status["heartbeat_age_seconds"],10)
+        self.assertEqual(status["real_output_age_seconds"],40)
+        self.assertEqual(status["flow_counts"]["attempted_unique"],154)
+        self.assertTrue(status["flow_counts"]["unique_instrumented"])
+        # The same still-running service is not assumed healthy if the
+        # heartbeat actually goes stale.
+        receipt["heartbeat_at"]=900
+        with patch.object(dashboard,"unit_active",return_value=True), \
+             patch.object(dashboard,"_private_jellyfin_json",return_value=receipt), \
+             patch.object(dashboard.time,"time",return_value=1010):
+            status=dashboard.finish_scope_status()
+        self.assertEqual(status["monitor"],"heartbeat_lost")
+        # Legacy installed workers have NO reliable heartbeat evidence.
+        receipt.pop("heartbeat_at")
+        receipt.pop("attempted_unique")
+        with patch.object(dashboard,"unit_active",return_value=True), \
+             patch.object(dashboard,"_private_jellyfin_json",return_value=receipt), \
+             patch.object(dashboard.time,"time",return_value=1010):
+            status=dashboard.finish_scope_status()
+        self.assertEqual(status["monitor"],"old_worker_without_heartbeat")
+        self.assertFalse(status["flow_counts"]["unique_instrumented"])
+
     def test_page_has_media_browser_and_compact_season_review(self):
         html=dashboard.HTML.read_text(encoding="utf-8")
         for name in ("title-search","search-results","seasons","episode-details",
