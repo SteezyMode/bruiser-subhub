@@ -24,11 +24,13 @@ try:
     from . import ja_first_stage_jellyfin as jelly
     from . import ja_first_publish_staged as publisher
     from . import subhub_download_ledger as ledger
+    from . import ja_first_srt_normalize as structure
 except ImportError:
     import ja_first_stage_saved_batch as stage
     import ja_first_stage_jellyfin as jelly
     import ja_first_publish_staged as publisher
     import subhub_download_ledger as ledger
+    import ja_first_srt_normalize as structure
 
 PROVIDER="subdl"
 SCHEMA="sublarr-subdl-v1"
@@ -198,8 +200,16 @@ def archive_srt(blob,row,candidate,runtime):
                     continue
                 decoded=True
                 try:
-                    qa=publisher.validate_srt(content,runtime)
-                    return content,qa,member.filename
+                    # SubDL archives may contain the same mechanical SRT
+                    # defects as saved OpenSubtitles stages. Normalize only
+                    # lossless, strictly validated defects; the original
+                    # bytes remain in the private ZIP cache as provenance.
+                    working,repair=structure.normalize(
+                        content,trial_release_note=True,trial_local_swap=True)
+                    qa=publisher.validate_srt(working,runtime)
+                    qa["original_zip_member_sha256"]=hashlib.sha256(raw).hexdigest()
+                    qa["structural_repair"]=repair
+                    return working,qa,member.filename
                 except (RuntimeError,ValueError) as exc:
                     # Stable error category only. Filename, raw provider bytes,
                     # private paths and arbitrary exception strings stay out
@@ -274,6 +284,8 @@ def stage_one(row,candidate,runtime):
         "source_series_title":str(row.get("series_title") or "")[:160],
         "source_season":row.get("season"),"source_episode":row.get("episode"),
         "source_archive_member":str(member)[:240],
+        "original_zip_member_sha256":qa.get("original_zip_member_sha256"),
+        "structural_repair":qa.get("structural_repair"),
         "format":"srt","bytes":len(raw),"sha256":checksum,
         "video_seconds":round(runtime,3),
         "cues":qa["cues"],
