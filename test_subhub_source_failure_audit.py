@@ -1,5 +1,7 @@
 """One-time source-failure audit: offline classification, no writes."""
 import unittest
+from pathlib import Path
+import tempfile
 from unittest.mock import patch
 
 from tools import subhub_source_failure_audit as audit
@@ -14,6 +16,26 @@ def search(candidates=(), rejected=(), gates=None, outcome="plausible"):
 
 class SourceFailureAuditTests(unittest.TestCase):
     JID="a"*32
+
+    def test_staged_japanese_samples_from_real_srt_remain_read_only(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)
+            stage=root/"staged"
+            stage.mkdir()
+            subtitle=stage/"example.ja.srt"
+            subtitle.write_text(
+                "1\n00:00:01,000 --> 00:00:03,000\nこんにちは\n\n"
+                "2\n00:01:01,000 --> 00:01:03,000\nもう一度\n\n"
+                "3\n00:02:01,000 --> 00:02:03,000\nさようなら\n",
+                encoding="utf-8")
+            saved=subtitle.read_bytes()
+            with patch.object(audit,"ROOT",root):
+                samples=audit._sample_srt(subtitle)
+                self.assertEqual(len(samples),3)
+                self.assertIn("こんにちは",samples[0])
+                self.assertIn("もう一度",samples[1])
+                self.assertIn("さようなら",samples[2])
+            self.assertEqual(subtitle.read_bytes(),saved)
 
     def test_provider_incomplete_never_claimed_no_results(self):
         r=search(outcome="none",gates={
