@@ -293,6 +293,14 @@ def run(series=None, seasons=(), *, movie_ids=(), movie_scope=None,
                               library_group=library_group,
                               library_genre=library_genre,library_kind=library_kind))
     finished=initial_covered(selection)
+    try:
+        from . import subhub_deep_source as deep
+    except ImportError:
+        if str(SOURCE.parent) not in sys.path:
+            sys.path.insert(0,str(SOURCE.parent))
+        import subhub_deep_source as deep
+    by_id={str(row.get("jellyfin_id")):row for row in
+           deep.inventory.load_latest_manifest() if isinstance(row,dict)}
     pending={jid:(season,episode) for season,episode,jid in selection
              if jid not in finished}
     total=len(selection)
@@ -303,7 +311,8 @@ def run(series=None, seasons=(), *, movie_ids=(), movie_scope=None,
              "total_exact_files":total,"covered_exact_files":len(finished),
              "source_pending":len(pending),"plamo_pending":0,
              "round":0,"source_attempts":0,"plamo_attempts":0,
-             "current":"","last_issue":""}
+             "started_at":int(time.time()),"item_started_at":0,
+             "current":"","detail":"","last_event_at":0,"last_issue":""}
     write_state(receipt)
     print("FINISH_BEGIN",json.dumps({"total_exact_files":total,
           "series":series or "","seasons":before["seasons"],
@@ -320,18 +329,29 @@ def run(series=None, seasons=(), *, movie_ids=(), movie_scope=None,
         receipt["round"]+=1
         for jid in list(pending):
             season,ep=pending[jid]
+            row=by_id.get(jid) or {}
+            title=(str(row.get("series_title") or "")+" " if season else "")+(
+                   f"S{season:02d}E{ep:03d} " if season else "")+str(
+                   row.get("title") or jid)
             receipt.update(phase="source",state="running",
-                           current=f"S{season:02d}E{ep:03d} {jid}",
+                           current=title[:160],detail="Checking existing Japanese subtitles",
+                           item_started_at=int(time.time()),last_event_at=int(time.time()),
                            source_attempts=receipt["source_attempts"]+1)
             write_state(receipt)
             result={}
             def accept(line):
-                if not line.startswith("DEEP_SOURCE_RESULT:"):
-                    return
-                try:
-                    result.update(json.loads(line.split(":",1)[1]))
-                except (TypeError,ValueError):
-                    pass
+                if line.startswith("DEEP_SOURCE_RESULT:"):
+                    try:
+                        result.update(json.loads(line.split(":",1)[1]))
+                    except (TypeError,ValueError):
+                        pass
+                elif line.startswith(("DEEP_SOURCE_CANDIDATE:",
+                                      "DEEP_SOURCE_SEARCH:",
+                                      "DEEP_SOURCE_PUBLISHED:",
+                                      "DEEP_SOURCE_PUBLISH_RETRY:")):
+                    receipt["detail"]=line[:160]
+                    receipt["last_event_at"]=int(time.time())
+                    write_state(receipt)
             rc=command([DEEP_SOURCE,"--jellyfin-id",jid,"--run"],
                        "deep_source_"+jid[:8],on_line=accept)
             decision=result.get("result") if not rc else "retry_source"
@@ -365,8 +385,13 @@ def run(series=None, seasons=(), *, movie_ids=(), movie_scope=None,
                 continue
             season,ep=next(((sn,number) for sn,number,mid in selection
                             if mid==jid),(0,0))
+            row=by_id.get(jid) or {}
+            title=(str(row.get("series_title") or "")+" " if season else "")+(
+                   f"S{season:02d}E{ep:03d} " if season else "")+str(
+                   row.get("title") or jid)
             receipt.update(phase="translation",state="running",
-                           current=f"S{season:02d}E{ep:03d} {jid}",
+                           current=title[:160],detail="Running PLaMO fallback",
+                           item_started_at=int(time.time()),
                            plamo_attempts=receipt["plamo_attempts"]+1)
             write_state(receipt)
             rc=command([AUTO_PLAMO,"--jellyfin-id",jid,
