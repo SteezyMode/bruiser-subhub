@@ -57,6 +57,52 @@ class GenericJellyfinBatch(unittest.TestCase):
         with self.assertRaises(ValueError):
             batch.choose(self.rows,movie_ids=["f"*32,"f"*32])
 
+    def test_browse_media_selection_uses_only_Jellyfin_catalog_and_missing_JP(self):
+        rows=[
+            dict(movie("a"*32,"Film A"),host_path="/media/Movies/Drama/Film A.mkv",
+                 genres=["Drama"]),
+            dict(movie("b"*32,"Film B"),host_path="/media/Movies/Drama/B/Film B.mkv",
+                 genres=["Drama"]),
+            dict(movie("c"*32,"Film C",status="existing_japanese_subtitle"),
+                 host_path="/media/Movies/Drama/Film C.mkv",genres=["Drama"]),
+            dict(movie("d"*32,"Film D"),host_path="/media/Movies/Action/Film D.mkv",
+                 genres=["Action"]),
+            dict(tv("e"*32,1,1),host_path="/media/Shows/Example Show/S01E01.mkv",
+                 genres=["Drama"]),
+        ]
+        folder=batch.choose(rows,library_folder="/media/Movies/Drama",
+                            library_kind="Movie")
+        self.assertEqual({r["jellyfin_id"] for r in folder},{"a"*32,"b"*32})
+        genre=batch.choose(rows,library_genre="Drama",library_kind="Movie")
+        self.assertEqual({r["jellyfin_id"] for r in genre},{"a"*32,"b"*32})
+        selected=batch.choose(rows,item_ids=["b"*32,"e"*32,"c"*32])
+        self.assertEqual({r["jellyfin_id"] for r in selected},{"b"*32,"e"*32})
+        self.assertEqual(batch.selector(
+            library_folder="/media/Movies/Drama",library_kind="Movie"),
+            {"library_folder":"/media/Movies/Drama","kind":"Movie"})
+        with self.assertRaisesRegex(ValueError,"folder_not_in"):
+            batch.choose(rows,library_folder="/media/Movies/DramaWrong",
+                         library_kind="Movie")
+        with self.assertRaisesRegex(ValueError,"item_selection_not_in"):
+            batch.choose(rows,item_ids=["f"*32])
+
+    def test_folder_resume_does_not_requeue_completed_or_held_movies(self):
+        rows=[
+            dict(movie("a"*32,"Film A"),host_path="/media/Movies/Drama/A.mkv"),
+            dict(movie("b"*32,"Film B"),host_path="/media/Movies/Drama/B.mkv"),
+        ]
+        selected=batch.choose(rows,library_folder="/media/Movies/Drama",
+                              library_kind="Movie")
+        plan=batch.selector(library_folder="/media/Movies/Drama",library_kind="Movie")
+        first=batch.fresh_state(selected,plan,now=10000)
+        first["items"][0]["status"]="published"
+        first["items"][1]["status"]="held"
+        first["items"][1]["attempted_at"]=10000
+        second=batch.fresh_state(selected,plan,first,now=10005)
+        self.assertEqual(second["pass_total"],0)
+        self.assertEqual(second["items"][0]["status"],"published")
+        self.assertEqual(second["items"][1]["status"],"held")
+
     def test_subdl_stage_can_select_exact_episode_without_publishing(self):
         from tools import ja_first_stage_subdl as subdl
         row=tv("a"*32,8,6,series="Example Show")
@@ -295,6 +341,50 @@ class DashboardJellyfinControls(unittest.TestCase):
         ]:
             with self.assertRaises(ValueError):
                 dashboard.jellyfin_source_arguments(req)
+
+    def test_browse_source_requests_are_validated_and_use_existing_worker(self):
+        with patch.object(dashboard.media_browser,"browse",
+                          return_value={"items":[]}) as browse:
+            folder=dashboard.jellyfin_source_arguments(
+                {"library_folder":"/media/Movies/Drama","kind":"Movie"})
+            genre=dashboard.jellyfin_source_arguments(
+                {"library_genre":"Drama","kind":"Movie"})
+        self.assertEqual(folder,["--library-folder","/media/Movies/Drama",
+                                 "--library-kind","Movie"])
+        self.assertEqual(genre,["--library-genre","Drama","--library-kind","Movie"])
+        self.assertEqual(browse.call_count,2)
+        self.assertEqual(dashboard.jellyfin_source_arguments(
+            {"item_ids":["b"*32,"a"*32]}),
+            ["--item-id","a"*32,"--item-id","b"*32])
+        for doc in ({"item_ids":["a"*32]*2},
+                    {"item_ids":["g"*32]},
+                    {"library_folder":"/media/Movies/../Movies","kind":"Movie"},
+                    {"library_genre":"Drama","kind":"invalid"}):
+            with self.assertRaises(ValueError):
+                dashboard.jellyfin_source_arguments(doc)
+
+    def test_browser_folder_launch_is_source_only_and_has_twenty_search_cap(self):
+        calls=[]
+        def run(command,**kwargs):
+            calls.append(command)
+            if len(calls)==1:
+                return SimpleNamespace(returncode=0,stdout='{"eligible": 25}',stderr="")
+            return SimpleNamespace(returncode=0,stdout="Running as unit...",stderr="")
+        with patch.object(dashboard,"unit_active",return_value=False), \
+             patch.object(dashboard,"translation_busy",return_value=False), \
+             patch.object(dashboard,"JELLYFIN_SOURCE_EXEC",Path(__file__)), \
+             patch.object(dashboard.media_browser,"browse",return_value={"items":[]}), \
+             patch.object(dashboard.subprocess,"run",side_effect=run):
+            result=dashboard.start_jellyfin_source(
+                {"library_folder":"/media/Movies/Drama","kind":"Movie"})
+        self.assertEqual(result["eligible"],25)
+        self.assertEqual(result["max_searches_this_run"],20)
+        self.assertIn("--library-folder",calls[0])
+        self.assertIn("--library-folder",calls[1])
+        self.assertIn("--max-searches",calls[1])
+        self.assertEqual(calls[1][calls[1].index("--max-searches")+1],"20")
+        self.assertNotIn("--series",calls[1])
+        self.assertNotIn("--plamo",calls[1])
 
     def test_background_start_previews_exact_scope_then_uses_systemd(self):
         calls=[]

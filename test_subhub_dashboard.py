@@ -151,7 +151,7 @@ class StatusTests(unittest.TestCase):
         # Browse/search within a library and direct title lookup are distinct.
         self.assertEqual(html.count('type="text"'),2)
         for item in ("library-browser","browse-genre","browse-state",
-                     "browse-finish-selected","browse-finish-folder"):
+                     "browse-source"):
             self.assertIn('id="'+item+'"',html)
         self.assertNotIn('id="finish-movie-scope"',html)
         self.assertIn("Review remaining episodes",html)

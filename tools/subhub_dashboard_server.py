@@ -1782,6 +1782,33 @@ def jellyfin_source_arguments(doc):
     """Server checks scope; worker checks exact Jellyfin catalog identities."""
     if not isinstance(doc,dict):
         raise ValueError("invalid_jellyfin_source_request")
+    if set(doc) in ({"movie_ids"},{"item_ids"}):
+        kind="movie_ids" if "movie_ids" in doc else "item_ids"
+        ids=doc[kind]
+        if (not isinstance(ids,list) or not 1<=len(ids)<=300 or
+                any(not isinstance(jid,str) or not re.fullmatch(r"[a-f0-9]{32}",jid)
+                    for jid in ids) or len(set(ids))!=len(ids)):
+            raise ValueError("invalid_selected_source_ids")
+        flag="--movie-id" if kind=="movie_ids" else "--item-id"
+        return [part for jid in sorted(ids) for part in (flag,jid)]
+    if set(doc) in ({"library_folder","kind"},{"library_genre","kind"}):
+        kind=doc["kind"]
+        if kind not in ("Movie","Episode"):
+            raise ValueError("invalid_source_library_kind")
+        if "library_folder" in doc:
+            folder=doc["library_folder"]
+            if (not isinstance(folder,str) or not folder.startswith("/")
+                    or len(folder)>1000 or ".." in Path(folder).parts):
+                raise ValueError("invalid_source_library_folder")
+            # Only paths actually in Jellyfin's saved inventory are accepted.
+            media_browser.browse(kind=kind,folder=folder)
+            return ["--library-folder",folder,"--library-kind",kind]
+        genre=doc["library_genre"]
+        if (not isinstance(genre,str) or not 1<=len(genre)<=60
+                or any(ord(c)<32 for c in genre)):
+            raise ValueError("invalid_source_library_genre")
+        media_browser.browse(kind=kind,genre=genre)
+        return ["--library-genre",genre,"--library-kind",kind]
     if set(doc)=={"series"}:
         series=doc["series"];rest=[]
     elif set(doc)=={"series","seasons"}:
@@ -1825,9 +1852,9 @@ def start_jellyfin_source(doc):
     if not JELLYFIN_SOURCE_EXEC.is_file() or JELLYFIN_SOURCE_EXEC.is_symlink():
         raise RuntimeError("Jellyfin_source_worker_not_installed")
     args=jellyfin_source_arguments(doc)
-    # Whole-series retry is an EXPLICIT large-scope action; selected seasons
-    # and episodes keep a conservative 20-search budget. Both stop immediately
-    # on provider quota refusal, and every result is tracked.
+    # Whole-series retry is an EXPLICIT large-scope action; exact movie
+    # selections and selected TV seasons/episodes use at most 20 searches.
+    # Each worker checks for existing Japanese subtitles before provider use.
     search_cap=200 if set(doc)=={"series"} else 20
     preview=subprocess.run([sys.executable,"-B",str(JELLYFIN_SOURCE_EXEC),
                             *args,"--max-searches",str(search_cap)],
@@ -1844,10 +1871,18 @@ def start_jellyfin_source(doc):
     if eligible<=0:
         raise ValueError("No missing Japanese titles in the selected scope")
     job_id=secrets.token_hex(8)
-    selection={"series":doc["series"],
-               "seasons":sorted(doc.get("seasons",[])),
-               "picks":[[p["season"],p["episode"]] for p in
-                        doc.get("picks",[])]}
+    selection=({"movie_ids":sorted(doc["movie_ids"])}
+               if "movie_ids" in doc else
+               {"item_ids":sorted(doc["item_ids"])}
+               if "item_ids" in doc else
+               {"library_folder":doc["library_folder"],"kind":doc["kind"]}
+               if "library_folder" in doc else
+               {"library_genre":doc["library_genre"],"kind":doc["kind"]}
+               if "library_genre" in doc else
+               {"series":doc["series"],
+                "seasons":sorted(doc.get("seasons",[])),
+                "picks":[[p["season"],p["episode"]] for p in
+                         doc.get("picks",[])]})
     receipt={
         "schema":"jellyfin-source-launch-v1","job_id":job_id,
         "selector":selection,"eligible":eligible,

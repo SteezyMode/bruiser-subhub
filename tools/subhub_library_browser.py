@@ -132,6 +132,10 @@ def browse(*, kind="Movie", folder="", query="", page=0, state="all",
             if not folder:
                 child_path=r["root"]
             else:
+                # For movie genre/release folders, show the movies themselves
+                # instead of repeating every title as a folder AND a row.
+                if kind=="Movie" and folder not in roots:
+                    continue
                 if r["folder"]==folder:
                     continue
                 # One direct child directory below the current folder.
@@ -144,7 +148,14 @@ def browse(*, kind="Movie", folder="", query="", page=0, state="all",
                     "audio_only":0,"unverified":0}
             child[child_path]["total"]+=1
             child[child_path][r["state"]]+=1
-        direct=[r for r in selection if folder and r["folder"]==folder]
+        # A movie folder can contain one subfolder per title/release.
+        # Show all descendant *movie files* as selectable rows in the parent
+        # folder, not just direct-child files. Keep folder navigation as an
+        # optional narrowing control. Without this, a folder can say "5
+        # missing" while displaying only one selectable movie.
+        direct=[r for r in selection if folder and (
+            within(r["folder"],folder) if kind=="Movie"
+            else r["folder"]==folder)]
     else:
         term=query.strip().casefold()
         direct=[r for r in selection if term in (
