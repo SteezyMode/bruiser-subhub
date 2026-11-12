@@ -34,6 +34,7 @@ SOURCE_FILES=(
     "ja_first_movie_scope.py",
     "ja_first_cycle.py",
     "ja_first_priority.py",
+    "ja_first_candidate_progress.py",
     "ja_first_catalog_manifest.py",
     "ja_first_stage_saved_batch.py",
     "ja_first_stage_timing_audit.py",
