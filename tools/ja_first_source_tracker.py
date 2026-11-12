@@ -204,7 +204,8 @@ def parse(events):
                     if action in ("stage_alternate_saved_japanese",
                                   "retry_japanese_providers_after_reset",
                                   "offer_owner_reviewed_plamo_after_english_validation",
-                                  "search_japanese","review_candidate_and_source_state",
+                                  "search_japanese","complete_or_retry_staged_validation",
+                                  "review_candidate_and_source_state",
                                   "review_search_evidence"):
                         next_actions[action]+=1
                 except (ValueError,AttributeError,TypeError):
