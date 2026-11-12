@@ -56,6 +56,21 @@ SOURCE_FILES=(
     "subhub_plamo_source_repass.py",
     "ja_first_autofill.py",
 )
+NEW_SOURCE_FILES=frozenset({
+    "ja_first_movie_scope.py",
+    "ja_first_srt_normalize.py",
+    "ja_first_candidate_progress.py",
+    "ja_first_alass.py",
+    "benchmark_subtitle_search_paths.py",
+    "probe_jellyfin_remote_subtitle.py",
+    "ja_first_stage_jellyfin.py",
+    "ja_first_stage_subdl.py",
+    "subhub_download_ledger.py",
+    "subhub_jellyfin_batch.py",
+    "subhub_deep_source.py",
+    "subhub_source_failure_audit.py",
+    "subhub_plamo_source_repass.py",
+})
 AI_FILES=("subhub_plamo_handoff.py",)
 DASH_FILES=(
     "subhub_dashboard_server.py",
@@ -199,21 +214,7 @@ def main():
     destinations={}
     for name in SOURCE_FILES:
         target=HOST/name
-        secure_file(target,allow_new=name in {
-            "ja_first_movie_scope.py",
-            "ja_first_srt_normalize.py",
-            "ja_first_candidate_progress.py",
-            "ja_first_alass.py",
-            "benchmark_subtitle_search_paths.py",
-            "probe_jellyfin_remote_subtitle.py",
-            "ja_first_stage_jellyfin.py",
-            "ja_first_stage_subdl.py",
-            "subhub_download_ledger.py",
-            "subhub_jellyfin_batch.py",
-            "subhub_deep_source.py",
-            "subhub_source_failure_audit.py",
-            "subhub_plamo_source_repass.py",
-        })
+        secure_file(target,allow_new=name in NEW_SOURCE_FILES)
         destinations[("source",name)]=target
     for name in DASH_FILES:
         target=DASH/name
