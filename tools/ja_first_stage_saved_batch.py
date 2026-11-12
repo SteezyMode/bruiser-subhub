@@ -441,6 +441,19 @@ def rejected_duration_candidates():
     return rejected
 
 
+def known_rejected_download(row,candidate):
+    """Previously downloaded malformed subtitle, not an untried release."""
+    key=candidate_progress.fingerprint(
+        row["host_path"],candidate_progress.saved_candidate_digest(candidate),"stage")
+    prior=candidate_progress.known(
+        str(row["jellyfin_id"]),str(candidate["subtitle_id"]),"stage",key,
+        max_age_seconds=30*86400)
+    if prior:
+        print("  REJECTED_DOWNLOAD_SKIPPED:",row.get("title"),
+              candidate.get("subtitle_id"),prior[:75],flush=True)
+    return bool(prior)
+
+
 def alternate_ready(row):
     """Do not spend a second download while an existing stage is untried.
 
@@ -490,7 +503,8 @@ def choices(inventory, searches, already, budget, kind, only_id=None, scope="all
         candidates = (result.get("candidates") or []) if isinstance(result, dict) else []
         plausible = [c for c in candidates if isinstance(c, dict)
                      and identity_ok(row, c)
-                     and (str(jid), str(c["subtitle_id"])) not in already]
+                     and (str(jid), str(c["subtitle_id"])) not in already
+                     and not known_rejected_download(row,c)]
         if not plausible:
             continue
         if not only_id and not alternate_ready(row):
@@ -728,6 +742,22 @@ def run_one(job, database):
     # Account BEFORE interpreting the final worker outcome: a downloaded file
     # still consumes allowance if its Japanese text or timing later fails QA.
     record_native_download_attempt(result.stdout,report)
+    # A provider can deliver bytes immediately rejected as malformed. The
+    # previous daily run then redownloaded the SAME bad file without a stage.
+    # Cache only when bytes actually arrived and the local content validator
+    # rejected them (never auth/quota/docker/ffprobe/I/O).
+    received=re.findall(r"(?m)^SUBHUB_DOWNLOAD_RECEIVED: ([0-9]{1,7})$",result.stdout)
+    if (len(received)==1 and 0<int(received[0])<=2_000_000 and
+            report.get("result")=="blocked" and
+            report.get("error_type")=="RuntimeError" and
+            candidate_progress.deterministic_stage_rejection(report.get("error"))):
+        key=candidate_progress.fingerprint(
+            row["host_path"],candidate_progress.saved_candidate_digest(candidate),"stage")
+        candidate_progress.remember(
+            str(row["jellyfin_id"]),str(candidate["subtitle_id"]),"stage",key,
+            RuntimeError(str(report["error"])))
+        print("  SAVED_REJECTED_DOWNLOAD:",candidate["subtitle_id"],
+              str(report["error"])[:90],flush=True)
     if not lines:
         raise RuntimeError("container_staging_result_missing")
     if result.returncode or report.get("result") not in (
