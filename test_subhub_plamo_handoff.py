@@ -169,8 +169,9 @@ class HandoffTests(unittest.TestCase):
                 ai.validate_row(row,owner_review=True)
                 with self.assertRaisesRegex(RuntimeError,"japanese_sourcing_not_exhausted"):
                     ai.validate_row(row)
-                with self.assertRaisesRegex(RuntimeError,"review_source_evidence"):
-                    ai.validate_row(dict(row,kind="Movie"),owner_review=True)
+                # A held Movie now receives the same owner-reviewed fallback
+                # path as a held Episode, but only with saved JA search proof.
+                ai.validate_row(dict(row,kind="Movie"),owner_review=True)
                 with sqlite3.connect(search) as db:
                     db.execute("UPDATE searches SET outcome='error'")
                 with self.assertRaisesRegex(RuntimeError,"review_source_evidence"):
