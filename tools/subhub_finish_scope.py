@@ -26,9 +26,9 @@ try:
 except ImportError:
     import subhub_translation_batch as batch
 
-DEEP_SOURCE = Path(__file__).with_name("subhub_deep_source.py")
-AUTO_PLAMO = Path(__file__).with_name("subhub_plamo_handoff.py")
 SOURCE = Path.home() / "bruiser-pilot/subhub-control/subhub_jellyfin_batch.py"
+DEEP_SOURCE = SOURCE.with_name("subhub_deep_source.py")
+AUTO_PLAMO = Path.home() / "bruiser-pilot/plamo3-ab/subhub_plamo_handoff.py"
 INTENSIVE = SOURCE.with_name("ja_first_publish_queue.py")
 TRANSLATOR = Path(__file__).with_name("subhub_translation_batch.py")
 STATE = Path.home() / "bruiser-pilot/ja-first-inventory/finish-scope.json"
@@ -114,10 +114,11 @@ def command(args, label, on_line=None):
 
 def selected_media(series, seasons):
     """Select every exact Jellyfin file; duplicate episode versions remain separate."""
-    try:
-        from . import subhub_deep_source as deep
-    except ImportError:
-        import subhub_deep_source as deep
+    # Dashboard controller runs from a different installation directory
+    # than the canonical host source engine; resolve it explicitly.
+    if str(SOURCE.parent) not in sys.path:
+        sys.path.insert(0,str(SOURCE.parent))
+    import subhub_deep_source as deep
     chosen=[]
     seen=set()
     for row in deep.inventory.load_latest_manifest():
