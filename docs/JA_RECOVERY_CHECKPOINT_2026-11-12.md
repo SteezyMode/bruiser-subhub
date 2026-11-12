@@ -84,3 +84,15 @@ Owner installed source revision 93fa0a3fcef4f33077d8c38a1b8fc953a9e942fc with --
 3. Inspect exact Green Room malformed SRT blocks using the existing read-only subhub_source_failure_audit.find_structural_defects before designing general lossless separators repair.
 4. Keep [REC] held for a different edition or credible reference, not a relaxed runtime threshold. The subtitle/video ending discrepancy is about 707 seconds.
 5. Broader batch recovery remains the goal; measure actual stage → ready → published yield and preserve original downloaded files.
+
+## SubDL archive cache and explicit validation errors (GitHub-only)
+
+**Implemented and regression-tested after the last owner log, not yet installed on OptiPlex:**
+
+- Native SubDL now saves the first **valid downloaded ZIP archive** in an owner-only private cache under `~/bruiser-pilot/ja-first-inventory/staged/subdl-source-zips/<sha256-id>.zip`. This does not stage or publish the ZIP as a subtitle. An identical release is subsequently read from cache without another provider GET; malformed, symlinked or insecure cache paths fail closed.
+- The archive validator now reports distinct stable reasons: `subdl_archive_no_srt_members`, `subdl_archive_no_matching_srt_member`, and `subdl_archive_srt_rejected:<validation-reason>`, instead of the ambiguous `subdl_no_correct_episode_japanese_srt` umbrella. This preserves all original downloaded bytes and avoids making guessed subtitle-format changes.
+- Five new tests covering missing SRT, wrong movie name among ZIP members, invalid Japanese content, one-GET caching, and rejection of symlinked caches all passed on CI Python 3.11. The full suite retains the same historical 4 failures and 8 errors (1018 total, 3 skipped); no new code failures.
+- The previous Double Blind SubDL request was made **before** this cache existed and did not leave a reusable ZIP behind, so a single subsequent attempt will consume quota again. After this new version, another attempt against the same release should reuse the cached original ZIP without network.
+- Inspect Green Room with a temporary copy of `tools/subhub_source_failure_audit.py`; it is intentionally **not included in the normal installer SOURCE_FILES**, so prior `ModuleNotFoundError` is expected from that incorrect command.
+
+---
