@@ -1240,6 +1240,24 @@ def finish_scope_status():
         state="interrupted"
     before=doc.get("before") or {}
     after=doc.get("after") or {}
+    now=int(time.time())
+    heartbeat_at=int_value(doc.get("heartbeat_at"))
+    last_output_at=int_value(doc.get("last_real_output_at"))
+    worker_pid=int_value(doc.get("worker_pid"))
+    heartbeat_age=max(0,now-heartbeat_at) if heartbeat_at else None
+    silent_age=max(0,now-last_output_at) if last_output_at else None
+    if not active:
+        monitor="stopped"
+    elif state=="waiting_retry":
+        monitor="scheduled_retry"
+    elif not heartbeat_at:
+        monitor="old_worker_without_heartbeat"
+    elif heartbeat_age>35:
+        monitor="heartbeat_lost"
+    elif worker_pid>0:
+        monitor="child_process_alive"
+    else:
+        monitor="preparing_next_process"
     result={"active":active,"available":available,"state":state,
             "phase":safe_text(doc.get("phase"),42),
             "series":safe_text(doc.get("series"),160),
@@ -1250,6 +1268,12 @@ def finish_scope_status():
             "item_elapsed_seconds":max(0,int(time.time())-int_value(
                 doc.get("item_started_at"))) if doc.get("item_started_at") else 0,
             "last_issue":safe_text(doc.get("last_issue"),160),
+            "monitor":monitor,
+            "heartbeat_age_seconds":heartbeat_age,
+            "real_output_age_seconds":silent_age,
+            "worker_pid":worker_pid,
+            "retry_in_seconds":max(0,int_value(doc.get("next_retry_at"))-now)
+                               if state=="waiting_retry" else None,
             "flow_counts":{
                 "total":int_value(doc.get("total_exact_files")),
                 "covered":int_value(doc.get("covered_exact_files")),
@@ -1257,7 +1281,9 @@ def finish_scope_status():
                 "plamo":int_value(doc.get("plamo_pending")),
                 "round":int_value(doc.get("round")),
                 "source_attempts":int_value(doc.get("source_attempts")),
-                "plamo_attempts":int_value(doc.get("plamo_attempts"))}
+                "plamo_attempts":int_value(doc.get("plamo_attempts")),
+                "attempted_unique":int_value(doc.get("attempted_unique")),
+                "initially_covered":int_value(doc.get("initially_covered"))}
                 if "total_exact_files" in doc else None,
             "seasons":doc.get("seasons",[]),
             "missing_before":int_value(before.get("missing")),
