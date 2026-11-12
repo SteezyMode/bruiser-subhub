@@ -202,6 +202,18 @@ def run(series, seasons=()):
                            plamo_pending=len(plamo))
             write_state(receipt)
         for jid in list(plamo):
+            # A refreshed provider search or changed media invalidates a
+            # former exhaustion proof. Re-route automatically to sourcing.
+            import subhub_deep_source as deep
+            matches=[r for r in deep.inventory.load_latest_manifest()
+                     if isinstance(r,dict) and r.get("jellyfin_id")==jid]
+            if len(matches)!=1 or not deep.validate_exhausted(jid,matches[0]):
+                plamo.remove(jid)
+                pending[jid]=next(((sn,number) for sn,number,mid in selection
+                                   if mid==jid),(0,0))
+                receipt["last_issue"]="source_proof_invalidated_retry_japanese"
+                print("FINISH_SOURCE_REQUEUE:",jid,flush=True)
+                continue
             season,ep=next(((sn,number) for sn,number,mid in selection
                             if mid==jid),(0,0))
             receipt.update(phase="translation",state="running",
