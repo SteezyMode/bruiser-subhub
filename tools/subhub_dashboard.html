@@ -1032,7 +1032,10 @@ function renderJellyfinJob(d){
   // An active finish job owns a separate child source; hide the obsolete
   // independent Jellyfin job's saved failure rather than mislabel the run.
   if((d.finish_scope||{}).active){
-    $("jellyfin-job").hidden=true;return;
+    $("jellyfin-job").hidden=true;
+    $("jellyfin-saved-queue").hidden=true;
+    $("jellyfin-job-continue").hidden=true;
+    return;
   }
   // Only a LIVE sourcing worker receives a progress bar.
   // Paused/finished receipts remain under the collapsed History section.
