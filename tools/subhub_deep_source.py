@@ -198,6 +198,19 @@ def refresh_search(jid):
     return rc==0 and "ERROR:" not in out and "DEFERRED:" not in out
 
 
+def staged_fingerprint(jid):
+    """Exact staged bytes/status: a newly staged candidate revokes AI proof."""
+    if not stage.STAGE_DB.exists():
+        return []
+    stage.private_file(stage.STAGE_DB)
+    with sqlite3.connect("file:"+str(stage.STAGE_DB.resolve())+"?mode=ro",
+                         uri=True,timeout=10) as db:
+        rows=db.execute(
+            "SELECT subtitle_id,sha256,status FROM staged WHERE jellyfin_id=? "
+            "ORDER BY subtitle_id",(jid,)).fetchall()
+    return [[str(sid),str(sha),str(status)] for sid,sha,status in rows]
+
+
 def _secure_dir():
     parent=RECEIPTS.parent
     if (not parent.is_dir() or parent.is_symlink() or
@@ -222,7 +235,9 @@ def save_exhausted(jid,row,doc,attempted):
              "video":str(video),"size":st.st_size,"mtime_ns":st.st_mtime_ns,
              "search_sha256":hashlib.sha256(json.dumps(
                  doc,sort_keys=True,ensure_ascii=False).encode()).hexdigest(),
-             "candidate_keys":attempted,"status":"exhausted",
+             "candidate_keys":attempted,
+             "stage_records":staged_fingerprint(jid),
+             "status":"exhausted",
              "recorded_at":int(time.time())}
     fd,tmp=tempfile.mkstemp(prefix=".source-proof-",dir=RECEIPTS)
     try:
@@ -263,7 +278,8 @@ def validate_exhausted(jid,row):
             and isinstance(data.get("candidate_keys"),list)
             and data["candidate_keys"]==[
                 [c["provider"],str(c["subtitle_id"])]
-                for c in candidates_for(row,saved)])
+                for c in candidates_for(row,saved)]
+            and data.get("stage_records")==staged_fingerprint(jid))
 
 
 def run(jid):
