@@ -23,7 +23,8 @@ ROOT=Path.home()/"bruiser-pilot/ja-first-inventory"
 LEDGER=ROOT/"subhub-provider-download-ledger.sqlite3"
 JST=ZoneInfo("Asia/Tokyo")
 PROVIDERS={"opensubtitles","subdl","yify","other","unknown"}
-ROUTES={"jellyfin_subbuzz","jellyfin_native","sublarr_native","other"}
+ROUTES={"jellyfin_subbuzz","jellyfin_native","sublarr_native",
+        "sublarr_native_subdl","other"}
 RESULTS={"pending","downloaded","quota_blocked","failed"}
 
 
