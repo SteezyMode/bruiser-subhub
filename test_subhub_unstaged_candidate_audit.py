@@ -45,7 +45,7 @@ class UnstagedAuditTests(unittest.TestCase):
 
     def test_unverified_search_hit_not_stageable(self):
         os,dl=self.stagers()
-        os.identity_ok.return_value=False
+        os.identity_ok.side_effect=lambda row,candidate:False
         found,reasons,examples=audit.evaluate_candidates(
             {},[{"provider":"opensubtitles","subtitle_id":"99999",
                  "filename":"Wrong.Film"}],os,dl,[])
