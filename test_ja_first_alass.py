@@ -32,6 +32,48 @@ def fixture(shift):
     return ("\n\n".join(source)+"\n").encode(),("\n\n".join(corrected)+"\n").encode()
 
 class AlassTests(unittest.TestCase):
+    def test_identical_alass_artifact_created_during_link_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td)/"private"
+            root.mkdir(mode=0o700)
+            item={"jid":"a"*32,"sid":"123","original":b"original",
+                  "chosen":b"corrected",
+                  "assessment":{"mode":"aligned","cues":180}}
+            record=root/"source.alass.srt"
+            real_link=alass.os.link
+            attempts=[0]
+            def raced_link(src,dst,*args,**kwargs):
+                if attempts[0]==0:
+                    attempts[0]+=1
+                    Path(dst).write_bytes(item["chosen"])
+                    raise FileExistsError(17,"File exists",str(dst))
+                return real_link(src,dst,*args,**kwargs)
+            with (patch.object(alass,"artifact",return_value=record),
+                  patch.object(alass.os,"link",side_effect=raced_link)):
+                alass.preserve(item)
+            self.assertEqual(record.read_bytes(),item["chosen"])
+            self.assertTrue(Path(str(record)+".json").is_file())
+            self.assertEqual(list(root.glob(".pending-alass-*")),[])
+
+    def test_different_alass_artifact_created_during_link_stays_held(self):
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td)/"private"
+            root.mkdir(mode=0o700)
+            item={"jid":"a"*32,"sid":"123","original":b"original",
+                  "chosen":b"corrected",
+                  "assessment":{"mode":"aligned","cues":180}}
+            record=root/"source.alass.srt"
+            def conflicting_link(src,dst,*args,**kwargs):
+                Path(dst).write_bytes(b"different-old-artifact")
+                raise FileExistsError(17,"File exists",str(dst))
+            with (patch.object(alass,"artifact",return_value=record),
+                  patch.object(alass.os,"link",side_effect=conflicting_link)):
+                with self.assertRaisesRegex(RuntimeError,"alass_stage_conflict"):
+                    alass.preserve(item)
+            self.assertEqual(record.read_bytes(),b"different-old-artifact")
+            self.assertFalse(Path(str(record)+".json").exists())
+            self.assertEqual(list(root.glob(".pending-alass-*")),[])
+
     def test_smile2_1202_cue_regression_through_standard_alass_prepare(self):
         """Regression for real host hold: one 1.627-second inversion, no lost JP.
 
