@@ -24,7 +24,7 @@ class SourceOnlyRepassTests(unittest.TestCase):
 
     def test_worker_idle_gate_matches_installer_without_importing_it_on_host(self):
         self.assertEqual(repass.BUSY_UNITS, installer.BUSY_UNITS)
-        inactive=SimpleNamespace(returncode=3,stdout="inactive\\n")
+        inactive=SimpleNamespace(returncode=3,stdout="inactive\n")
         with patch.object(repass.subprocess,"run",return_value=inactive) as run:
             repass._safe_apply()
         self.assertEqual(run.call_count,len(repass.BUSY_UNITS))
@@ -33,11 +33,12 @@ class SourceOnlyRepassTests(unittest.TestCase):
                              ["systemctl","--user","is-active"])
 
     def test_worker_busy_fails_closed_before_any_stage_or_publication(self):
-        active=SimpleNamespace(returncode=0,stdout="active\\n")
+        active=SimpleNamespace(returncode=0,stdout="active\n")
         with patch.object(repass.subprocess,"run",return_value=active):
             with self.assertRaisesRegex(
                     RuntimeError,"existing_subhub_source_worker_active"):
                 repass._safe_apply()
+
     def test_saved_releases_only_pass_exact_provider_identity(self):
         row=movie()
         doc={"results":{"candidates":[
