@@ -19,6 +19,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import selectors
 import time
 
 try:
@@ -97,18 +98,58 @@ def write_state(payload):
         Path(temp).unlink(missing_ok=True)
 
 
-def command(args, label, on_line=None):
+def command(args, label, on_line=None, on_heartbeat=None, interval=10):
+    """Stream real output and emit a liveness heartbeat even during silent work.
+
+    Read bytes via selector: text iteration buffers internally and cannot
+    reliably tell us whether a child has stopped producing new output.
+    A heartbeat is proof only that the child PID still exists, NOT that it
+    has made new progress. The UI reports these facts separately.
+    """
     if not args[0].is_file() or args[0].is_symlink():
         raise RuntimeError(label+"_worker_not_installed")
     print("FINISH_STEP",label,flush=True)
     with subprocess.Popen([sys.executable,"-B","-u",*map(str,args)],
             stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,text=True,bufsize=1) as p:
+            stderr=subprocess.STDOUT,bufsize=0) as p:
         assert p.stdout is not None
-        for line in p.stdout:
-            print(line,end="",flush=True)
+        line_bytes=b""
+        last_real_output=time.monotonic()
+
+        def deliver(chunk):
+            nonlocal last_real_output
+            message=chunk.decode("utf-8","replace")
+            print(message,end="" if message.endswith("\n") else "\n",flush=True)
+            last_real_output=time.monotonic()
             if on_line is not None:
-                on_line(line)
+                on_line(message)
+
+        if on_heartbeat is not None:
+            on_heartbeat(p.pid,0)
+        with selectors.DefaultSelector() as selector:
+            selector.register(p.stdout,selectors.EVENT_READ)
+            while True:
+                ready=selector.select(timeout=interval)
+                if not ready:
+                    if on_heartbeat is not None:
+                        on_heartbeat(p.pid,int(time.monotonic()-last_real_output))
+                    continue
+                chunk=os.read(p.stdout.fileno(),65536)
+                if not chunk:
+                    break
+                line_bytes+=chunk
+                while b"\n" in line_bytes:
+                    line,line_bytes=line_bytes.split(b"\n",1)
+                    deliver(line+b"\n")
+                # Bound a malformed giant unbroken log line without
+                # suppressing later progress or exhausting memory.
+                if len(line_bytes)>131072:
+                    deliver(line_bytes[:131072]+b"\n")
+                    line_bytes=line_bytes[131072:]
+                if on_heartbeat is not None:
+                    on_heartbeat(p.pid,0)
+        if line_bytes:
+            deliver(line_bytes)
         return p.wait()
 
 
@@ -318,6 +359,9 @@ def run(series=None, seasons=(), *, movie_ids=(), movie_scope=None,
              "total_exact_files":total,"covered_exact_files":len(finished),
              "source_pending":len(pending),"plamo_pending":0,
              "round":0,"source_attempts":0,"plamo_attempts":0,
+             "attempted_unique":0,"initially_covered":len(finished),
+             "worker_pid":0,"heartbeat_at":0,"last_real_output_at":0,
+             "output_silent_seconds":0,
              "started_at":int(time.time()),"item_started_at":0,
              "current":"","detail":"","last_event_at":0,"last_issue":""}
     write_state(receipt)
@@ -332,9 +376,12 @@ def run(series=None, seasons=(), *, movie_ids=(), movie_scope=None,
     # Dict retains state for this process; source-exhaustion receipts and
     # PLaMO checkpoints are independently durable across a restarted job.
     plamo=set()
+    attempted_ids=set()
     while pending or plamo:
         receipt["round"]+=1
         for jid in list(pending):
+            attempted_ids.add(jid)
+            receipt["attempted_unique"]=len(attempted_ids)
             season,ep=pending[jid]
             row=by_id.get(jid) or {}
             title=(str(row.get("series_title") or "")+" " if season else "")+(
@@ -359,8 +406,16 @@ def run(series=None, seasons=(), *, movie_ids=(), movie_scope=None,
                     receipt["detail"]=line[:160]
                     receipt["last_event_at"]=int(time.time())
                     write_state(receipt)
+            def heartbeat(pid,silent):
+                receipt.update(worker_pid=pid,heartbeat_at=int(time.time()),
+                               output_silent_seconds=max(0,int(silent)))
+                if silent==0:
+                    receipt["last_real_output_at"]=int(time.time())
+                write_state(receipt)
             rc=command([DEEP_SOURCE,"--jellyfin-id",jid,"--run"],
-                       "deep_source_"+jid[:8],on_line=accept)
+                       "deep_source_"+jid[:8],on_line=accept,
+                       on_heartbeat=heartbeat)
+            receipt.update(worker_pid=0,heartbeat_at=int(time.time()))
             decision=result.get("result") if not rc else "retry_source"
             if decision=="covered":
                 finished.add(jid)
@@ -403,7 +458,16 @@ def run(series=None, seasons=(), *, movie_ids=(), movie_scope=None,
             write_state(receipt)
             rc=command([AUTO_PLAMO,"--jellyfin-id",jid,
                         "--source-exhausted-auto","--apply"],
-                       "plamo_"+jid[:8])
+                       "plamo_"+jid[:8],
+                       on_heartbeat=lambda pid,silent: (
+                           receipt.update(worker_pid=pid,
+                                          heartbeat_at=int(time.time()),
+                                          output_silent_seconds=int(silent),
+                                          last_real_output_at=int(time.time())
+                                          if silent==0 else receipt.get(
+                                              "last_real_output_at",0)),
+                           write_state(receipt)))
+            receipt.update(worker_pid=0,heartbeat_at=int(time.time()))
             if rc==0:
                 plamo.remove(jid)
                 finished.add(jid)
@@ -421,12 +485,15 @@ def run(series=None, seasons=(), *, movie_ids=(), movie_scope=None,
             # sleep prevents busy loops; systemd stop cancels the whole group.
             delay=7200 if pending else 900
             receipt.update(state="waiting_retry",phase="source" if pending
-                           else "translation",current="Awaiting next automatic retry")
+                           else "translation",current="Awaiting next automatic retry",
+                           worker_pid=0,output_silent_seconds=0,
+                           next_retry_at=int(time.time())+delay)
             write_state(receipt)
             print("FINISH_WAITING_RETRY:",delay,"seconds",
                   "source",len(pending),"plamo",len(plamo),flush=True)
             time.sleep(delay)
     receipt.update(state="completed",phase="done",current="",
+                   worker_pid=0,output_silent_seconds=0,
                    remaining=0,covered_exact_files=len(finished),
                    source_pending=0,plamo_pending=0)
     write_state(receipt)
