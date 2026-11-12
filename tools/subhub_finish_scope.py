@@ -24,8 +24,10 @@ import time
 
 try:
     from . import subhub_translation_batch as batch
+    from . import subhub_finish_titles as titles
 except ImportError:
     import subhub_translation_batch as batch
+    import subhub_finish_titles as titles
 
 SOURCE = Path.home() / "bruiser-pilot/subhub-control/subhub_jellyfin_batch.py"
 DEEP_SOURCE = SOURCE.with_name("subhub_deep_source.py")
@@ -353,7 +355,10 @@ def run(series=None, seasons=(), *, movie_ids=(), movie_scope=None,
     pending={jid:(season,episode) for season,episode,jid in selection
              if jid not in finished}
     total=len(selection)
-    receipt={"schema":"subhub-finish-scope-v1","series":series or "",
+    started=int(time.time())
+    run_id=str(started)+"-"+str(os.getpid())
+    titles.initialize(run_id,selection,by_id,finished)
+    receipt={"schema":"subhub-finish-scope-v1","run_id":run_id,"series":series or "",
              "seasons":before["seasons"],"phase":"source",
              "state":"running","before":{k:v for k,v in before.items()
                                          if k!="picks"},
@@ -363,7 +368,7 @@ def run(series=None, seasons=(), *, movie_ids=(), movie_scope=None,
              "attempted_unique":0,"initially_covered":len(finished),
              "worker_pid":0,"heartbeat_at":0,"last_real_output_at":0,
              "output_silent_seconds":0,
-             "started_at":int(time.time()),"item_started_at":0,
+             "started_at":started,"item_started_at":0,
              "current":"","detail":"","last_event_at":0,"last_issue":""}
     write_state(receipt)
     print("FINISH_BEGIN",json.dumps({"total_exact_files":total,
@@ -381,6 +386,7 @@ def run(series=None, seasons=(), *, movie_ids=(), movie_scope=None,
     while pending or plamo:
         receipt["round"]+=1
         for jid in list(pending):
+            titles.update(jid,"source_active","Checking Japanese subtitle candidates")
             attempted_ids.add(jid)
             receipt["attempted_unique"]=len(attempted_ids)
             season,ep=pending[jid]
@@ -423,15 +429,23 @@ def run(series=None, seasons=(), *, movie_ids=(), movie_scope=None,
             if decision=="covered":
                 finished.add(jid)
                 del pending[jid]
+                source_reason=str(result.get("reason") or "")
+                new_subtitles=source_reason in (
+                    "source_repaired","existing_stage_repaired")
+                titles.update(jid,"published_source" if new_subtitles
+                              else "covered_initial",source_reason)
                 print("FINISH_COVERED:",jid,flush=True)
             elif decision=="plamo":
                 del pending[jid]
                 plamo.add(jid)
+                titles.update(jid,"plamo_queued",
+                              str(result.get("reason") or "source_exhausted"))
                 print("FINISH_PLAMO_QUEUE:",jid,"Japanese sources exhausted",
                       flush=True)
             else:
                 receipt["last_issue"]=str(result.get("reason") or
                                           "source_worker_failed")[:150]
+                titles.update(jid,"source_retry",receipt["last_issue"])
                 print("FINISH_SOURCE_RETRY:",jid,receipt["last_issue"],
                       flush=True)
             receipt.update(covered_exact_files=len(finished),
@@ -446,6 +460,7 @@ def run(series=None, seasons=(), *, movie_ids=(), movie_scope=None,
                 pending[jid]=next(((sn,number) for sn,number,mid in selection
                                    if mid==jid),(0,0))
                 receipt["last_issue"]="source_proof_invalidated_retry_japanese"
+                titles.update(jid,"source_retry",receipt["last_issue"])
                 print("FINISH_SOURCE_REQUEUE:",jid,flush=True)
                 continue
             season,ep=next(((sn,number) for sn,number,mid in selection
@@ -454,6 +469,7 @@ def run(series=None, seasons=(), *, movie_ids=(), movie_scope=None,
             title=(str(row.get("series_title") or "")+" " if season else "")+(
                    f"S{season:02d}E{ep:03d} " if season else "")+str(
                    row.get("title") or jid)
+            titles.update(jid,"plamo_active","PLaMO translation running")
             receipt.update(phase="translation",state="running",
                            current=title[:160],detail="Running PLaMO fallback",
                            item_started_at=int(time.time()),
@@ -475,9 +491,11 @@ def run(series=None, seasons=(), *, movie_ids=(), movie_scope=None,
             if rc==0:
                 plamo.remove(jid)
                 finished.add(jid)
+                titles.update(jid,"published_plamo","PLaMO job completed")
                 print("FINISH_PLAMO_PUBLISHED:",jid,flush=True)
             else:
                 receipt["last_issue"]="plamo_attempt_held_"+jid[:8]
+                titles.update(jid,"plamo_queued",receipt["last_issue"])
                 print("FINISH_PLAMO_RETRY:",jid,flush=True)
             receipt.update(covered_exact_files=len(finished),
                            source_pending=len(pending),
