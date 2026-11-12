@@ -542,6 +542,14 @@ def preserve(item):
             with os.fdopen(fd,"wb") as f:
                 f.write(body);f.flush();os.fsync(f.fileno())
             os.chmod(tmp,0o600)
-            os.link(tmp,dest)
+            try:
+                os.link(tmp,dest)
+            except FileExistsError:
+                # A second writer may have created this artifact after the
+                # initial existence check. Accept only byte-identical work.
+                # Never replace a different prior correction or a symlink.
+                if (dest.is_symlink() or not dest.is_file()
+                        or dest.read_bytes()!=body):
+                    raise RuntimeError("alass_stage_conflict") from None
         finally:
             Path(tmp).unlink(missing_ok=True)
