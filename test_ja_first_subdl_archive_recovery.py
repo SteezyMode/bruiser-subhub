@@ -39,6 +39,39 @@ class SubdlArchiveRecoveryTests(unittest.TestCase):
                                     "subdl_archive_no_matching_srt_member"):
             subdl.archive_srt(blob,self.row,self.candidate,7000.0)
 
+    def test_lossless_separator_repair_accepts_real_japanese_subdl_zip(self):
+        # Large enough for real SubHub Japanese density/full-movie checks.
+        cues=[]
+        for i in range(1,81):
+            start=i*12000
+            finish=start+1800
+            def clock(ms):
+                h,ms=divmod(ms,3600000)
+                m,ms=divmod(ms,60000)
+                sec,ms=divmod(ms,1000)
+                return f"{h:02d}:{m:02d}:{sec:02d},{ms:03d}"
+            cues.append(f"{i}\n{clock(start)} --> {clock(finish)}\n"
+                        f"日本語の字幕をそのまま残す {i}")
+        raw=("\n\n".join(cues[:10])+"\n\n"+
+             "\n".join(cues[10:12])+"\n\n"+
+             "\n\n".join(cues[12:])+"\n").encode("utf-8")
+        blob=archive({"Double.Blind.2023.1080p.ja.srt":raw})
+        # Control: old strict validator is broken on merged timecodes.
+        from tools import ja_first_publish_staged as gate
+        with self.assertRaisesRegex(RuntimeError,"unparseable_srt_timestamp"):
+            gate.validate_srt(raw,1100.0)
+        text,qa,member=subdl.archive_srt(
+            blob,self.row,self.candidate,1100.0)
+        self.assertEqual(member,"Double.Blind.2023.1080p.ja.srt")
+        self.assertEqual(qa["cues"],80)
+        self.assertEqual(qa["structural_repair"]["merged_blocks_repaired"],1)
+        self.assertEqual(qa["structural_repair"]["retained_dialogue_cues"],80)
+        self.assertEqual(
+            qa["original_zip_member_sha256"],
+            __import__("hashlib").sha256(raw).hexdigest())
+        self.assertEqual(raw.count("日本語の字幕をそのまま残す".encode()),
+                         text.count("日本語の字幕をそのまま残す".encode()))
+
     def test_single_srt_with_invalid_japanese_content_is_not_accepted(self):
         blob=archive({"anything.srt":b"1\n00:00:01,000 --> 00:00:02,000\nhi\n"})
         with self.assertRaisesRegex(RuntimeError,
