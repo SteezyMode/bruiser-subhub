@@ -42,6 +42,21 @@ class AlassTests(unittest.TestCase):
         self.assertEqual(summary["cues"],180)
         self.assertNotEqual(summary["source_sha256"],summary["aligned_sha256"])
 
+    def test_verified_end_credit_overrun_retains_every_cue(self):
+        raw,_=fixture(lambda i:0)
+        # The last end-credit subtitle extends ten seconds beyond this copy.
+        runtime=917
+        with self.assertRaisesRegex(RuntimeError,"alass_out_of_video"):
+            alass.assess(raw,raw,runtime)
+        approved=alass.assess(raw,raw,runtime,
+                              independently_verified_tail=True)
+        self.assertEqual(approved["cues"],180)
+        self.assertEqual(approved["mode"],"original")
+        # Extending more than one percent of the cue list is not a tail fix.
+        with self.assertRaisesRegex(RuntimeError,"alass_out_of_video"):
+            alass.assess(raw,raw,885,
+                         independently_verified_tail=True)
+
     def test_unchanged_dialogue(self):
         raw,_=fixture(lambda i:0)
         summary=alass.assess(raw,raw,1500)
