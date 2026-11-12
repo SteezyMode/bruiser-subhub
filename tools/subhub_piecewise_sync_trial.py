@@ -73,7 +73,7 @@ def _index():
                 str(x.get("jellyfin_id") or ""))}
 
 
-def _stage(jid):
+def _stage(jid,*,trial_salvage=False):
     db=ROOT/"japanese-stage.sqlite3"
     if not db.is_file() or db.is_symlink():
         raise RuntimeError("private_stage_database_missing")
@@ -95,7 +95,9 @@ def _stage(jid):
             continue
         m=json.loads(metrics)
         normalized,report=clean.normalize(
-            raw,expected_timestamps=m.get("cues"))
+            raw,expected_timestamps=m.get("cues"),
+            trial_release_note=trial_salvage,
+            trial_local_swap=trial_salvage)
         found.append((sid,normalized,report))
     return found
 
@@ -239,6 +241,11 @@ def main(argv=None):
                         help="exact Jellyfin movie ID; may repeat")
     parser.add_argument("--all-staged",action="store_true",
                         help="compare each saved release, not just latest")
+    parser.add_argument("--trial-structural-salvage",action="store_true",
+                        help="experimental: exclude strict first-cue technical release note"
+                             " and swap one adjacent <=2s time reversal; never publish")
+    parser.add_argument("--global-only",action="store_true",
+                        help="skip piecewise mode when global-only evidence is enough")
     args=parser.parse_args(argv)
     if len(args.id)>6 or any(not JID.fullmatch(jid) for jid in args.id):
         parser.error("1..6 exact Jellyfin IDs required")
@@ -266,7 +273,7 @@ def main(argv=None):
             if runtime<600:
                 raise RuntimeError("video_duration_unavailable")
             try:
-                records=_stage(jid)
+                records=_stage(jid,trial_salvage=args.trial_structural_salvage)
             except RuntimeError as exc:
                 print("  STRUCTURE HOLD:",str(exc),flush=True)
                 if str(exc)=="staged_srt_cue_order_invalid":
@@ -279,8 +286,13 @@ def main(argv=None):
             for sid,source,repair in records if args.all_staged else records[:1]:
                 print("  STAGE:",sid,"repaired:",
                       repair["structural_repair"],"cues:",
-                      repair["retained_dialogue_cues"],flush=True)
-                for mode in ("global","piecewise_10"):
+                      repair["retained_dialogue_cues"],
+                      "technical_notes_excluded:",
+                      repair["technical_release_notes_excluded"],
+                      "local_timestamp_swaps:",
+                      repair["local_timestamp_swaps"],flush=True)
+                modes=("global",) if args.global_only else ("global","piecewise_10")
+                for mode in modes:
                     print("  TESTING:",mode,flush=True)
                     try:
                         report=_run(mapped,source,mode,runtime)
