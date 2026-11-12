@@ -132,7 +132,8 @@ def command(args, label, on_line=None, on_heartbeat=None, interval=10):
                 ready=selector.select(timeout=interval)
                 if not ready:
                     if on_heartbeat is not None:
-                        on_heartbeat(p.pid,int(time.monotonic()-last_real_output))
+                        on_heartbeat(p.pid if p.poll() is None else 0,
+                                     int(time.monotonic()-last_real_output))
                     continue
                 chunk=os.read(p.stdout.fileno(),65536)
                 if not chunk:
