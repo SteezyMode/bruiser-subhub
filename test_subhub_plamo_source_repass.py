@@ -86,6 +86,49 @@ class SourceOnlyRepassTests(unittest.TestCase):
             acquire.assert_not_called()
             gate.assert_not_called()
 
+    def test_opensubtitles_cooldown_still_allows_other_subdl_provider(self):
+        ids=["b"*32,"c"*32]
+        with tempfile.TemporaryDirectory() as d:
+            rows={}
+            for jid in ids:
+                video=Path(d)/(jid+".mkv")
+                video.write_bytes(b"video")
+                rows[jid]=movie(jid=jid,host_path=str(video))
+            docs={
+                ids[0]:{"results":{"candidates":[{
+                    "provider":"opensubtitles","subtitle_id":"4247924",
+                    "filename":"Green.Room.2015.ja","language":"ja"}]}},
+                ids[1]:{"results":{"candidates":[{
+                    "provider":"subdl","subtitle_id":"release_1",
+                    "filename":"Green.Room.2015.ja","language":"ja"}]}},
+            }
+            cohort={"items":[{"jellyfin_id":jid} for jid in ids],
+                    "recorded_plamo_pending":2,
+                    "journal_complete_for_queue":True}
+            with patch.object(repass,"historical_cohort",
+                              return_value=(cohort,rows,docs,{})), \
+                 patch.object(repass.stage,"read_staged",return_value=set()), \
+                 patch.object(repass.stage,"rejected_duration_candidates",
+                              return_value=set()), \
+                 patch.object(repass.stage,"japanese_sidecar_exists",
+                              return_value=False), \
+                 patch.object(repass.stage,"identity_ok",return_value=True), \
+                 patch.object(repass.subdl,"identity_ok",return_value=True), \
+                 patch.object(repass.stage,"known_rejected_download",
+                              return_value=False), \
+                 patch.object(repass,"_safe_apply"), \
+                 patch.object(repass,"_acquire",
+                              side_effect=[(0,True),(0,False)]) as acquire, \
+                 patch.object(repass,"_publisher") as publish:
+                repass.repass(apply=True,stage_budget=2,
+                              publish_attempt_budget=2)
+            self.assertEqual(acquire.call_count,2)
+            self.assertEqual(acquire.call_args_list[0].args[1]["provider"],
+                             "opensubtitles")
+            self.assertEqual(acquire.call_args_list[1].args[1]["provider"],
+                             "subdl")
+            publish.assert_not_called()
+
     def test_one_provider_budget_stops_all_further_gets(self):
         ids=["b"*32,"c"*32]
         with tempfile.TemporaryDirectory() as d:
