@@ -1782,13 +1782,33 @@ def jellyfin_source_arguments(doc):
     """Server checks scope; worker checks exact Jellyfin catalog identities."""
     if not isinstance(doc,dict):
         raise ValueError("invalid_jellyfin_source_request")
-    if set(doc)=={"movie_ids"}:
-        ids=doc["movie_ids"]
+    if set(doc) in ({"movie_ids"},{"item_ids"}):
+        kind="movie_ids" if "movie_ids" in doc else "item_ids"
+        ids=doc[kind]
         if (not isinstance(ids,list) or not 1<=len(ids)<=20 or
                 any(not isinstance(jid,str) or not re.fullmatch(r"[a-f0-9]{32}",jid)
                     for jid in ids) or len(set(ids))!=len(ids)):
-            raise ValueError("invalid_movie_source_selection")
-        return [part for jid in sorted(ids) for part in ("--movie-id",jid)]
+            raise ValueError("invalid_selected_source_ids")
+        flag="--movie-id" if kind=="movie_ids" else "--item-id"
+        return [part for jid in sorted(ids) for part in (flag,jid)]
+    if set(doc) in ({"library_folder","kind"},{"library_genre","kind"}):
+        kind=doc["kind"]
+        if kind not in ("Movie","Episode"):
+            raise ValueError("invalid_source_library_kind")
+        if "library_folder" in doc:
+            folder=doc["library_folder"]
+            if (not isinstance(folder,str) or not folder.startswith("/")
+                    or len(folder)>1000 or ".." in Path(folder).parts):
+                raise ValueError("invalid_source_library_folder")
+            # Only paths actually in Jellyfin's saved inventory are accepted.
+            media_browser.browse(kind=kind,folder=folder)
+            return ["--library-folder",folder,"--library-kind",kind]
+        genre=doc["library_genre"]
+        if (not isinstance(genre,str) or not 1<=len(genre)<=60
+                or any(ord(c)<32 for c in genre)):
+            raise ValueError("invalid_source_library_genre")
+        media_browser.browse(kind=kind,genre=genre)
+        return ["--library-genre",genre,"--library-kind",kind]
     if set(doc)=={"series"}:
         series=doc["series"];rest=[]
     elif set(doc)=={"series","seasons"}:
@@ -1853,6 +1873,12 @@ def start_jellyfin_source(doc):
     job_id=secrets.token_hex(8)
     selection=({"movie_ids":sorted(doc["movie_ids"])}
                if "movie_ids" in doc else
+               {"item_ids":sorted(doc["item_ids"])}
+               if "item_ids" in doc else
+               {"library_folder":doc["library_folder"],"kind":doc["kind"]}
+               if "library_folder" in doc else
+               {"library_genre":doc["library_genre"],"kind":doc["kind"]}
+               if "library_genre" in doc else
                {"series":doc["series"],
                 "seasons":sorted(doc.get("seasons",[])),
                 "picks":[[p["season"],p["episode"]] for p in
