@@ -66,6 +66,42 @@ def _release_note(text,start_ms):
     return japanese or english
 
 
+def _separate_merged_timed_block(block):
+    """Recover cues whose separator blank line is missing.
+
+    Never invent time ranges or discard text. Every embedded clock must be
+    a complete standalone SRT timestamp, with nonempty dialogue between
+    clocks and after the last one. Ambiguous numeric text that could be a
+    missing cue index must be reviewed, not silently stripped.
+    """
+    lines=block.strip(" \t\r\n").splitlines()
+    ix=int(bool(lines and lines[0].strip().isdigit()))
+    if len(lines)<=ix or not STAMP.fullmatch(lines[ix].strip()):
+        raise RuntimeError("staged_srt_merged_block_invalid_first_timestamp")
+    portions=[]
+    current=lines[:ix+1]
+    for line in lines[ix+1:]:
+        if STAMP.fullmatch(line.strip()):
+            text_lines=current[(1 if current[0].strip().isdigit() else 0)+1:]
+            if not any(x.strip() for x in text_lines):
+                raise RuntimeError("staged_srt_merged_block_missing_dialogue")
+            if text_lines[-1].strip().isdigit():
+                raise RuntimeError("staged_srt_merged_block_ambiguous_index")
+            portions.append("\n".join(current))
+            current=[line]
+        elif "-->" in line and ARROWS.fullmatch(line.strip()) is None:
+            raise RuntimeError("staged_srt_merged_block_invalid_timestamp")
+        else:
+            current.append(line)
+    text_lines=current[(1 if current[0].strip().isdigit() else 0)+1:]
+    if not any(x.strip() for x in text_lines):
+        raise RuntimeError("staged_srt_merged_block_missing_dialogue")
+    portions.append("\n".join(current))
+    if sum(len(ARROWS.findall(x)) for x in portions)!=len(ARROWS.findall(block)):
+        raise RuntimeError("staged_srt_merged_block_timestamps_mismatch")
+    return portions
+
+
 def normalize(raw,*,expected_timestamps=None,
               trial_release_note=False,trial_local_swap=False):
     """Return (working SRT bytes, change report) without modifying raw.
@@ -88,8 +124,20 @@ def normalize(raw,*,expected_timestamps=None,
         raise RuntimeError("staged_srt_timestamps_mismatch_saved_record")
     if stamp_total<1:
         raise RuntimeError("staged_srt_no_timestamps")
-    blocks=[b for b in re.split(r"\r?\n[ \t]*\r?\n",
+    original_blocks=[b for b in re.split(r"\r?\n[ \t]*\r?\n",
                original.strip(" \t\r\n")) if b.strip(" \t\r\n")]
+    blocks=[]
+    merged_blocks=0
+    for block in original_blocks:
+        stamps=len(ARROWS.findall(block))
+        if stamps>1:
+            pieces=_separate_merged_timed_block(block)
+            if len(pieces)!=stamps:
+                raise RuntimeError("staged_srt_merged_block_cue_count_mismatch")
+            blocks.extend(pieces)
+            merged_blocks+=1
+        else:
+            blocks.append(block)
     parsed=[]
     empty=0
     invalid_controls=0
@@ -142,7 +190,7 @@ def normalize(raw,*,expected_timestamps=None,
         if any(parsed[j][0]<parsed[j-1][0] for j in range(1,len(parsed))):
             raise RuntimeError("staged_srt_cue_order_invalid")
         reordered=[{"original_cues":[i,i+1],"jump_ms":jump}]
-    changed=bool(empty or invalid_controls or release_notes or reordered
+    changed=bool(empty or invalid_controls or release_notes or reordered or merged_blocks
                  or raw.startswith(b"\xef\xbb\xbf"))
     changed=changed or "\r" in original or any(
         not block.strip(" \t\r\n").startswith(str(i))
@@ -152,6 +200,8 @@ def normalize(raw,*,expected_timestamps=None,
         "source_timestamp_cues":stamp_total,
         "retained_dialogue_cues":len(parsed),
         "empty_cues_removed":empty,
+        "merged_blocks_repaired":merged_blocks,
+        "merged_cues_recovered":len(blocks)-len(original_blocks),
         "control_characters_removed":invalid_controls,
         "technical_release_notes_excluded":release_notes,
         "local_timestamp_swaps":reordered,
