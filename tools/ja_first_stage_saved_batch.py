@@ -483,7 +483,8 @@ def alternate_ready(row):
     return bool(candidate_progress.known(jid,"final","final",key))
 
 
-def choices(inventory, searches, already, budget, kind, only_id=None, scope="all"):
+def choices(inventory, searches, already, budget, kind, only_id=None, scope="all",
+            subtitle_id=None, exhaustive=False):
     queue = priorities.active_coverage_queue()
     already = set(already) | rejected_duration_candidates()
     possible = []
@@ -508,6 +509,7 @@ def choices(inventory, searches, already, budget, kind, only_id=None, scope="all
             continue
         candidates = (result.get("candidates") or []) if isinstance(result, dict) else []
         plausible = [c for c in candidates if isinstance(c, dict)
+                     and (subtitle_id is None or str(c.get("subtitle_id")) == subtitle_id)
                      and identity_ok(row, c)
                      and (str(jid), str(c["subtitle_id"])) not in already
                      and not known_rejected_download(row,c)]
@@ -523,7 +525,7 @@ def choices(inventory, searches, already, budget, kind, only_id=None, scope="all
             print("  COVERED_SINCE_CATALOG:",str(row.get("title") or
                   row.get("series_title") or jid),flush=True)
             continue
-        if not only_id and not alternate_ready(row):
+        if not only_id and not exhaustive and not alternate_ready(row):
             # A prior stage is waiting for its FIRST publication decision.
             # Another download now would consume provider quota unnecessarily.
             continue
@@ -854,6 +856,10 @@ def main():
                      help="maximum staged OpenSubtitles downloads: 1..200")
     cli.add_argument("--jellyfin-id",default="",help="stage a saved Japanese candidate for one exact item")
     cli.add_argument("--scope",choices=movie_scope.SCOPES,default="all")
+    cli.add_argument("--subtitle-id",default="",
+                     help="one exact saved OpenSubtitles release; requires --jellyfin-id")
+    cli.add_argument("--exhaustive",action="store_true",
+                     help="owner-selected deep recovery: permit alternate releases while previous stages are held")
     cli.add_argument("--kind", choices=("all", "movie", "episode"),
                      default="all")
     cli.add_argument("--require-embedded-en", action="store_true",
@@ -870,6 +876,9 @@ def main():
         cli.error("--budget must be 1..200")
     if opts.jellyfin_id and not re.fullmatch(r"[a-f0-9]{32}",opts.jellyfin_id):
         cli.error("--jellyfin-id must be an exact Jellyfin ID")
+    if opts.subtitle_id and (not opts.jellyfin_id or
+            not re.fullmatch(r"[1-9][0-9]{3,13}",opts.subtitle_id)):
+        cli.error("--subtitle-id requires an exact --jellyfin-id and numeric provider ID")
     inventory = read_inventory()
     history = read_saved_searches()
     already = read_staged()
@@ -877,7 +886,8 @@ def main():
         # Search at most 24 manifest-confirmed candidate rows. Never probe
         # thousands of media files for a small acquisition budget.
         pool = choices(inventory, history, already, 24, opts.kind,
-                       only_id=opts.jellyfin_id or None, scope=opts.scope)
+                       only_id=opts.jellyfin_id or None, scope=opts.scope,
+                       subtitle_id=opts.subtitle_id or None, exhaustive=opts.exhaustive)
         selected = []
         considered = 0
         for option in pool:
@@ -898,7 +908,8 @@ def main():
               flush=True)
     else:
         selected = choices(inventory, history, already, opts.budget, opts.kind,
-                           only_id=opts.jellyfin_id or None, scope=opts.scope)
+                           only_id=opts.jellyfin_id or None, scope=opts.scope,
+                           subtitle_id=opts.subtitle_id or None, exhaustive=opts.exhaustive)
     print("=== JAPANESE SUBTITLE STAGING BATCH ===", flush=True)
     print("Available saved search entries:", len(history), "| scope:",opts.scope,flush=True)
     print("Selected:", len(selected), "| budget:", opts.budget, flush=True)
