@@ -57,8 +57,8 @@ class StructuralNormalizationTests(unittest.TestCase):
             norm.normalize(raw,expected_timestamps=1)
 
     def test_merged_cues_are_not_silently_discarded(self):
-        raw=(b"1\n00:00:01,000 --> 00:00:03,000\nこんにちは\n"
-             b"2\n00:00:04,000 --> 00:00:06,000\nもう一度")
+        raw=("1\n00:00:01,000 --> 00:00:03,000\nこんにちは\n"
+             "2\n00:00:04,000 --> 00:00:06,000\nもう一度").encode("utf-8")
         with self.assertRaisesRegex(RuntimeError,
                                     "staged_srt_multiple_timestamps_per_block"):
             norm.normalize(raw,expected_timestamps=2)
