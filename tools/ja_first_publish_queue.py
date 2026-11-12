@@ -263,7 +263,7 @@ def choose(jid, candidates, *, intensive_only=False, record_failures=False):
     # One durable title-level receipt prevents redundant direct/offset probes
     # as well as redundant ALASS work. Adding a new staged release changes the
     # fingerprint automatically; so does an actual media or code change.
-    combined=hashlib.sha256(json.dumps(sorted(candidates)).encode()).hexdigest()
+    combined=progress.group_digest(candidates)
     final_key=progress.fingerprint(row["host_path"],combined,"final")
     old=progress.known(jid,"final","final",final_key)
     if old:
