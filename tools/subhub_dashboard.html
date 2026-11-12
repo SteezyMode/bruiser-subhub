@@ -82,6 +82,7 @@ details>summary{cursor:pointer}
 <section class="panel" id="active-work">
  <div class="split"><h2>Active work</h2><span id="current-work" class="small muted">No current job</span></div>
  <div class="status-strip"><span>Source: <strong id="source-state">—</strong></span><span>PLaMo: <strong id="plamo-state">—</strong></span><span>Provider allowance: <strong id="quota">Unverified</strong></span></div>
+ <p id="scheduled-source-summary" class="small muted" aria-live="polite">Checking automatic source worker…</p>
  <details id="daily-downloads" class="review">
  <summary>Provider usage and download history</summary>
   <div class="split"><strong>Daily subtitle downloads (observed)</strong><span id="download-day" class="small muted">Japan time</span></div>
@@ -804,7 +805,7 @@ function renderLibrarySourceProgress(d){
   if(!known)return;
   const scopedFolder=p.scope==="horror-drama-folders";
   $("library-live-heading").textContent=(active?"Live sourcing pass":"Previous sourcing pass")+
-    (scopedFolder?" · Horror + Drama/Suspense (2TB + 4TB)":" · All eligible media");
+    (scopedFolder?" · Horror + Drama/Suspense (2TB + 4TB)":p.scope==="movies-no-anime"?" · Non-anime movies":" · All eligible media");
   $("library-live-phase").textContent=escapeText(p.phase_label||p.phase||"");
   const bar=(kind,done,planned)=>{
     const current=Math.max(0,Number(done)||0);
@@ -1026,10 +1027,12 @@ async function refreshStatus(){
     const setting=d.source_config_scope||"unavailable";
     $("library-source-selection").textContent=setting==="horror-drama-folders"?
       "Selected for every run: Horror + Drama/Suspense movie folders on BOTH drives":
+      setting==="movies-no-anime"?"Selected for every run: non-anime movies only":
       setting==="all"?"Selected for every run: all eligible library media":
       "Selected scope unreadable; source service will reject invalid settings";
     $("source-library").textContent=setting==="horror-drama-folders"?
       "Find Japanese subtitles · Horror + Drama/Suspense":
+      setting==="movies-no-anime"?"Find Japanese subtitles · Non-anime movies":
       "Find Japanese subtitles throughout library";
     renderLibrarySourceProgress(d);
     renderDownloadUsage(d);
@@ -1075,15 +1078,35 @@ async function refreshStatus(){
        escapeText(d.current_item||d.phase_label||"No current job");
     $("source-state").textContent=jellyfin?"Jellyfin series batch":
       scoped?"Selected episodes":source?"Running":"Idle";
+    const daily=d.source_job||{};
+    const sourcePhase=daily.active?"RUNNING":daily.metrics_available?
+      daily.phase==="source_completed"?"FINISHED":
+      daily.phase==="source_held"?"FAILED":"STOPPED":"IDLE";
+    $("scheduled-source-summary").textContent=
+      "Automatic Japanese sourcing: "+sourcePhase+
+      (daily.scope==="movies-no-anime"?" · Non-anime movies":
+       daily.scope==="horror-drama-folders"?" · Horror / Drama movies":" · All media")+
+      (daily.metrics_available?
+        " · "+(daily.phase_label||"")+
+        " · Searches "+(daily.search_completed||0)+"/"+(daily.search_planned||0)+
+        " · Staged "+(daily.staged||0)+
+        " · Publish checks "+(daily.publish_title_checked||0)+"/"+(daily.publish_title_planned||0)+
+        " · Published "+(daily.published||0)+
+        " · Held "+(daily.publish_holds||0):
+        daily.active?" · Work is active; detailed counts unavailable":" · No recent progress data");
     $("source-library").disabled=busy||!((d.controls||{}).start_auto)||d.workersBusy;
     $("stop-library").hidden=!((d.controls||{}).stop_auto);
     $("library-source-note").textContent=source&&!scoped?
       ((d.source_job||{}).scope==="horror-drama-folders"?
         "Only Horror and Drama/Suspense movie folders on both drives are being searched and published. ":
+        (d.source_job||{}).scope==="movies-no-anime"?
+        "Non-anime movie sourcing is running. ":
         "Library-wide Japanese sourcing is running. ")+
        "Search history and results are retained; no PLaMo runs.":
       (setting==="horror-drama-folders"?
        "Future source runs target Horror and Drama/Suspense movies on both drives; saved searches stay skipped until eligible for retry.":
+       setting==="movies-no-anime"?
+       "Future source runs target non-anime movies; saved searches stay skipped until eligible for retry.":
        "Future source runs target all eligible library media; saved searches remain skipped until eligible for retry.");
     $("plamo-state").textContent=ai?"Running":d.aiAvailable?"Ready":"Handoff not installed";
     $("quota").textContent=(d.source_job||{}).provider_limited||
@@ -1152,7 +1175,9 @@ async function librarySourceAction(stop){
   if(!stop&&!confirm(
     (latest&&latest.source_config_scope==="horror-drama-folders"?
      "Start Japanese sourcing for existing Horror + Drama/Suspense movie folders on BOTH drives?":
-     "Start Japanese sourcing for all eligible movies and episodes?")+
+     latest&&latest.source_config_scope==="movies-no-anime"?
+      "Start Japanese sourcing for non-anime movies only?":
+      "Start Japanese sourcing for all eligible movies and episodes?")+
     " Saved search history and provider limits are respected; no PLaMo or media replacement."
   ))return;
   busy=true;
