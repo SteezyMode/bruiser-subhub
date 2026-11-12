@@ -20,6 +20,7 @@ ROOT=Path.home()/"bruiser-pilot/ja-first-inventory"
 DB=ROOT/"japanese-candidate-failures.sqlite3"
 SEARCH_DB=ROOT/"japanese-search.sqlite3"
 MODULES={
+    "stage":("ja_first_stage_saved_batch.py",),
     "alass":("ja_first_alass.py","ja_first_ffsubsync.py",
              "ja_first_publish_staged.py","ja_first_obvious_quality.py"),
     "ffsubsync":("ja_first_ffsubsync.py","ja_first_publish_staged.py",
@@ -96,6 +97,30 @@ def implementation_hash(engine):
         h.update(hashlib.sha256(path.read_bytes()).digest())
     return h.hexdigest()
 
+def saved_candidate_digest(candidate):
+    """Provider identity for a rejected download whose bytes were not staged.
+
+    A provider candidate ID, filename and release are retained; do not cache
+    API failures, which have no validated subtitle bytes. Thirty-day expiry
+    handles corrected subtitle files served under the same remote ID.
+    """
+    source={k:str(candidate.get(k) or "") for k in
+            ("provider","subtitle_id","filename","release_info")}
+    if source["provider"]!="opensubtitles" or not re.fullmatch(
+            r"[1-9][0-9]{3,13}",source["subtitle_id"]):
+        raise ValueError("invalid_saved_candidate_identity")
+    return hashlib.sha256(json.dumps(source,sort_keys=True).encode()).hexdigest()
+
+
+def deterministic_stage_rejection(raw_reason):
+    """Only failures AFTER a provider returned subtitle bytes are memoizable."""
+    return str(raw_reason or "") in {
+        "too_few_subtitle_cues", "too_few_japanese_characters",
+        "unrecognized_subtitle_timing_or_encoding",
+        "timing_out_of_order", "subtitle_empty_or_oversize",
+    }
+
+
 def group_digest(candidates):
     """Stable title-level fingerprint across candidate order changes."""
     return hashlib.sha256(json.dumps(sorted(
@@ -135,27 +160,36 @@ def _secure_readable(path):
         raise RuntimeError("unsafe_candidate_failure_db")
     return True
 
-def known(jid,sid,engine,key,*,db_path=None):
+def known(jid,sid,engine,key,*,db_path=None,max_age_seconds=None):
     path=DB if db_path is None else Path(db_path)
     if not _secure_readable(path):
         return None
     with sqlite3.connect("file:"+str(path.resolve())+"?mode=ro",uri=True,timeout=10) as con:
         try:
             row=con.execute(
-                "SELECT reason FROM failures WHERE jellyfin_id=? AND subtitle_id=? "
+                "SELECT reason, recorded_at FROM failures WHERE jellyfin_id=? AND subtitle_id=? "
                 "AND engine=? AND fingerprint=?",(jid,sid,engine,key)).fetchone()
         except sqlite3.OperationalError as exc:
             if "no such table" in str(exc):
                 return None
             raise
-    return row[0] if row else None
+    if not row:
+        return None
+    if max_age_seconds is not None and (
+            not isinstance(max_age_seconds,(int,float)) or max_age_seconds<=0 or
+            time.time()-int(row[1])>max_age_seconds):
+        return None
+    return row[0]
 
 def stable_failure(exc):
     """Cache deterministic mismatches, never system failures or timeouts."""
     if not isinstance(exc,(RuntimeError,ValueError)):
         return False
     message=str(exc).split(":",1)[0]
-    return message.startswith(("alass_reordered_cues","alass_out_of_video",
+    return message.startswith(("too_few_subtitle_cues",
+         "too_few_japanese_characters", "unrecognized_subtitle_timing_or_encoding",
+         "timing_out_of_order", "subtitle_empty_or_oversize",
+         "alass_reordered_cues","alass_out_of_video",
          "alass_extreme_shift_requires_review","alass_cue_count_changed",
          "alass_dialogue_changed","alass_invalid_interval",
          "alass_subtitle_health_changed","alass_no_validated_reference",
