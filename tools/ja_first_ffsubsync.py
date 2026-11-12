@@ -267,8 +267,11 @@ def prepare(jid,sid,*,aligner=align_in_container):
     runtime=float(metrics.get("video_seconds") or 0)
     if not 600<=runtime<=4*3600 or abs(gate.subprocess_duration(video)-runtime)>0.5:
         raise RuntimeError("video_changed_since_staging")
+    # Normalize only unambiguous technical defects in a private working copy.
+    # No relaxation of cue/text identity, health, or audio-timing acceptance.
     source,repair=structure.normalize(
-        raw,expected_timestamps=int(metrics.get("cues") or -1))
+        raw,expected_timestamps=int(metrics.get("cues") or -1),
+        trial_release_note=True,trial_local_swap=True)
     qa=gate.validate_srt(source,runtime)
     # Cheap, high-recall corruption screen before the expensive audio sync.
     # It does not grade idiom choice, fluent machine translation, or meaning.
