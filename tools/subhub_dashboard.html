@@ -124,6 +124,10 @@ details>summary{cursor:pointer}
   <p id="finish-job-details" class="small muted"></p>
   <p id="finish-monitor" class="small muted" aria-live="polite">Checking worker heartbeat…</p>
   <p id="finish-source-current" class="small muted"></p>
+  <details id="finish-advanced-diagnostics" class="review">
+   <summary>Technical details</summary>
+   <p id="finish-raw-issue" class="small muted"></p>
+  </details>
   <details id="finish-title-details" class="review" open>
    <summary>Titles in this completion job</summary>
    <div class="row" style="margin-top:12px">
@@ -1265,9 +1269,20 @@ async function loadFinishTitles(force=false){
       name.textContent=item.title||item.jellyfin_id;
       const meta=document.createElement("div");
       meta.className="small muted";
-      meta.textContent=titleStateName(item.state)+
-        (item.detail?" · "+item.detail:"");
-      main.append(name,meta);line.append(main);list.append(line);
+      meta.textContent=titleStateName(item.state);
+      main.append(name,meta);
+      if(item.detail){
+        const detail=document.createElement("details");
+        detail.className="review";
+        const summary=document.createElement("summary");
+        summary.textContent="Technical details";
+        const reason=document.createElement("p");
+        reason.className="small muted";
+        reason.textContent=item.detail;
+        detail.append(summary,reason);
+        main.append(detail);
+      }
+      line.append(main);list.append(line);
     }
     if(!(report.items||[]).length){
       const line=document.createElement("p");
@@ -1357,8 +1372,7 @@ async function refreshStatus(){
           (finish.detail?" · "+finish.detail:"")+
           (elapsed?" · This file "+Math.floor(elapsed/60)+"m "+
                      (elapsed%60)+"s":"")+
-          (totalElapsed?" · Job "+Math.floor(totalElapsed/60)+"m":"")+
-          (finish.last_issue?" · Last hold: "+finish.last_issue:"");
+          (totalElapsed?" · Job "+Math.floor(totalElapsed/60)+"m":"");
       }else if(intense){
         const percent=Math.max(0,Math.min(100,100*q.seasons_done/q.seasons_total));
         $("finish-source-fill").style.width=percent+"%";
@@ -1421,6 +1435,9 @@ async function refreshStatus(){
         status="Monitoring not yet available";
       }
       $("finish-monitor").textContent=status;
+      $("finish-raw-issue").textContent=
+        finish.last_issue?"Most recent technical hold: "+finish.last_issue:
+        "No technical hold recorded.";
       $("finish-stop").hidden=!finish.active;
       const jobKey=String(finish.active)+"|"+String(finish.series)+"|"+
         String(finish.elapsed_seconds||0).slice(0,2);
