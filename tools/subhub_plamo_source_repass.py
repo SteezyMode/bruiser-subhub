@@ -186,7 +186,7 @@ def repass(*,apply=False,stage_budget=12,publish_attempt_budget=40):
     counts=Counter()
     attempted_stage=0
     attempted_publish=0
-    provider_limit=False
+    provider_limits=set()
     known_staged=stage.read_staged()
     held=stage.rejected_duration_candidates()
     for i,jid in enumerate(ids,1):
@@ -225,16 +225,20 @@ def repass(*,apply=False,stage_budget=12,publish_attempt_budget=40):
         if not candidates:
             counts["no_alternate_saved_release"]+=1
             continue
-        if attempted_stage>=stage_budget or provider_limit:
+        # A provider's cooldown must not block the other provider. SubDL
+        # and OpenSubtitles have independent quotas and stage transports.
+        available=[c for c in candidates
+                   if c["provider"] not in provider_limits]
+        if attempted_stage>=stage_budget or not available:
             counts["candidate_deferred_by_budget_or_quota"]+=1
             continue
         # One ranked saved release per title in a pass. Alternate releases
         # remain saved for the next pass after timing/QA outcome is known.
-        chosen=candidates[0]
+        chosen=available[0]
         attempted_stage+=1
         rc,limited=_acquire(jid,chosen)
         if limited:
-            provider_limit=True
+            provider_limits.add(str(chosen["provider"]))
             counts["provider_cooldown_or_quota"]+=1
             continue
         if rc:
@@ -259,7 +263,7 @@ def repass(*,apply=False,stage_budget=12,publish_attempt_budget=40):
     print("HISTORICAL_JOURNAL_COUNT:",len(ids),
           "| STAGE_ATTEMPTS:",attempted_stage,
           "| ALIGNMENT_ATTEMPTS:",attempted_publish,
-          "| PROVIDER_LIMIT:",provider_limit,flush=True)
+          "| PROVIDER_LIMITS:",",".join(sorted(provider_limits)) or "none",flush=True)
     print("RESULT_COUNTS:",json.dumps(dict(sorted(counts.items())),
                                       sort_keys=True),flush=True)
     print("PLaMO NOT RUN. Stopped Finish job NOT RESTARTED.",flush=True)
