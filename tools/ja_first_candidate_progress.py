@@ -31,7 +31,7 @@ MODULES={
 
 def tokens(text):
     text=re.sub(r"(?<=[a-z])['\u2019](?=[a-z])","",str(text or "").casefold())
-    return set(re.findall(r"[a-z]+|[0-9]+(?:\.[0-9]+)?",text))
+    return set(re.findall(r"[0-9]+p|[a-z]+|[0-9]+(?:\.[0-9]+)?",text))
 
 def release_match(row,candidate):
     """Ranking hint, NEVER proof of identity or permission to publish.
