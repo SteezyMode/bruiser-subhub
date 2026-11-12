@@ -773,7 +773,7 @@ def main():
     cli.add_argument("--budget", type=int, default=3,
                      help="maximum staged OpenSubtitles downloads: 1..200")
     cli.add_argument("--jellyfin-id",default="",help="stage a saved Japanese candidate for one exact item")
-    cli.add_argument("--scope",choices=("all",movie_scope.SCOPE),default="all")
+    cli.add_argument("--scope",choices=movie_scope.SCOPES,default="all")
     cli.add_argument("--kind", choices=("all", "movie", "episode"),
                      default="all")
     cli.add_argument("--require-embedded-en", action="store_true",
