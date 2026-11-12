@@ -50,6 +50,7 @@ SOURCE_FILES=(
     "ja_first_stage_subdl.py",
     "subhub_download_ledger.py",
     "subhub_jellyfin_batch.py",
+    "subhub_deep_source.py",
     "ja_first_autofill.py",
 )
 AI_FILES=("subhub_plamo_handoff.py",)
@@ -203,6 +204,7 @@ def main():
             "ja_first_stage_subdl.py",
             "subhub_download_ledger.py",
             "subhub_jellyfin_batch.py",
+            "subhub_deep_source.py",
         })
         destinations[("source",name)]=target
     for name in DASH_FILES:
