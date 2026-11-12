@@ -136,8 +136,14 @@ def publish(jid, intensive=False):
             print("DEEP_SOURCE_PUBLISHED:",jid,
                   "intensive" if intensive else "normal",flush=True)
             return "covered"
-    if rc or "QUEUE STOPPED:" in err:
-        print("DEEP_SOURCE_PUBLISH_RETRY:",jid,err[:160],flush=True)
+    if (rc or "QUEUE STOPPED:" in err or
+            "TITLE_FAILURE_NOT_CACHED:" in out or
+            "intensive_alass_unavailable" in out or
+            "alass_command_failed" in out):
+        # Incomplete engine attempts, transient audio/docker or absent ALASS
+        # are not evidence that this Japanese release cannot be recovered.
+        print("DEEP_SOURCE_PUBLISH_RETRY:",jid,(err or
+              "incomplete_or_transient_alignment")[:160],flush=True)
         return "retry"
     return "held"
 
