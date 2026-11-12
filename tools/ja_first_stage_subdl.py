@@ -56,7 +56,7 @@ def identity_ok(row,candidate):
     return expected==tags or "episode" in matches and "season" in matches
 
 
-def private_candidate(jid,row):
+def private_candidate(jid,row,subtitle_id=None):
     stage.private_file(stage.SEARCH_DB)
     with sqlite3.connect("file:"+str(stage.SEARCH_DB.resolve())+"?mode=ro",
                          uri=True,timeout=10) as db:
@@ -66,9 +66,10 @@ def private_candidate(jid,row):
         return []
     doc=json.loads(found[0])
     candidates=[c for c in doc.get("candidates",[])
-                if identity_ok(row,c)]
+                if identity_ok(row,c) and
+                (subtitle_id is None or str(c.get("subtitle_id"))==subtitle_id)]
     candidates.sort(key=lambda c:-int(c.get("score") or 0))
-    return candidates[:3]
+    return candidates
 
 
 def numeric_id(remote):
@@ -199,6 +200,8 @@ def stage_one(row,candidate,runtime):
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--jellyfin-id",required=True)
+    parser.add_argument("--subtitle-id",default="",
+                        help="exact saved SubDL release to attempt within deep source recovery")
     parser.add_argument("--apply",action="store_true")
     args=parser.parse_args()
     if not re.fullmatch(r"[a-f0-9]{32}",args.jellyfin_id):
@@ -207,7 +210,9 @@ def main():
     row=inventory.get(args.jellyfin_id)
     if not row or row.get("status")!="ready_ja_search":
         raise RuntimeError("media_not_eligible")
-    candidates=private_candidate(args.jellyfin_id,row)
+    if args.subtitle_id and not SUBDL_ID.fullmatch(args.subtitle_id):
+        parser.error("Invalid SubDL saved candidate ID")
+    candidates=private_candidate(args.jellyfin_id,row,args.subtitle_id or None)
     print("SUBDL_SAVED_CANDIDATES:",len(candidates),flush=True)
     if not candidates or not args.apply:
         return
