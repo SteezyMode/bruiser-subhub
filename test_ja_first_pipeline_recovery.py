@@ -44,6 +44,85 @@ class PipelineRecoveryTests(unittest.TestCase):
             with patch.object(stage,"STAGE_DB",db):
                 self.assertTrue(stage.alternate_ready(self.row(video)))
 
+    def test_malformed_remote_download_is_cached_but_quota_failure_is_not(self):
+        row=self.row("/mnt/2TB/Plex Expansion/Movies/Horror/Example Film 2024.mkv")
+        candidate={"provider":"opensubtitles","subtitle_id":"1000",
+                   "filename":"Example.Film.2024.ja.srt","release_info":"Example 2024"}
+        job={"row":row,"candidate":candidate}
+        import subprocess
+        def fake_run(command,**kwargs):
+            body={"result":"blocked","error_type":"RuntimeError",
+                  "error":"too_few_japanese_characters"}
+            stdout=("SUBHUB_DOWNLOAD_REQUEST: opensubtitles\\n"
+                    "SUBHUB_DOWNLOAD_RECEIVED: 1234\\n"
+                    "STAGE_RESULT_JSON:"+json.dumps(body)+"\\n")
+            return subprocess.CompletedProcess(command,1,stdout,"")
+        with patch.object(stage,"duration_if_safe",return_value=1200), \
+             patch.object(stage.subprocess,"run",side_effect=fake_run), \
+             patch.object(stage,"record_native_download_attempt"), \
+             patch.object(stage.candidate_progress,"fingerprint",return_value="f"*64), \
+             patch.object(stage.candidate_progress,"remember",return_value=True) as mark:
+            with self.assertRaisesRegex(RuntimeError,"container_staging_blocked"):
+                stage.run_one(job,None)
+            mark.assert_called_once()
+            self.assertIn("too_few_japanese_characters",str(mark.call_args))
+        def quota_run(command,**kwargs):
+            body={"result":"blocked","error_type":"RuntimeError",
+                  "error":"opensubtitles_pool_disabled_cooling_or_exhausted"}
+            stdout=("SUBHUB_DOWNLOAD_REQUEST: opensubtitles\\n"
+                    "STAGE_RESULT_JSON:"+json.dumps(body)+"\\n")
+            return subprocess.CompletedProcess(command,1,stdout,"")
+        with patch.object(stage,"duration_if_safe",return_value=1200), \
+             patch.object(stage.subprocess,"run",side_effect=quota_run), \
+             patch.object(stage,"record_native_download_attempt"), \
+             patch.object(stage.candidate_progress,"remember") as mark:
+            with self.assertRaisesRegex(RuntimeError,"container_staging_blocked"):
+                stage.run_one(job,None)
+            mark.assert_not_called()
+
+    def test_cached_malformed_candidate_is_skipped_and_alternate_remains(self):
+        with tempfile.TemporaryDirectory() as temp:
+            video=Path(temp)/"Example Film 2024.mkv"
+            video.write_bytes(b"video")
+            row=self.row(video)
+            history=[(self.ID,json.dumps({"candidates":[
+                {"subtitle_id":"1000","provider":"opensubtitles","score":99,
+                 "grade":"plausible","language":"ja",
+                 "filename":"Example.Film.2024.ja.srt"},
+                {"subtitle_id":"2000","provider":"opensubtitles","score":70,
+                 "grade":"plausible","language":"ja",
+                 "filename":"Example.Film.2024.ja.srt"},
+            ]}))]
+            def known(jid,sid,engine,key,**kwargs):
+                return "too_few_japanese_characters" if sid=="1000" else None
+            with patch.object(stage,"identity_ok",return_value=True), \
+                 patch.object(stage,"rejected_duration_candidates",return_value=set()), \
+                 patch.object(stage,"alternate_ready",return_value=True), \
+                 patch.object(stage.priorities,"active_coverage_queue",return_value=None), \
+                 patch.object(stage.candidate_progress,"known",side_effect=known):
+                selected=stage.choices({self.ID:row},history,set(),1,"movie")
+            self.assertEqual(selected[0]["candidate"]["subtitle_id"],"2000")
+
+    def test_stage_failure_receipt_expires_but_alignment_receipts_remain(self):
+        with tempfile.TemporaryDirectory() as temp:
+            db=Path(temp)/"candidate.sqlite3"
+            key="a"*64
+            progress.remember(self.ID,"1000","stage",key,
+                              RuntimeError("too_few_japanese_characters"),db_path=db)
+            self.assertEqual(progress.known(
+                self.ID,"1000","stage",key,db_path=db,max_age_seconds=86400),
+                "too_few_japanese_characters")
+            with sqlite3.connect(db) as cx:
+                cx.execute("UPDATE failures SET recorded_at=recorded_at-86401")
+            self.assertIsNone(progress.known(
+                self.ID,"1000","stage",key,db_path=db,max_age_seconds=86400))
+            self.assertIsNotNone(progress.known(
+                self.ID,"1000","stage",key,db_path=db))
+            self.assertFalse(progress.deterministic_stage_rejection(
+                "opensubtitles_pool_disabled_cooling_or_exhausted"))
+            self.assertTrue(progress.deterministic_stage_rejection(
+                "unrecognized_subtitle_timing_or_encoding"))
+
     def test_stage_next_saved_release_is_ranked_not_redownloaded(self):
         row=self.row("/mnt/2TB/Plex Expansion/Movies/Horror/Example Film 2024 1080p BluRay.mkv")
         history=[(self.ID,json.dumps({"candidates":[
