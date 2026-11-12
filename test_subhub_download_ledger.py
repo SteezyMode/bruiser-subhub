@@ -47,6 +47,17 @@ class DailyDownloadLedger(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError,"already_closed"):
             ledger.finish(a,"downloaded",byte_count=25989,path=self.path)
 
+    def test_subdl_native_route_can_record_download_without_value_error(self):
+        # Real host Double Blind staging previously failed BEFORE HTTP:
+        # SubDL downloader used a route name absent from ledger.ROUTES.
+        attempt=ledger.begin("subdl","sublarr_native_subdl",path=self.path)
+        ledger.finish(attempt,"downloaded",byte_count=8192,path=self.path)
+        report=ledger.summary(path=self.path)["today"]
+        self.assertEqual(report["providers"]["subdl"]["downloaded"],1)
+        self.assertEqual(report["providers"]["subdl"]["attempted"],1)
+        with self.assertRaises(ValueError):
+            ledger.begin("subdl","unknown_route",path=self.path)
+
     def test_japan_midnight_uses_reporting_calendar_not_fake_provider_reset(self):
         before=int(datetime(2026,11,10,14,59,tzinfo=timezone.utc).timestamp())
         after=int(datetime(2026,11,10,15,1,tzinfo=timezone.utc).timestamp())
