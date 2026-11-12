@@ -73,13 +73,14 @@ class LibraryBrowserTests(unittest.TestCase):
         # Reported Action view: four movie release folders plus one movie
         # directly in Action. All five are real Jellyfin catalog entries.
         action=self.base/"Movies"/"Action"
-        for title in ("Infernal Affairs", "Iron Man", "Sisu", "The Raid"):
+        for i,title in enumerate(("Infernal Affairs", "Iron Man", "Sisu", "The Raid"),1):
             folder=action/(title+" (release)")
             folder.mkdir()
             video=folder/(title+".mkv")
             video.write_bytes(b"synthetic video")
-            self.rows.append(self.movie(video,title,
-                                        status="ready_ja_search",genres=["Action"]))
+            item=self.movie(video,title,status="ready_ja_search",genres=["Action"])
+            item["jellyfin_id"]=format(1000+i,"032x")
+            self.rows.append(item)
         self.manifest.write_text(json.dumps(
             {"schema":1,"generated_utc":"2026-11-12T01:01:01Z",
              "items":self.rows}),encoding="utf-8")
@@ -94,6 +95,7 @@ class LibraryBrowserTests(unittest.TestCase):
             "Crawl","Infernal Affairs","Iron Man","Sisu","The Raid"})
         self.assertTrue(all(x["state"]=="needs_japanese" for x in data["items"]))
         self.assertEqual(data["matching_items"],5)
+        self.assertEqual(data["folders"],[])
 
     def test_exact_action_finish_skips_new_ja_sidecar(self):
         self.rows[0]["jellyfin_id"]="a"*32
