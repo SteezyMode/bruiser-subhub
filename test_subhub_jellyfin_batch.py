@@ -103,6 +103,52 @@ class GenericJellyfinBatch(unittest.TestCase):
         self.assertEqual(second["items"][0]["status"],"published")
         self.assertEqual(second["items"][1]["status"],"held")
 
+    def test_actual_cli_preview_accepts_thirteen_selected_movies_without_provider_calls(self):
+        # Reproduces dashboard's exact `--item-id ID` repeated thirteen times.
+        rows=[dict(movie(format(5000+i,"032x"),f"Film {i}"),
+                   host_path=f"/media/Movies/Drama/Film {i}.mkv",
+                   genres=["Drama"]) for i in range(13)]
+        rows.append(dict(movie("a"*32,"Covered",status="existing_japanese_subtitle"),
+                         host_path="/media/Movies/Drama/Covered.mkv",
+                         genres=["Drama"]))
+        argv=[arg for row in rows[:13]
+              for arg in ("--item-id",row["jellyfin_id"])]
+        with patch.object(batch.benchmark,"load_latest_manifest",return_value=rows), \
+             patch.object(batch,"read_scoped_state",return_value=None), \
+             patch.object(batch,"execute") as execute, \
+             contextlib.redirect_stdout(io.StringIO()) as output:
+            result=batch.main([*argv,"--max-searches","20"])
+        self.assertEqual(result,0)
+        preview=json.loads(output.getvalue())
+        self.assertEqual(preview["eligible"],13)
+        self.assertEqual(preview["mode"],"PREVIEW_NO_PROVIDER_CALLS")
+        self.assertEqual(preview["max_searches_this_run"],20)
+        execute.assert_not_called()
+
+    def test_actual_cli_preview_accepts_folder_and_genre(self):
+        rows=[
+            dict(movie("b"*32,"Missing"),host_path="/media/Movies/Drama/B.mkv",
+                 genres=["Drama"]),
+            dict(movie("c"*32,"Already covered",status="existing_japanese_subtitle"),
+                 host_path="/media/Movies/Drama/C.mkv",genres=["Drama"]),
+            dict(movie("d"*32,"Unrelated"),host_path="/media/Movies/Action/D.mkv",
+                 genres=["Action"]),
+        ]
+        with patch.object(batch.benchmark,"load_latest_manifest",return_value=rows), \
+             patch.object(batch,"read_scoped_state",return_value=None), \
+             patch.object(batch,"execute") as execute:
+            for args in (
+                ["--library-folder","/media/Movies/Drama","--library-kind","Movie"],
+                ["--library-genre","Drama","--library-kind","Movie"],
+                ["--movie-id","b"*32],
+            ):
+                with self.subTest(args=args),contextlib.redirect_stdout(io.StringIO()) as output:
+                    self.assertEqual(batch.main(args),0)
+                    preview=json.loads(output.getvalue())
+                    self.assertEqual(preview["eligible"],1)
+                    self.assertEqual(preview["selected"],1)
+            execute.assert_not_called()
+
     def test_subdl_stage_can_select_exact_episode_without_publishing(self):
         from tools import ja_first_stage_subdl as subdl
         row=tv("a"*32,8,6,series="Example Show")
