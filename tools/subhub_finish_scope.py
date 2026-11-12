@@ -19,12 +19,15 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 
 try:
     from . import subhub_translation_batch as batch
 except ImportError:
     import subhub_translation_batch as batch
 
+DEEP_SOURCE = Path(__file__).with_name("subhub_deep_source.py")
+AUTO_PLAMO = Path(__file__).with_name("subhub_plamo_handoff.py")
 SOURCE = Path.home() / "bruiser-pilot/subhub-control/subhub_jellyfin_batch.py"
 INTENSIVE = SOURCE.with_name("ja_first_publish_queue.py")
 TRANSLATOR = Path(__file__).with_name("subhub_translation_batch.py")
@@ -109,93 +112,133 @@ def command(args, label, on_line=None):
         return p.wait()
 
 
+def selected_media(series, seasons):
+    """Select every exact Jellyfin file; duplicate episode versions remain separate."""
+    try:
+        from . import subhub_deep_source as deep
+    except ImportError:
+        import subhub_deep_source as deep
+    chosen=[]
+    seen=set()
+    for row in deep.inventory.load_latest_manifest():
+        if (not isinstance(row,dict) or row.get("kind")!="Episode"
+                or row.get("series_title")!=series
+                or row.get("season") not in seasons):
+            continue
+        jid=str(row.get("jellyfin_id") or "")
+        if not re.fullmatch(r"[a-f0-9]{32}",jid) or jid in seen:
+            raise RuntimeError("duplicate_or_invalid_selected_jellyfin_id")
+        seen.add(jid)
+        chosen.append((int(row["season"]),int(row["episode"]),jid))
+    chosen.sort()
+    if not chosen:
+        raise RuntimeError("selected_scope_not_in_jellyfin_inventory")
+    return chosen
+
+
 def run(series, seasons=()):
+    """One owner action: source every selected file, auto PLaMO proven misses.
+
+    Incomplete providers and temporary errors stay in SOURCE, with autonomous
+    paced retry. The operator may stop the job, but no per-title review is
+    required. PLaMO can start only with an exact validated source receipt.
+    """
     before=plan(series,seasons)
+    selection=selected_media(series,before["seasons"])
+    pending={jid:(season,episode) for season,episode,jid in selection}
+    finished=set()
+    total=len(selection)
     receipt={"schema":"subhub-finish-scope-v1","series":series,
              "seasons":before["seasons"],"phase":"source",
              "state":"running","before":{k:v for k,v in before.items()
-                                         if k!="picks"}}
+                                         if k!="picks"},
+             "total_exact_files":total,"covered_exact_files":0,
+             "source_pending":total,"plamo_pending":0,
+             "round":0,"source_attempts":0,"plamo_attempts":0,
+             "current":"","last_issue":""}
     write_state(receipt)
-    print("FINISH_BEGIN",json.dumps(receipt["before"],ensure_ascii=False),flush=True)
-    if before["missing"] == 0:
-        receipt.update(state="completed",phase="done",remaining=0)
-        write_state(receipt)
-        print("FINISH_COMPLETE all_selected_episodes_have_japanese",flush=True)
-        return 0
-    # One provider-bounded source pass. Its existing per-item/state locks,
-    # Japanese identity checks, quota ceilings and publication QA remain intact.
-    source=[SOURCE,"--series",series,"--max-searches",str(MAX_SEARCHES),"--run"]
-    for sn in before["seasons"]:
-        source.extend(("--season",str(sn)))
-    rc=command(source,"source")
-    if rc:
-        receipt.update(state="held",phase="source_failed",source_rc=rc)
-        write_state(receipt)
-        print("FINISH_HELD source_worker_failed",flush=True)
-        return 1
-    # The ordinary source worker has already exhausted the normal timing
-    # routes. Retry ONLY staged, still-unpublished candidates with expensive
-    # ALASS cross-reference checks. One failed season/episode cannot derail
-    # another. No provider quotas or new subtitle downloads are used here.
-    receipt.update(phase="intensive_recovery",
-                   intensive_seasons_done=0,
-                   intensive_seasons_total=len(before["seasons"]),
-                   intensive_trials=0,intensive_titles_checked=0,
-                   intensive_published=0,intensive_current="")
-    write_state(receipt)
-    for index,sn in enumerate(before["seasons"]):
-        receipt["intensive_current"]="Season "+str(sn)
-        write_state(receipt)
-        def progress(line):
-            if line.startswith("MEDIA:"):
-                receipt["intensive_current"]="Season "+str(sn)+" · "+line[6:].strip()[:32]
-            elif line.startswith("ALASS_INTENSIVE_TRIAL"):
-                receipt["intensive_trials"]+=1
-            elif line.startswith("BRUISER_PUBLISH_ITEM:"):
-                receipt["intensive_titles_checked"]+=1
-                try:
-                    item=json.loads(line.split(":",1)[1])
-                    if item.get("result")=="published":
-                        receipt["intensive_published"]+=1
-                except (ValueError,TypeError):
-                    pass
-            else:
-                return
+    print("FINISH_BEGIN",json.dumps({"total_exact_files":total,
+          "series":series,"seasons":before["seasons"]},ensure_ascii=False),
+          flush=True)
+    # Dict retains state for this process; source-exhaustion receipts and
+    # PLaMO checkpoints are independently durable across a restarted job.
+    plamo=set()
+    while pending or plamo:
+        receipt["round"]+=1
+        for jid in list(pending):
+            season,ep=pending[jid]
+            receipt.update(phase="source",state="running",
+                           current=f"S{season:02d}E{ep:03d} {jid}",
+                           source_attempts=receipt["source_attempts"]+1)
             write_state(receipt)
-        rc=command([INTENSIVE,"--series",series,"--season",str(sn),
-                    "--max-titles","100","--limit","100",
-                    "--intensive-only","--apply"],"intensive_recovery_S"+str(sn),
-                   on_line=progress)
-        receipt["intensive_seasons_done"]=index+1
-        write_state(receipt)
-        if rc:
-            print("FINISH_INTENSIVE_HELD season",sn,"rc",rc,flush=True)
-    after_source=plan(series,before["seasons"])
-    receipt.update(phase="translation",after_source={
-        k:v for k,v in after_source.items() if k!="picks"})
+            result={}
+            def accept(line):
+                if not line.startswith("DEEP_SOURCE_RESULT:"):
+                    return
+                try:
+                    result.update(json.loads(line.split(":",1)[1]))
+                except (TypeError,ValueError):
+                    pass
+            rc=command([DEEP_SOURCE,"--jellyfin-id",jid,"--run"],
+                       "deep_source_"+jid[:8],on_line=accept)
+            decision=result.get("result") if not rc else "retry_source"
+            if decision=="covered":
+                finished.add(jid)
+                del pending[jid]
+                print("FINISH_COVERED:",jid,flush=True)
+            elif decision=="plamo":
+                del pending[jid]
+                plamo.add(jid)
+                print("FINISH_PLAMO_QUEUE:",jid,"Japanese sources exhausted",
+                      flush=True)
+            else:
+                receipt["last_issue"]=str(result.get("reason") or
+                                          "source_worker_failed")[:150]
+                print("FINISH_SOURCE_RETRY:",jid,receipt["last_issue"],
+                      flush=True)
+            receipt.update(covered_exact_files=len(finished),
+                           source_pending=len(pending),
+                           plamo_pending=len(plamo))
+            write_state(receipt)
+        for jid in list(plamo):
+            season,ep=next(((sn,number) for sn,number,mid in selection
+                            if mid==jid),(0,0))
+            receipt.update(phase="translation",state="running",
+                           current=f"S{season:02d}E{ep:03d} {jid}",
+                           plamo_attempts=receipt["plamo_attempts"]+1)
+            write_state(receipt)
+            rc=command([AUTO_PLAMO,"--jellyfin-id",jid,
+                        "--source-exhausted-auto","--apply"],
+                       "plamo_"+jid[:8])
+            if rc==0:
+                plamo.remove(jid)
+                finished.add(jid)
+                print("FINISH_PLAMO_PUBLISHED:",jid,flush=True)
+            else:
+                receipt["last_issue"]="plamo_attempt_held_"+jid[:8]
+                print("FINISH_PLAMO_RETRY:",jid,flush=True)
+            receipt.update(covered_exact_files=len(finished),
+                           source_pending=len(pending),
+                           plamo_pending=len(plamo))
+            write_state(receipt)
+        if pending or plamo:
+            # One click may span quota resets or a slow/thermally limited AI
+            # job. Never classify a paused provider as "no Japanese". A long
+            # sleep prevents busy loops; systemd stop cancels the whole group.
+            delay=7200 if pending else 900
+            receipt.update(state="waiting_retry",phase="source" if pending
+                           else "translation",current="Awaiting next automatic retry")
+            write_state(receipt)
+            print("FINISH_WAITING_RETRY:",delay,"seconds",
+                  "source",len(pending),"plamo",len(plamo),flush=True)
+            time.sleep(delay)
+    receipt.update(state="completed",phase="done",current="",
+                   remaining=0,covered_exact_files=len(finished),
+                   source_pending=0,plamo_pending=0)
     write_state(receipt)
-    picks=after_source["picks"]
-    if picks:
-        args=[TRANSLATOR,"--run","--series",series,"--season",
-              str(picks[0]["season"])]
-        for pick in picks:
-            args.extend(("--pick",f'S{pick["season"]:02d}E{pick["episode"]:03d}'))
-        rc=command(args,"plamo")
-        if rc:
-            print("FINISH_PLaMO_HELD work_checkpointed_review_needed",flush=True)
-    # A partially searched scope cannot be described as finished.
-    final=plan(series,before["seasons"])
-    receipt.update(state="completed" if final["missing"]==0 else "partial",
-                   phase="done",remaining=final["missing"],
-                   after={k:v for k,v in final.items() if k!="picks"})
-    write_state(receipt)
-    print("FINISH_RESULT",json.dumps({"remaining":final["missing"],
-        "covered":final["covered"],"total":final["total"],
-        "state":receipt["state"]},ensure_ascii=False),flush=True)
-    # Unresolved provider/edition work is a partial RESULT, not a crashed job.
-    # The dashboard reads the retained remaining count for follow-up.
+    print("FINISH_RESULT",json.dumps({"remaining":0,
+         "covered":len(finished),"total":total,"state":"completed"}),flush=True)
     return 0
-
 
 def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__)
