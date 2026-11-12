@@ -57,7 +57,19 @@ def identity_ok(row,candidate):
                     continue
                 left=words[i-1] if i else ""
                 right=words[i+len(title)] if i+len(title)<len(words) else ""
+                if any(re.fullmatch(r"(?:19|20)\d{2}",w) and w!=year
+                       for w in (left,right)):
+                    return False
                 if year in (left,right):
+                    return True
+                if (len(title)>=2 and i==0 and
+                        not any(re.fullmatch(r"(?:19|20)\d{2}",w)
+                                for w in words) and
+                        (len(words)==len(title) or
+                         words[len(title)] in {
+                             "web", "webdl", "webrip", "bluray", "bdrip",
+                             "dvdrip", "1080p", "720p", "2160p",
+                             "ja", "sub", "subs", "japanese"})):
                     return True
         return False
     if row.get("kind")!="Episode":
