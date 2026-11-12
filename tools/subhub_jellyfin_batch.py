@@ -59,12 +59,28 @@ def item_label(row):
     return str(row.get("title") or "")[:120]
 
 
+def movie_category(path):
+    """The actual first directory after a Jellyfin movie root.
+
+    This matches the read-only dashboard grouping but keeps worker code
+    independent of dashboard installation and NEVER touches media paths.
+    """
+    parts=PurePosixPath(path).parts
+    hits=[i for i,p in enumerate(parts[:-1])
+          if p.casefold() in ("movies","films","film")]
+    # Match the dashboard browser's fallback for unusual media-root names.
+    root_end=min(hits)+1 if hits else min(4,len(parts)-1)
+    relative=parts[root_end:-1]
+    return relative[0] if relative else "Unsorted"
+
+
 def choose(rows, *, series=None, seasons=(), picks=(), movie_ids=(),
            item_ids=(), library_folder=None, library_genre=None,
-           library_kind=None):
+           library_kind=None, library_category=None):
     """Select catalogued media, not arbitrary filesystem search results."""
     scopes=sum(bool(x) for x in (
-        series,movie_ids,item_ids,library_folder,library_genre))
+        series,movie_ids,item_ids,library_folder,library_genre,
+        library_category))
     if scopes!=1:
         raise ValueError("select_exactly_one_library_selection")
     selected = []
@@ -106,7 +122,21 @@ def choose(rows, *, series=None, seasons=(), picks=(), movie_ids=(),
     else:
         if library_kind not in ("Movie","Episode"):
             raise ValueError("invalid_library_kind")
-        if library_folder:
+        if library_category:
+            if (library_kind!="Movie" or
+                    not isinstance(library_category,str) or
+                    not 1<=len(library_category)<=120 or
+                    any(ord(ch)<32 for ch in library_category)):
+                raise ValueError("invalid_combined_movie_folder")
+            selected=[r for r in rows if isinstance(r,dict) and
+                      r.get("kind")=="Movie" and
+                      isinstance(r.get("host_path"),str) and
+                      movie_category(r["host_path"]) is not None and
+                      movie_category(r["host_path"]).casefold()==
+                      library_category.casefold()]
+            if not selected:
+                raise ValueError("combined_movie_folder_not_in_Jellyfin_catalog")
+        elif library_folder:
             folder=PurePosixPath(library_folder)
             if (not isinstance(library_folder,str) or
                     not library_folder.startswith("/") or
@@ -131,8 +161,8 @@ def choose(rows, *, series=None, seasons=(), picks=(), movie_ids=(),
             if not selected:
                 raise ValueError("genre_not_in_Jellyfin_catalog")
 
-    if len(selected) > MAX_ITEMS:
-        raise ValueError("selection_too_large_split_into_batches")
+    # Limit actual missing work, not already-completed movies in this genre.
+    # Thousands of covered movies must not make a small missing queue fail.
     seen = set()
     result = []
     for row in sorted(selected,key=lambda r: (
@@ -146,12 +176,14 @@ def choose(rows, *, series=None, seasons=(), picks=(), movie_ids=(),
         # sidecars are rechecked on disk again immediately before provider use.
         if row.get("status") == "ready_ja_search":
             result.append(row)
+            if len(result)>MAX_ITEMS:
+                raise ValueError("missing_selection_too_large_split_into_batches")
     return result
 
 
 def selector(series=None,seasons=(),picks=(),movie_ids=(),
              item_ids=(),library_folder=None,library_genre=None,
-             library_kind=None):
+             library_kind=None,library_category=None):
     if series:
         return {"series":series,"seasons":sorted(set(seasons)),
                 "picks":[[a,b] for a,b in sorted(set(picks))]}
@@ -163,6 +195,8 @@ def selector(series=None,seasons=(),picks=(),movie_ids=(),
         return {"library_folder":library_folder,"kind":library_kind}
     if library_genre:
         return {"library_genre":library_genre,"kind":library_kind}
+    if library_category:
+        return {"library_category":library_category,"kind":"Movie"}
     raise ValueError("missing_source_selection")
 
 
@@ -669,6 +703,7 @@ def main(argv=None):
     exclusive.add_argument("--item-id",action="append")
     exclusive.add_argument("--library-folder")
     exclusive.add_argument("--library-genre")
+    exclusive.add_argument("--library-category")
     parser.add_argument("--library-kind",choices=("Movie","Episode"))
     parser.add_argument("--season",action="append",type=int,default=[])
     parser.add_argument("--pick",action="append",default=[])
@@ -679,10 +714,11 @@ def main(argv=None):
     args=parser.parse_args(argv)
     if not 1<=args.max_searches<=MAX_SEARCHES:
         parser.error("max 200 provider searches per pass")
-    if (args.movie_id or args.item_id or args.library_folder or args.library_genre) and (
+    if (args.movie_id or args.item_id or args.library_folder or args.library_genre
+            or args.library_category) and (
             args.season or args.pick):
         parser.error("season/pick requires --series")
-    if bool(args.library_folder or args.library_genre) != bool(args.library_kind):
+    if bool(args.library_folder or args.library_genre or args.library_category) != bool(args.library_kind):
         parser.error("--library-kind required only for --library-folder/--library-genre")
     if args.job_id and not re.fullmatch(r"[a-f0-9]{16}",args.job_id):
         parser.error("invalid dashboard job ID")
@@ -698,7 +734,8 @@ def main(argv=None):
              "item_ids":args.item_id or [],
              "library_folder":args.library_folder,
              "library_genre":args.library_genre,
-             "library_kind":args.library_kind}
+             "library_kind":args.library_kind,
+             "library_category":args.library_category}
     chosen=choose(rows,**options)
     plan=selector(**options)
     if not chosen:

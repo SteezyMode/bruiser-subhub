@@ -82,7 +82,7 @@ details>summary{cursor:pointer}
  <div class="row"><span id="run-status" class="small muted">Checking workers…</span><a id="open-sublarr" class="tool-link" href="http://127.0.0.1:15765/" target="_blank" rel="noopener noreferrer" title="Opens Sublarr through the SubHub Mac/Linux SSH shortcut tunnel">Open Sublarr</a><button class="quiet" id="refresh">Refresh</button></div>
 </header>
 
-<section class="panel" id="next-step" aria-live="polite">
+<section class="panel" id="next-step" aria-live="polite" hidden>
  <h2>Current job and next action</h2>
  <p id="next-state">Checking work status…</p>
  <p id="next-instruction" class="muted">Opening the dashboard does not start work.</p>
@@ -91,8 +91,10 @@ details>summary{cursor:pointer}
 </section>
 
 <section class="panel" id="active-work">
- <div class="split"><h2>Active work</h2><span id="current-work" class="small muted">No current job</span></div>
+ <div class="split"><h2>Current job</h2><span id="current-work" class="small muted">No current job</span></div>
+ <details class="review"><summary>Provider and worker status</summary>
  <div class="status-strip"><span>Source: <strong id="source-state">—</strong></span><span>PLaMo: <strong id="plamo-state">—</strong></span><span>Provider allowance: <strong id="quota">Unverified</strong></span></div>
+ </details>
  <p id="scheduled-source-summary" class="small muted" aria-live="polite">Checking automatic source worker…</p>
  <details id="daily-downloads" class="review">
  <summary>Provider usage and download history</summary>
@@ -128,7 +130,7 @@ details>summary{cursor:pointer}
    <summary>Technical details</summary>
    <p id="finish-raw-issue" class="small muted"></p>
   </details>
-  <details id="finish-title-details" class="review" open>
+  <details id="finish-title-details" class="review">
    <summary>Titles in this completion job</summary>
    <div class="row" style="margin-top:12px">
     <label for="finish-title-filter" class="small muted">Show</label>
@@ -157,7 +159,9 @@ details>summary{cursor:pointer}
   <p id="batch-details" class="small muted"></p>
  </div>
  <p class="small muted" id="job-progress">Source events and saved cue checkpoints are shown here. Closing this page does not stop jobs.</p>
- <div id="active-jobs"></div>
+ <details class="review"><summary>Translation details</summary>
+  <div id="active-jobs"></div>
+ </details>
  <details id="history"><summary>Previous jobs and review holds</summary><div id="past-jobs"></div><p id="recent-events" class="small muted"></p></details>
  <div class="row" style="margin-top:12px"><button type="button" id="stop-sourcing" class="quiet" hidden>Stop selected sourcing</button><button type="button" id="stop-translation" class="quiet" hidden>Stop translation batch</button></div>
 </section>
@@ -247,16 +251,16 @@ details>summary{cursor:pointer}
 </section>
 </details>
 
-<section class="panel">
- <h2>Find a movie or TV series</h2>
- <form id="lookup" class="row">
+<details class="panel" id="title-lookup">
+ <summary>Find a specific movie or TV show</summary>
+ <form id="lookup" class="row" style="margin-top:12px">
   <input type="text" id="title-search" placeholder="Type a title…" aria-label="Movie or series title" maxlength="120" autocomplete="off">
   <button type="submit" class="primary">Find</button>
  </form>
  <p class="small muted">One search. TV shows open into seasons; movies open into the actual available files.</p>
  <div id="search-results" class="result-list" aria-live="polite"></div>
  <p id="search-feedback" class="small muted"></p>
-</section>
+</details>
 
 <section class="panel" id="tv-panel" hidden>
  <div class="split">
@@ -350,24 +354,25 @@ async function ownerPost(path,payload){
   return data;
 }
 
-const browseModel={kind:"Movie",folder:"",genre:"",query:"",state:"all",
+const browseModel={kind:"Movie",folder:"",category:"",genre:"",query:"",state:"all",
                    page:0,items:[],data:null,history:[]};
 const browseSelected=new Set();
 function browseSetCount(){
   const n=browseSelected.size;
   const counts=browseModel.data?.scope_counts||{};
-  const folderOrGenre=!!browseModel.folder||!!browseModel.genre;
+  const folderOrGenre=!!browseModel.folder||!!browseModel.category||!!browseModel.genre;
   const scoped=n===0&&folderOrGenre&&!browseModel.query.trim();
   const missing=Number(counts.needs_japanese||0);
   $("browse-selected-count").textContent=n+" selected";
   $("browse-source").textContent=n?"Find Japanese for "+n+" selected":
     browseModel.genre?"Find Japanese in "+browseModel.genre:
+    browseModel.category?"Find Japanese in "+browseModel.category:
     browseModel.folder?"Find Japanese in this folder":"Select a folder or movies";
   $("browse-source").disabled=busy||!!latest.workersBusy||
     !latest.jellyfin_source?.available||n>300||
     !(n>0||(scoped&&missing>0&&missing<=500));
   if(!busy&&latest.workersBusy){
-    $("browse-feedback").textContent="Another subtitle job is active. Stop it under Active work before starting another.";
+    $("browse-feedback").textContent="A subtitle job is already running. Stop it in Current job before starting another.";
   }else if(!busy&&latest.jellyfin_source?.available===false){
     $("browse-feedback").textContent="The source worker is unavailable on this host; update SubHub before starting.";
   }else if(!busy&&n>300){
@@ -387,9 +392,11 @@ function browseEntry(name,description,callback){
   return button;
 }
 function browseNavigate(folder){
-  browseModel.history.push({folder:browseModel.folder,genre:browseModel.genre,
-                           query:browseModel.query,page:browseModel.page});
-  browseModel.folder=folder;browseModel.genre="";
+  browseModel.history.push({folder:browseModel.folder,category:browseModel.category,
+                           genre:browseModel.genre,query:browseModel.query,page:browseModel.page});
+  browseModel.folder=folder.path||"";
+  browseModel.category=folder.category||"";
+  browseModel.genre="";
   $("browse-genre").value="";
   browseModel.query="";$("browse-query").value="";
   browseModel.page=0;loadBrowse();
@@ -400,7 +407,7 @@ function renderBrowse(data){
   $("browse-movies").setAttribute("aria-pressed",String(browseModel.kind==="Movie"));
   $("browse-episodes").setAttribute("aria-pressed",String(browseModel.kind==="Episode"));
   $("browse-back").disabled=!browseModel.history.length;
-  $("browse-path").textContent=browseModel.folder||
+  $("browse-path").textContent=browseModel.category||browseModel.folder||
     (browseModel.genre?browseModel.genre+" · "+
       (browseModel.kind==="Movie"?"Movies":"Television"):
       browseModel.kind==="Movie"?"All movie libraries":"All TV libraries");
@@ -426,7 +433,7 @@ function renderBrowse(data){
   for(const folder of data.folders||[]){
     folders.append(browseEntry(folder.label,
       folder.needs_japanese+" missing · "+folder.covered+" subtitled · "+
-      folder.total+" files",()=>browseNavigate(folder.path)));
+      folder.total+" files",()=>browseNavigate(folder)));
   }
   const list=$("browse-items");list.replaceChildren();
   for(const item of browseModel.items){
@@ -470,7 +477,8 @@ function renderBrowse(data){
 }
 async function loadBrowse(){
   const query=new URLSearchParams({
-    kind:browseModel.kind,folder:browseModel.folder,genre:browseModel.genre,
+    kind:browseModel.kind,folder:browseModel.folder,category:browseModel.category,
+    genre:browseModel.genre,
     query:browseModel.query,page:String(browseModel.page),state:browseModel.state
   });
   $("browse-feedback").textContent="Loading saved Jellyfin inventory…";
@@ -496,6 +504,8 @@ async function browseSource(){
     $("browse-feedback").textContent="Select matching movie titles first.";return;
   }else if(browseModel.genre){
     payload={library_genre:browseModel.genre,kind:browseModel.kind};
+  }else if(browseModel.category){
+    payload={library_category:browseModel.category,kind:"Movie"};
   }else if(browseModel.folder){
     payload={library_folder:browseModel.folder,kind:browseModel.kind};
   }else{
@@ -1015,8 +1025,9 @@ function renderJellyfinJob(d){
   if((d.finish_scope||{}).active){
     $("jellyfin-job").hidden=true;return;
   }
-  $("jellyfin-job").hidden=!p.known&&!p.active;
-  if(!p.known&&!p.active)return;
+  // Saved receipts belong in history, not the default Current job panel.
+  $("jellyfin-job").hidden=!p.active;
+  if(!p.active)return;
   // Count ONLY episodes selected for this run. A failed/no-match episode
   // advances the same meter as a publication; saved results stay separate.
   const known=Number.isInteger(p.pass_total)&&Number.isInteger(p.pass_processed);
@@ -1025,7 +1036,8 @@ function renderJellyfinJob(d){
   const percent=total?Math.round(100*finished/total):0;
   const scope=p.selector||{};
   $("jellyfin-job-title").textContent=(scope.series||
-    scope.library_genre||scope.library_folder?.split("/").pop()||
+    scope.library_category||scope.library_genre||
+    scope.library_folder?.split("/").pop()||
     (scope.item_ids?"Selected media":"Selected movies"))+
     " · Japanese sourcing";
   $("jellyfin-job-state").textContent=p.active?"Running":
@@ -1327,8 +1339,7 @@ async function refreshStatus(){
     const d=await getJson("/api/status");
     latest=d;
     const finish=d.finish_scope||{};
-    $("finish-job").hidden=!finish.active&&!finish.series&&
-      !["completed","waiting_retry"].includes(finish.state);
+    $("finish-job").hidden=!finish.active;
     if(!$("finish-job").hidden){
       const p=finish.source_progress||null;
       $("finish-job-title").textContent=(finish.series||"Selected movies")+" · completion";
@@ -1347,7 +1358,8 @@ async function refreshStatus(){
         Number.isInteger(p.total)&&p.total>0&&Number.isInteger(p.processed));
       const valid=validFlow||validSource||intense;
       $("finish-source-meter").hidden=!valid;
-      const unique=validFlow&&flow.unique_instrumented;
+      // One meaningful coverage bar only, not a second "examined" bar.
+      const unique=false;
       $("finish-queue-row").hidden=!unique;
       $("finish-queue-meter").hidden=!unique;
       if(unique){
@@ -1486,7 +1498,7 @@ async function refreshStatus(){
          jobState==="failed_before_progress"?"Source job did not start":"Idle"):
       "Idle";
     const batch=(d.season_translation||{}).progress||{};
-    $("batch-overview").hidden=!batch.known;
+    $("batch-overview").hidden=!batch.active;
     if(batch.known){
       $("batch-count").textContent=(batch.active?"Current PLaMo batch":"Previous PLaMo batch")+
           " · "+batch.finished+"/"+batch.total+" episodes finished";
@@ -1511,6 +1523,7 @@ async function refreshStatus(){
     const sourcePhase=daily.active?"RUNNING":daily.metrics_available?
       daily.phase==="source_completed"?"FINISHED":
       daily.phase==="source_held"?"FAILED":"STOPPED":"IDLE";
+    $("scheduled-source-summary").hidden=!daily.active;
     $("scheduled-source-summary").textContent=
       "Automatic Japanese sourcing: "+sourcePhase+
       (daily.scope==="movies-no-anime"?" · Non-anime movies":
@@ -1541,7 +1554,9 @@ async function refreshStatus(){
     $("quota").textContent=(d.source_job||{}).provider_limited||
       (d.download_usage||{}).today_quota_blocked?"Provider denied downloads today":
       "Limit unverified";
-    $("job-progress").textContent=escapeText(d.phase_label||"No active work");
+    $("job-progress").hidden=!d.workersBusy;
+    $("job-progress").textContent=d.workersBusy?
+      escapeText(d.phase_label||"Working"):"";
     $("stop-sourcing").hidden=!scoped;
     $("stop-translation").hidden=!(d.season_translation||{}).active;
     $("movie-stop").hidden=!(d.movie_source||{}).active;
@@ -1639,11 +1654,13 @@ $("jellyfin-job-stop").addEventListener("click",()=>stopJob("/api/jellyfin-sourc
 $("jellyfin-job-continue").addEventListener("click",async()=>{
   const p=(latest.jellyfin_source||{}),scope=p.selector||{};
   if(!scope.series&&!scope.item_ids&&!scope.movie_ids&&!scope.library_folder&&
-      !scope.library_genre){toast("No resumable source job selected.");return;}
+      !scope.library_genre&&!scope.library_category){
+    toast("No resumable source job selected.");return;}
   const payload=scope.series?{series:scope.series}:
     scope.item_ids?{item_ids:scope.item_ids}:
     scope.movie_ids?{movie_ids:scope.movie_ids}:
     scope.library_folder?{library_folder:scope.library_folder,kind:scope.kind}:
+    scope.library_category?{library_category:scope.library_category,kind:"Movie"}:
     {library_genre:scope.library_genre,kind:scope.kind};
   if(scope.series&&Array.isArray(scope.picks)&&scope.picks.length)
     payload.picks=scope.picks.map(p=>({season:p[0],episode:p[1]}));
@@ -1664,12 +1681,12 @@ $("stop-sourcing").addEventListener("click",()=>stopJob("/api/source-season/stop
 $("stop-translation").addEventListener("click",()=>stopJob("/api/translation/stop"));
 
 $("browse-movies").addEventListener("click",()=>{
-  browseModel.kind="Movie";browseModel.folder="";browseModel.genre="";
+  browseModel.kind="Movie";browseModel.folder="";browseModel.category="";browseModel.genre="";
   browseModel.query="";browseModel.page=0;browseModel.history=[];
   $("browse-query").value="";browseSelected.clear();loadBrowse();
 });
 $("browse-episodes").addEventListener("click",()=>{
-  browseModel.kind="Episode";browseModel.folder="";browseModel.genre="";
+  browseModel.kind="Episode";browseModel.folder="";browseModel.category="";browseModel.genre="";
   browseModel.query="";browseModel.page=0;browseModel.history=[];
   $("browse-query").value="";browseSelected.clear();loadBrowse();
 });
@@ -1683,7 +1700,7 @@ $("browse-search").addEventListener("submit",event=>{
   browseModel.page=0;loadBrowse();
 });
 $("browse-genre").addEventListener("change",()=>{
-  browseModel.genre=$("browse-genre").value;browseModel.folder="";
+  browseModel.genre=$("browse-genre").value;browseModel.folder="";browseModel.category="";
   browseModel.query="";$("browse-query").value="";
   browseModel.page=0;browseModel.history=[];loadBrowse();
 });
