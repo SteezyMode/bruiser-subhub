@@ -59,6 +59,7 @@ DASH_FILES=(
     "subhub_dashboard.html",
     "subhub_translation_batch.py",
     "subhub_finish_scope.py",
+    "subhub_library_browser.py",
     "ja_first_source_tracker.py",
     "subhub_library_coverage.py",
     "subhub_season_sources.py",
@@ -211,7 +212,7 @@ def main():
         target=DASH/name
         secure_file(target,allow_new=name in {
             "subhub_library_coverage.py","subhub_translation_batch.py",
-            "subhub_finish_scope.py"})
+            "subhub_finish_scope.py","subhub_library_browser.py"})
         destinations[("dashboard",name)]=target
     for name in AI_FILES:
         target=AI/name
