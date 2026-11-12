@@ -256,6 +256,49 @@ def read_scoped_state(selection):
     return old if old and old.get("selector")==selection else None
 
 
+def recent_media_outcomes(now=None):
+    """Read prior per-scope outcomes *by Jellyfin ID*, across all GUI scopes.
+
+    Switching Horror folder/genre/checked rows must not re-search the same
+    film. This reuses durable owner-only receipts and does not add another
+    database or erase any previous queue. Retries remain possible after the
+    established cooldown or when the search strategy changes.
+    """
+    now=int(time.time()) if now is None else int(now)
+    if not STATE.parent.exists():
+        return {}
+    if STATE.parent.is_symlink() or not STATE.parent.is_dir():
+        raise RuntimeError("private_batch_state_directory_unsafe")
+    files=[STATE,*STATE.parent.glob("jellyfin-source-scope-*.json")]
+    if len(files)>5000:
+        raise RuntimeError("too_many_saved_source_scopes_for_safe_retry_check")
+    recent={}
+    for file in files:
+        if not file.exists():
+            continue
+        doc=read_state(file)
+        if not doc or doc.get("search_strategy")!=SEARCH_STRATEGY:
+            continue
+        for item in doc.get("items") or []:
+            if not isinstance(item,dict):
+                continue
+            jid=item.get("id")
+            status=item.get("status")
+            try:
+                tried=int(item.get("attempted_at") or 0)
+            except (ValueError,TypeError):
+                continue
+            if (not isinstance(jid,str) or not JID.fullmatch(jid) or
+                    status not in ("no_match","held","deferred") or
+                    tried<=0 or tried>now or now-tried>=COOLDOWN_SEC):
+                continue
+            if tried>int(recent.get(jid,{}).get("attempted_at") or 0):
+                recent[jid]={
+                    "status":status,"attempted_at":tried,
+                    "reason":str(item.get("reason") or "")[:120]}
+    return recent
+
+
 def write_state(doc,path=None):
     """Atomic 0600 receipt. Browser refreshes never mutate it."""
     path=path or STATE
@@ -273,7 +316,7 @@ def write_state(doc,path=None):
         Path(tmp).unlink(missing_ok=True)
 
 
-def fresh_state(rows,chosen,prior=None,now=None):
+def fresh_state(rows,chosen,prior=None,now=None,recent=None):
     now=now or int(time.time())
     old={}
     if prior and prior.get("selector")==chosen:
@@ -285,6 +328,17 @@ def fresh_state(rows,chosen,prior=None,now=None):
         prev=old.get(jid,{})
         state=prev.get("status","queued")
         tried=int(prev.get("attempted_at") or 0)
+        reason=str(prev.get("reason") or "")[:120]
+        # A recent attempt in another folder, genre or explicit ID selection
+        # carries over solely as a search cooldown, never as JP coverage.
+        other=(recent or {}).get(jid) or {}
+        external_time=int(other.get("attempted_at") or 0)
+        if (external_time>tried and external_time<=now and
+                now-external_time<COOLDOWN_SEC and
+                other.get("status") in ("no_match","held","deferred")):
+            state=other["status"]
+            tried=external_time
+            reason=str(other.get("reason") or "")[:120]
         # One-time recovery sweep when the underlying search strategy changes:
         # old SubBuzz HTTP 500 and single-provider misses never proved absence.
         if prior and prior.get("search_strategy") != SEARCH_STRATEGY and state in (
@@ -295,7 +349,7 @@ def fresh_state(rows,chosen,prior=None,now=None):
         if state in ("running","interrupted","paused"):
             state="queued"
         items.append({"id":jid,"label":item_label(row),
-                      "status":state,"reason":str(prev.get("reason") or "")[:120],
+                      "status":state,"reason":reason,
                       "attempted_at":tried})
     previous=[]
     if prior and prior.get("selector")!=chosen:
@@ -761,8 +815,10 @@ def main(argv=None):
         # The dashboard should show 0/47, not 0/78, on a resumed pass:
         # completed/held items remain saved but are not re-attempted.
         prior=read_scoped_state(plan)
-        pending=fresh_state(chosen,plan,prior)["pass_total"]
+        recent=recent_media_outcomes()
+        pending=fresh_state(chosen,plan,prior,recent=recent)["pass_total"]
         print(json.dumps({"eligible":pending,"selected":len(chosen),
+                          "recently_checked":len(chosen)-pending,
                           "selector":plan,
                           "max_searches_this_run":args.max_searches,
                           "mode":"PREVIEW_NO_PROVIDER_CALLS"},ensure_ascii=False))
@@ -773,7 +829,7 @@ def main(argv=None):
     try:
         stage.private_root()
         prior=read_scoped_state(plan)
-        doc=fresh_state(chosen,plan,prior)
+        doc=fresh_state(chosen,plan,prior,recent=recent_media_outcomes())
         doc["job_id"]=args.job_id
         doc["search_cap"]=args.max_searches
         print("JELLYFIN_BATCH_BEGIN",json.dumps({
