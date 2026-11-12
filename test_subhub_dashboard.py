@@ -142,6 +142,26 @@ class StatusTests(unittest.TestCase):
         self.assertEqual(status["monitor"],"old_worker_without_heartbeat")
         self.assertFalse(status["flow_counts"]["unique_instrumented"])
 
+    def test_dashboard_has_one_current_job_area_and_history_is_collapsed(self):
+        html=dashboard.HTML.read_text(encoding="utf-8")
+        self.assertIn('<h2>Current job</h2>',html)
+        self.assertNotIn('<h2>Active work</h2>',html)
+        self.assertIn('id="next-step" aria-live="polite" hidden',html)
+        self.assertIn('<details id="history">',html)
+        self.assertIn('<summary>Translation details</summary>',html)
+        self.assertIn('<summary>Find a specific movie or TV show</summary>',html)
+        self.assertNotIn('id="finish-title-details" class="review" open',html)
+        self.assertIn('$("jellyfin-job").hidden=!p.active',html)
+        self.assertIn('$("finish-job").hidden=!finish.active',html)
+        self.assertIn('$("batch-overview").hidden=!batch.active',html)
+
+    def test_browse_gui_queues_a_combined_movie_folder(self):
+        html=dashboard.HTML.read_text(encoding="utf-8")
+        self.assertIn('category:browseModel.category',html)
+        self.assertIn('payload={library_category:browseModel.category,kind:"Movie"}',html)
+        self.assertIn('scope.library_category?',html)
+        self.assertIn('id="browse-source"',html)
+
     def test_page_has_media_browser_and_compact_season_review(self):
         html=dashboard.HTML.read_text(encoding="utf-8")
         for name in ("title-search","search-results","seasons","episode-details",
