@@ -131,6 +131,44 @@ def normalize(raw,*,expected_timestamps=None):
     return output,report
 
 
+
+
+def inspect_timestamp_reversals(raw):
+    """Read-only localization of out-of-order source cues. No reordering."""
+    if not isinstance(raw,bytes) or not 0<len(raw)<=MAX_BYTES:
+        raise RuntimeError("invalid_staged_srt_bytes")
+    text=raw.decode("utf-8-sig")
+    parts=[b for b in re.split(r"\r?\n[ \t]*\r?\n",
+                              text.strip(" \t\r\n")) if b.strip()]
+    entries=[]
+    for index,block in enumerate(parts,1):
+        lines=block.strip(" \t\r\n").splitlines()
+        ix=int(bool(lines and lines[0].strip().isdigit()))
+        if len(lines)<ix+1:
+            continue
+        m=STAMP.fullmatch(lines[ix].strip())
+        if not m:
+            continue
+        start=_milliseconds(m.group(1))
+        entries.append((index,start,
+                        "\n".join(lines[ix+1:]).strip()[:120]))
+    reversals=[]
+    for prev,current in zip(entries,entries[1:]):
+        if current[1]<prev[1]:
+            reversals.append({
+                "prior_block":prev[0],
+                "prior_start_seconds":round(prev[1]/1000,3),
+                "prior_text":prev[2],
+                "later_block":current[0],
+                "later_start_seconds":round(current[1]/1000,3),
+                "later_text":current[2],
+                "backward_jump_seconds":round((prev[1]-current[1])/1000,3),
+            })
+    return {"total_timed_blocks":len(entries),
+            "timestamp_reversals":len(reversals),
+            "examples":reversals[:12]}
+
+
 def _audit_staged(jids):
     """Host-local, strictly read-only proof of repair effects on saved bytes."""
     import hashlib
@@ -201,6 +239,13 @@ def _audit_staged(jids):
             print("  Timing verdict: NOT TESTED — needs video alignment")
         except (ValueError,RuntimeError,UnicodeError) as exc:
             print("  HOLD:",str(exc))
+            if str(exc)=="staged_srt_cue_order_invalid":
+                try:
+                    print("  SOURCE TIMING REVERSALS:",
+                          json.dumps(inspect_timestamp_reversals(raw),
+                                     ensure_ascii=False))
+                except (ValueError,RuntimeError,UnicodeError) as audit_exc:
+                    print("  REVERSAL INSPECTION UNAVAILABLE:",str(audit_exc))
     print("\nNo saved stage, video, sidecar or search database was modified.")
 
 
