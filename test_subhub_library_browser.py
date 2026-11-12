@@ -69,7 +69,7 @@ class LibraryBrowserTests(unittest.TestCase):
             self.assertEqual(combined["folders"],[])
             root=browser.root_for(str(self.crawl),"Movie")
             child=browser.browse(kind="Movie",folder=root)
-            self.assertTrue(child["folders"])
+            self.assertEqual(child["matching_items"],3)
             with self.assertRaisesRegex(ValueError,"folder_not_in"):
                 browser.browse(kind="Movie",folder=root+"-wrong")
 
@@ -124,19 +124,20 @@ class LibraryBrowserTests(unittest.TestCase):
             home=browser.browse(kind="Movie")
             horror=[d for d in home["folders"] if d["label"]=="Horror"]
             self.assertEqual(len(horror),1)
-            self.assertEqual(horror[0]["needs_japanese"],2)
+            self.assertEqual(horror[0]["needs_japanese"],3)
             combined=browser.browse(kind="Movie",category="Horror")
-            self.assertEqual(combined["matching_items"],2)
-            self.assertEqual(combined["scope_counts"]["needs_japanese"],2)
+            self.assertEqual(combined["matching_items"],3)
+            self.assertEqual(combined["scope_counts"]["needs_japanese"],3)
             self.assertEqual(combined["folders"],[])
             self.assertEqual({r["jellyfin_id"] for r in combined["items"]},
-                             {"a"*32,"b"*32})
+                             {"a"*32,"b"*32,self.rows[1]["jellyfin_id"]})
             self.assertEqual({r["root"] for r in combined["items"]},
                              {str(self.base/"DriveA"/"Movies"),
-                              str(self.base/"DriveB"/"Movies")})
-            with self.assertRaisesRegex(ValueError,"combined_movie_folder"):
+                              str(self.base/"DriveB"/"Movies"),
+                              str(self.base/"Movies")})
+            with self.assertRaisesRegex(ValueError,"media_category"):
                 browser.browse(kind="Movie",category="NotReal")
-            with self.assertRaisesRegex(ValueError,"combined_movie_folder"):
+            with self.assertRaisesRegex(ValueError,"media_category"):
                 browser.browse(kind="Episode",category="Horror")
 
     def test_tv_documentary_category_groups_series_from_multiple_drives(self):
