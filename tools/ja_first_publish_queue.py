@@ -243,7 +243,7 @@ def choose(jid, candidates, *, intensive_only=False, record_failures=False):
         if not alass.available():
             raise RuntimeError("intensive_alass_unavailable")
         tried_hashes=set()
-        for sid,digest in candidates[:3]:
+        for sid,digest in candidates:
             if digest in tried_hashes:
                 print("  ALASS INTENSIVE SKIP:",sid,
                       "identical_saved_subtitle",flush=True)
@@ -302,8 +302,6 @@ def choose(jid, candidates, *, intensive_only=False, record_failures=False):
             if progress.known(jid,sid,"alass",key):
                 print("  KNOWN_CANDIDATE_FAILURE_SKIPPED: alass",sid,flush=True)
                 continue
-            if attempts>=3:
-                break
             attempts+=1
             ready=cached_attempt("alass",sid,digest,
                                  lambda sid=sid:alass.prepare(jid,sid))
@@ -323,8 +321,6 @@ def choose(jid, candidates, *, intensive_only=False, record_failures=False):
         if progress.known(jid,sid,"ffsubsync",key):
             print("  KNOWN_CANDIDATE_FAILURE_SKIPPED: ffsubsync",sid,flush=True)
             continue
-        if attempts>=3:
-            break
         attempts+=1
         ready=cached_attempt("ffsubsync",sid,digest,
                              lambda sid=sid:ff.prepare(jid,sid))
@@ -346,8 +342,8 @@ def choose(jid, candidates, *, intensive_only=False, record_failures=False):
             # A final "sources exhausted" receipt is valid ONLY when every
             # distinct staged subtitle was actually tried by both engines,
             # or already has a deterministic receipt for unchanged inputs.
-            # Otherwise (fourth candidate deferred by per-run limit, transient
-            # docker/timeout error, missing binary) cache PER-CANDIDATE holds
+            # Otherwise (transient docker/timeout error, missing binary)
+            # cache PER-CANDIDATE holds
             # but never block the entire film or offer AI prematurely.
             distinct={}
             for sid,digest in candidates:
