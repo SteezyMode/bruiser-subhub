@@ -534,7 +534,7 @@ def scheduled_source_activity(active, max_lines=5000):
           "search_partial":0,"search_deferred":0,"search_stopped_early":False,"search_stop_reason":"",
           "stage_attempts":0,"stage_planned":0,"staged":0,"stage_holds":0,
           "publish_title_checked":0,"publish_title_planned":0,"published":0,
-          "publish_holds":0}
+          "publish_holds":0,"skipped_unchanged":0,"next_actions":{}}
     now=time.monotonic()
     if (_SOURCE_CACHE["state"] is not None and
             _SOURCE_CACHE.get("active") is active and
@@ -596,7 +596,9 @@ def scheduled_source_activity(active, max_lines=5000):
               "publish_title_checked":details.get("publish_title_checked",0),
               "publish_title_planned":details.get("publish_title_planned",0),
               "published":details.get("published",0),
-              "publish_holds":details.get("publish_holds",0)}
+              "publish_holds":details.get("publish_holds",0),
+              "skipped_unchanged":details.get("skipped_unchanged",0),
+              "next_actions":details.get("next_actions",{})}
     except (OSError,ValueError,RuntimeError,KeyError,TypeError,subprocess.TimeoutExpired) as exc:
         data={**idle,"active":active,"phase":"source_running",
               "phase_label":"Source worker active — progress unavailable",
