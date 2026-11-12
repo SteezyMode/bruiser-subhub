@@ -151,7 +151,7 @@ def browse(*, kind="Movie", folder="", query="", page=0, state="all",
     grouped=Counter(r["state"] for r in items)
     selection=[r for r in items if state=="all" or r["state"]==state]
     child={}
-    if not query.strip() and not (genre and not folder):
+    if not query.strip() and not (genre and not folder) and not category:
         for r in selection:
             if not folder:
                 child_path=movie_category(r) if kind=="Movie" else r["root"]
