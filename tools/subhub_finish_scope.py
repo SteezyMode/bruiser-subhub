@@ -180,6 +180,32 @@ def movie_plan(movie_ids=(), movie_scope=None):
             "picks":[]}
 
 
+def initial_covered(selection):
+    """Exclude existing Japanese tracks before building a work queue."""
+    try:
+        from . import subhub_deep_source as deep
+    except ImportError:
+        if str(SOURCE.parent) not in sys.path:
+            sys.path.insert(0,str(SOURCE.parent))
+        import subhub_deep_source as deep
+    ids={jid for _,_,jid in selection}
+    rows={str(row.get("jellyfin_id")):row for row in
+          deep.inventory.load_latest_manifest() if isinstance(row,dict)
+          and str(row.get("jellyfin_id")) in ids}
+    covered=set()
+    for jid in ids:
+        row=rows.get(jid)
+        if not row:
+            continue
+        if row.get("status") in ("existing_japanese_subtitle","japanese_audio"):
+            covered.add(jid)
+            continue
+        video=Path(str(row.get("host_path") or ""))
+        if video.is_file() and not video.is_symlink() and deep.stage.japanese_sidecar_exists(video):
+            covered.add(jid)
+    return covered
+
+
 def valid_source_exhaustion(jid):
     """Revalidate exact video and completed provider search before model use."""
     try:
@@ -204,15 +230,16 @@ def run(series=None, seasons=(), *, movie_ids=(), movie_scope=None):
             movie_plan(movie_ids,movie_scope))
     selection=(selected_media(series,before["seasons"]) if series else
                selected_media(movie_ids=movie_ids,movie_scope=movie_scope))
-    pending={jid:(season,episode) for season,episode,jid in selection}
-    finished=set()
+    finished=initial_covered(selection)
+    pending={jid:(season,episode) for season,episode,jid in selection
+             if jid not in finished}
     total=len(selection)
     receipt={"schema":"subhub-finish-scope-v1","series":series or "",
              "seasons":before["seasons"],"phase":"source",
              "state":"running","before":{k:v for k,v in before.items()
                                          if k!="picks"},
-             "total_exact_files":total,"covered_exact_files":0,
-             "source_pending":total,"plamo_pending":0,
+             "total_exact_files":total,"covered_exact_files":len(finished),
+             "source_pending":len(pending),"plamo_pending":0,
              "round":0,"source_attempts":0,"plamo_attempts":0,
              "current":"","last_issue":""}
     write_state(receipt)
