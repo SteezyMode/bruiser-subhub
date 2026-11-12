@@ -6,6 +6,10 @@ Each stage of sourcing must filter by the same scope.
 """
 from pathlib import Path
 import re
+try:
+    from . import subhub_media_categories as categories
+except ImportError:
+    import subhub_media_categories as categories
 
 SCOPE = "horror-drama-folders"
 MOVIES_NO_ANIME = "movies-no-anime"
@@ -57,6 +61,13 @@ def matches(row, scope="all"):
     path = Path(value)
     if path.is_symlink():
         return False
+    # Match the same *real Jellyfin categories* shown in the browser,
+    # rather than only names under one hardcoded movie folder. All later
+    # staging/publication still enforce actual approved host mount paths.
+    labels={label.casefold() for label in categories.categories(
+        "Movie",value,row.get("genres") or [])}
+    if labels & {"horror","drama"}:
+        return True
     for root in ROOTS:
         try:
             relative = path.relative_to(root)
@@ -64,8 +75,6 @@ def matches(row, scope="all"):
             continue
         if len(relative.parts) < 2:
             return False
-        # Select by actual top-level movie category, not arbitrary substring
-        # anywhere in the path (movie titles can include "Horror" or "Drama").
         category = re.sub(r"[^a-z]+", " ", relative.parts[0].casefold()).strip()
         return category in CATEGORIES
     return False
