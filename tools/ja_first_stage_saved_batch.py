@@ -357,6 +357,7 @@ def identity_ok(row, result):
         if not re.fullmatch(r"\d{4}", year) or not title:
             return False
         found = False
+        exact_title_without_year = False
         for text in (name, release):
             words = tokens(text)
             for i in range(len(words) - len(title) + 1):
@@ -369,7 +370,21 @@ def identity_ok(row, result):
                     return False
                 if year in neighbors:
                     found = True
-        return found
+                elif (len(title) >= 2 and i == 0
+                      and not any(re.fullmatch(r"(?:19|20)\d{2}", word)
+                                  for word in words)
+                      and (len(words) == len(title) or
+                           words[len(title)] in {
+                               "web", "webdl", "webrip", "bluray", "bdrip",
+                               "brrip", "dvdrip", "hdtv", "1080p", "720p",
+                               "2160p", "extended", "remux", "sub", "subs",
+                               "japanese", "ja", "srt", "ass"
+                           })):
+                    # Provider search already targeted this movie. No-year
+                    # exact-title releases are worth STAGING, never enough to
+                    # bypass the same-video timing/QA gate for publication.
+                    exact_title_without_year = True
+        return found or exact_title_without_year
 
     if row.get("kind") == "Episode":
         season, number = row.get("season"), row.get("episode")
