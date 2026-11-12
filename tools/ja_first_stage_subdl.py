@@ -90,6 +90,60 @@ def numeric_id(remote):
     return sid,digest
 
 
+def cached_archive(candidate):
+    """Reuse saved provider ZIP bytes after one GET, including QA-rejected ZIPs.
+
+    A failed extraction must not burn tomorrow's quota just to see the same
+    release. Cache is private and bounded; never contains credentials or
+    untrusted paths from the provider. Media/staging DB remain untouched.
+    """
+    remote=str(candidate["subtitle_id"])
+    _,digest=numeric_id(remote)
+    stage.STAGED.mkdir(mode=0o700,exist_ok=True)
+    if (stage.STAGED.is_symlink() or not stage.STAGED.is_dir() or
+            stage.STAGED.stat().st_mode & 0o077):
+        raise RuntimeError("unsafe_private_staging_folder")
+    folder=stage.STAGED/"subdl-source-zips"
+    folder.mkdir(mode=0o700,exist_ok=True)
+    if (folder.is_symlink() or not folder.is_dir() or
+            folder.stat().st_mode & 0o077):
+        raise RuntimeError("unsafe_private_subdl_cache")
+    dest=folder/(digest+".zip")
+    if dest.is_symlink():
+        raise RuntimeError("unsafe_private_subdl_archive_symlink")
+    if dest.exists():
+        if (not dest.is_file() or dest.stat().st_mode & 0o077 or
+                not 0<dest.stat().st_size<=MAX_ARCHIVE):
+            raise RuntimeError("unsafe_private_subdl_archive")
+        raw=dest.read_bytes()
+        if not zipfile.is_zipfile(BytesIO(raw)):
+            raise RuntimeError("cached_subdl_archive_not_zip")
+        print("SUBDL_ARCHIVE_CACHE: hit (provider GET skipped)",flush=True)
+        return raw
+    blob=download(candidate)
+    # Only valid ZIP containers are cached. Invalid/no-byte provider replies
+    # must not poison the release's deterministic private cache entry.
+    if zipfile.is_zipfile(BytesIO(blob)):
+        try:
+            fd=os.open(str(dest),os.O_WRONLY|os.O_CREAT|os.O_EXCL|
+                       getattr(os,"O_NOFOLLOW",0),0o600)
+        except FileExistsError:
+            if (dest.is_symlink() or not dest.is_file()
+                    or dest.read_bytes()!=blob):
+                raise RuntimeError("conflicting_cached_subdl_archive")
+        else:
+            try:
+                with os.fdopen(fd,"wb") as out:
+                    out.write(blob)
+                    out.flush()
+                    os.fsync(out.fileno())
+            except BaseException:
+                dest.unlink(missing_ok=True)
+                raise
+        print("SUBDL_ARCHIVE_CACHE: saved for future validation",flush=True)
+    return blob
+
+
 def archive_srt(blob,row,candidate,runtime):
     if not zipfile.is_zipfile(BytesIO(blob)):
         raise RuntimeError("subdl_archive_not_zip")
@@ -169,7 +223,7 @@ def stage_one(row,candidate,runtime):
     if (jid,sid) in stage.read_staged():
         print("STAGED_SUBDL:",jid,"source_id:",sid,"cached",flush=True)
         return
-    blob=download(candidate)
+    blob=cached_archive(candidate)
     raw,qa,member=archive_srt(blob,row,candidate,runtime)
     stage.STAGED.mkdir(mode=0o700,exist_ok=True)
     if stage.STAGED.is_symlink() or stage.STAGED.stat().st_mode & 0o077:
