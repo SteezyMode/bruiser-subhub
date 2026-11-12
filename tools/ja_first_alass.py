@@ -35,7 +35,7 @@ def available():
 def _sha(data):
     return hashlib.sha256(data).hexdigest()
 
-def assess(original, corrected, runtime):
+def assess(original, corrected, runtime, *, independently_verified_tail=False):
     """Reject corruption/identity changes; DO NOT reject valid split/drift repairs."""
     before=ff.parse_cues(original)
     after=ff.parse_cues(corrected)
@@ -48,9 +48,19 @@ def assess(original, corrected, runtime):
     if any(x["start"]<after[i-1]["start"] for i,x in enumerate(after) if i):
         raise RuntimeError("alass_reordered_cues")
     latest=max(x["end"] for x in after)
-    if latest>runtime*1000+5000:
-        raise RuntimeError("alass_out_of_video:overrun_seconds="+
-                           str(round(latest/1000-runtime,2)))
+    tail_excess=[i for i,c in enumerate(after) if c["end"]>runtime*1000+5000]
+    if tail_excess:
+        # Do not discard an otherwise synchronized entire movie for a handful
+        # of end-credit cues. These remain in the SRT unchanged (the video ends
+        # before they appear). This is permitted ONLY when the intensive ALASS
+        # run independently matched VIDEO AUDIO to a distinct EN reference.
+        tail_only=(tail_excess==list(range(tail_excess[0],len(after)))
+                   and tail_excess[0]>=len(after)-max(3,int(len(after)*0.01))
+                   and after[tail_excess[0]]["start"]>=runtime*1000-120000
+                   and latest<=runtime*1000+60000)
+        if not (independently_verified_tail and tail_only):
+            raise RuntimeError("alass_out_of_video:overrun_seconds="+
+                               str(round(latest/1000-runtime,2)))
     shifts=[(b["start"]-a["start"])/1000 for a,b in zip(before,after)]
     if any(abs(n)>MAX_ABSOLUTE_SHIFT_S for n in shifts):
         raise RuntimeError("alass_extreme_shift_requires_review")
@@ -70,7 +80,7 @@ def assess(original, corrected, runtime):
     }
     return metrics
 
-def prepare(jid,sid,*,aligner=None):
+def prepare(jid,sid,*,aligner=None,independently_verified_tail=False):
     """Existing source identity, no-overwrite, quality gates; alass only changes timing."""
     if not available():
         raise RuntimeError("existing_alass_binary_missing")
@@ -111,7 +121,8 @@ def prepare(jid,sid,*,aligner=None):
     # Existing QA confirms Japanese content/coverage did not disappear.
     if gate.validate_srt(aligned,runtime)!=src_metrics:
         raise RuntimeError("alass_subtitle_health_changed")
-    metrics=assess(raw,aligned,runtime)
+    metrics=assess(raw,aligned,runtime,
+                   independently_verified_tail=independently_verified_tail)
     metrics["alignment_reference"]=reference_type
     return {
         "jid":jid,"sid":sid,"row":row,"video":video,
@@ -408,7 +419,8 @@ def intensive_align(video,raw,*,jid=None,runner=subprocess.run):
                     candidate=ff.keep_source_dialogue(raw,dest.read_bytes())
                     if gate.validate_srt(candidate,runtime)!=original_health:
                         raise RuntimeError("alass_japanese_cue_health_changed")
-                    metrics=assess(raw,candidate,runtime)
+                    metrics=assess(raw,candidate,runtime,
+                                   independently_verified_tail=True)
                     ends=[x["end"] for x in ff.parse_cues(candidate)]
                     if max(ends)<runtime*700:
                         raise RuntimeError("alass_insufficient_episode_coverage")
@@ -459,7 +471,8 @@ def intensive_prepare(jid,sid):
         corrected,details=intensive_align(video,raw,jid=jid)
         extra.update(details)
         return corrected
-    ready=prepare(jid,sid,aligner=recovery)
+    ready=prepare(jid,sid,aligner=recovery,
+                  independently_verified_tail=True)
     ready["assessment"].update(extra)
     ready["assessment"]["engine"]="standalone_alass_intensive_v1"
     return ready
