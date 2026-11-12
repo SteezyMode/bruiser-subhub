@@ -1261,19 +1261,42 @@ def finish_scope_status():
 
 
 def start_finish_scope(doc):
-    if not isinstance(doc,dict) or not isinstance(doc.get("series"),str):
+    """One owner action for selected TV seasons, exact movies or movie scope."""
+    if not isinstance(doc,dict):
         raise ValueError("invalid_finish_scope")
-    series=doc["series"]
-    if set(doc)=={"series","all"} and doc["all"] is True:
-        selected=[]
-    elif set(doc)=={"series","seasons"} and isinstance(doc["seasons"],list):
-        selected=doc["seasons"]
-        if (not selected or len(selected)>60 or
-                any(type(x) is not int or not 1<=x<=60 for x in selected) or
-                len(set(selected))!=len(selected)):
-            raise ValueError("invalid_finish_seasons")
+    series=""
+    selected=[]
+    movie_ids=[]
+    movie_scope=None
+    if set(doc)=={"movie_ids"} and isinstance(doc["movie_ids"],list):
+        movie_ids=doc["movie_ids"]
+        if not 1<=len(movie_ids)<=100 or len(movie_ids)!=len(set(
+                str(v) for v in movie_ids)) or any(
+                not isinstance(v,str) or not re.fullmatch("[a-f0-9]{32}",v)
+                for v in movie_ids):
+            raise ValueError("invalid_movie_ids")
+        preview=finish_scope.movie_plan(movie_ids)
+        kind="selected_movies"
+    elif set(doc)=={"movie_scope"} and isinstance(doc["movie_scope"],str):
+        movie_scope=doc["movie_scope"]
+        preview=finish_scope.movie_plan(movie_scope=movie_scope)
+        kind="movie_scope"
+    elif isinstance(doc.get("series"),str):
+        series=doc["series"]
+        if set(doc)=={"series","all"} and doc["all"] is True:
+            selected=[]
+        elif set(doc)=={"series","seasons"} and isinstance(doc["seasons"],list):
+            selected=doc["seasons"]
+            if (not selected or len(selected)>60 or
+                    any(type(x) is not int or not 1<=x<=60 for x in selected) or
+                    len(set(selected))!=len(selected)):
+                raise ValueError("invalid_finish_seasons")
+        else:
+            raise ValueError("choose_selected_seasons_or_all")
+        preview=finish_scope.plan(series,selected)
+        kind="whole_series" if not selected else "selected_seasons"
     else:
-        raise ValueError("choose_selected_seasons_or_all")
+        raise ValueError("invalid_finish_scope")
     if (unit_active(FINISH_UNIT) or unit_active(BATCH_UNIT) or
             unit_active(SCHEDULED_UNIT) or unit_active(SEASON_SOURCE_UNIT) or
             unit_active(JELLYFIN_SOURCE_UNIT) or unit_active(MOVIE_UNIT) or
@@ -1281,18 +1304,28 @@ def start_finish_scope(doc):
         raise RuntimeError("another_source_or_translation_worker_is_active")
     if not FINISH_EXEC.is_file() or FINISH_EXEC.is_symlink():
         raise RuntimeError("finish_scope_controller_not_installed")
-    preview=finish_scope.plan(series,selected)
+    if (not finish_scope.DEEP_SOURCE.is_file() or
+            finish_scope.DEEP_SOURCE.is_symlink() or
+            not finish_scope.AUTO_PLAMO.is_file() or
+            finish_scope.AUTO_PLAMO.is_symlink()):
+        raise RuntimeError("exhaustive_source_or_plamo_worker_not_installed")
     if preview["missing"]==0:
-        return {"ok":True,"state":"already_covered","covered":preview["covered"]}
-    if not JELLYFIN_SOURCE_EXEC.is_file() or JELLYFIN_SOURCE_EXEC.is_symlink():
-        raise RuntimeError("japanese_source_worker_not_installed")
+        return {"ok":True,"state":"already_covered",
+                "covered":preview["covered"]}
     receipt={"schema":"subhub-finish-scope-v1","state":"starting",
              "phase":"starting","series":series,"seasons":preview["seasons"],
              "before":{k:v for k,v in preview.items() if k!="picks"}}
     finish_scope.write_state(receipt)
-    args=[sys.executable,"-B","-u",str(FINISH_EXEC),"--series",series,"--run"]
-    for sn in selected:
-        args.extend(("--season",str(sn)))
+    args=[sys.executable,"-B","-u",str(FINISH_EXEC),"--run"]
+    if series:
+        args.extend(("--series",series))
+        for sn in selected:
+            args.extend(("--season",str(sn)))
+    elif movie_scope:
+        args.extend(("--movie-scope",movie_scope))
+    else:
+        for jid in movie_ids:
+            args.extend(("--movie-id",jid))
     command=["systemd-run","--user","--unit=bruiser-subhub-finish-scope",
              "--collect","--property=KillMode=control-group","--",*args]
     result=subprocess.run(command,capture_output=True,text=True,
@@ -1303,8 +1336,7 @@ def start_finish_scope(doc):
         raise RuntimeError("finish_scope_start_failed:"+safe_text(
             result.stderr or result.stdout,140))
     return {"ok":True,"accepted":preview["missing"],"covered":preview["covered"],
-            "scope":"whole_series" if not selected else "selected_seasons"}
-
+            "scope":kind}
 
 def stop_finish_scope():
     if not unit_active(FINISH_UNIT):
