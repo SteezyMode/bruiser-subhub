@@ -124,6 +124,27 @@ details>summary{cursor:pointer}
   <p id="finish-job-details" class="small muted"></p>
   <p id="finish-monitor" class="small muted" aria-live="polite">Checking worker heartbeat…</p>
   <p id="finish-source-current" class="small muted"></p>
+  <details id="finish-title-details" class="review" open>
+   <summary>Titles in this completion job</summary>
+   <div class="row" style="margin-top:12px">
+    <label for="finish-title-filter" class="small muted">Show</label>
+    <select id="finish-title-filter" aria-label="Filter completion titles">
+     <option value="all">Recent activity</option>
+     <option value="current">Now processing</option>
+     <option value="published">New Japanese subtitles</option>
+     <option value="plamo">Queued / running PLaMO</option>
+     <option value="sourcing">Still sourcing</option>
+     <option value="covered">All covered (including existing)</option>
+    </select>
+   </div>
+   <p id="finish-title-counts" class="small muted" aria-live="polite">Loading title history…</p>
+   <div id="finish-title-list" style="max-height:420px;overflow:auto" aria-live="polite"></div>
+   <div class="row" style="margin-top:9px">
+    <button id="finish-title-prev" type="button" class="quiet" disabled>Previous</button>
+    <span id="finish-title-page" class="small muted"></span>
+    <button id="finish-title-next" type="button" class="quiet" disabled>Next</button>
+   </div>
+  </details>
   <button id="finish-stop" class="quiet" type="button" hidden>Stop completion job</button>
  </div>
  <div id="batch-overview" hidden>
@@ -1198,6 +1219,86 @@ $("next-action").addEventListener("click",()=>{
   if(target==="lookup")$("title-search").focus();
 });
 
+
+const titleHistory={filter:"all",page:0,lastFetch:0,pending:false,jobKey:""};
+function titleStateName(value){
+  return {
+    source_pending:"Waiting to be sourced",
+    source_active:"Sourcing Japanese now",
+    source_retry:"Sourcing retry needed",
+    plamo_queued:"Queued for PLaMO",
+    plamo_active:"PLaMO translating now",
+    covered_initial:"Already had Japanese",
+    published_source:"New Japanese subtitles · sourced/repaired",
+    published_plamo:"New Japanese subtitles · PLaMO"
+  }[value]||value.replaceAll("_"," ");
+}
+async function loadFinishTitles(force=false){
+  const view=$("finish-title-details");
+  if(!view.open||titleHistory.pending)return;
+  const now=Date.now();
+  if(!force&&now-titleHistory.lastFetch<12000)return;
+  titleHistory.pending=true;
+  titleHistory.lastFetch=now;
+  const query=new URLSearchParams({state:titleHistory.filter,
+                                  page:String(titleHistory.page)});
+  try{
+    const report=await getJson("/api/finish/items?"+query.toString());
+    const counts=report.counts||{};
+    const sourced=Number(counts.published_source||0);
+    const translated=Number(counts.published_plamo||0);
+    const waiting=Number(counts.plamo_queued||0)+Number(counts.plamo_active||0);
+    const old=Number(counts.covered_initial||0);
+    const partial=report.complete_history===false;
+    $("finish-title-counts").textContent=partial?
+      "Recent job journal only; older entries may be missing. "+
+      sourced+" sourced/repaired · "+translated+" PLaMO finished · "+
+      waiting+" queued/running PLaMO visible.":
+      sourced+" newly sourced/repaired · "+translated+" newly translated · "+
+      old+" covered before this job · "+waiting+" queued/running PLaMO.";
+    const list=$("finish-title-list");list.replaceChildren();
+    for(const item of report.items||[]){
+      const line=document.createElement("div");
+      line.className="browse-entry";
+      const main=document.createElement("div");
+      const name=document.createElement("strong");
+      name.textContent=item.title||item.jellyfin_id;
+      const meta=document.createElement("div");
+      meta.className="small muted";
+      meta.textContent=titleStateName(item.state)+
+        (item.detail?" · "+item.detail:"");
+      main.append(name,meta);line.append(main);list.append(line);
+    }
+    if(!(report.items||[]).length){
+      const line=document.createElement("p");
+      line.className="small muted";
+      line.textContent="No titles in this category yet.";
+      list.append(line);
+    }
+    const total=Number(report.total_matching||0);
+    $("finish-title-page").textContent=total+
+      " matching titles · page "+(titleHistory.page+1)+
+      (partial?" · recent records only":"");
+    $("finish-title-prev").disabled=titleHistory.page===0;
+    $("finish-title-next").disabled=!report.more;
+  }catch(error){
+    $("finish-title-counts").textContent="Title history unavailable: "+error.message;
+  }finally{titleHistory.pending=false;}
+}
+$("finish-title-filter").addEventListener("change",()=>{
+  titleHistory.filter=$("finish-title-filter").value;
+  titleHistory.page=0;loadFinishTitles(true);
+});
+$("finish-title-prev").addEventListener("click",()=>{
+  if(titleHistory.page>0){titleHistory.page--;loadFinishTitles(true);}
+});
+$("finish-title-next").addEventListener("click",()=>{
+  titleHistory.page++;loadFinishTitles(true);
+});
+$("finish-title-details").addEventListener("toggle",()=>{
+  if($("finish-title-details").open)loadFinishTitles(true);
+});
+
 async function refreshStatus(){
   try{
     const d=await getJson("/api/status");
@@ -1321,6 +1422,10 @@ async function refreshStatus(){
       }
       $("finish-monitor").textContent=status;
       $("finish-stop").hidden=!finish.active;
+      const jobKey=String(finish.active)+"|"+String(finish.series)+"|"+
+        String(finish.elapsed_seconds||0).slice(0,2);
+      if(!titleHistory.jobKey)titleHistory.jobKey=jobKey;
+      loadFinishTitles();
     }
     renderGlobalCoverage(d);
     renderNextStep(d);
