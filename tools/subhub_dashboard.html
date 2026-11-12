@@ -366,6 +366,15 @@ function browseSetCount(){
   $("browse-source").disabled=busy||!!latest.workersBusy||
     !latest.jellyfin_source?.available||n>300||
     !(n>0||(scoped&&missing>0&&missing<=500));
+  if(!busy&&latest.workersBusy){
+    $("browse-feedback").textContent="Another subtitle job is active. Stop it under Active work before starting another.";
+  }else if(!busy&&latest.jellyfin_source?.available===false){
+    $("browse-feedback").textContent="The source worker is unavailable on this host; update SubHub before starting.";
+  }else if(!busy&&n>300){
+    $("browse-feedback").textContent="Too many selected files for one queue. Select a smaller set.";
+  }else if(!busy&&scoped&&missing>500){
+    $("browse-feedback").textContent="This folder is too large for one queue. Choose a smaller folder or a genre.";
+  }
 }
 function browseEntry(name,description,callback){
   const button=document.createElement("button");
