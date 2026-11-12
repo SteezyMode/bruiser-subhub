@@ -297,7 +297,22 @@ def set_next_run_budget(budget):
     print("NEXT_SOURCE_CYCLE_BUDGET", budget, "one_time_only", flush=True)
 
 
-def once(*, request=api, action=run):
+def once(*, request=api, action=run, search_budget=None,
+         stage_budget=200, publish_limit=200, scope=None):
+    """Safely run a bounded source-only cycle under one host lock.
+
+    Per-invocation overrides are not persisted and cannot enable AI.
+    The installed daily timer keeps its existing defaults.
+    """
+    if search_budget is not None and (type(search_budget) is not int
+                                      or not 1 <= search_budget <= 600):
+        raise RuntimeError("manual_search_budget_outside_1_to_600")
+    if type(stage_budget) is not int or not 1 <= stage_budget <= 200:
+        raise RuntimeError("manual_stage_budget_outside_1_to_200")
+    if type(publish_limit) is not int or not 1 <= publish_limit <= 200:
+        raise RuntimeError("manual_publish_limit_outside_1_to_200")
+    if scope is not None and scope not in SOURCE_SCOPES:
+        raise RuntimeError("manual_scope_invalid")
     ensure_installed()
     fd=lock()
     try:
@@ -307,23 +322,25 @@ def once(*, request=api, action=run):
             raise RuntimeError("native_wanted_search_still_enabled_no_duplicate_provider_queries")
         check_scheduler_idle(request=request)
         refresh_manifest(action=action)
-        search_budget, custom_budget = next_run_budget()
-        scope=selected_source_scope()
-        print(f"RUNNING_SOURCES_ONLY_CYCLE search_budget={search_budget} "
-              "stage_budget=200 publish_limit=200 "
+        saved_search_budget, custom_budget = next_run_budget()
+        actual_search_budget=(saved_search_budget if search_budget is None
+                              else search_budget)
+        actual_scope=selected_source_scope() if scope is None else scope
+        print(f"RUNNING_SOURCES_ONLY_CYCLE search_budget={actual_search_budget} "
+              f"stage_budget={stage_budget} publish_limit={publish_limit} "
               "(provider allowance still enforced)", flush=True)
-        print("SOURCE SCOPE:", scope, flush=True)
+        print("SOURCE SCOPE:", actual_scope, flush=True)
         # Let output appear in systemd journal or manual terminal; don't
         # require a persistent shell or start any local translation model.
         result=subprocess.run(
             [sys.executable,"-u",str(CODE/"ja_first_cycle.py"),"cycle",
-             "--sources-only","--apply","--search-budget",str(search_budget),
-             "--stage-budget","200","--publish-limit","200",
-             "--scope",scope],
+             "--sources-only","--apply","--search-budget",str(actual_search_budget),
+             "--stage-budget",str(stage_budget),"--publish-limit",str(publish_limit),
+             "--scope",actual_scope],
             stdin=subprocess.DEVNULL, timeout=8*3600, check=False)
         if result.returncode:
             raise RuntimeError("sources_only_cycle_failed:"+str(result.returncode))
-        if custom_budget:
+        if custom_budget and search_budget is None:
             NEXT_BUDGET_FILE.unlink()
             print("ONE_TIME_SEARCH_BUDGET_CONSUMED next_cycle_default=600",
                   flush=True)
@@ -467,28 +484,38 @@ def main(argv=None):
                         default="status")
     parser.add_argument("--apply",action="store_true")
     parser.add_argument("--search-budget",type=int,default=None)
+    parser.add_argument("--stage-budget",type=int,default=None)
+    parser.add_argument("--publish-limit",type=int,default=None)
     parser.add_argument("--scope",choices=SOURCE_SCOPES,default=None)
     args=parser.parse_args(argv)
     if args.mode=="status":
+        if any(v is not None for v in (
+            args.search_budget,args.stage_budget,args.publish_limit,args.scope)):
+            parser.error("status does not accept source budgets or scope")
         return status()
     if not args.apply:
         parser.error("enable, once and next-budget require --apply")
     if args.mode=="scope":
-        if args.scope is None or args.search_budget is not None:
-            parser.error("scope requires --scope all|horror-drama-folders|movies-no-anime")
+        if (args.scope is None or any(v is not None for v in
+             (args.search_budget,args.stage_budget,args.publish_limit))):
+            parser.error("scope requires only --scope all|horror-drama-folders|movies-no-anime")
         return configure_source_scope(args.scope)
-    if args.scope is not None:
-        parser.error("--scope is only valid with scope mode")
     if args.mode=="next-budget":
-        if args.search_budget is None:
-            parser.error("next-budget requires --search-budget 1..600")
+        if (args.search_budget is None or
+                any(v is not None for v in
+                    (args.scope,args.stage_budget,args.publish_limit))):
+            parser.error("next-budget requires only --search-budget 1..600")
         return set_next_run_budget(args.search_budget)
-    if args.search_budget is not None:
-        parser.error("--search-budget is only valid with next-budget")
     if args.mode=="enable":
+        if any(v is not None for v in (
+            args.search_budget,args.stage_budget,args.publish_limit,args.scope)):
+            parser.error("enable does not accept manual source budgets")
         return enable()
     if args.mode=="once":
-        return once()
+        return once(search_budget=args.search_budget,
+                    stage_budget=200 if args.stage_budget is None else args.stage_budget,
+                    publish_limit=200 if args.publish_limit is None else args.publish_limit,
+                    scope=args.scope)
 
 
 if __name__=="__main__":
