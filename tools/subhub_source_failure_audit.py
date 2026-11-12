@@ -195,17 +195,120 @@ def analyze(state,rows,searches_by_id,stages_by_id,events):
     }
 
 
+
+
+def _sample_srt(path):
+    """Actual timed Japanese cues only, never fabricate or translate a line."""
+    staged_root=ROOT/"staged"
+    if (not path.is_file() or path.is_symlink()
+            or not path.resolve().is_relative_to(staged_root.resolve())
+            or not 0<path.stat().st_size<=2_000_000):
+        return ["staged subtitle file unavailable or unsafe"]
+    data=path.read_bytes()
+    decoded=None
+    for codec in ("utf-8-sig","utf-16","cp932","shift_jis"):
+        try:
+            decoded=data.decode(codec)
+            break
+        except UnicodeError:
+            continue
+    if decoded is None:
+        return ["unable to decode staged subtitle"]
+    chunks=re.split(r"\r?\n\s*\r?\n",decoded)
+    cues=[]
+    for block in chunks:
+        lines=[x.strip() for x in block.strip().splitlines() if x.strip()]
+        anchor=next((i for i,line in enumerate(lines) if "-->" in line),None)
+        if anchor is None or anchor+1>=len(lines):
+            continue
+        text=" ".join(lines[anchor+1:])
+        text=re.sub(r"<[^>]*>|\{\\[^}]*\}","",text)
+        if not text:
+            continue
+        cues.append((lines[anchor][:90],text[:170]))
+    if not cues:
+        return ["no parseable SRT timestamps; may be ASS/SSA/VTT"]
+    indices=list(dict.fromkeys((0,len(cues)//2,len(cues)-1)))
+    return [f"cue {i+1}/{len(cues)} {cues[i][0]} | {cues[i][1]}"
+            for i in indices]
+
+
+def inspect_staged(results):
+    """First development experiment: which of the six tracks actually failed?"""
+    items=[x for x in results["items"]
+           if x["reason"]=="japanese_candidates_staged_but_unpublished"]
+    print("=== STORED JAPANESE SUBTITLE DIAGNOSTICS (READ ONLY) ===")
+    print("Movies with staged database records:",len(items))
+    if not items:
+        return
+    ids=[item["jellyfin_id"] for item in items]
+    args=",".join("?" for _ in ids)
+    db=sqlite3.connect("file:"+str(STAGE_DB.resolve())+"?mode=ro",
+                       uri=True,timeout=12)
+    with db:
+        stages=db.execute(
+            f"SELECT jellyfin_id,subtitle_id,host_path,status,metrics_json "
+            f"FROM staged WHERE jellyfin_id IN ({args}) ORDER BY jellyfin_id,subtitle_id",
+            ids).fetchall()
+    failures_by_id={}
+    failure_db=ROOT/"japanese-candidate-failures.sqlite3"
+    if failure_db.is_file() and not failure_db.is_symlink():
+        with sqlite3.connect("file:"+str(failure_db.resolve())+"?mode=ro",
+                             uri=True,timeout=12) as con:
+            try:
+                rows=con.execute(
+                    f"SELECT jellyfin_id,subtitle_id,engine,reason,recorded_at "
+                    f"FROM failures WHERE jellyfin_id IN ({args}) "
+                    f"ORDER BY recorded_at DESC",ids).fetchall()
+                for jid,sid,engine,reason,at in rows:
+                    failures_by_id.setdefault(jid,[]).append(
+                        (sid,engine,reason,int(at or 0)))
+            except sqlite3.OperationalError as exc:
+                if "no such table" not in str(exc):
+                    raise
+    for item in items:
+        jid=item["jellyfin_id"]
+        print(f"\nMOVIE {item['title']} ({item.get('year')}) [{jid}]")
+        print("Audio tag:",item.get("audio_language"),
+              "| Candidate results:",item.get("candidate_count"))
+        for sid,engine,reason,at in failures_by_id.get(jid,[])[:12]:
+            print("  ALIGNMENT HOLD:",engine,"subtitle",sid,
+                  "reason:",str(reason)[:185],
+                  "timestamp:",at)
+        for _,sid,filename,status,raw in (r for r in stages if r[0]==jid):
+            try:
+                metrics=json.loads(raw)
+            except (ValueError,TypeError):
+                metrics={}
+            if not isinstance(metrics,dict):
+                metrics={}
+            print("  STAGE:",sid,"status:",status,
+                  "source:",metrics.get("provider","unknown"))
+            for key in ("cues","video_seconds","last_end_seconds",
+                        "last_end_video_ratio","japanese_cue_fraction",
+                        "duration_mismatch","timing_note"):
+                if key in metrics:
+                    print("    "+key+":",str(metrics[key])[:180])
+            for sample in _sample_srt(Path(filename)):
+                print("    SAMPLE:",sample)
+    print("\nOnly saved staging and failure records were read; nothing was changed.")
+
 def main(argv=None):
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--full",action="store_true",
                     help="print every PLaMO title, with per-provider candidate counts")
     ap.add_argument("--json",action="store_true",
                     help="print machine-readable audit for subsequent experiments")
+    ap.add_argument("--inspect-staged",action="store_true",
+                    help="show saved timing failure reasons and actual Japanese cue samples for staged PLaMO cases")
     args=ap.parse_args(argv)
     data=analyze(read_json(STATE),manifest(),searches(),stages(),
                  journal_events(read_json(STATE)))
     if args.json:
         print(json.dumps(data,ensure_ascii=False,indent=2))
+        return
+    if args.inspect_staged:
+        inspect_staged(data)
         return
     print("=== STOPPED SUBHUB BATCH: PLaMO SALVAGE AUDIT (READ ONLY) ===")
     print("Selected items:",data["scope_total"],
