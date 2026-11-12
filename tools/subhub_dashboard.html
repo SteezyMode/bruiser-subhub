@@ -159,7 +159,9 @@ details>summary{cursor:pointer}
   <p id="batch-details" class="small muted"></p>
  </div>
  <p class="small muted" id="job-progress">Source events and saved cue checkpoints are shown here. Closing this page does not stop jobs.</p>
- <div id="active-jobs"></div>
+ <details class="review"><summary>Translation details</summary>
+  <div id="active-jobs"></div>
+ </details>
  <details id="history"><summary>Previous jobs and review holds</summary><div id="past-jobs"></div><p id="recent-events" class="small muted"></p></details>
  <div class="row" style="margin-top:12px"><button type="button" id="stop-sourcing" class="quiet" hidden>Stop selected sourcing</button><button type="button" id="stop-translation" class="quiet" hidden>Stop translation batch</button></div>
 </section>
@@ -249,16 +251,16 @@ details>summary{cursor:pointer}
 </section>
 </details>
 
-<section class="panel">
- <h2>Find a movie or TV series</h2>
- <form id="lookup" class="row">
+<details class="panel" id="title-lookup">
+ <summary>Find a specific movie or TV show</summary>
+ <form id="lookup" class="row" style="margin-top:12px">
   <input type="text" id="title-search" placeholder="Type a title…" aria-label="Movie or series title" maxlength="120" autocomplete="off">
   <button type="submit" class="primary">Find</button>
  </form>
  <p class="small muted">One search. TV shows open into seasons; movies open into the actual available files.</p>
  <div id="search-results" class="result-list" aria-live="polite"></div>
  <p id="search-feedback" class="small muted"></p>
-</section>
+</details>
 
 <section class="panel" id="tv-panel" hidden>
  <div class="split">
@@ -370,7 +372,7 @@ function browseSetCount(){
     !latest.jellyfin_source?.available||n>300||
     !(n>0||(scoped&&missing>0&&missing<=500));
   if(!busy&&latest.workersBusy){
-    $("browse-feedback").textContent="Another subtitle job is active. Stop it under Active work before starting another.";
+    $("browse-feedback").textContent="A subtitle job is already running. Stop it in Current job before starting another.";
   }else if(!busy&&latest.jellyfin_source?.available===false){
     $("browse-feedback").textContent="The source worker is unavailable on this host; update SubHub before starting.";
   }else if(!busy&&n>300){
