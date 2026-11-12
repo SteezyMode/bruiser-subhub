@@ -129,3 +129,90 @@ def normalize(raw,*,expected_timestamps=None):
     # Recheck every original nonempty dialogue string was preserved, minus
     # only invalid control chars and empty slots.
     return output,report
+
+
+def _audit_staged(jids):
+    """Host-local, strictly read-only proof of repair effects on saved bytes."""
+    import hashlib
+    import json
+    from pathlib import Path
+    import sqlite3
+    from urllib.parse import quote
+    root=Path.home()/"bruiser-pilot/ja-first-inventory"
+    db=root/"japanese-stage.sqlite3"
+    if not db.is_file() or db.is_symlink() or not root.is_dir():
+        raise RuntimeError("missing_private_staged_database")
+    paths=sorted(root.glob("ja-intake-*.json"))
+    if not paths:
+        raise RuntimeError("missing_jellyfin_manifest")
+    info=json.loads(paths[-1].read_text("utf-8"))
+    names={str(item.get("jellyfin_id")):item.get("title")
+           for item in info.get("items",[]) if isinstance(item,dict)}
+    with sqlite3.connect("file:"+quote(str(db.resolve()),safe="/")+"?mode=ro",
+                         uri=True,timeout=15) as conn:
+        selected=[]
+        for jid in jids:
+            selected.extend(conn.execute(
+                "SELECT jellyfin_id,subtitle_id,host_path,sha256,status,metrics_json "
+                "FROM staged WHERE jellyfin_id=? ORDER BY subtitle_id",(jid,)))
+    print("=== NON-DESTRUCTIVE JAPANESE SRT REPAIR PREFLIGHT ===")
+    print("Selected media IDs:",len(jids),"saved stage records:",len(selected))
+    for jid,sid,path,digest,status,raw_metrics in selected:
+        print("\nTITLE:",names.get(jid) or jid,"["+jid[:8]+"]",
+              "stage ID:",sid,"status:",status)
+        source=Path(path)
+        if (source.is_symlink() or not source.is_file()
+                or not source.resolve().is_relative_to((root/"staged").resolve())
+                or not 0<source.stat().st_size<=MAX_BYTES):
+            print("  HOLD: staged file missing or unsafe")
+            continue
+        raw=source.read_bytes()
+        if hashlib.sha256(raw).hexdigest()!=digest:
+            print("  HOLD: saved file SHA mismatch")
+            continue
+        metrics=json.loads(raw_metrics)
+        try:
+            revised,report=normalize(
+                raw,expected_timestamps=metrics.get("cues"))
+            decoded=revised.decode("utf-8-sig")
+            ends=[]
+            for match in ARROWS.finditer(decoded):
+                timing=match.group().strip()
+                pair=STAMP.fullmatch(timing)
+                if pair:
+                    ends.append(_milliseconds(pair.group(2)))
+            if len(ends)!=report["retained_dialogue_cues"]:
+                raise RuntimeError("repaired_timing_count_mismatch")
+            runtime=float(metrics.get("video_seconds") or 0)
+            if runtime<=0:
+                raise RuntimeError("video_duration_unavailable")
+            end_sec=max(ends)/1000
+            print("  Before:",report["source_timestamp_cues"],"timed cues")
+            print("  After:",report["retained_dialogue_cues"],"dialogue cues",
+                  "| empty removed:",report["empty_cues_removed"],
+                  "| control characters removed:",
+                  report["control_characters_removed"])
+            print("  Last dialogue ends:",round(end_sec,2),"seconds",
+                  "| video runtime:",round(runtime,2),"seconds",
+                  "| ratio:",round(end_sec/runtime,3))
+            print("  Structural repair:",report["structural_repair"],
+                  "| original SHA:",digest[:16],
+                  "| derived SHA:",hashlib.sha256(revised).hexdigest()[:16])
+            print("  Timing verdict: NOT TESTED — needs video alignment")
+        except (ValueError,RuntimeError,UnicodeError) as exc:
+            print("  HOLD:",str(exc))
+    print("\nNo saved stage, video, sidecar or search database was modified.")
+
+
+if __name__=="__main__":
+    import argparse
+    p=argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--audit-staged",action="store_true",
+                   help="read saved stages; compute normalization in memory only")
+    p.add_argument("--id",action="append",default=[],
+                   help="exact 32-character Jellyfin ID, repeat for movies")
+    a=p.parse_args()
+    if not a.audit_staged or not a.id or len(a.id)>30 or any(
+            not re.fullmatch(r"[a-f0-9]{32}",jid) for jid in a.id):
+        p.error("specify --audit-staged and one or more exact --id values")
+    _audit_staged(a.id)
