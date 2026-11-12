@@ -276,14 +276,15 @@ class PipelineRecoveryTests(unittest.TestCase):
         self.assertEqual(set(saved),
                          {("1000","alass"),("1000","ffsubsync"),("final","final")})
 
-    def test_fourth_staged_candidate_must_not_be_marked_exhausted(self):
+    def test_every_staged_candidate_is_tested_before_exhaustion_receipt(self):
         candidates=[(str(1000+i),f"{i:064x}") for i in range(4)]
         saved,attempted=self._run_failed_alignment(
             candidates,RuntimeError("alass_reordered_cues"),
             RuntimeError("sync_cue_count_changed"))
-        self.assertNotIn(("final","final"),saved)
-        self.assertEqual(attempted,["1000","1001","1002"])
-        self.assertNotIn(("1003","alass"),saved)
+        self.assertEqual(attempted,["1000","1001","1002","1003"])
+        self.assertIn(("1003","alass"),saved)
+        self.assertIn(("1003","ffsubsync"),saved)
+        self.assertIn(("final","final"),saved)
 
     def test_transient_alignment_failure_must_not_mark_title_exhausted(self):
         saved,_=self._run_failed_alignment(
