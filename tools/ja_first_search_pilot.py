@@ -467,9 +467,10 @@ def pick(rows, db, budget, scope='all'):
             done.add(str(jid))
         elif outcome == "error" and when >= now-86400:
             done.add(str(jid))
-        elif outcome == "partial" and when >= now-20*3600:
-            # One or more providers were unavailable. Don't requery available
-            # providers again in the same allowance window; retry on later runs.
+        elif outcome in ("partial","deferred") and when >= now-20*3600:
+            # An unavailable provider or rate limit is not a completed search.
+            # But retrying the same film in the same allowance window wastes
+            # API requests and prevents progress through other movies.
             done.add(str(jid))
         elif outcome not in ("in_progress","error","deferred","partial") and when >= now-30*86400:
             # Zero-result entries made before provider-gate verification are
