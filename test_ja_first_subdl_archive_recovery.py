@@ -56,10 +56,11 @@ class SubdlArchiveRecoveryTests(unittest.TestCase):
              "\n".join(cues[10:12])+"\n\n"+
              "\n\n".join(cues[12:])+"\n").encode("utf-8")
         blob=archive({"Double.Blind.2023.1080p.ja.srt":raw})
-        # Control: old strict validator is broken on merged timecodes.
+        # The old validator incorrectly COUNTS this merged block as one
+        # valid cue, swallowing the second timestamp into dialogue. The new
+        # normalizer restores the 80th clock before validation.
         from tools import ja_first_publish_staged as gate
-        with self.assertRaisesRegex(RuntimeError,"unparseable_srt_timestamp"):
-            gate.validate_srt(raw,1100.0)
+        self.assertEqual(gate.validate_srt(raw,1100.0)["cues"],79)
         text,qa,member=subdl.archive_srt(
             blob,self.row,self.candidate,1100.0)
         self.assertEqual(member,"Double.Blind.2023.1080p.ja.srt")
