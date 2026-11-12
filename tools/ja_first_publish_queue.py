@@ -342,8 +342,27 @@ def choose(jid, candidates, *, intensive_only=False, record_failures=False):
         selected=shifted.preparation(jid)
         return "ready_corrected",row,selected
     except (ValueError,OSError,RuntimeError,KeyError,sqlite3.Error) as exc:
-        if record_failures:
-            progress.remember(jid,"final","final",final_key,exc)
+        if record_failures and progress.stable_failure(exc) and alass.available():
+            # A final "sources exhausted" receipt is valid ONLY when every
+            # distinct staged subtitle was actually tried by both engines,
+            # or already has a deterministic receipt for unchanged inputs.
+            # Otherwise (fourth candidate deferred by per-run limit, transient
+            # docker/timeout error, missing binary) cache PER-CANDIDATE holds
+            # but never block the entire film or offer AI prematurely.
+            distinct={}
+            for sid,digest in candidates:
+                distinct.setdefault(digest,sid)
+            exhaustive=all(
+                progress.known(jid,sid,engine,
+                    progress.fingerprint(row["host_path"],digest,engine))
+                for digest,sid in distinct.items()
+                for engine in ("alass","ffsubsync")
+            )
+            if exhaustive:
+                progress.remember(jid,"final","final",final_key,exc)
+            else:
+                print("  TITLE_FAILURE_NOT_CACHED: pending or transient "
+                      "candidate alignment remains",flush=True)
         raise
 
 
@@ -351,9 +370,20 @@ def report_next_action(jid,candidates):
     """Report actionable source state; never run a model or spend quota."""
     try:
         row=direct.read_inventory(jid,allow_existing_ja=True)
+        complete=progress.known(
+            jid,"final","final",
+            progress.fingerprint(row["host_path"],
+                                 progress.group_digest(candidates),"final"))
         action=progress.next_action(
             jid,(sid for sid,_ in candidates),
             accept_candidate=lambda c:staging.identity_ok(row,c))
+        # Fallback may only be offered after EVERY staged candidate was
+        # exhausted with stable failures. Incomplete tests mean retry/inspect,
+        # even when provider search itself returned a final result.
+        if not complete and action in (
+            "offer_owner_reviewed_plamo_after_english_validation",
+            "stage_alternate_saved_japanese"):
+            action="complete_or_retry_staged_validation"
     except (ValueError,OSError,RuntimeError,KeyError,sqlite3.Error):
         action="review_candidate_and_source_state"
     print("NEXT_ACTION:",json.dumps({
