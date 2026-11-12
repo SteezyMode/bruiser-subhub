@@ -841,7 +841,17 @@ function renderLibrarySourceProgress(d){
     " · Errors: "+(p.search_errors||0)+
     " · Deferred: "+(p.search_deferred||0)+
     " · Staged: "+(p.staged||0)+" · Published: "+(p.published||0)+
-    " · Held: "+((p.stage_holds||0)+(p.publish_holds||0));
+    " · Held: "+((p.stage_holds||0)+(p.publish_holds||0))+
+    (p.skipped_unchanged?" · Skipped unchanged: "+p.skipped_unchanged:"");
+  const actions=p.next_actions||{};
+  const pending=[
+    [actions.stage_alternate_saved_japanese,"alternate Japanese release"],
+    [actions.retry_japanese_providers_after_reset,"provider retry needed"],
+    [actions.offer_owner_reviewed_plamo_after_english_validation,"PLaMo review available"]
+  ].filter(([count])=>Number(count)>0).map(([count,label])=>count+" "+label);
+  if(pending.length){
+    $("library-live-summary").textContent+=" · Next: "+pending.join(" / ");
+  }
   $("library-live-current").textContent=p.search_stopped_early?
     "Search stopped early: "+escapeText(p.search_stop_reason||"Provider unavailable")+
     ". Staging and publication may have continued with previously saved results.":
