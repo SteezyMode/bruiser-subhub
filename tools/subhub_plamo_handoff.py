@@ -144,10 +144,12 @@ def validate_row(row, owner_review=False):
 
 def automatic_exhausted_row(jid):
     """Auto PLaMo may run only after a completed exact-video source proof."""
-    try:
-        from . import subhub_deep_source as deep
-    except ImportError:
-        import subhub_deep_source as deep
+    # PLaMO is installed under plamo3-ab, while the source engine lives
+    # in subhub-control. Use the actual host source installation.
+    source_home=HOME / "bruiser-pilot/subhub-control"
+    if str(source_home) not in sys.path:
+        sys.path.insert(0,str(source_home))
+    import subhub_deep_source as deep
     if not JELLYFIN_ID.fullmatch(str(jid or "")):
         raise RuntimeError("invalid_auto_fallback_identity")
     matches=[r for r in deep.inventory.load_latest_manifest()
