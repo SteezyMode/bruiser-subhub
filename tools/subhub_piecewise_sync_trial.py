@@ -11,6 +11,7 @@ and audio VAD consistency ALONE never authorizes publication.
 """
 from __future__ import annotations
 import argparse
+from difflib import SequenceMatcher
 import base64
 import hashlib
 import json
@@ -141,15 +142,61 @@ def _parse(raw):
     return items
 
 
+def _diagnose_cue_changes(before,after):
+    """Explain missing/altered cue identities WITHOUT declaring sync safe.
+
+    A subtitle tool can drop one subtitle (often release metadata), but we
+    must identify that text before deciding whether to retry differently.
+    Never use matched-only timing data as approval to publish.
+    """
+    a=["".join(c[2].split()) for c in before]
+    b=["".join(c[2].split()) for c in after]
+    matcher=SequenceMatcher(None,a,b,autojunk=False)
+    changes=[]
+    matched=[]
+    for tag,lo,hi,l2,h2 in matcher.get_opcodes():
+        if tag=="equal":
+            matched.extend((i,l2+i-lo) for i in range(lo,hi))
+            continue
+        if len(changes)>=8:
+            continue
+        changes.append({
+            "edit":tag,
+            "source_cues":[{"number":i+1,
+                             "at_seconds":round(before[i][0]/1000,3),
+                             "text":before[i][2][:150]}
+                            for i in range(lo,min(hi,lo+3))],
+            "output_cues":[{"number":i+1,
+                             "at_seconds":round(after[i][0]/1000,3),
+                             "text":after[i][2][:150]}
+                            for i in range(l2,min(h2,l2+3))],
+            "source_span":hi-lo,"output_span":h2-l2
+        })
+    result={"matching_dialogue_cues":len(matched),"cue_edits":changes,
+            "diagnostic_only":True}
+    if len(matched)>=9:
+        thirds=[]
+        for lo,hi in ((0,len(before)//3),
+                      (len(before)//3,2*len(before)//3),
+                      (2*len(before)//3,len(before))):
+            values=[(after[j][0]-before[i][0])/1000 for i,j in matched
+                    if lo<=i<hi]
+            thirds.append(round(statistics.median(values),3) if values else None)
+        result["matched_only_shift_median_by_third_seconds"]=thirds
+    return result
+
+
 def _evaluate(original,output,runtime):
     before=_parse(original)
     after=_parse(output)
     if len(before)!=len(after):
         return {"safe_dialogue":False,"failure":"cue_count_changed",
-                "before":len(before),"after":len(after)}
+                "before":len(before),"after":len(after),
+                **_diagnose_cue_changes(before,after)}
     if any("".join(a[2].split())!="".join(b[2].split())
            for a,b in zip(before,after)):
-        return {"safe_dialogue":False,"failure":"dialogue_text_changed"}
+        return {"safe_dialogue":False,"failure":"dialogue_text_changed",
+                **_diagnose_cue_changes(before,after)}
     offsets=[(b[0]-a[0])/1000 for a,b in zip(before,after)]
     thirds=[offsets[:len(offsets)//3],
             offsets[len(offsets)//3:2*len(offsets)//3],
@@ -218,7 +265,15 @@ def main(argv=None):
                 runtime=float(json.loads(item[0]).get("video_seconds") or 0)
             if runtime<600:
                 raise RuntimeError("video_duration_unavailable")
-            records=_stage(jid)
+            try:
+                records=_stage(jid)
+            except RuntimeError as exc:
+                print("  STRUCTURE HOLD:",str(exc),flush=True)
+                if str(exc)=="staged_srt_cue_order_invalid":
+                    print("  A source timestamp reversal must be investigated "
+                          "before running audio sync; cue text is untouched.",
+                          flush=True)
+                continue
             if not records:
                 print("  No safely staged Japanese SRT",flush=True)
             for sid,source,repair in records if args.all_staged else records[:1]:
