@@ -139,13 +139,15 @@ class PipelineRecoveryTests(unittest.TestCase):
             f"{i+1}\n{clock(31000+i*3700)} --> {clock(32000+i*3700)}"
             "\n日本語のセリフ"
             for i in range(140))+"\n").encode("utf-8")
-        corrected,num=shifted.shift_srt(raw,26.1)
+        corrected,num=shifted.shift_srt(raw,26.1,runtime=1200)
         self.assertEqual(num,140)
         self.assertEqual(gate.validate_srt(raw,1200),
                          gate.validate_srt(corrected,1200))
         self.assertIn(b"00:00:04,900",corrected)
         self.assertNotIn(b"00:00:31,000",corrected)
         self.assertEqual(corrected.count("日本語のセリフ".encode()),140)
+        with self.assertRaisesRegex(RuntimeError,"shifted_subtitle_exceeds_video_duration"):
+            shifted.shift_srt(raw,26.1,runtime=300)
         with self.assertRaisesRegex(RuntimeError,"shift_outside_conservative_policy"):
             shifted.shift_srt(raw,31.5)
         early=raw.replace(b"00:00:31,000",b"00:00:02,000",1)
