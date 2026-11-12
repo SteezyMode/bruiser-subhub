@@ -441,6 +441,29 @@ def rejected_duration_candidates():
     return rejected
 
 
+def alternate_ready(row):
+    """Do not spend a second download while an existing stage is untried.
+
+    A recorded, deterministic final alignment hold permits trying a DIFFERENT
+    saved provider release on the next pass. A staging-duration rejection is
+    already excluded from this set and requires no publication trial.
+    """
+    if not STAGE_DB.exists() and not STAGE_DB.is_symlink():
+        return True
+    private_file(STAGE_DB)
+    jid=str(row.get("jellyfin_id") or "")
+    with sqlite3.connect("file:"+quote(str(STAGE_DB.resolve()),safe="/")+
+                         "?mode=ro",uri=True,timeout=10) as db:
+        rows=db.execute(
+            "SELECT subtitle_id,sha256 FROM staged "
+            "WHERE jellyfin_id=? AND status='staged'",(jid,)).fetchall()
+    if not rows:
+        return True
+    key=candidate_progress.fingerprint(
+        row["host_path"],candidate_progress.group_digest(rows),"final")
+    return bool(candidate_progress.known(jid,"final","final",key))
+
+
 def choices(inventory, searches, already, budget, kind, only_id=None, scope="all"):
     queue = priorities.active_coverage_queue()
     already = set(already) | rejected_duration_candidates()
@@ -469,6 +492,10 @@ def choices(inventory, searches, already, budget, kind, only_id=None, scope="all
                      and identity_ok(row, c)
                      and (str(jid), str(c["subtitle_id"])) not in already]
         if not plausible:
+            continue
+        if not only_id and not alternate_ready(row):
+            # A prior stage is waiting for its FIRST publication decision.
+            # Another download now would consume provider quota unnecessarily.
             continue
         # Prefer the release/edition matching the actual video, not just
         # provider search score. This ranks candidates; it never proves sync.
