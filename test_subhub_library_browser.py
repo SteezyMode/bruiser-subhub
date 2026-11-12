@@ -62,8 +62,8 @@ class LibraryBrowserTests(unittest.TestCase):
         with mock.patch.object(browser.coverage,"latest_manifest",
                                return_value=self.manifest):
             top=browser.browse(kind="Movie")
-            self.assertEqual(len(top["folders"]),1)
-            self.assertEqual(top["folders"][0]["category"],"Action")
+            self.assertEqual({x["label"] for x in top["folders"]},
+                             {"Action","Horror"})
             combined=browser.browse(kind="Movie",category="Action")
             self.assertEqual(combined["matching_items"],3)
             self.assertEqual(combined["folders"],[])
@@ -138,6 +138,55 @@ class LibraryBrowserTests(unittest.TestCase):
                 browser.browse(kind="Movie",category="NotReal")
             with self.assertRaisesRegex(ValueError,"combined_movie_folder"):
                 browser.browse(kind="Episode",category="Horror")
+
+    def test_tv_documentary_category_groups_series_from_multiple_drives(self):
+        for title,jid,base,genre in [
+            ("DocsA","c"*32,"DriveA","Documentary"),
+            ("DocsB","d"*32,"DriveB","Documentaries"),
+            ("ComedyA","e"*32,"DriveB","Comedy")]:
+            video=self.base/base/"Television"/"Episodic"/title/"Season 01"/"S01E01.mkv"
+            video.parent.mkdir(parents=True,exist_ok=True)
+            video.write_bytes(b"offline episode")
+            self.rows.append({
+                "kind":"Episode","jellyfin_id":jid,"host_path":str(video),
+                "title":"Episode 1","series_title":title,
+                "season":1,"episode":1,"year":2022,
+                "status":"ready_ja_search","genres":[genre]})
+        self.manifest.write_text(json.dumps({"schema":1,"items":self.rows}),
+                                 encoding="utf-8")
+        browser._CACHE.update(until=0.0,signature=None,items=None,generated="")
+        with mock.patch.object(browser.coverage,"latest_manifest",
+                               return_value=self.manifest):
+            home=browser.browse(kind="Episode")
+            self.assertEqual({r["label"] for r in home["folders"]},
+                             {"Comedy","Documentary"})
+            docs=browser.browse(kind="Episode",category="Documentary")
+            self.assertEqual({r["label"] for r in docs["folders"]},
+                             {"DocsA","DocsB"})
+            self.assertEqual(docs["scope_counts"]["needs_japanese"],2)
+            specific=browser.browse(
+                kind="Episode",category="Documentary",series="DocsB")
+            self.assertEqual(len(specific["items"]),1)
+            self.assertEqual(specific["items"][0]["series"],"DocsB")
+
+    def test_action_folder_across_drives_deduplicates_same_name(self):
+        another=self.base/"Second"/"Movies"/"ACTION"
+        another.mkdir(parents=True,exist_ok=True)
+        video=another/"Second Film.mkv"
+        video.write_bytes(b"offline")
+        item=self.movie(video,"Second Film",genres=["Action"])
+        item["jellyfin_id"]="e"*32
+        self.rows.append(item)
+        self.manifest.write_text(json.dumps({"schema":1,"items":self.rows}),
+                                 encoding="utf-8")
+        browser._CACHE.update(until=0.0,signature=None,items=None,generated="")
+        with mock.patch.object(browser.coverage,"latest_manifest",
+                               return_value=self.manifest):
+            result=browser.browse(kind="Movie")
+            actions=[r for r in result["folders"] if r["label"].casefold()=="action"]
+            self.assertEqual(len(actions),1)
+            titles=browser.browse(kind="Movie",category="Action")
+            self.assertEqual(titles["scope_total"],4)
 
     def test_exact_action_finish_skips_new_ja_sidecar(self):
         self.rows[0]["jellyfin_id"]="a"*32
