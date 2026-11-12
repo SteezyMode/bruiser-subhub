@@ -16,9 +16,11 @@ from __future__ import annotations
 try:
     from . import ja_first_priority as priorities
     from . import subhub_download_ledger as ledger
+    from . import ja_first_candidate_progress as candidate_progress
 except ImportError:
     import ja_first_priority as priorities
     import subhub_download_ledger as ledger
+    import ja_first_candidate_progress as candidate_progress
 
 import argparse
 try:
@@ -468,7 +470,10 @@ def choices(inventory, searches, already, budget, kind, only_id=None, scope="all
                      and (str(jid), str(c["subtitle_id"])) not in already]
         if not plausible:
             continue
+        # Prefer the release/edition matching the actual video, not just
+        # provider search score. This ranks candidates; it never proves sync.
         plausible.sort(key=lambda r: (
+            -candidate_progress.release_match(row,r),
             -int(r.get("score") or 0),
             str(r.get("subtitle_id") or "")
         ))
@@ -482,7 +487,8 @@ def choices(inventory, searches, already, budget, kind, only_id=None, scope="all
         if kind == "episode" and row["kind"] != "Episode":
             continue
         possible.append((order, -int(c.get("score") or 0), label.casefold(),
-                         str(jid), {"row": row, "candidate": c, "label": label}))
+                         str(jid), {"row": row, "candidate": c, "label": label,
+                           "release_rank": candidate_progress.release_match(row,c)}))
     possible.sort(key=lambda x: x[:4])
     # Download saved high-confidence JA sources across BOTH media types in
     # queue order. Never use an arbitrary percentage split.
@@ -824,7 +830,8 @@ def main():
     print("Selected:", len(selected), "| budget:", opts.budget, flush=True)
     for i, job in enumerate(selected, 1):
         print(f'  [{i}] {job["label"]} | OpenSubtitles ID '
-              f'{job["candidate"]["subtitle_id"]}', flush=True)
+              f'{job["candidate"]["subtitle_id"]}' +
+              ' | release-rank ' + str(job["release_rank"]), flush=True)
     if not selected:
         if opts.require_embedded_en:
             print("No candidate with a confirmed embedded English text track "
