@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import Mock,patch
 
 from tools import subhub_plamo_source_repass as repass
+from tools import install_global_ja_sourcing as installer
 
 
 def movie(jid="a"*32,title="Green Room",year=2016,host_path="/tmp/film.mkv"):
@@ -15,6 +16,28 @@ def movie(jid="a"*32,title="Green Room",year=2016,host_path="/tmp/film.mkv"):
 
 
 class SourceOnlyRepassTests(unittest.TestCase):
+    def test_first_deploy_helpers_are_allowed_missing_by_installer(self):
+        for name in ("subhub_source_failure_audit.py",
+                     "subhub_plamo_source_repass.py"):
+            self.assertIn(name, installer.SOURCE_FILES)
+            self.assertIn(name, installer.NEW_SOURCE_FILES)
+
+    def test_worker_idle_gate_matches_installer_without_importing_it_on_host(self):
+        self.assertEqual(repass.BUSY_UNITS, installer.BUSY_UNITS)
+        inactive=SimpleNamespace(returncode=3,stdout="inactive\\n")
+        with patch.object(repass.subprocess,"run",return_value=inactive) as run:
+            repass._safe_apply()
+        self.assertEqual(run.call_count,len(repass.BUSY_UNITS))
+        for call in run.call_args_list:
+            self.assertEqual(call.args[0][:3],
+                             ["systemctl","--user","is-active"])
+
+    def test_worker_busy_fails_closed_before_any_stage_or_publication(self):
+        active=SimpleNamespace(returncode=0,stdout="active\\n")
+        with patch.object(repass.subprocess,"run",return_value=active):
+            with self.assertRaisesRegex(
+                    RuntimeError,"existing_subhub_source_worker_active"):
+                repass._safe_apply()
     def test_saved_releases_only_pass_exact_provider_identity(self):
         row=movie()
         doc={"results":{"candidates":[
