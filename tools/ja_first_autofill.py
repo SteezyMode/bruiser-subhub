@@ -28,6 +28,8 @@ ROOT = Path.home() / "bruiser-pilot/ja-first-inventory"
 NEXT_BUDGET_FILE = ROOT / ".source-next-run-budget.json"
 SCOPE_FILE = ROOT / ".source-scope.json"
 MOVIE_SCOPE = "horror-drama-folders"
+MOVIES_NO_ANIME = "movies-no-anime"
+SOURCE_SCOPES = ("all", MOVIE_SCOPE, MOVIES_NO_ANIME)
 DEFAULT_SEARCH_BUDGET = 600
 CODE = Path.home() / "bruiser-pilot/subhub-control"
 UNIT = "bruiser-ja-source-autofill"
@@ -216,14 +218,14 @@ def selected_source_scope():
             or info.st_mode & 0o077 or info.st_size>500):
         raise RuntimeError("source_scope_file_not_private")
     doc=json.loads(SCOPE_FILE.read_text("utf-8"))
-    if not isinstance(doc,dict) or set(doc)!={"scope"} or doc["scope"] not in ("all",MOVIE_SCOPE):
+    if not isinstance(doc,dict) or set(doc)!={"scope"} or doc["scope"] not in SOURCE_SCOPES:
         raise RuntimeError("source_scope_invalid")
     return doc["scope"]
 
 
 def configure_source_scope(scope):
     """Owner-only persistent scope change, with no provider or model calls."""
-    if scope not in ("all",MOVIE_SCOPE):
+    if scope not in SOURCE_SCOPES:
         raise RuntimeError("unsupported_source_scope")
     fd=lock()
     try:
@@ -465,7 +467,7 @@ def main(argv=None):
                         default="status")
     parser.add_argument("--apply",action="store_true")
     parser.add_argument("--search-budget",type=int,default=None)
-    parser.add_argument("--scope",choices=("all",MOVIE_SCOPE),default=None)
+    parser.add_argument("--scope",choices=SOURCE_SCOPES,default=None)
     args=parser.parse_args(argv)
     if args.mode=="status":
         return status()
@@ -473,7 +475,7 @@ def main(argv=None):
         parser.error("enable, once and next-budget require --apply")
     if args.mode=="scope":
         if args.scope is None or args.search_budget is not None:
-            parser.error("scope requires --scope all|horror-drama-folders")
+            parser.error("scope requires --scope all|horror-drama-folders|movies-no-anime")
         return configure_source_scope(args.scope)
     if args.scope is not None:
         parser.error("--scope is only valid with scope mode")
