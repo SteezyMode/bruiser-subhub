@@ -135,10 +135,10 @@ class PipelineRecoveryTests(unittest.TestCase):
             mm,x=divmod(x,60000)
             ss,m=divmod(x,1000)
             return f"{hh:02d}:{mm:02d}:{ss:02d},{m:03d}"
-        raw=("\\n\\n".join(
-            f"{i+1}\\n{clock(31000+i*3700)} --> {clock(32000+i*3700)}"
-            "\\n日本語のセリフ"
-            for i in range(140))+"\\n").encode("utf-8")
+        raw=("\n\n".join(
+            f"{i+1}\n{clock(31000+i*3700)} --> {clock(32000+i*3700)}"
+            "\n日本語のセリフ"
+            for i in range(140))+"\n").encode("utf-8")
         corrected,num=shifted.shift_srt(raw,26.1)
         self.assertEqual(num,140)
         self.assertEqual(gate.validate_srt(raw,1200),
@@ -146,8 +146,11 @@ class PipelineRecoveryTests(unittest.TestCase):
         self.assertIn(b"00:00:04,900",corrected)
         self.assertNotIn(b"00:00:31,000",corrected)
         self.assertEqual(corrected.count("日本語のセリフ".encode()),140)
-        with self.assertRaisesRegex(RuntimeError,"shift_would_invalidate_cue"):
+        with self.assertRaisesRegex(RuntimeError,"shift_outside_conservative_policy"):
             shifted.shift_srt(raw,31.5)
+        early=raw.replace(b"00:00:31,000",b"00:00:02,000",1)
+        with self.assertRaisesRegex(RuntimeError,"shift_would_invalidate_cue"):
+            shifted.shift_srt(early,26.1)
 
     def test_stage_failure_receipt_expires_but_alignment_receipts_remain(self):
         with tempfile.TemporaryDirectory() as temp:
