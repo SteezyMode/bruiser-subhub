@@ -25,7 +25,7 @@ class StructuralNormalizationTests(unittest.TestCase):
     def test_empty_mid_cues_and_leading_newline_safely_repaired(self):
         raw=(cue(1,"00:00:01,000","00:00:03,000","父さん")+
              b"2\n00:00:04,000 --> 00:00:06,000\n\n\n"+
-             b"\n3\n00:00:07,000 --> 00:00:09,000\n大丈夫")
+             "\n3\n00:00:07,000 --> 00:00:09,000\n大丈夫".encode("utf-8"))
         out,report=norm.normalize(raw,expected_timestamps=3)
         self.assertEqual(report["empty_cues_removed"],1)
         self.assertEqual(report["retained_dialogue_cues"],2)
