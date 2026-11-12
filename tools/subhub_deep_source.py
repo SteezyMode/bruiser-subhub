@@ -175,7 +175,8 @@ def stage_one(jid, candidate):
         return "retry", "stage_execution_failed"
     if receipt in out:
         return "staged", "saved_release_acquired"
-    if ("REJECTED_DOWNLOAD_SKIPPED:" in out or
+    if ("STAGED_HELD:" in out or
+            "REJECTED_DOWNLOAD_SKIPPED:" in out or
             "SAVED_REJECTED_DOWNLOAD:" in out or
             "STAGE_REJECTED:" in out or
             "SUBDL_REJECTED:" in out):
@@ -315,6 +316,12 @@ def run(jid):
             len(search.get("candidates") or [])>=100):
         return {"result":"retry_source","reason":"candidate_search_truncated",
                 "candidates_examined":len(tried)}
+    # A parallel source search or new Japanese track invalidates the final
+    # decision. In that case stay in sourcing rather than dispatching AI.
+    if stage.japanese_sidecar_exists(video):
+        return {"result":"covered","reason":"japanese_arrived_during_recovery"}
+    if search_record(jid)!=search:
+        return {"result":"retry_source","reason":"provider_search_changed_during_recovery"}
     save_exhausted(jid,row,search,tried)
     return {"result":"plamo","reason":"all_saved_japanese_candidates_failed",
             "candidates_examined":len(tried)}
