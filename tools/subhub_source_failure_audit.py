@@ -318,7 +318,7 @@ def find_structural_defects(path):
             pass
     if text is None:
         return {"error":"undecodable_staged_file"}
-    blocks=re.split(r"\r?\n[ \t]*\r?\n",text.strip())
+    blocks=re.split(r"\r?\n[ \t]*\r?\n",text.strip(" \t\r\n"))
     strict_stamp=re.compile(
         r"^[ \t]*(?:\d{1,3}:)?\d{2}:\d{2}[,.]\d{2,3}[ \t]*-->"
         r"[ \t]*(?:\d{1,3}:)?\d{2}:\d{2}[,.]\d{2,3}[ \t]*$")
@@ -331,7 +331,7 @@ def find_structural_defects(path):
     empty=0
     controls=0
     for index,block in enumerate(blocks,1):
-        lines=block.splitlines()
+        lines=block.replace("\r\n","\n").split("\n")
         ix=1 if lines and lines[0].strip().isdigit() else 0
         timestamp_lines=[(i,line) for i,line in enumerate(lines)
                          if "-->" in line]
