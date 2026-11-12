@@ -53,7 +53,7 @@ class SubdlArchiveRecoveryTests(unittest.TestCase):
             cues.append(f"{i}\n{clock(start)} --> {clock(finish)}\n"
                         f"日本語の字幕をそのまま残す {i}")
         raw=("\n\n".join(cues[:10])+"\n\n"+
-             "\n".join(cues[10:12])+"\n\n"+
+             cues[10]+"\n"+cues[11].split("\n",1)[1]+"\n\n"+
              "\n\n".join(cues[12:])+"\n").encode("utf-8")
         blob=archive({"Double.Blind.2023.1080p.ja.srt":raw})
         # The old validator incorrectly COUNTS this merged block as one
