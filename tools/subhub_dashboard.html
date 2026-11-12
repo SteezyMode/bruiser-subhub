@@ -185,7 +185,7 @@ details>summary{cursor:pointer}
   <button id="finish-selected" class="primary" type="button" disabled>Finish selected season(s)</button>
   <button id="finish-all" type="button" disabled>Finish whole series</button>
  </div>
- <p class="small muted">Japanese sourcing and timing repair first; PLaMo only when needed. Published subtitles are skipped. Provider limits or unresolved editions may require another pass.</p>
+ <p class="small muted">One action: test available Japanese releases and timing repairs, then automatically translate only proven gaps with PLaMo. Provider delays remain queued for automatic retry. Existing subtitles are never overwritten.</p>
  <details class="review"><summary>Manual sourcing and translation controls</summary>
   <div class="row"><button id="refresh-coverage" class="quiet" type="button" disabled>Recheck selected episode coverage</button></div>
   <div class="episode-controls">
@@ -358,16 +358,13 @@ async function finishScope(all){
   if(latest.workersBusy){showMessage("Another worker is running. Finish can start after it ends.",true);return;}
   const scope=all?"the entire series":seasons.length===1?
     "Season "+seasons[0]:seasons.length+" selected seasons";
-  if(!confirm("Complete "+selectedSeries+" · "+scope+
-    "? Search Japanese and repair timing first, then use PLaMo for proven gaps. "+
-    "Existing Japanese is skipped. Provider limits or unresolved duplicates may leave work for another pass."))return;
   busy=true;renderCoverage();
   try{
     const doc=all?{series:selectedSeries,all:true}:{series:selectedSeries,seasons};
     const result=await ownerPost("/api/finish/start",doc);
     showMessage(result.state==="already_covered"?
       "Already covered: all episodes in this selection have Japanese subtitles.":
-      "Started completion for "+scope+". Active work will show finished results and remaining gaps.");
+      "Started one-action completion for "+scope+". Japanese sourcing and PLaMO fallback will run automatically; provider waits remain queued.");
   }catch(err){showMessage("Not started: "+err.message,true);}
   finally{busy=false;await refreshStatus();renderCoverage();}
 }
