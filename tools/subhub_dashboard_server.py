@@ -1286,7 +1286,16 @@ def start_finish_scope(doc):
     item_ids=[]
     library_folder=None
     library_group=None
-    if set(doc)=={"item_ids"} and isinstance(doc["item_ids"],list):
+    library_genre=None
+    library_kind=None
+    if set(doc)=={"library_genre","kind"} and isinstance(
+            doc["library_genre"],str) and doc["kind"] in ("Movie","Episode"):
+        library_genre=doc["library_genre"]
+        library_kind=doc["kind"]
+        preview=finish_scope.movie_plan(
+            library_genre=library_genre,library_kind=library_kind)
+        kind="library_genre"
+    elif set(doc)=={"item_ids"} and isinstance(doc["item_ids"],list):
         item_ids=doc["item_ids"]
         if (not 1<=len(item_ids)<=300 or
                 len(set(str(v) for v in item_ids))!=len(item_ids) or
@@ -1362,6 +1371,9 @@ def start_finish_scope(doc):
         args.extend(("--library-folder",library_folder))
     elif library_group:
         args.extend(("--library-group",library_group))
+    elif library_genre:
+        args.extend(("--library-genre",library_genre,
+                     "--library-kind",library_kind))
     elif item_ids:
         for jid in item_ids:
             args.extend(("--item-id",jid))
@@ -1885,7 +1897,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 params=parse_qs(urlsplit(self.path).query,keep_blank_values=True)
                 if (len(urlsplit(self.path).query)>1000 or
-                        set(params)-{"kind","folder","query","page","state"} or
+                        set(params)-{"kind","folder","query","page","state","genre"} or
                         any(len(v)!=1 for v in params.values())):
                     raise ValueError("invalid_library_browse_request")
                 data=media_browser.browse(
@@ -1893,7 +1905,8 @@ class Handler(BaseHTTPRequestHandler):
                     folder=params.get("folder",[""])[0],
                     query=params.get("query",[""])[0],
                     page=int(params.get("page",["0"])[0]),
-                    state=params.get("state",["all"])[0])
+                    state=params.get("state",["all"])[0],
+                    genre=params.get("genre",[""])[0])
                 self.write(200,json.dumps(data,ensure_ascii=False).encode("utf-8"))
             except (ValueError,OSError,RuntimeError,TypeError,sqlite3.Error) as exc:
                 self.write(400,json.dumps(
