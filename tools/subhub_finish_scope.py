@@ -112,7 +112,8 @@ def command(args, label, on_line=None):
         return p.wait()
 
 
-def selected_media(series=None, seasons=(), *, movie_ids=(), movie_scope=None):
+def selected_media(series=None, seasons=(), *, movie_ids=(), movie_scope=None,
+                   item_ids=(), library_folder=None, library_group=None):
     """Select every exact Jellyfin file; duplicate episode versions remain separate."""
     # Dashboard controller runs from a different installation directory
     # than the canonical host source engine; resolve it explicitly.
@@ -124,15 +125,31 @@ def selected_media(series=None, seasons=(), *, movie_ids=(), movie_scope=None):
         import subhub_deep_source as deep
     chosen=[]
     seen=set()
-    if not series and bool(movie_ids)==bool(movie_scope):
-        raise ValueError("choose_exact_movie_ids_or_scope")
+    if not series and sum(bool(x) for x in (
+            movie_ids,movie_scope,item_ids,library_folder,library_group))!=1:
+        raise ValueError("choose_one_library_or_exact_item_selection")
+    if library_group and library_group not in ("Movie","Episode"):
+        raise ValueError("invalid_library_group")
+    if library_folder:
+        try:
+            from . import subhub_library_browser as browser
+        except ImportError:
+            import subhub_library_browser as browser
+        rows,_=browser.snapshot()
+        roots={r["root"] for r in rows}
+        if (library_folder not in roots and not any(
+                browser.within(r["folder"],library_folder) and
+                browser.within(library_folder,r["root"])
+                for r in rows)):
+            raise ValueError("library_folder_not_in_saved_inventory")
     if movie_scope and movie_scope not in deep.stage.movie_scope.SCOPES:
         raise ValueError("invalid_movie_scope")
-    ids=set(movie_ids)
-    if len(ids)!=len(movie_ids) or any(
+    ids=set(movie_ids or item_ids)
+    if (len(ids)!=len(movie_ids or item_ids) or
+            len(ids)>300 or any(
             not isinstance(jid,str) or not re.fullmatch(r"[a-f0-9]{32}",jid)
-            for jid in ids):
-        raise ValueError("invalid_movie_selection")
+            for jid in ids)):
+        raise ValueError("invalid_item_selection")
     for row in deep.inventory.load_latest_manifest():
         if not isinstance(row,dict):
             continue
@@ -140,16 +157,27 @@ def selected_media(series=None, seasons=(), *, movie_ids=(), movie_scope=None):
             if (row.get("kind")!="Episode" or row.get("series_title")!=series
                     or row.get("season") not in seasons):
                 continue
-        elif (row.get("kind")!="Movie" or
-              (ids and str(row.get("jellyfin_id") or "") not in ids) or
-              (movie_scope and not deep.stage.movie_scope.matches(row,movie_scope))):
-            continue
+        elif movie_ids or movie_scope:
+            if (row.get("kind")!="Movie" or
+                    (ids and str(row.get("jellyfin_id") or "") not in ids) or
+                    (movie_scope and not deep.stage.movie_scope.matches(row,movie_scope))):
+                continue
+        elif item_ids:
+            if str(row.get("jellyfin_id") or "") not in ids:
+                continue
+        elif library_group:
+            if row.get("kind")!=library_group:
+                continue
+        elif library_folder:
+            if (not isinstance(row.get("host_path"),str) or
+                    not browser.within(row["host_path"],library_folder)):
+                continue
         jid=str(row.get("jellyfin_id") or "")
         if not re.fullmatch(r"[a-f0-9]{32}",jid) or jid in seen:
             raise RuntimeError("duplicate_or_invalid_selected_jellyfin_id")
         seen.add(jid)
-        chosen.append((int(row["season"]),int(row["episode"]),jid)
-                      if series else (0,0,jid))
+        chosen.append((int(row["season"] or 0),int(row["episode"] or 0),jid)
+                      if row.get("kind")=="Episode" else (0,0,jid))
     chosen.sort()
     if ids and len(chosen)!=len(ids):
         raise RuntimeError("requested_movie_not_in_jellyfin_inventory")
@@ -158,9 +186,12 @@ def selected_media(series=None, seasons=(), *, movie_ids=(), movie_scope=None):
     return chosen
 
 
-def movie_plan(movie_ids=(), movie_scope=None):
+def movie_plan(movie_ids=(), movie_scope=None, *, item_ids=(),
+               library_folder=None, library_group=None):
     """Read-only exact movie coverage preview; no provider calls or AI."""
-    selected=selected_media(movie_ids=movie_ids,movie_scope=movie_scope)
+    selected=selected_media(movie_ids=movie_ids,movie_scope=movie_scope,
+                            item_ids=item_ids,library_folder=library_folder,
+                            library_group=library_group)
     try:
         from . import subhub_deep_source as deep
     except ImportError:
@@ -219,7 +250,8 @@ def valid_source_exhaustion(jid):
     return len(matches)==1 and deep.validate_exhausted(jid,matches[0])
 
 
-def run(series=None, seasons=(), *, movie_ids=(), movie_scope=None):
+def run(series=None, seasons=(), *, movie_ids=(), movie_scope=None,
+        item_ids=(), library_folder=None, library_group=None):
     """One owner action: source every selected file, auto PLaMO proven misses.
 
     Incomplete providers and temporary errors stay in SOURCE, with autonomous
@@ -227,9 +259,12 @@ def run(series=None, seasons=(), *, movie_ids=(), movie_scope=None):
     required. PLaMO can start only with an exact validated source receipt.
     """
     before=(plan(series,seasons) if series else
-            movie_plan(movie_ids,movie_scope))
+            movie_plan(movie_ids,movie_scope,item_ids=item_ids,
+                       library_folder=library_folder,library_group=library_group))
     selection=(selected_media(series,before["seasons"]) if series else
-               selected_media(movie_ids=movie_ids,movie_scope=movie_scope))
+               selected_media(movie_ids=movie_ids,movie_scope=movie_scope,
+                              item_ids=item_ids,library_folder=library_folder,
+                              library_group=library_group))
     finished=initial_covered(selection)
     pending={jid:(season,episode) for season,episode,jid in selection
              if jid not in finished}
@@ -246,7 +281,9 @@ def run(series=None, seasons=(), *, movie_ids=(), movie_scope=None):
     print("FINISH_BEGIN",json.dumps({"total_exact_files":total,
           "series":series or "","seasons":before["seasons"],
           "movie_scope":movie_scope or "",
-          "movie_ids":len(movie_ids)},ensure_ascii=False),
+          "movie_ids":len(movie_ids),"item_ids":len(item_ids),
+          "library_folder":library_folder or "",
+          "library_group":library_group or ""},ensure_ascii=False),
           flush=True)
     # Dict retains state for this process; source-exhaustion receipts and
     # PLaMO checkpoints are independently durable across a restarted job.
@@ -343,6 +380,9 @@ def main(argv=None):
     one.add_argument("--series")
     one.add_argument("--movie-id",action="append",default=[])
     one.add_argument("--movie-scope")
+    one.add_argument("--item-id",action="append",default=[])
+    one.add_argument("--library-folder")
+    one.add_argument("--library-group",choices=("Movie","Episode"))
     p.add_argument("--season",type=int,action="append",default=[])
     p.add_argument("--run",action="store_true")
     opts=p.parse_args(argv)
@@ -359,9 +399,13 @@ def main(argv=None):
         p.error("invalid movie scope")
     if opts.run:
         return run(opts.series,opts.season,movie_ids=opts.movie_id,
-                   movie_scope=opts.movie_scope)
+                   movie_scope=opts.movie_scope,item_ids=opts.item_id,
+                   library_folder=opts.library_folder,
+                   library_group=opts.library_group)
     preview=(plan(opts.series,opts.season) if opts.series else
-             movie_plan(opts.movie_id,opts.movie_scope))
+             movie_plan(opts.movie_id,opts.movie_scope,item_ids=opts.item_id,
+                        library_folder=opts.library_folder,
+                        library_group=opts.library_group))
     print(json.dumps(preview,ensure_ascii=False))
     return 0
 
