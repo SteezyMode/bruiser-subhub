@@ -54,6 +54,10 @@ try:
     from . import subhub_library_coverage as global_coverage
 except ImportError:
     import subhub_library_coverage as global_coverage
+try:
+    from . import subhub_library_browser as media_browser
+except ImportError:
+    import subhub_library_browser as media_browser
 
 TRANSLATION_UNIT = "bruiser-subhub-translation-batch.service"
 FINISH_UNIT = "bruiser-subhub-finish-scope.service"
@@ -1279,7 +1283,27 @@ def start_finish_scope(doc):
     selected=[]
     movie_ids=[]
     movie_scope=None
-    if set(doc)=={"movie_ids"} and isinstance(doc["movie_ids"],list):
+    item_ids=[]
+    library_folder=None
+    library_group=None
+    if set(doc)=={"item_ids"} and isinstance(doc["item_ids"],list):
+        item_ids=doc["item_ids"]
+        if (not 1<=len(item_ids)<=300 or
+                len(set(str(v) for v in item_ids))!=len(item_ids) or
+                any(not isinstance(v,str) or not re.fullmatch("[a-f0-9]{32}",v)
+                    for v in item_ids)):
+            raise ValueError("invalid_selected_media")
+        preview=finish_scope.movie_plan(item_ids=item_ids)
+        kind="selected_items"
+    elif set(doc)=={"library_folder"} and isinstance(doc["library_folder"],str):
+        library_folder=doc["library_folder"]
+        preview=finish_scope.movie_plan(library_folder=library_folder)
+        kind="library_folder"
+    elif set(doc)=={"library_group"} and doc["library_group"] in ("Movie","Episode"):
+        library_group=doc["library_group"]
+        preview=finish_scope.movie_plan(library_group=library_group)
+        kind="library_group"
+    elif set(doc)=={"movie_ids"} and isinstance(doc["movie_ids"],list):
         movie_ids=doc["movie_ids"]
         if not 1<=len(movie_ids)<=100 or len(movie_ids)!=len(set(
                 str(v) for v in movie_ids)) or any(
@@ -1334,6 +1358,13 @@ def start_finish_scope(doc):
             args.extend(("--season",str(sn)))
     elif movie_scope:
         args.extend(("--movie-scope",movie_scope))
+    elif library_folder:
+        args.extend(("--library-folder",library_folder))
+    elif library_group:
+        args.extend(("--library-group",library_group))
+    elif item_ids:
+        for jid in item_ids:
+            args.extend(("--item-id",jid))
     else:
         for jid in movie_ids:
             args.extend(("--movie-id",jid))
@@ -1850,6 +1881,23 @@ class Handler(BaseHTTPRequestHandler):
             except (OSError, ValueError, RuntimeError, TypeError, KeyError,
                     sqlite3.Error, json.JSONDecodeError):
                 self.write(503, b'{"error":"status_unavailable"}')
+        elif target == "/api/library/browse":
+            try:
+                params=parse_qs(urlsplit(self.path).query,keep_blank_values=True)
+                if (len(urlsplit(self.path).query)>1000 or
+                        set(params)-{"kind","folder","query","page","state"} or
+                        any(len(v)!=1 for v in params.values())):
+                    raise ValueError("invalid_library_browse_request")
+                data=media_browser.browse(
+                    kind=params.get("kind",["Movie"])[0],
+                    folder=params.get("folder",[""])[0],
+                    query=params.get("query",[""])[0],
+                    page=int(params.get("page",["0"])[0]),
+                    state=params.get("state",["all"])[0])
+                self.write(200,json.dumps(data,ensure_ascii=False).encode("utf-8"))
+            except (ValueError,OSError,RuntimeError,TypeError,sqlite3.Error) as exc:
+                self.write(400,json.dumps(
+                    {"error":safe_text(str(exc),130)}).encode("utf-8"))
         elif target == "/api/movies/search":
             try:
                 params=parse_qs(urlsplit(self.path).query)
