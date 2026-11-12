@@ -36,6 +36,17 @@ HERE=Path(__file__).resolve().parent
 JID=re.compile(r"[a-f0-9]{32}\Z")
 MAX_SOURCE_ATTEMPTS=100
 MAX_PUBLISH_ATTEMPTS=300
+# Mirrors install_global_ja_sourcing.BUSY_UNITS. The installer is fetched to
+# a temporary file, never installed in HERE; keep this gate self-contained.
+BUSY_UNITS=(
+    "bruiser-ja-source-autofill.service",
+    "bruiser-subhub-season-sources.service",
+    "bruiser-subhub-batch.service",
+    "bruiser-subhub-translation-batch.service",
+    "bruiser-subhub-movie-ja.service",
+    "bruiser-subhub-jellyfin-source.service",
+    "bruiser-subhub-finish-scope.service",
+)
 SHOW_PREFIXES=(
     "EXACT_JELLYFIN_ITEM_FILTER:","MEDIA:","ALASS_REFERENCE_",
     "  ALASS:","  ALASS HELD:","  FFSUBSYNC HELD:",
@@ -149,13 +160,9 @@ def _acquire(jid,candidate):
 
 
 def _safe_apply():
-    # Mirror the real installer owner-idle policy. A wrong unit name here
-    # would leave two writers competing for provider quota and stage files.
-    try:
-        from . import install_global_ja_sourcing as installer
-    except ImportError:
-        import install_global_ja_sourcing as installer
-    for name in installer.BUSY_UNITS:
+    # Match the installer's owner-idle policy without importing the installer:
+    # on OptiPlex it exists only as a temporary downloaded file.
+    for name in BUSY_UNITS:
         result=subprocess.run(["systemctl","--user","is-active",name],
                               capture_output=True,text=True,timeout=12)
         if result.stdout.strip() in ("active","activating","reloading"):
