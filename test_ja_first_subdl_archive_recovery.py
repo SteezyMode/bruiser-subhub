@@ -66,6 +66,9 @@ class SubdlArchiveRecoveryTests(unittest.TestCase):
             root=Path(d)/"staged"
             folder=root/"subdl-source-zips"
             folder.mkdir(parents=True,mode=0o700)
+            # tempfile parents can inherit mode 0755: the production cache
+            # correctly rejects that, but this test must model a safe stage.
+            root.chmod(0o700)
             _,digest=subdl.numeric_id(self.candidate["subtitle_id"])
             (folder/(digest+".zip")).symlink_to(Path(d)/"outside")
             with patch.object(subdl.stage,"STAGED",root), \
