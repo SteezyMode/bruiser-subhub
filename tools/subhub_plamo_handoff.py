@@ -140,6 +140,33 @@ def validate_row(row, owner_review=False):
         raise RuntimeError("english_text_not_indicated")
 
 
+
+
+def automatic_exhausted_row(jid):
+    """Auto PLaMo may run only after a completed exact-video source proof."""
+    try:
+        from . import subhub_deep_source as deep
+    except ImportError:
+        import subhub_deep_source as deep
+    if not JELLYFIN_ID.fullmatch(str(jid or "")):
+        raise RuntimeError("invalid_auto_fallback_identity")
+    matches=[r for r in deep.inventory.load_latest_manifest()
+             if isinstance(r,dict) and r.get("jellyfin_id")==jid]
+    if len(matches)!=1 or matches[0].get("status")!="ready_ja_search":
+        raise RuntimeError("auto_fallback_inventory_not_source_ready")
+    item=matches[0]
+    if not deep.validate_exhausted(jid,item):
+        raise RuntimeError("source_exhaustion_proof_missing_or_stale")
+    video=Path(str(item.get("host_path") or ""))
+    if deep.stage.japanese_sidecar_exists(video):
+        raise RuntimeError("japanese_arrived_after_source_exhaustion")
+    return {"jellyfin_id":jid,"path":str(video),
+            "kind":item["kind"],"title":str(item.get("title") or ""),
+            "series":str(item.get("series_title") or ""),
+            "action":"source_exhausted_auto","target":"ja",
+            "state":"held","english_text":int(bool(item.get("english_text")))}
+
+
 def explicit_movie_pilot(jid, movie_path, source, safe_media_path):
     """ONE owner-selected new Jellyfin movie, not an unattended queue override.
 
@@ -835,6 +862,8 @@ def main(argv=None):
     group.add_argument("--apply",action="store_true",
                        help="translate exactly one eligible title with proven GPU engine")
     parser.add_argument("--jellyfin-id",help="exact Jellyfin item ID; mandatory for writes")
+    parser.add_argument("--source-exhausted-auto",action="store_true",
+                        help="fallback only after exhaustive JA sourcing proof")
     parser.add_argument("--owner-reviewed-source",action="store_true",
                         help="Explicit owner AI fallback for one reviewed/held searched movie or episode")
     parser.add_argument("--limit",type=int,default=15)
@@ -846,6 +875,11 @@ def main(argv=None):
         parser.error("--limit must be 1..50")
     if (args.prepare or args.apply) and not args.jellyfin_id:
         parser.error("--prepare/--apply requires --jellyfin-id")
+    if args.source_exhausted_auto and (args.owner_reviewed_source or
+                                       args.explicit_movie_pilot or
+                                       not args.jellyfin_id or
+                                       not (args.prepare or args.apply)):
+        parser.error("--source-exhausted-auto requires exact ID and --apply/--prepare")
     if args.owner_reviewed_source and (args.explicit_movie_pilot or
                                       not args.jellyfin_id or
                                       not (args.prepare or args.apply)):
@@ -856,7 +890,7 @@ def main(argv=None):
     elif args.movie_path:
         parser.error("--movie-path is only valid with --explicit-movie-pilot")
     rows = []
-    if not args.explicit_movie_pilot:
+    if not args.explicit_movie_pilot and not args.source_exhausted_auto:
         with safe_db(QUEUE) as db:
             rows=eligible(db,args.jellyfin_id,args.limit,
                           owner_review=args.owner_reviewed_source)
@@ -878,6 +912,10 @@ def main(argv=None):
         if args.owner_reviewed_source:
             print("SUBHUB_AI_OWNER_REVIEW_FALLBACK media="+row["jellyfin_id"]+
                   " action="+row["action"]+" state="+row["state"],flush=True)
+    if args.source_exhausted_auto:
+        row=automatic_exhausted_row(args.jellyfin_id)
+        print("SUBHUB_AI_AUTOMATIC_SOURCE_EXHAUSTED media="+row["jellyfin_id"],
+              flush=True)
     if args.explicit_movie_pilot:
         if recent_running_source():
             raise RuntimeError("source_batch_still_running_retry_after_it_finishes")
@@ -902,7 +940,13 @@ def main(argv=None):
         fcntl.flock(lock.fileno(),fcntl.LOCK_EX|fcntl.LOCK_NB)
         if recent_running_source():
             raise RuntimeError("source_batch_still_running_retry_after_it_finishes")
-        if not args.explicit_movie_pilot:
+        if args.source_exhausted_auto:
+            check=automatic_exhausted_row(args.jellyfin_id)
+            if check["path"]!=row["path"]:
+                raise RuntimeError("automatic_source_video_changed")
+            row=check
+            mod=modules()
+        elif not args.explicit_movie_pilot:
             if args.owner_reviewed_source:
                 # Recheck the queue and source proof immediately before GPU use.
                 with safe_db(QUEUE) as db:
