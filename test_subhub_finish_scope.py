@@ -58,6 +58,7 @@ class ScopeCompletionTests(unittest.TestCase):
              mock.patch.object(finish,"selected_media",
                                return_value=[(9,1,first),(9,2,second)]), \
              mock.patch.object(finish,"command",side_effect=invoke), \
+             mock.patch.object(finish,"valid_source_exhaustion",return_value=True), \
              mock.patch.object(finish,"write_state") as save, \
              mock.patch.object(finish.time,"sleep") as sleep:
             self.assertEqual(finish.run("Sunny",[9]),0)
