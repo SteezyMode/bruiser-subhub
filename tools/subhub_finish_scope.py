@@ -274,6 +274,20 @@ def valid_source_exhaustion(jid):
     return len(matches)==1 and deep.validate_exhausted(jid,matches[0])
 
 
+def selected_title_metadata(selection):
+    """Only names are needed for live progress; never mutate media or queue."""
+    try:
+        from . import subhub_deep_source as deep
+    except ImportError:
+        if str(SOURCE.parent) not in sys.path:
+            sys.path.insert(0,str(SOURCE.parent))
+        import subhub_deep_source as deep
+    ids={jid for _,_,jid in selection}
+    return {str(row.get("jellyfin_id")):row for row in
+            deep.inventory.load_latest_manifest() if isinstance(row,dict)
+            and str(row.get("jellyfin_id")) in ids}
+
+
 def run(series=None, seasons=(), *, movie_ids=(), movie_scope=None,
         item_ids=(), library_folder=None, library_group=None,
         library_genre=None, library_kind=None):
@@ -293,14 +307,7 @@ def run(series=None, seasons=(), *, movie_ids=(), movie_scope=None,
                               library_group=library_group,
                               library_genre=library_genre,library_kind=library_kind))
     finished=initial_covered(selection)
-    try:
-        from . import subhub_deep_source as deep
-    except ImportError:
-        if str(SOURCE.parent) not in sys.path:
-            sys.path.insert(0,str(SOURCE.parent))
-        import subhub_deep_source as deep
-    by_id={str(row.get("jellyfin_id")):row for row in
-           deep.inventory.load_latest_manifest() if isinstance(row,dict)}
+    by_id=selected_title_metadata(selection)
     pending={jid:(season,episode) for season,episode,jid in selection
              if jid not in finished}
     total=len(selection)
