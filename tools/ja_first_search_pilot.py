@@ -725,9 +725,11 @@ def recover_saved_reviews(*, apply=False, scope="all"):
             pending = []
             for jid, title, outcome, count, plausible, raw in rows:
                 identity = identities.get(str(jid))
-                if (not identity or identity.get("title") != title
-                        or identity.get("status") != "ready_ja_search"
-                        or not movie_scope.matches(identity,scope)):
+                if not identity or identity.get("title") != title:
+                    continue
+                if (scope != "all" and
+                        (identity.get("status") != "ready_ja_search"
+                         or not movie_scope.matches(identity,scope))):
                     continue
                 try:
                     data = json.loads(raw)
