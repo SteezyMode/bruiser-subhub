@@ -272,7 +272,8 @@ def subf2m_missing_release(row,candidate):
             and bool(stage.tokens(row.get("title")))
             and bool(re.fullmatch(r"(?:19|20)\d{2}",str(row.get("year") or "")))
             and bool(PROVIDER.fullmatch(str(candidate.get("provider") or "")))
-            and 2<=len(str(candidate.get("subtitle_id") or ""))<=250)
+            and 2<=len(str(candidate.get("subtitle_id") or ""))<=250
+            and str(candidate.get("subtitle_id") or "").isprintable())
 
 
 def verify_subf2m_proof(row,candidate,proof):
