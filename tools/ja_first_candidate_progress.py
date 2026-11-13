@@ -249,6 +249,53 @@ def remember(jid,sid,engine,key,exc,*,db_path=None):
     path.chmod(0o600)
     return True
 
+def record_movie_outcome(jid, result, staged_ids, *, reason="", next_action="",
+                         db_path=None):
+    """Retain the latest real movie-publisher outcome in the EXISTING private DB.
+
+    This is an exception register, not a job queue and not a second source
+    database. Candidate attempts retain their separate immutable failure
+    receipts. Reruns update one item rather than creating duplicate tasks.
+    """
+    if not re.fullmatch(r"[a-f0-9]{32}", str(jid)):
+        raise RuntimeError("invalid_movie_outcome_jellyfin_id")
+    allowed={"published_new","covered_existing","held","held_unchanged"}
+    if result not in allowed:
+        raise RuntimeError("invalid_movie_outcome")
+    ids=sorted(set(str(x) for x in staged_ids))
+    if len(ids)>100 or any(
+            not re.fullmatch(r"[1-9][0-9]{1,14}", x) for x in ids):
+        raise RuntimeError("invalid_movie_outcome_staged_ids")
+    if not isinstance(reason,str) or not isinstance(next_action,str):
+        raise RuntimeError("invalid_movie_outcome_details")
+    path=DB if db_path is None else Path(db_path)
+    if (path.parent.is_symlink() or not path.parent.is_dir()
+            or path.parent.stat().st_mode & 0o077):
+        raise RuntimeError("unsafe_movie_outcome_directory")
+    _secure_readable(path)
+    import os
+    previous=os.umask(0o077)
+    try:
+        con=sqlite3.connect(path,timeout=12)
+    finally:
+        os.umask(previous)
+    with con:
+        con.execute("""CREATE TABLE IF NOT EXISTS movie_outcomes(
+           jellyfin_id TEXT PRIMARY KEY,
+           result TEXT NOT NULL,
+           candidate_ids_json TEXT NOT NULL,
+           reason TEXT NOT NULL,
+           next_action TEXT NOT NULL,
+           recorded_at INTEGER NOT NULL)""")
+        con.execute(
+            "INSERT OR REPLACE INTO movie_outcomes VALUES(?,?,?,?,?,?)",
+            (jid,result,json.dumps(ids),reason[:240],next_action[:120],
+             int(time.time())))
+        con.commit()
+    path.chmod(0o600)
+    return True
+
+
 def next_action(jid,staged_ids,*,search_path=None,accept_candidate=None):
     """Describe the next safe step; never launch GPU or providers implicitly."""
     path=SEARCH_DB if search_path is None else Path(search_path)
