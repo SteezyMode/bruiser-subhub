@@ -466,6 +466,7 @@ def pick(rows, db, budget, scope='all', retry_none_after_days=None,
              or scope == "all")):
         raise ValueError("retry_none_requires_explicit_movie_scope_and_days_1_to_30")
     done=set()
+    history_timestamps={}
     # Read legacy search DBs too; absence of strategy metadata simply means
     # a no-result entry needs one recheck, not a database migration failure.
     columns={str(col[1]) for col in db.execute("PRAGMA table_info(searches)")}
@@ -474,6 +475,10 @@ def pick(rows, db, budget, scope='all', retry_none_after_days=None,
     for jid,outcome,when,raw in db.execute(
         "SELECT jellyfin_id,outcome,searched_at,"+projection+" FROM searches"):
         if rescan_missing:
+            # Preserve chronological priority across allowance resets:
+            # unfinished films (older history) before movies already
+            # rechecked during this owner's interrupted fresh pass.
+            history_timestamps[str(jid)]=int(when or 0)
             # Owner-selected genre refresh: one completed provider lookup
             # per missing movie per 20-hour allowance window. Preserve all
             # old candidate evidence; never touch already-covered media.
@@ -515,7 +520,7 @@ def pick(rows, db, budget, scope='all', retry_none_after_days=None,
     # never burn provider calls on titles already staged, held or headed to AI.
     # A new library item not yet in the last matrix is eligible only AFTER
     # known pending queue items. No arbitrary Movie/Episode quota.
-    queue = priorities.active_coverage_queue()
+    queue = None if rescan_missing else priorities.active_coverage_queue()
     choices = []
     for row in rows:
         if not movie_scope.matches(row, scope):
@@ -547,10 +552,11 @@ def pick(rows, db, budget, scope='all', retry_none_after_days=None,
             order = priorities.queue_position(row, "search", queue)
             if order is None:
                 continue
-        choices.append((order, hashlib.sha256(key.encode()).hexdigest(), row))
-    choices.sort(key=lambda item: (item[0], item[1]))
+        age = history_timestamps.get(key,-1) if rescan_missing else 0
+        choices.append((order, age, hashlib.sha256(key.encode()).hexdigest(), row))
+    choices.sort(key=lambda item: (item[0], item[1], item[2]))
     chosen = []
-    for _, _, row in choices:
+    for _, _, _, row in choices:
         if len(chosen) >= budget:
             break
         query = query_for(row)  # Only short-listed files get media access.
