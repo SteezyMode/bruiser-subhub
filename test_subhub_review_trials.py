@@ -29,7 +29,7 @@ def hit(provider="subdl",remote="12345-340891",language="ja"):
 
 
 class ReviewTrialTests(unittest.TestCase):
-    def test_library_wide_review_selection_includes_episodes_and_unknown_titles(self):
+    def test_movie_review_selection_skips_episodes_and_unknown_titles(self):
         m=movie()
         e=episode()
         docs={
@@ -41,18 +41,17 @@ class ReviewTrialTests(unittest.TestCase):
         jobs,counts=review.audit_candidates(
             [m,e,dict(movie("c"*32),status="existing_japanese_subtitle")],
             reader=lambda jid:docs.get(jid),which="all")
-        self.assertEqual(len(jobs),3)
-        self.assertEqual({r["kind"] for r,_ in jobs},{"Movie","Episode"})
-        self.assertEqual(counts["saved_review_hits"],6)
+        self.assertEqual(len(jobs),2)
+        self.assertEqual({r["kind"] for r,_ in jobs},{"Movie"})
+        self.assertEqual(counts["saved_review_hits"],5)
         self.assertEqual(counts["other_provider_review_hits"],1)
         self.assertEqual(counts["invalid_or_nonja_review_hits"],1)
         self.assertEqual(counts["duplicate_saved_hit"],1)
         self.assertEqual(counts["eligible_subdl"],1)
-        self.assertEqual(counts["eligible_opensubtitles"],2)
-        only_tv,_=review.audit_candidates(
-            [m,e],reader=lambda jid:docs.get(jid),which="episodes")
-        self.assertEqual(len(only_tv),1)
-        self.assertEqual(only_tv[0][0]["kind"],"Episode")
+        self.assertEqual(counts["eligible_opensubtitles"],1)
+        no_tv,_=review.audit_candidates(
+            [e],reader=lambda jid:docs.get(jid))
+        self.assertEqual(no_tv,[])
 
     def test_review_selection_rejects_forced_and_invalid_provider_id(self):
         row=movie()
@@ -140,7 +139,7 @@ class ReviewTrialTests(unittest.TestCase):
                      [(row,hit())],{"candidate_jobs":1})), \
                  patch.object(review,"trial") as trial:
                 rc=review.run(SimpleNamespace(
-                    media="all",provider="both",limit=6,apply=False))
+                    provider="both",limit=6,apply=False))
                 self.assertEqual(rc,0)
                 trial.assert_not_called()
 
