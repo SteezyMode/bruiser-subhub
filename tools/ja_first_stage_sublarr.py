@@ -429,15 +429,18 @@ def exclusion_audit():
                     continue
                 seen.add(key)
                 reason=exclusion_reason(row,c)
+                # Discovery rejects may happen for reasons our simpler stage
+                # filter cannot infer. NEVER call one of those stage-eligible.
+                bucket=reason if source=="candidates" else "discovery_rejected_"+reason
                 summary=by_provider[provider or "missing_provider"]
                 summary[source+"_total"]+=1
-                summary[reason]+=1
+                summary[bucket]+=1
                 state["releases_examined"]+=1
                 if source=="candidates" and reason=="eligible":
                     viable_titles.add(str(jid))
                     summary["unique_title_"+str(jid)]=1
-                if reason!="eligible" and len(examples[(provider,reason)])<2:
-                    examples[(provider,reason)].append(
+                if bucket!="eligible" and len(examples[(provider,bucket)])<2:
+                    examples[(provider,bucket)].append(
                         (str(row.get("title") or row.get("series_title") or "Untitled")[:64],
                          str(row.get("kind") or "unknown")))
                 if (source=="candidates" and
