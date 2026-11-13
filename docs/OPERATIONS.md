@@ -41,6 +41,15 @@ ssh optiplex@100.121.156.34 \
 
 This **stages only**; a normal trusted publisher would still need to validate timing and create the JA sidecar in a **separate explicit step**. Do not start the source cycle or turn on scheduled retries as part of this test. Saved Search DB may contain candidates from non-core providers, but source availability can expire; candidate re-search failures are not proof subtitles don't exist.
 
+**Live-action-first research diagnostic (read-only, no provider requests):**
+
+```bash
+ssh optiplex@100.121.156.34 \
+ 'python3 -B -u ~/bruiser-pilot/subhub-control/ja_first_stage_sublarr.py --audit-exclusions'
+```
+
+This separates raw saved candidate counts from titles still missing Japanese, rejected-by-discovery results, non-Japanese language, forced/signs-only, format unsupported (e.g. ASS), invalid candidate IDs, and inadequate title/year or episode evidence. The command prints a bounded list of **non-animation-genre** movies/TV to choose a meaningful first pilot rather than defaulting to originally Japanese anime. Non-animation metadata is only a rough preference hint, not a guaranteed live-action or English-audio classification. Do **not** widen safety filters just to increase candidate counts; verify format and matching evidence first. This does not alter any routine processing rule or remove anime content from the library.
+
 **Not yet implemented:** a verified per-provider search-participation matrix for all enabled JA-capable sources; newly discovered provider candidate preservation into the search DB; a global best-verified-candidate choice after synchronization; routine use by new-arrival or backlog pipelines; host proof of actual non-core subtitle publication. Keep [P0 issue #101](https://github.com/SteezyMode/bruiser-subhub/issues/101) open, and do not label this a complete all-provider solution.
 
 **Host-verified install (2026-11-13):** Commit `78237804566f283e92c851d34a46393eb04917d5` successfully installed with `--install-only`; dashboard write probe and /api/status passed. Backup: `/home/optiplex/bruiser-pilot/subhub-control/.ja-library-source-backup-z2cpyj_w`. Generic staging **read-only** census: only 3 ready-to-source titles, 6 identity/format-eligible non-core saved releases (AnimeTosho 5, Kitsunekko 1): *Kiki's Delivery Service*, *The Tale of the Princess Kaguya*, *Whisper of the Heart*. Previous saved results included many more hits from SubF2M and AnimeTosho, so a **read-only exclusion-cause audit** is needed before spending provider quota or widening filters. These three were originally Japanese-language films: validate their actual stored audio and subtitles before selecting a test. **No generic Sublarr download, staging, synchronization or publication was performed or confirmed**. See [issue #101](https://github.com/SteezyMode/bruiser-subhub/issues/101). The issue remains open; all-provider end-to-end sourcing is not yet deployed.
