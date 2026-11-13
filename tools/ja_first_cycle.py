@@ -137,6 +137,8 @@ def status():
          "SELECT outcome,COUNT(*) FROM searches GROUP BY outcome"),
         ("JAPANESE STAGING", ROOT / "japanese-stage.sqlite3",
          "SELECT status,COUNT(*) FROM staged GROUP BY status"),
+        ("MOVIE RECOVERY OUTCOMES", ROOT / "japanese-candidate-failures.sqlite3",
+         "SELECT result,COUNT(*) FROM movie_outcomes GROUP BY result"),
         ("GEMMA JOB QUEUE", JA_ROOT / "jobs.sqlite3",
          "SELECT status,COUNT(*) FROM jobs GROUP BY status"),
     ):
