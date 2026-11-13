@@ -74,6 +74,58 @@ def _release_note(text,start_ms):
     return japanese or english
 
 
+
+# Credit slates are metadata, NOT dialogue. The following are intentionally
+# anchored to an entire short opening cue; no arbitrary "by" substring match.
+# Keep this narrow enough that a character mentioning subtitles is retained.
+EN_CREDIT = re.compile(r"""(?ix)
+    \A(?:(?:japanese|english|jp|en)\s+)?
+    (?:
+      (?:subtitles?|subs?|fan[- ]?subs?|translations?|transcriptions?|
+         captions?|sync|synchroni[sz]ation|timing|typesetting)
+         \s+(?:by|from|courtesy\s+of)
+      |(?:subbed|translated|transcribed|captioned|synced|synchroni[sz]ed|
+          timed|typeset)\s+by
+      |(?:subtitles?|subs?|translations?|captions?)\s*[:：]
+    )
+    \s*[:：\-]?\s*(?P<name>.+)\Z
+""")
+JP_CREDIT = re.compile(r"""(?ix)
+    \A(?:日本語字幕|字幕(?:翻訳|制作|作成|担当|協力|提供)?|
+         翻訳(?:担当|者)?|字幕[・/]翻訳|翻訳[・/]字幕)
+       \s*(?:[:：\-]|by\s+)\s*(?P<name>.+)\Z
+""")
+
+
+def _opening_credit(text, start_ms):
+    """Identify a demonstrably non-dialogue opening translator/uploader slate.
+
+    NEVER use this for general content removal. Only the initial cue(s)
+    before spoken dialogue and <=2 minutes into the video may qualify.
+    Ordinary names without an explicit credit label remain dialogue.
+    """
+    if start_ms > 120000 or "\n" in text.strip() or len(text) > 160:
+        return False
+    plain = re.sub(r"\{\\an[1-9]\}", "", text.strip())
+    plain = re.sub(r"</?(?:i|b|u|font)\b[^>]*>", "", plain,
+                   flags=re.IGNORECASE)
+    plain = plain.strip().strip("[]【】").strip()
+    if not 8 <= len(plain) <= 110:
+        return False
+    match = EN_CREDIT.fullmatch(plain) or JP_CREDIT.fullmatch(plain)
+    if match is None:
+        return False
+    name = match.group("name").strip(" \t:：-")
+    if not 2 <= len(name) <= 70:
+        return False
+    # Reject sentence-like text rather than risking deletion of movie dialogue.
+    if re.search(r"[!?。！？\r\n]|(?:\.\s+[A-Z])", name):
+        return False
+    if re.search(r"(?i)\b(?:is|are|was|were|said|says|because|when|that)\b",
+                 name):
+        return False
+    return True
+
 def _separate_merged_timed_block(block):
     """Recover cues whose separator blank line is missing.
 
@@ -114,7 +166,8 @@ def normalize(raw,*,expected_timestamps=None,
               trial_release_note=False,trial_local_swap=False):
     """Return (working SRT bytes, change report) without modifying raw.
 
-    No dialogue is dropped except empty cue slots and non-text control chars.
+    No dialogue is dropped: only empty slots, explicit opening metadata credits,
+    and non-text control chars can be excluded from the working trial.
     Fail closed if an unparseable block contains actual text, if timestamps
     are lost, or if cue order/timing is invalid. Do not infer edition fit.
     """
@@ -150,6 +203,7 @@ def normalize(raw,*,expected_timestamps=None,
     empty=0
     invalid_controls=0
     release_notes=0
+    opening_credits=0
     reordered=[]
     canonicalized_timestamps=0
     for k,block in enumerate(blocks,1):
@@ -180,6 +234,12 @@ def normalize(raw,*,expected_timestamps=None,
             # the working trial. The provider original remains immutable.
             release_notes+=1
             continue
+        if (trial_release_note and k<=3 and not parsed
+                and _opening_credit(clean,start)):
+            # Strict opening metadata only. Never strip a subsequent credit
+            # interleaved with actual dialogue, or modify saved provider bytes.
+            opening_credits+=1
+            continue
         parsed.append((start,end,canonical,clean))
     if len(blocks)!=stamp_total:
         # Never normalize a block which silently combines multiple cues,
@@ -202,7 +262,7 @@ def normalize(raw,*,expected_timestamps=None,
         if any(parsed[j][0]<parsed[j-1][0] for j in range(1,len(parsed))):
             raise RuntimeError("staged_srt_cue_order_invalid")
         reordered=[{"original_cues":[i,i+1],"jump_ms":jump}]
-    changed=bool(empty or invalid_controls or release_notes or reordered or merged_blocks
+    changed=bool(empty or invalid_controls or release_notes or opening_credits or reordered or merged_blocks
                  or canonicalized_timestamps or raw.startswith(b"\xef\xbb\xbf"))
     changed=changed or "\r" in original or any(
         not block.strip(" \t\r\n").startswith(str(i))
@@ -216,6 +276,7 @@ def normalize(raw,*,expected_timestamps=None,
         "merged_cues_recovered":len(blocks)-len(original_blocks),
         "control_characters_removed":invalid_controls,
         "technical_release_notes_excluded":release_notes,
+        "opening_credit_cues_excluded":opening_credits,
         "local_timestamp_swaps":reordered,
         "timestamp_formats_normalized":canonicalized_timestamps,
         "structural_repair":changed

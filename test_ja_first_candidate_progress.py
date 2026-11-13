@@ -64,6 +64,36 @@ class CandidateProgressTests(unittest.TestCase):
             self.assertIsNone(progress.known(
                 self.JID,"1000","ffsubsync",key,db_path=db))
 
+    def test_durable_movie_outcomes_reuse_private_progress_db(self):
+        with tempfile.TemporaryDirectory() as temp:
+            db=Path(temp)/"candidate-failures.sqlite3"
+            progress.record_movie_outcome(
+                self.JID,"held",["8410960070707","6475874700057"],
+                reason="alass_out_of_video:overrun_seconds=200.73",
+                next_action="stage_alternate_saved_japanese",db_path=db)
+            self.assertEqual(db.stat().st_mode & 0o777,0o600)
+            with sqlite3.connect(db) as cx:
+                one=cx.execute(
+                    "SELECT result,candidate_ids_json,reason,next_action "
+                    "FROM movie_outcomes WHERE jellyfin_id=?",
+                    (self.JID,)).fetchone()
+            self.assertEqual(one[0],"held")
+            self.assertEqual(json.loads(one[1]),
+                             ["6475874700057","8410960070707"])
+            self.assertIn("alass_out_of_video",one[2])
+            progress.record_movie_outcome(
+                self.JID,"published_new",["6475874700057"],
+                reason="ready_alass",db_path=db)
+            with sqlite3.connect(db) as cx:
+                rows=cx.execute(
+                    "SELECT result,reason FROM movie_outcomes").fetchall()
+            self.assertEqual(rows,[("published_new","ready_alass")])
+            for args in ((self.JID,"ready",["1000"]),
+                         ("badid","held",["1000"]),
+                         (self.JID,"held",["-3"])):
+                with self.assertRaises(RuntimeError):
+                    progress.record_movie_outcome(*args,db_path=db)
+
     def test_saved_alternate_then_provider_retry_then_owner_review_fallback(self):
         with tempfile.TemporaryDirectory() as temp:
             path=Path(temp)/"search.sqlite3"

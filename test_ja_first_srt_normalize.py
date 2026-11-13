@@ -137,6 +137,103 @@ class StructuralNormalizationTests(unittest.TestCase):
         self.assertIn("もう帰ろう".encode(),derived)
         self.assertEqual(raw.count("私はここにいる".encode()),1)
 
+    def test_common_subtitler_credit_slates_excluded_only_in_sync_trial(self):
+        credits=(
+            "Subs by SteezyMode",
+            "Subtitles by: Alice",
+            "Translation by Sakura-Subs",
+            "Translated by Sakura-Subs",
+            "Subbed by Jane Doe",
+            "Fan subs by TheTeam",
+            "Fansubs by TheTeam",
+            "Timed by Editor77",
+            "Synced by A-Team",
+            "Typeset by AAA",
+            "Subtitles: FilmFans",
+            "[Subtitles by: MovieFans]",
+            "<i>Japanese subtitles by Kenji</i>",
+            r"{\an8}Subs by SubtitleGroup",
+            "字幕翻訳：山田太郎",
+            "日本語字幕: 桜字幕組",
+            "字幕：東京字幕班",
+            "翻訳：翻訳チーム",
+            "字幕提供：日本字幕",
+        )
+        for credit in credits:
+            with self.subTest(credit=credit):
+                raw=(cue(1,"00:00:05,000","00:00:08,000",credit)+
+                     cue(2,"00:00:10,000","00:00:12,000","本当にそうなの")+
+                     cue(3,"00:00:20,000","00:00:22,000","帰りましょう"))
+                same,report=norm.normalize(raw,expected_timestamps=3)
+                self.assertIs(same,raw)
+                self.assertEqual(report["opening_credit_cues_excluded"],0)
+                output,report=norm.normalize(
+                    raw,expected_timestamps=3,trial_release_note=True)
+                self.assertEqual(report["opening_credit_cues_excluded"],1)
+                self.assertEqual(report["retained_dialogue_cues"],2)
+                self.assertIn("本当にそうなの".encode(),output)
+                self.assertIn("帰りましょう".encode(),output)
+                self.assertNotIn(credit.encode(),output)
+                self.assertEqual(report["source_timestamp_cues"],3)
+                self.assertTrue(report["structural_repair"])
+                # The original downloaded bytes are never edited.
+                self.assertIn(credit.encode(),raw)
+
+    def test_multiple_explicit_credits_before_dialogue_only(self):
+        raw=(cue(1,"00:00:04,000","00:00:05,000","Subs by AlphaTeam")+
+             cue(2,"00:00:06,000","00:00:07,000","Translation by BetaTeam")+
+             cue(3,"00:00:10,000","00:00:12,000","お元気ですか")+
+             cue(4,"00:00:15,000","00:00:16,000","字幕：今夜はすごいの？"))
+        output,report=norm.normalize(
+            raw,expected_timestamps=4,trial_release_note=True)
+        self.assertEqual(report["opening_credit_cues_excluded"],2)
+        self.assertEqual(report["retained_dialogue_cues"],2)
+        self.assertIn("お元気ですか".encode(),output)
+        self.assertIn("字幕：今夜はすごいの？".encode(),output)
+
+    def test_opening_credit_rejects_dialogue_ambiguous_or_late_lines(self):
+        samples=(
+            "He said the subtitles by the door were gone",
+            "Subtitles by Jane were removed yesterday",
+            "Translation by someone was excellent",
+            "翻訳：今夜はどうなったの？",
+            "Subtitles by",
+            "Subtitles by: ",
+            "Sakura-Subs",
+            "字幕は誰が書いたの",
+            "subtitles by group\nWe should go now",
+        )
+        for example in samples:
+            with self.subTest(example=example):
+                raw=(cue(1,"00:00:02,000","00:00:04,000",example)+
+                     cue(2,"00:00:10,000","00:00:11,000","また明日"))
+                out,report=norm.normalize(
+                    raw,expected_timestamps=2,trial_release_note=True)
+                self.assertEqual(report["opening_credit_cues_excluded"],0)
+                self.assertIn(example.encode(),out)
+        for placement in ("after_dialogue","fourth_cue","after_120s"):
+            with self.subTest(placement=placement):
+                before=[
+                    cue(1,"00:00:02,000","00:00:04,000","これは台詞です"),
+                    cue(2,"00:00:05,000","00:00:06,000","続けて"),
+                    cue(3,"00:00:07,000","00:00:08,000","さようなら"),
+                ]
+                if placement=="after_dialogue":
+                    before.insert(1,cue(4,"00:00:04,200","00:00:04,800",
+                                        "Subtitles by AlphaTeam"))
+                elif placement=="fourth_cue":
+                    before.append(cue(4,"00:00:09,000","00:00:09,800",
+                                      "Subtitles by AlphaTeam"))
+                else:
+                    before=[cue(1,"00:02:02,000","00:02:04,000",
+                                "Subtitles by AlphaTeam")]
+                raw=b"".join(before)
+                out,report=norm.normalize(
+                    raw,expected_timestamps=len(before),
+                    trial_release_note=True)
+                self.assertEqual(report["opening_credit_cues_excluded"],0)
+                self.assertIn("Subtitles by AlphaTeam".encode(),out)
+
     def test_spoken_dialogue_with_duration_stays(self):
         raw=(cue(1,"00:00:10,000","00:00:12,000",
                  "1：50：50の映画を昨日見たよ")+

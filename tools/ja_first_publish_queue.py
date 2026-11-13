@@ -387,6 +387,7 @@ def report_next_action(jid,candidates):
         "owner_approval_required":action.startswith("offer_owner"),
         "english_validation_required":action.startswith("offer_owner")
     },sort_keys=True),flush=True)
+    return action
 
 
 def publish_selected(jid, kind, chosen):
@@ -417,6 +418,24 @@ def publish_selected(jid, kind, chosen):
                        fresh["adjusted"])
         return
     raise RuntimeError("unsupported_publish_choice")
+
+
+def retain_movie_outcome(jid,row,candidates,result,*,reason="",action=""):
+    """Non-fatal bookkeeping after an actual publisher attempt; never publish.
+
+    If disk bookkeeping fails, report that clearly without relabeling an
+    already-created Japanese sidecar as a failed publication.
+    """
+    if not isinstance(row,dict) or row.get("kind")!="Movie":
+        return
+    try:
+        progress.record_movie_outcome(
+            jid,result,[sid for sid,_ in candidates],
+            reason=reason,next_action=action)
+        print("MOVIE_OUTCOME_RECORDED:",jid,result,flush=True)
+    except (RuntimeError,ValueError,OSError,sqlite3.Error) as exc:
+        print("MOVIE_OUTCOME_RECEIPT_HELD:",jid,type(exc).__name__,
+              str(exc)[:120],flush=True)
 
 
 def self_test():
@@ -514,6 +533,7 @@ def main():
             break
         print("MEDIA:", jid, "| candidate IDs:",
               ",".join(sid for sid, _ in candidates), flush=True)
+        row=None
         try:
             kind, row, value = (choose(jid, candidates, intensive_only=True)
                                 if args.intensive_only else choose(
@@ -521,12 +541,20 @@ def main():
             print("RESULT:", report_title(row), "|", kind, flush=True)
             counts[kind] += 1
             if kind=="held_unchanged":
-                report_next_action(jid,candidates)
+                action=report_next_action(jid,candidates)
+                if args.apply:
+                    retain_movie_outcome(
+                        jid,row,candidates,"held_unchanged",
+                        reason="unchanged_deterministic_hold",
+                        action=action)
                 continue
             if kind.startswith("published_"):
                 if args.apply:
                     mark_completed(jid)
                     counts["retired_completed"] += 1
+                    retain_movie_outcome(
+                        jid,row,candidates,"covered_existing",
+                        reason=kind)
                 print("BRUISER_PUBLISH_ITEM:", json.dumps({
                     "jellyfin_id": jid, "result": "already_published",
                     "proof": kind}, sort_keys=True), flush=True)
@@ -538,6 +566,9 @@ def main():
                     # Mark only after successful create-only host publication.
                     mark_completed(jid)
                     counts["published_new"] += 1
+                    retain_movie_outcome(
+                        jid,row,candidates,"published_new",
+                        reason=kind)
                     print("BRUISER_PUBLISH_ITEM:", json.dumps({
                         "jellyfin_id": jid, "result": "published",
                         "proof": kind}, sort_keys=True), flush=True)
@@ -548,8 +579,19 @@ def main():
                 "jellyfin_id": jid, "result": "held",
                 "reason": type(exc).__name__ + ": " + str(exc)[:120]
             }, sort_keys=True), flush=True)
+            action=""
             if not args.intensive_only:
-                report_next_action(jid,candidates)
+                action=report_next_action(jid,candidates)
+            if args.apply:
+                if row is None:
+                    try:
+                        row=direct.read_inventory(jid,allow_existing_ja=True)
+                    except (ValueError,RuntimeError,OSError,KeyError):
+                        pass
+                retain_movie_outcome(
+                    jid,row,candidates,"held",
+                    reason=type(exc).__name__+":"+str(exc)[:200],
+                    action=action)
     print("QUEUE SUMMARY:", json.dumps(dict(counts)), flush=True)
     print("No provider searches, downloads or translation jobs.", flush=True)
     if not args.apply:

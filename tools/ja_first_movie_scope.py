@@ -13,7 +13,8 @@ except ImportError:
 
 SCOPE = "horror-drama-folders"
 MOVIES_NO_ANIME = "movies-no-anime"
-SCOPES = ("all", SCOPE, MOVIES_NO_ANIME)
+MOVIES_ALL = "movies-all"
+SCOPES = ("all", SCOPE, MOVIES_NO_ANIME, MOVIES_ALL)
 ROOTS = (
     Path("/mnt/BigDisk/Video/Movies"),
     Path("/mnt/2TB/Plex Expansion/Movies"),
@@ -24,10 +25,21 @@ CATEGORIES = {"horror", "drama suspense", "drama", "suspense"}
 def matches(row, scope="all"):
     if scope == "all":
         return True
-    if scope not in (SCOPE, MOVIES_NO_ANIME):
+    if scope not in (SCOPE, MOVIES_NO_ANIME, MOVIES_ALL):
         raise ValueError("unsupported_japanese_source_scope")
     if not isinstance(row, dict) or row.get("kind") != "Movie":
         return False
+    if scope == MOVIES_ALL:
+        # Every Jellyfin Movie physically within either configured movie root,
+        # including anime and animation. Never mix in Television or unsafe
+        # paths: this scope is for owner-initiated movie library sweeps.
+        value = row.get("host_path")
+        if not isinstance(value, str) or not value.startswith("/"):
+            return False
+        path = Path(value)
+        if path.is_symlink() or ".." in path.parts:
+            return False
+        return any(path != root and path.is_relative_to(root) for root in ROOTS)
     if scope == MOVIES_NO_ANIME:
         # Anime is a specific Japanese media category. Do not exclude all
         # animation: that would also discard Western animated films.

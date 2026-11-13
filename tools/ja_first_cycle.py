@@ -137,6 +137,8 @@ def status():
          "SELECT outcome,COUNT(*) FROM searches GROUP BY outcome"),
         ("JAPANESE STAGING", ROOT / "japanese-stage.sqlite3",
          "SELECT status,COUNT(*) FROM staged GROUP BY status"),
+        ("MOVIE RECOVERY OUTCOMES", ROOT / "japanese-candidate-failures.sqlite3",
+         "SELECT result,COUNT(*) FROM movie_outcomes GROUP BY result"),
         ("GEMMA JOB QUEUE", JA_ROOT / "jobs.sqlite3",
          "SELECT status,COUNT(*) FROM jobs GROUP BY status"),
     ):
@@ -241,7 +243,7 @@ def cycle(folder, search_budget, stage_budget, publish_limit, fallback_budget, s
     if not 1 <= fallback_budget <= 20:
         raise RuntimeError("fallback_budget_outside_1_to_20")
     required_code(folder)
-    if scope not in ("all", "horror-drama-folders", "movies-no-anime"):
+    if scope not in ("all", "horror-drama-folders", "movies-no-anime", "movies-all"):
         raise RuntimeError("unsupported_source_scope")
     print("SOURCE SCOPE:", scope, flush=True)
     print("=== ONE BOUNDED JAPANESE-FIRST PROCESSING CYCLE ===", flush=True)
@@ -358,7 +360,7 @@ def main(argv=None):
     parser.add_argument("--stage-budget", type=int, default=2)
     parser.add_argument("--publish-limit", type=int, default=2)
     parser.add_argument("--fallback-budget", type=int, default=8)
-    parser.add_argument("--scope", choices=("all","horror-drama-folders","movies-no-anime"),default="all")
+    parser.add_argument("--scope", choices=("all","horror-drama-folders","movies-no-anime","movies-all"),default="all")
     parser.add_argument("--sources-only", action="store_true",
                         help="search, stage and sync Japanese only; do not queue AI fallback")
     args = parser.parse_args(argv)
