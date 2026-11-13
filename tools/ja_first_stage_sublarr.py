@@ -389,6 +389,38 @@ def provider_bytes(row,candidate,*,runner=subprocess.run,return_proof=False):
     return raw
 
 
+def verify_subf2m_live(row,candidate,*,runner=subprocess.run):
+    """Read exact public title/year listing: ZERO subtitle bytes downloaded."""
+    if not subf2m_missing_release(row,candidate):
+        raise RuntimeError("no_unnamed_subf2m_release_selected")
+    params={"mode":"verify_subf2m",
+            "query":worker_query(row),
+            "provider":"subf2m",
+            "subtitle_id":str(candidate["subtitle_id"]),
+            "filename":str(candidate["filename"]),
+            "release_info":str(candidate.get("release_info") or "")}
+    command=["docker","exec","-i","-e","PYTHONPATH=/app",
+             "sublarr-pilot","python3","-c",CONTAINER_WORKER]
+    result=runner(command,input=json.dumps(params),capture_output=True,
+                  text=True,timeout=100)
+    if result.returncode or len(result.stdout)>12000:
+        raise RuntimeError("subf2m_live_verification_unavailable")
+    try:
+        answer=json.loads(result.stdout)
+    except (TypeError,ValueError):
+        raise RuntimeError("subf2m_live_verification_invalid_response") from None
+    if not isinstance(answer,dict) or answer.get("ok") is not True:
+        code=str(answer.get("reason") or "source_not_verified") if isinstance(answer,dict) else "source_not_verified"
+        if not re.fullmatch(r"[A-Za-z0-9_]{1,75}",code):
+            code="source_not_verified"
+        raise RuntimeError("subf2m_live_"+code)
+    if answer.get("attempted") is not False:
+        raise RuntimeError("subf2m_unexpected_download_attempt")
+    proof=answer.get("source_proof")
+    verify_subf2m_proof(row,candidate,proof)
+    return proof
+
+
 def stage_metadata(row,candidate,raw,runtime,qa,*,proof=None):
     sid,digest=remote_identity(candidate)
     if proof is not None:
@@ -696,12 +728,20 @@ def main(argv=None):
                         help="read-only per-provider candidate rejection causes and non-animation pilots")
     parser.add_argument("--probe-manager",action="store_true",
                         help="read-only minimal Flask provider manager initialization, no searches")
+    parser.add_argument("--verify-subf2m",action="store_true",
+                        help="read-only verify one saved unnamed movie release on the public provider page")
     parser.add_argument("--provider",default=None,
                         help="one exact previously saved provider (e.g. subf2m)")
     parser.add_argument("--max-attempts",type=int,default=2)
     parser.add_argument("--apply",action="store_true",
                         help="only private-stage candidates; never publish")
     args=parser.parse_args(argv)
+    if args.verify_subf2m:
+        if args.apply or args.list_candidates or args.audit_exclusions or args.probe_manager or args.provider not in (None,"subf2m"):
+            parser.error("--verify-subf2m requires one item without --apply")
+        if not JID.fullmatch(args.jellyfin_id):
+            parser.error("--verify-subf2m requires exact Jellyfin item ID")
+        args.provider="subf2m"
     if args.probe_manager:
         if args.apply or args.jellyfin_id or args.provider or args.list_candidates or args.audit_exclusions:
             parser.error("--probe-manager cannot be combined with stage options")
@@ -726,12 +766,28 @@ def main(argv=None):
     row=stage.read_inventory().get(args.jellyfin_id)
     if not row or row.get("status")!="ready_ja_search":
         raise RuntimeError("selected_media_not_source_ready")
-    candidates=source_candidates(row,provider=args.provider)
+    candidates=source_candidates(
+        row,provider=args.provider,
+        include_unverified_subf2m=args.provider=="subf2m")
     print("=== SAVED OTHER-PROVIDER JAPANESE CANDIDATES ===",flush=True)
     print("Jellyfin ID:",args.jellyfin_id,"| Candidates:",len(candidates),
           "| provider:",args.provider or "other_supported_providers",flush=True)
     print("SUBLARR_GENERIC_MODE:","STAGE_PRIVATE" if args.apply else "READ_ONLY",
           flush=True)
+    if args.verify_subf2m:
+        if not candidates:
+            print("NO SAVED SUBF2M CANDIDATES FOR THIS ITEM")
+            return
+        blank=[c for c in candidates if subf2m_missing_release(row,c)]
+        if not blank:
+            print("NO LEGACY BLANK SUBF2M RELEASES FOR THIS ITEM")
+            return
+        proof=verify_subf2m_live(row,blank[0])
+        print("SUBF2M_LIVE_MOVIE_IDENTITY: VERIFIED",flush=True)
+        print("Title:",proof["title"],"| Year:",proof["year"],flush=True)
+        print("Verified release:",proof["release"],flush=True)
+        print("READ ONLY: public provider listing only; no subtitle download or media write")
+        return
     if not args.apply:
         print("NO PROVIDER CALLS, FILE WRITES, PUBLISHING OR PLaMO",flush=True)
         return
@@ -751,14 +807,14 @@ def main(argv=None):
                 if prior:
                     print("GENERIC_ALREADY_STAGED:",candidate["provider"],sid,flush=True)
                     continue
-                raw=provider_bytes(row,candidate)
+                raw,proof=provider_bytes(row,candidate,return_proof=True)
                 # Provider may return SRT with harmless formatting damage, but
                 # never infer or invent missing dialogue/timing.
                 normalized,report=structure.normalize(raw,trial_release_note=True,
                                                       trial_local_swap=True)
                 qa=publisher.validate_srt(normalized,runtime)
                 qa["structural_repair"]=report
-                numeric=preserve(row,candidate,normalized,runtime,qa)
+                numeric=preserve(row,candidate,normalized,runtime,qa,proof=proof)
                 print("STAGED_SUBLARR_PRIVATE:",candidate["provider"],numeric,flush=True)
             except (RuntimeError,OSError,ValueError,sqlite3.Error,subprocess.TimeoutExpired) as exc:
                 code=str(exc).split(":",1)[0]
