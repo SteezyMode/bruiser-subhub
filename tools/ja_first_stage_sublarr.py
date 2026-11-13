@@ -54,41 +54,69 @@ MAX_CANDIDATES=4
 # sidecar write, no translation and no writable output path, even on errors.
 CONTAINER_WORKER=r'''
 import base64, hashlib, json, sys
+from flask import Flask
+from config import get_settings, reload_settings
+from extensions import db as sa_db
+from db.config import get_all_config_entries
 from providers import get_provider_manager
 from providers.base import VideoQuery
 
 requested=False
 try:
     job=json.load(sys.stdin)
-    params=job["query"]
-    allowed={"title","year","imdb_id","series_title","season","episode"}
-    if not isinstance(params,dict) or set(params)-allowed:
-        raise ValueError("unsupported_query_fields")
-    query=VideoQuery(**params,languages=["ja"],full_only=True)
-    manager=get_provider_manager()
-    wanted=job["provider"],job["subtitle_id"]
-    result=None
-    for r in manager.search(query,early_exit=False):
-        if (r.provider_name,r.subtitle_id)!=wanted:
-            continue
-        if (str(r.language).lower() not in ("ja","jpn","japanese")
-                or r.forced or r.kind!="full"
-                or r.format.value not in ("srt","unknown")
-                or str(r.filename or "")!=job["filename"]
-                or str(r.release_info or "")!=job["release_info"]):
-            continue
-        result=r
-        break
-    if result is None:
-        answer={"ok":False,"attempted":False,"reason":"candidate_not_found_or_unusable"}
-    else:
-        requested=True
-        content=manager.download(result,raise_skips=True)
-        if type(content) is not bytes or not 0<len(content)<=2000000:
-            raise RuntimeError("provider_bytes_invalid")
-        answer={"ok":True,"attempted":True,"length":len(content),
-                "sha256":hashlib.sha256(content).hexdigest(),
-                "content_b64":base64.b64encode(content).decode("ascii")}
+    if job.get("mode") not in (None,"probe"):
+        raise ValueError("unsupported_operation")
+    if job.get("mode") is None:
+        params=job["query"]
+        allowed={"title","year","imdb_id","series_title","season","episode"}
+        if not isinstance(params,dict) or set(params)-allowed:
+            raise ValueError("unsupported_query_fields")
+        query=VideoQuery(**params,languages=["ja"],full_only=True)
+    # Use a minimal, DB-connected Flask context. create_app(testing=True)
+    # is NOT safe here: it can migrate/seed/change the production database,
+    # rebuild indexes or start background services. The adapter needs only
+    # the existing DB to read UI provider configuration/statistics.
+    bootstrap=get_settings()
+    app=Flask("subhub_sublarr_provider_read_context",static_folder=None)
+    app.config["SQLALCHEMY_DATABASE_URI"]=bootstrap.get_database_url()
+    if not bootstrap.database_url or bootstrap.database_url.startswith("sqlite"):
+        app.config["SQLALCHEMY_ENGINE_OPTIONS"]={
+            "connect_args":{"check_same_thread":False}}
+    sa_db.init_app(app)
+    with app.app_context():
+        overrides=get_all_config_entries()
+        if overrides:
+            reload_settings(overrides)
+        manager=get_provider_manager()
+        if job.get("mode")=="probe":
+            answer={"ok":True,"attempted":False,
+                    "active_provider_count":len(manager._providers),
+                    "subf2m_enabled":"subf2m" in manager._providers}
+        else:
+            wanted=job["provider"],job["subtitle_id"]
+            result=None
+            for r in manager.search(query,early_exit=False):
+                if (r.provider_name,r.subtitle_id)!=wanted:
+                    continue
+                if (str(r.language).lower() not in ("ja","jpn","japanese")
+                        or r.forced or r.kind!="full"
+                        or r.format.value not in ("srt","unknown")
+                        or str(r.filename or "")!=job["filename"]
+                        or str(r.release_info or "")!=job["release_info"]):
+                    continue
+                result=r
+                break
+            if result is None:
+                answer={"ok":False,"attempted":False,
+                        "reason":"candidate_not_found_or_unusable"}
+            else:
+                requested=True
+                content=manager.download(result,raise_skips=True)
+                if type(content) is not bytes or not 0<len(content)<=2000000:
+                    raise RuntimeError("provider_bytes_invalid")
+                answer={"ok":True,"attempted":True,"length":len(content),
+                        "sha256":hashlib.sha256(content).hexdigest(),
+                        "content_b64":base64.b64encode(content).decode("ascii")}
 except Exception as exc:
     # Never echo private URLs, tokens, subtitle dialogue or API error bodies.
     answer={"ok":False,"attempted":requested,
@@ -480,6 +508,32 @@ def exclusion_audit():
     print("READ ONLY: ZERO searches, downloads, stages, AI, or publication.")
 
 
+def probe_manager(*,runner=subprocess.run):
+    """Read-only provider manager initialization test; no remote searches."""
+    command=["docker","exec","-i","-e","PYTHONPATH=/app",
+             "sublarr-pilot","python3","-c",CONTAINER_WORKER]
+    result=runner(command,input='{"mode":"probe"}',text=True,
+                  capture_output=True,timeout=75)
+    if result.returncode or len(result.stdout)>4000:
+        raise RuntimeError("sublarr_probe_process_failed")
+    try:
+        payload=json.loads(result.stdout)
+    except (TypeError,ValueError):
+        raise RuntimeError("sublarr_probe_output_invalid") from None
+    if not isinstance(payload,dict) or payload.get("ok") is not True:
+        reason=str(payload.get("reason") or "unavailable") if isinstance(payload,dict) else "unavailable"
+        if not re.fullmatch(r"[A-Za-z0-9_]{1,75}",reason):
+            reason="unavailable"
+        raise RuntimeError("sublarr_probe_"+reason)
+    providers=payload.get("active_provider_count")
+    if type(providers) is not int or not 0<=providers<=150:
+        raise RuntimeError("sublarr_probe_provider_count_invalid")
+    print("SUBLARR_MANAGER_APP_CONTEXT: PASS")
+    print("Active providers initialized:",providers)
+    print("SubF2M enabled:",bool(payload.get("subf2m_enabled")))
+    print("No provider searches, subtitle downloads or media writes.")
+
+
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--jellyfin-id",default="")
@@ -487,12 +541,19 @@ def main(argv=None):
                         help="read-only saved candidate census across media catalog")
     parser.add_argument("--audit-exclusions",action="store_true",
                         help="read-only per-provider candidate rejection causes and non-animation pilots")
+    parser.add_argument("--probe-manager",action="store_true",
+                        help="read-only minimal Flask provider manager initialization, no searches")
     parser.add_argument("--provider",default=None,
                         help="one exact previously saved provider (e.g. subf2m)")
     parser.add_argument("--max-attempts",type=int,default=2)
     parser.add_argument("--apply",action="store_true",
                         help="only private-stage candidates; never publish")
     args=parser.parse_args(argv)
+    if args.probe_manager:
+        if args.apply or args.jellyfin_id or args.provider or args.list_candidates or args.audit_exclusions:
+            parser.error("--probe-manager cannot be combined with stage options")
+        probe_manager()
+        return
     if args.audit_exclusions:
         if args.apply or args.jellyfin_id or args.provider or args.list_candidates:
             parser.error("--audit-exclusions cannot be combined with stage options")
