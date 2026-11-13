@@ -21,6 +21,42 @@ class DeepSourceTests(unittest.TestCase):
                 "provider_gates":{"opensubtitles":"ok","subdl":"ok"},
                 "incomplete_providers":[],"candidates":[]}
 
+    def test_publisher_held_reason_is_not_suppressed(self):
+        from contextlib import redirect_stdout
+        from io import StringIO
+        out=StringIO()
+        receipt={"jellyfin_id":self.JID,"result":"held",
+                 "reason":"RuntimeError: alass_out_of_video"}
+        with mock.patch.object(deep,"call",return_value=(0,
+                "BRUISER_PUBLISH_ITEM: "+json.dumps(receipt),"")), \
+             redirect_stdout(out):
+            self.assertEqual(deep.publish(self.JID), "held")
+        self.assertIn("DEEP_SOURCE_PUBLISH_HELD:",out.getvalue())
+        self.assertIn("alass_out_of_video",out.getvalue())
+
+    def test_incomplete_held_is_retry_but_logs_underlying_reason(self):
+        from contextlib import redirect_stdout
+        from io import StringIO
+        out=StringIO()
+        receipt={"jellyfin_id":self.JID,"result":"held",
+                 "reason":"RuntimeError: no_candidate_passed_trusted_sync_correction"}
+        report=("TITLE_FAILURE_NOT_CACHED: pending source check\\n"
+                "BRUISER_PUBLISH_ITEM: "+json.dumps(receipt))
+        with mock.patch.object(deep,"call",return_value=(0,report,"")), \
+             redirect_stdout(out):
+            self.assertEqual(deep.publish(self.JID),"retry")
+        self.assertIn("cause=incomplete_engine_validation",out.getvalue())
+        self.assertIn("no_candidate_passed_trusted_sync_correction",out.getvalue())
+
+    def test_failed_publisher_without_receipt_is_retriable_not_exhausted(self):
+        from contextlib import redirect_stdout
+        from io import StringIO
+        out=StringIO()
+        with mock.patch.object(deep,"call",return_value=(2,"","failure")), \
+             redirect_stdout(out):
+            self.assertEqual(deep.publish(self.JID),"retry")
+        self.assertIn("cause=nonzero_exit",out.getvalue())
+
     def test_deferred_provider_never_proves_exhaustion(self):
         doc=self.search()
         self.assertTrue(deep.search_complete(doc))
