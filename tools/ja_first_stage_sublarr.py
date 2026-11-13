@@ -316,15 +316,58 @@ def preserve(row,candidate,raw,runtime,qa):
     return sid
 
 
+def list_candidates():
+    """Single read-only saved-search census; no API requests or provider GET."""
+    from collections import Counter
+    inventory=stage.read_inventory()
+    counts=Counter()
+    titles=set()
+    examples=[]
+    for jid,raw in stage.read_saved_searches():
+        row=inventory.get(str(jid))
+        if not row or row.get("status")!="ready_ja_search":
+            continue
+        try:
+            document=json.loads(raw)
+        except (TypeError,ValueError):
+            continue
+        if not isinstance(document,dict):
+            continue
+        matches=[c for c in document.get("candidates") or []
+                 if identity_ok(row,c)]
+        if not matches:
+            continue
+        titles.add(str(jid))
+        for candidate in matches:
+            counts[candidate["provider"]]+=1
+        if len(examples)<12:
+            examples.append((str(jid),str(row.get("title")
+                             or row.get("series_title") or "Untitled")[:65],
+                             sorted(set(c["provider"] for c in matches))))
+    print("=== SAVED OTHER-PROVIDER JAPANESE STAGING CANDIDATES ===")
+    print("Titles with eligible saved candidates:",len(titles))
+    print("Releases by provider:",dict(sorted(counts.items())))
+    for jid,title,providers in examples:
+        print("EXAMPLE:",jid,"|",title,"|",",".join(providers))
+    print("READ ONLY: no provider search, downloads, video writes or PLaMO")
+
+
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--jellyfin-id",required=True)
+    parser.add_argument("--jellyfin-id",default="")
+    parser.add_argument("--list-candidates",action="store_true",
+                        help="read-only saved candidate census across media catalog")
     parser.add_argument("--provider",default=None,
                         help="one exact previously saved provider (e.g. subf2m)")
     parser.add_argument("--max-attempts",type=int,default=2)
     parser.add_argument("--apply",action="store_true",
                         help="only private-stage candidates; never publish")
     args=parser.parse_args(argv)
+    if args.list_candidates:
+        if args.apply or args.jellyfin_id or args.provider:
+            parser.error("--list-candidates cannot be combined with stage options")
+        list_candidates()
+        return
     if not JID.fullmatch(args.jellyfin_id):
         parser.error("invalid Jellyfin ID")
     if args.provider and not PROVIDER.fullmatch(args.provider):
