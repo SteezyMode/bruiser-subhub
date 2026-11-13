@@ -183,7 +183,13 @@ def classify(item, series, mounts, sidecache):
     kind = item.get("Type")
     data = {
         "jellyfin_id": item.get("Id"), "kind": kind,
-        "title": item.get("Name") or "", "host_path": item.get("Path") or "",
+        "title": item.get("Name") or "",
+        # Jellyfin's own authoritative original title (e.g. 恋の罪).
+        # This is a SECOND independent title alias, never user-provided
+        # release text or an automatically trusted provider ID.
+        "original_title": str(item.get("OriginalTitle") or "")[:240]
+            if kind == "Movie" else "",
+        "host_path": item.get("Path") or "",
         "sublarr_path": None, "status": None, "audio_language": "unknown",
         "imdb_id": "", "tmdb_id": "", "series_title": "",
         "series_imdb_id": "", "series_tmdb_id": "", "series_tvdb_id": "",
