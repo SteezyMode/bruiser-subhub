@@ -110,6 +110,28 @@ class SavedMovieRecoveryTests(unittest.TestCase):
                 {"grade":"review"}]},review_only=True)
         self.assertEqual(jobs,[])
 
+    def test_readonly_audit_explains_unverified_review_releases_without_download(self):
+        row=film(title="Eyes Without a Face")
+        doc={"_outcome":"review","candidates":[
+            {"provider":"opensubtitles","grade":"review",
+             "language":"ja","subtitle_id":"123456",
+             "filename":"Les_Yeux_sans_visage_1960-720pJapanese",
+             "release_info":"Les Yeux sans visage (1960)","matches":["title"]},
+            {"provider":"opensubtitles","grade":"review",
+             "language":"ja","subtitle_id":"234567",
+             "filename":"Unrelated.1998.ja.srt","matches":["title"]},
+        ]}
+        with patch.object(saved.stage,"identity_ok",return_value=False):
+            jobs,counts,samples=saved.saved_work(
+                [row],staged=set(),rejected=set(),review_only=True,
+                scope="movies-horror",search_reader=lambda _:doc)
+        self.assertEqual(jobs,[])
+        self.assertEqual(counts["review_releases_saved"],2)
+        self.assertEqual(counts["review_releases_identity_unverified"],2)
+        self.assertEqual(counts["review_titles_missing_jellyfin_original_title"],1)
+        self.assertTrue(any("identity_unverified" in sample
+                            for sample in samples if isinstance(sample,tuple)))
+
     def test_owner_skips_the_master_without_touching_it(self):
         row=film(title="The Master")
         jobs,counts,_=saved.saved_work(
