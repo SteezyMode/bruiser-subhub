@@ -537,9 +537,16 @@ def pick(rows, db, budget, scope='all', retry_none_after_days=None,
             if not (row.get("series_title") and type(season) is int
                     and season >= 1 and type(episode) is int and episode >= 1):
                 continue
-        order = priorities.queue_position(row, "search", queue)
-        if order is None:
-            continue
+        if rescan_missing:
+            # This is an explicit owner-selected fresh provider scan, not
+            # coverage-queue work selection. Old held/staged/review outcomes
+            # are irrelevant to *search eligibility*, though they remain
+            # protected by the downstream staging and no-overwrite gates.
+            order = (0, priorities.priority(row))
+        else:
+            order = priorities.queue_position(row, "search", queue)
+            if order is None:
+                continue
         choices.append((order, hashlib.sha256(key.encode()).hexdigest(), row))
     choices.sort(key=lambda item: (item[0], item[1]))
     chosen = []
