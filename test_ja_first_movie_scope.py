@@ -171,6 +171,79 @@ class MovieScopeTests(unittest.TestCase):
             selected=search.pick(rows,database,20,scope=scope.MOVIES_DRAMA)
         self.assertEqual([s["id"] for s in selected],[self.drama["jellyfin_id"]])
 
+    def test_owner_full_missing_movie_refresh_ignores_old_search_and_queue_states(self):
+        import time
+        # Both real drives and multiple historical provider outcomes.
+        older=int(time.time())-40*3600
+        rows=[
+            self.horror, self.drama,
+            media(self.two,"Horror",jid="3"*32),
+            media(self.two,"Horror",jid="4"*32),
+            media(self.two,"Horror",jid="5"*32),
+            media(self.two,"Horror",jid="6"*32),
+            self.tv,
+        ]
+        rows[4]["status"]="existing_japanese_subtitle"
+        rows[5]["status"]="japanese_audio"
+        db=sqlite3.connect(":memory:")
+        self.addCleanup(db.close)
+        db.execute("CREATE TABLE searches (jellyfin_id TEXT,outcome TEXT,"
+                   "searched_at INTEGER,results_json TEXT)")
+        for row,outcome,when in (
+            (self.horror,"none",older),
+            (self.drama,"review",older),
+            (rows[2],"plausible",older),
+            (rows[3],"partial",older),
+            (rows[4],"none",older),
+            (rows[5],"review",older)):
+            db.execute("INSERT INTO searches VALUES(?,?,?,?)",
+                       (row["jellyfin_id"],outcome,when,
+                        json.dumps({"strategy_version":5})))
+        db.commit()
+        # A legacy queue held state must not block a deliberate owner recheck.
+        held={r["jellyfin_id"]:("align_existing_staged_ja","held",1,
+                                r["host_path"]) for r in rows
+              if r.get("host_path")}
+        with patch.object(search.priorities,"active_coverage_queue",return_value=held), \
+             patch.object(search,"query_for",return_value={"language":"ja"}):
+            normal=search.pick(rows,db,50,scope="movies-all")
+            refresh=search.pick(rows,db,50,scope="movies-all",rescan_missing=True)
+        self.assertEqual(normal,[])
+        self.assertEqual({x["id"] for x in refresh},
+                         {self.horror["jellyfin_id"],self.drama["jellyfin_id"],
+                          rows[2]["jellyfin_id"],rows[3]["jellyfin_id"]})
+        self.assertEqual(len(refresh),4)
+        with self.assertRaises(ValueError):
+            search.pick(rows,db,50,scope="all",rescan_missing=True)
+        with self.assertRaises(ValueError):
+            search.pick(rows,db,50,scope="movies-all",
+                        rescan_missing=True,retry_none_after_days=3)
+
+    def test_owner_full_refresh_skips_same_allowance_window_and_respects_budget(self):
+        import time
+        now=int(time.time())
+        rows=[self.horror,self.drama,media(self.two,"Horror",jid="3"*32)]
+        db=sqlite3.connect(":memory:")
+        self.addCleanup(db.close)
+        db.execute("CREATE TABLE searches (jellyfin_id TEXT,outcome TEXT,"
+                   "searched_at INTEGER,results_json TEXT)")
+        db.executemany("INSERT INTO searches VALUES(?,?,?,?)",[
+            (self.horror["jellyfin_id"],"none",now-3600,
+             json.dumps({"strategy_version":5})),
+            (self.drama["jellyfin_id"],"review",now-21*3600,
+             json.dumps({"strategy_version":5})),
+            (rows[2]["jellyfin_id"],"none",now-21*3600,
+             json.dumps({"strategy_version":5})),
+        ])
+        db.commit()
+        with patch.object(search.priorities,"active_coverage_queue",return_value=None), \
+             patch.object(search,"query_for",return_value={"language":"ja"}):
+            selected=search.pick(rows,db,1,scope="movies-all",rescan_missing=True)
+            all_selected=search.pick(rows,db,20,scope="movies-all",rescan_missing=True)
+        self.assertEqual(len(selected),1)
+        self.assertEqual({x["id"] for x in all_selected},
+                         {self.drama["jellyfin_id"],rows[2]["jellyfin_id"]})
+
     def test_existing_all_scope_unchanged(self):
         self.assertTrue(scope.matches(self.outside,"all"))
         self.assertTrue(scope.matches(self.tv,"all"))
