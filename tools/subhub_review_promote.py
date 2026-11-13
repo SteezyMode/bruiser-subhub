@@ -287,6 +287,36 @@ def promote(row,candidate,*,dry_run=False):
     return "published",evidence
 
 
+
+def audit_references(row,candidate):
+    """Read-only evidence audit for the film's exact same-video references.
+
+    No ALASS runs, no provider calls, no published stage writes. An existing
+    EN track is only *available*, not yet independently synchronized.
+    """
+    runtime=stage.duration_if_safe(row)
+    text,_=cached_source(row,candidate,runtime)
+    cues=ff.parse_cues(text)
+    last=max(c["end"] for c in cues)/1000
+    video=gate.safe_media_path(str(row.get("host_path") or ""))
+    embedded=alass._embedded_english(video)
+    sidecar=alass._intensive_external_english(video)
+    indexed=alass._intensive_jellyfin_english(video,row["jellyfin_id"])
+    return {
+        "jellyfin_id_prefix":row["jellyfin_id"][:8],
+        "movie":str(row.get("title") or "")[:90],
+        "year":row.get("year"),
+        "provider":candidate["provider"],
+        "original_cues":len(cues),
+        "original_subtitle_ends_pct":round(100*last/runtime,1),
+        "english_embedded":embedded is not None,
+        "english_sidecar":sidecar is not None,
+        "english_jellyfin_indexed":indexed is not None,
+        "cross_reference_available":any(x is not None
+                                      for x in (embedded,sidecar,indexed)),
+    }
+
+
 def run(args):
     recovery.check_idle()
     fd=recovery.autofill.lock()
@@ -299,6 +329,19 @@ def run(args):
         print("Other review candidates remain private; TV and PLaMO untouched.")
         for title,reason in examples:
             print("HOLD_EXAMPLE:",title,reason,flush=True)
+        if args.reference_audit:
+            print("=== CACHED MOVIE REFERENCE AUDIT (NO ALASS, NO WRITES) ===")
+            for row,candidate,receipt in chosen:
+                try:
+                    report=audit_references(row,candidate)
+                    print("REFERENCE_AUDIT:",json.dumps(
+                        report,sort_keys=True,ensure_ascii=False),flush=True)
+                except (OSError,ValueError,RuntimeError,sqlite3.Error) as exc:
+                    print("REFERENCE_AUDIT_HELD:",row["jellyfin_id"][:8],
+                          str(row.get("title") or "")[:72],
+                          str(exc).split(":",1)[0][:85],flush=True)
+            print("END REFERENCE AUDIT: no provider downloads or media writes.")
+            return 0
         if not args.apply:
             print("AUDIT ONLY: 0 media writes, 0 downloads.")
             print("Pass --apply for dual-reference validation and safe publication.")
@@ -333,8 +376,13 @@ def run(args):
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply",action="store_true")
+    parser.add_argument("--reference-audit",action="store_true",
+                        help="read-only audit of actual same-video English references"
+                             " and original Japanese subtitle coverage; no ALASS")
     parser.add_argument("--limit",type=int,default=200)
     args=parser.parse_args(argv)
+    if args.reference_audit and args.apply:
+        parser.error("--reference-audit and --apply are mutually exclusive")
     if not 1<=args.limit<=200:
         parser.error("limit must be 1..200")
     return run(args)
