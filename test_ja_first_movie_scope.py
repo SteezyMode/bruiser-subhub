@@ -94,6 +94,38 @@ class MovieScopeTests(unittest.TestCase):
                          {self.outside["jellyfin_id"],self.horror["jellyfin_id"],
                           self.drama["jellyfin_id"]})
 
+    def test_movies_all_includes_both_libraries_and_anime_but_not_tv(self):
+        all_movies=scope.MOVIES_ALL
+        self.assertTrue(scope.matches(self.horror,all_movies))
+        self.assertTrue(scope.matches(self.outside,all_movies))
+        self.assertTrue(scope.matches(self.drama,all_movies))
+        self.assertTrue(scope.matches(media(
+            self.four,"Animated/[AnimeRG] Studio Ghibli Film Collection",
+            name="Spirited.Away.mkv"),all_movies))
+        self.assertFalse(scope.matches(self.tv,all_movies))
+        self.assertFalse(scope.matches(media(
+            Path("/mnt/2TB/Plex Expansion/Television"),
+            "Episodic",name="Fake.mkv"),all_movies))
+        self.assertFalse(scope.matches(media(
+            Path("/tmp"),"Movies",name="Other.mkv"),all_movies))
+        self.assertFalse(scope.matches(media(
+            self.two,"../Television",name="Fake.mkv"),all_movies))
+        self.assertFalse(scope.matches({
+            **self.horror,"host_path":"not-a-path"},all_movies))
+
+    def test_movies_all_search_reuses_existing_scope_filter(self):
+        rows=[self.outside,self.horror,self.drama,self.tv,
+              media(self.four,"Anime",jid="f"*32)]
+        db=sqlite3.connect(":memory:")
+        self.addCleanup(db.close)
+        db.execute("CREATE TABLE searches (jellyfin_id TEXT, outcome TEXT,"
+                   " searched_at INTEGER, results_json TEXT)")
+        with patch.object(search.priorities,"active_coverage_queue",return_value=None), \
+             patch.object(search,"query_for",return_value={"language":"ja"}):
+            selected=search.pick(rows,db,600,scope=scope.MOVIES_ALL)
+        self.assertEqual({x["id"] for x in selected},
+                         {r["jellyfin_id"] for r in rows if r["kind"]=="Movie"})
+
     def test_existing_all_scope_unchanged(self):
         self.assertTrue(scope.matches(self.outside,"all"))
         self.assertTrue(scope.matches(self.tv,"all"))
