@@ -831,12 +831,98 @@ def recover_saved_reviews(*, apply=False, scope="all"):
             os.close(lock_fd)
 
 
+BUDGET_WORKER = r"""
+import json
+from urllib.request import Request, urlopen
+from config import get_settings
+
+settings=get_settings()
+headers={"Content-Type":"application/json"}
+key=str(getattr(settings,"api_key","") or "")
+if key:
+    headers["X-Api-Key"]=key
+
+def get(path):
+    req=Request("http://127.0.0.1:5765/api/v1/"+path,headers=headers)
+    with urlopen(req,timeout=15) as response:
+        return json.load(response)
+
+budget=get("system/budget")
+health=get("providers/health")
+gates={item["name"]:item.get("gate","unknown")
+       for item in health.get("providers") or []
+       if isinstance(item,dict) and item.get("name") in ("subdl","opensubtitles")}
+result=[]
+for item in budget.get("providers") or []:
+    if not isinstance(item,dict) or item.get("name") not in gates:
+        continue
+    # Explicit allowlist: never print key pool, API credentials, or raw config.
+    result.append({k:item.get(k) for k in
+                   ("name","tier","limits","usage","reset_seconds")}|{
+                   "gate":gates[item["name"]]})
+print(json.dumps({
+    "providers":result,
+    "budget_enabled":bool(budget.get("enabled")),
+    "stretch_mode":str(getattr(settings,"provider_budget_stretch_mode",
+                               "unknown"))[:20]
+},sort_keys=True))
+"""
+
+
+def provider_budget_report(*,runner=subprocess.run):
+    """Read Sublarr's actual second/hour/day budgets, zero provider calls.
+
+    An open gate reports availability only. This API makes reset times and
+    hour/day counters visible without speculative quotas or leaked credentials.
+    """
+    cmd=["docker","exec","-i","-e","PYTHONPATH=/app",
+         "sublarr-pilot","python3","-c",BUDGET_WORKER]
+    try:
+        proc=runner(cmd,text=True,capture_output=True,timeout=50,
+                    stdin=subprocess.DEVNULL)
+        if proc.returncode:
+            raise RuntimeError("provider_budget_worker_failed")
+        response=json.loads(proc.stdout)
+        providers=response.get("providers")
+        if not isinstance(providers,list):
+            raise RuntimeError("provider_budget_unavailable")
+        print("=== SUBLARR PROVIDER SEARCH BUDGET (READ ONLY) ===")
+        print("Budget gate enabled:",response.get("budget_enabled"),
+              "| pacing mode:",response.get("stretch_mode"))
+        for item in sorted(providers,key=lambda v:str(v.get("name"))):
+            name=item.get("name")
+            if name not in ("subdl","opensubtitles"):
+                continue
+            usage=item.get("usage") or {}
+            limits=item.get("limits") or {}
+            resets=item.get("reset_seconds") or {}
+            def amount(key):
+                used=usage.get(key)
+                cap=limits.get(key)
+                if type(used) is not int or type(cap) is not int:
+                    return "unknown"
+                return f"{used}/{cap} (raw remaining {max(0,cap-used)})"
+            print(name,"gate="+str(item.get("gate")),
+                  "tier="+str(item.get("tier")),
+                  "hour="+amount("hour"),
+                  "day="+amount("day"),
+                  "hour_reset_seconds="+str(resets.get("hour")),
+                  "day_reset_seconds="+str(resets.get("day")))
+        print("Raw limits do NOT account for safety margins or stretch pacing.")
+        print("NO SEARCHES, DOWNLOADS, PLaMO OR MEDIA WRITES")
+    except (OSError,ValueError,RuntimeError,subprocess.TimeoutExpired) as exc:
+        print("SUBLARR_PROVIDER_BUDGET_UNAVAILABLE:",type(exc).__name__)
+        raise RuntimeError("cannot_read_live_provider_budget") from None
+
+
 MAX_SEARCHES_PER_RUN = 600
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--budget", type=int, default=12, help="1..600 provider-search requests")
+    ap.add_argument("--provider-budget",action="store_true",
+                    help="read-only Sublarr provider hour/day used, limits and reset")
     ap.add_argument("--jellyfin-id",default="",help="search one real catalog item by its external title/season/episode identity")
     ap.add_argument("--scope",choices=movie_scope.SCOPES,default="all",
                     help="filter searches to specified existing movie categories")
@@ -853,6 +939,14 @@ def main():
     ap.add_argument("--apply", action="store_true",
                     help="with --recover-saved, backup and save review-only candidates")
     args = ap.parse_args()
+    if args.provider_budget:
+        if (args.apply or args.recover_saved or args.report or args.self_test
+                or args.jellyfin_id or args.rescan_missing
+                or args.retry_none_after_days is not None
+                or args.scope!="all"):
+            ap.error("--provider-budget is read-only and must be used alone")
+        provider_budget_report()
+        return
     if args.apply and not args.recover_saved:
         ap.error("--apply requires --recover-saved")
     if args.rescan_missing and (
