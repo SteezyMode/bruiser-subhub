@@ -136,6 +136,34 @@ def saved_work(rows, *, skip_titles=(), search_reader=None,
                 for c in document.get("candidates") or [])):
             continue
         counts["saved_review_or_plausible"] += 1
+        if review_only:
+            reviews=[c for c in document.get("candidates") or []
+                     if isinstance(c,dict) and c.get("grade")=="review"]
+            if reviews:
+                counts["review_releases_saved"]+=len(reviews)
+                # Count every independent source candidate, even if in the
+                # search DB but not eligible for staging. This makes a zero
+                # work report explain WHY no downloads were attempted.
+                accepted=0
+                for candidate in reviews:
+                    provider=candidate.get("provider")
+                    eligible=(stage.identity_ok(row,candidate)
+                              if provider=="opensubtitles" else
+                              subdl.identity_ok(row,candidate)
+                              if provider=="subdl" else False)
+                    if eligible:
+                        accepted+=1
+                    elif len(samples)<15:
+                        examples=str(candidate.get("filename") or
+                                     candidate.get("release_info") or "")
+                        samples.append((str(row.get("title"))[:60],
+                                        "identity_unverified",
+                                        str(provider or "")[:25],
+                                        examples[:115]))
+                counts["review_releases_identity_verified"]+=accepted
+                counts["review_releases_identity_unverified"]+=len(reviews)-accepted
+                if not row.get("original_title"):
+                    counts["review_titles_missing_jellyfin_original_title"]+=1
         if str(row.get("title") or "").casefold() in skip_titles:
             counts["owner_skipped"] += 1
             continue
