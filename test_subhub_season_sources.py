@@ -111,6 +111,42 @@ class ScopeTests(unittest.TestCase):
         self.assertIn("system/budget",search.BUDGET_WORKER)
         self.assertIn("providers/health",search.BUDGET_WORKER)
 
+    def test_standalone_budget_worker_reads_live_endpoints_without_manager(self):
+        import io, json, sys, types
+        from types import SimpleNamespace
+        from tools import ja_first_search_pilot as search
+        from datetime import datetime, timezone
+        calls=[]
+        def respond(request, timeout):
+            calls.append(request.full_url)
+            if request.full_url.endswith("/system/budget"):
+                return io.BytesIO(json.dumps({"enabled":True,"providers":[{
+                    "name":"subdl","tier":"free",
+                    "usage":{"hour":78,"day":230},
+                    "limits":{"hour":100,"day":500},
+                    "reset_seconds":{"hour":555,"day":22222}}]}).encode())
+            if request.full_url.endswith("/providers/health"):
+                return io.BytesIO(b'{"providers":[{"name":"subdl","gate":"ok"}]}')
+            raise AssertionError("unexpected backend URL")
+        fake_cfg=types.ModuleType("config")
+        fake_cfg.get_settings=lambda:SimpleNamespace(api_key="secret",
+                                                      provider_budget_stretch_mode="stretch")
+        output=io.StringIO()
+        with mock.patch.dict(sys.modules,{"config":fake_cfg}), \
+             mock.patch("urllib.request.urlopen",side_effect=respond), \
+             mock.patch.object(sys,"stdout",output):
+            exec(search.BUDGET_WORKER,{"__name__":"__main__"})
+        data=json.loads(output.getvalue())
+        self.assertEqual(data["providers"][0]["gate"],"ok")
+        self.assertEqual(data["providers"][0]["usage"]["hour"],78)
+        expected=(500*(datetime.now(timezone.utc).hour+1)+23)//24
+        self.assertEqual(data["providers"][0]["stretch_estimate"]["threshold"],expected)
+        self.assertEqual(len(calls),2)
+        self.assertFalse(any("/providers/search" in c for c in calls))
+        self.assertNotIn("secret",output.getvalue())
+        self.assertNotIn("get_provider_manager",search.BUDGET_WORKER)
+        self.assertNotIn("get_budget_manager",search.BUDGET_WORKER)
+
     def test_episode_search_does_not_send_series_imdb_as_episode_imdb(self):
         # Sublarr v1.18.0 misuses a series' IMDb ID as the episode IMDb ID.
         import io, json, sys, types
