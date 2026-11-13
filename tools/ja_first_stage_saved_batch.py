@@ -39,6 +39,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import unicodedata
 from urllib.parse import quote
 
 ROOT = Path.home() / "bruiser-pilot/ja-first-inventory"
@@ -347,6 +348,88 @@ JP_RELEASE_TAGS={"ja","jp","jpn","jpa","japanese"}
 RELEASE_YEAR=re.compile(r"(?:19|20)\d{2}\Z")
 
 
+def original_title_identity_ok(row,result):
+    """Exact Jellyfin original-title proof for a *private trial* release.
+
+    Provider titles can use the actual French/Japanese/etc film name while
+    Jellyfin displays an English translation. Require whole-token matching,
+    consistent release years, and either an adjacent production year or an
+    exact standalone original title independently marked title-matched by the
+    provider. An arbitrary Japanese string or a substring is not sufficient.
+    """
+    original=str(row.get("original_title") or "").strip()
+    year=str(row.get("year") or "")
+    if not re.fullmatch(r"(?:19|20)\d{2}",year):
+        return False
+    def words(value):
+        return re.findall(r"[^\W_]+",
+                          unicodedata.normalize("NFKC",str(value or "")).casefold())
+    alias=words(original)
+    english=words(row.get("title"))
+    if (not alias or alias==english or
+            len("".join(alias))<3 or len(original)>240):
+        return False
+    # Contradictory explicit release years outrank title coincidences.
+    sources=(str(result.get("filename") or ""),
+             str(result.get("release_info") or ""))
+    for source in sources:
+        for candidate_year in re.findall(r"(?<!\d)(?:19|20)\d{2}(?!\d)",
+                                          source):
+            if abs(int(candidate_year)-int(year))>1:
+                return False
+    for source in sources:
+        tokens_full=words(source)
+        for i in range(len(tokens_full)-len(alias)+1):
+            if tokens_full[i:i+len(alias)]!=alias:
+                continue
+            left=tokens_full[i-1] if i else ""
+            right=(tokens_full[i+len(alias)]
+                   if i+len(alias)<len(tokens_full) else "")
+            if any(re.fullmatch(r"(?:19|20)\d{2}",token)
+                   and abs(int(token)-int(year))<=1
+                   for token in (left,right)):
+                return True
+            if (tokens_full==alias
+                    and "title" in (result.get("matches") or [])):
+                return True
+            if (i==0 and len(tokens_full)>len(alias) and
+                    right in JP_RELEASE_TAGS):
+                return True
+    return False
+
+
+def subdl_package_identity_ok(row,result):
+    """SubDL title_japanese_<remote-id>.zip labels, not loose title hits.
+
+    The trailing numeric suffix must match the provider's immutable remote
+    ZIP ID, and the ENTIRE intervening slug must be the Jellyfin movie title.
+    This is only download/staging identity, never synchronization approval.
+    """
+    if result.get("provider")!="subdl":
+        return False
+    filename=str(result.get("filename") or "").strip()
+    match=re.fullmatch(
+        r"(?i)(?:subdl(?:\.com)?::)?[_ -]*"
+        r"([a-z0-9]+(?:[-_][a-z0-9]+)*)"
+        r"[-_](?:japanese|jpn|jp|ja)[-_](\d{3,10})\.zip",
+        filename)
+    if not match:
+        return False
+    remote=str(result.get("subtitle_id") or "")
+    if not remote.endswith("-"+match.group(2)):
+        return False
+    if tokens(match.group(1))!=tokens(row.get("title")):
+        return False
+    year=str(row.get("year") or "")
+    if not re.fullmatch(r"(?:19|20)\d{2}",year):
+        return False
+    for source in (filename,str(result.get("release_info") or "")):
+        if any(abs(int(value)-int(year))>1 for value in
+               re.findall(r"(?<!\d)(?:19|20)\d{2}(?!\d)",source)):
+            return False
+    return True
+
+
 def movie_identity_ok(row,result):
     """Exact film-name evidence for trial staging, not a timing verdict.
 
@@ -424,7 +507,10 @@ def movie_identity_ok(row,result):
                 matched_yearless=True
     # An explicit year conflict is more authoritative than an undated
     # title-only match, even when another provider field looks plausible.
-    return not contradictory and (matched_year or matched_yearless)
+    return not contradictory and (
+        matched_year or matched_yearless
+        or original_title_identity_ok(row,result)
+        or subdl_package_identity_ok(row,result))
 
 
 def identity_ok(row, result):
