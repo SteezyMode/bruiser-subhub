@@ -180,7 +180,7 @@ def archive_srt(blob,row,candidate,runtime):
                 # An explicit different release year is authoritative even
                 # when the provider's higher-level candidate name matched.
                 member_years={word for word in words
-                              if re.fullmatch(r"(?:19|20)\\d{2}",word)}
+                              if re.fullmatch(r"(?:19|20)\d{2}",word)}
                 if member_years and member_years!={year}:
                     continue
                 # For multiple distinct non-forced files, retain the strict
@@ -197,7 +197,7 @@ def archive_srt(blob,row,candidate,runtime):
                 tags=stage.named_episode(Path(item.filename).stem)
                 if tags and tags!=expected:
                     continue
-                if not tags and len(members)!=1:
+                if not tags and len(normal_members)!=1:
                     continue
                 priority=1 if tags==expected else 0
             options.append((priority,item))
