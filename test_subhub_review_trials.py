@@ -238,12 +238,14 @@ class ReviewTrialTests(unittest.TestCase):
         worker=review.stage.WORKER
         self.assertIn('if job.get("trial_only") is True:',worker)
         self.assertIn('"result":"private_trial_bytes"',worker)
+        # The first trial-only branch reuses cached staged bytes; the
+        # SECOND branch safely returns newly downloaded bytes before staging.
+        after_get=worker.index('if job.get("trial_only") is True:',
+                               worker.index("raw = provider.download(candidate)"))
         self.assertLess(worker.index("raw = provider.download(candidate)"),
-                        worker.index('if job.get("trial_only") is True:'))
-        self.assertLess(worker.index('if job.get("trial_only") is True:'),
-                        worker.index("metrics = analyze(raw, runtime"))
-        self.assertLess(worker.index('if job.get("trial_only") is True:'),
-                        worker.index("STAGE.mkdir(mode=0o700)"))
+                        after_get)
+        self.assertLess(after_get,worker.index("metrics = analyze(raw, runtime"))
+        self.assertLess(after_get,worker.index("STAGE.mkdir(mode=0o700)"))
 
 
 if __name__=="__main__":
