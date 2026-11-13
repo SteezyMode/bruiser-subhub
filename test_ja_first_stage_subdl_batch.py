@@ -94,7 +94,7 @@ class SubdlBatchTests(unittest.TestCase):
         self.assertEqual(result,{"provider_limited":1})
         self.assertEqual(acquire.call_count,1)
 
-    def test_invalid_cached_zip_is_held_but_does_not_stop_next_title(self):
+    def test_invalid_cached_zip_is_candidate_rejected_but_does_not_stop_next_title(self):
         selected=[(row("a"*32,"First"),candidate("one")),
                   (row("b"*32,"Second"),candidate("two"))]
         with patch.object(batch.stage,"read_inventory",return_value={}), \
@@ -105,7 +105,7 @@ class SubdlBatchTests(unittest.TestCase):
              patch.object(batch.subdl,"stage_one",
                           side_effect=[RuntimeError("subdl_archive_srt_rejected:bad_clock"),None]) as acquire:
             result=batch.run(budget=2,apply=True)
-        self.assertEqual(result,{"held":1,"staged_or_cached":1})
+        self.assertEqual(result,{"candidate_rejected_not_title_held":1,"staged_or_cached":1})
         self.assertEqual(acquire.call_count,2)
 
     def test_source_cycle_passes_only_remaining_combined_budget_to_subdl(self):
