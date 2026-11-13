@@ -308,13 +308,13 @@ def _intensive_jellyfin_english(video,jid,*,opener=urlopen):
         # Some Jellyfin versions report MediaStreams on the item instead of
         # the MediaSource. Never guess a media-source ID.
         options=[]
-        for source in sources:
-            if not isinstance(source,dict):
-                continue
+        def indexed_streams(source, streams):
+            if not isinstance(source,dict) or not isinstance(streams,list):
+                return
             media_id=str(source.get("Id") or "")
             if not media_id or len(media_id)>128 or re.search(r"[^a-zA-Z0-9_-]",media_id):
-                continue
-            for stream in source.get("MediaStreams") or []:
+                return
+            for stream in streams:
                 if not isinstance(stream,dict):
                     continue
                 lang=str(stream.get("Language") or "").casefold().split("-")[0]
@@ -329,7 +329,20 @@ def _intensive_jellyfin_english(video,jid,*,opener=urlopen):
                 options.append((bool(stream.get("IsHearingImpaired")),
                                 bool(stream.get("IsExternal")) is False,
                                 media_id,index))
+        # Jellyfin may put the actual stream descriptors on the item while
+        # MediaSources only carries authenticated media-source IDs. The old
+        # reader silently discarded all of those otherwise valid EN sources.
+        for source in sources:
+            if not isinstance(source,dict):
+                continue
+            indexed_streams(source,source.get("MediaStreams") or [])
+        item_streams=item.get("MediaStreams")
+        if isinstance(item_streams,list) and len(sources)==1:
+            indexed_streams(sources[0],item_streams)
+        # With multiple MediaSources, an item-level stream can belong to a
+        # different source/edition. Fail closed instead of guessing its ID.
         options.sort()
+        options=list(dict.fromkeys(options))
         for _,_,media_id,index in options[:4]:
             try:
                 data=read("/Videos/"+str(jid)+"/"+quote(media_id,safe="")+
