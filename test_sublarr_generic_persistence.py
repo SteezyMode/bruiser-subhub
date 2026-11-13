@@ -85,7 +85,7 @@ class PersistenceTests(unittest.TestCase):
             event=ledger.begin("subf2m","sublarr_provider_manager",path=path)
             ledger.finish(event,"downloaded",byte_count=512,path=path)
             report=ledger.summary(path=path)
-            day=next(iter(report["daily"].values()))
+            day=report["today"]
             self.assertEqual(day["providers"]["subf2m"]["downloaded"],1)
             with self.assertRaisesRegex(ValueError,"invalid_provider_or_route"):
                 ledger.begin("subf2m","jellyfin_native",path=path)
