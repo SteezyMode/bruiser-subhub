@@ -58,6 +58,7 @@ XNUM = re.compile(r"(?<!\d)(\d{1,2})x(\d{1,3})(?!\d)", re.I)
 IMDB = re.compile(r"tt\d{5,12}\Z", re.I)
 
 WORKER = r'''
+import base64
 import json, os, re, sys
 from pathlib import Path
 from providers.base import SubtitleFormat, SubtitleResult
@@ -244,6 +245,13 @@ def run(job):
         print("SUBHUB_DOWNLOAD_RECEIVED:", len(raw), flush=True)
     finally:
         provider.terminate()
+    if job.get("trial_only") is True:
+        # Review candidates may be downloaded/inspected without declaring
+        # identity and without writing into the publishable stage directory.
+        # This is the ONLY opt-in bypass, and it exits before stage creation.
+        return {"result":"private_trial_bytes",
+                "content_b64":base64.b64encode(raw).decode("ascii"),
+                "new_download":True,"length":len(raw)}
     metrics = analyze(raw, runtime, allow_duration_mismatch=True)
     if candidate.format.value not in {"unknown", metrics["format"]}:
         raise RuntimeError("provider_reported_format_conflicts_with_content")
