@@ -237,7 +237,8 @@ def native_download_attempts():
     return int(row[0])
 
 
-def cycle(folder, search_budget, stage_budget, publish_limit, fallback_budget, sources_only=False, scope="all"):
+def cycle(folder, search_budget, stage_budget, publish_limit, fallback_budget,
+          sources_only=False, scope="all", retry_none_after_days=None):
     if not 1 <= search_budget <= 600:
         raise RuntimeError("search_budget_outside_1_to_600")
     if not 1 <= stage_budget <= 200:
@@ -249,6 +250,11 @@ def cycle(folder, search_budget, stage_budget, publish_limit, fallback_budget, s
     required_code(folder)
     if scope not in movie_scope.SCOPES:
         raise RuntimeError("unsupported_source_scope")
+    if retry_none_after_days is not None and (
+            type(retry_none_after_days) is not int
+            or not 1 <= retry_none_after_days <= 30 or scope == "all"
+            or not scope.startswith("movies-")):
+        raise RuntimeError("no_result_retry_requires_explicit_movie_scope")
     print("SOURCE SCOPE:", scope, flush=True)
     print("=== ONE BOUNDED JAPANESE-FIRST PROCESSING CYCLE ===", flush=True)
     print("Limits:", json.dumps({
@@ -259,8 +265,10 @@ def cycle(folder, search_budget, stage_budget, publish_limit, fallback_budget, s
         "Gemma_jobs_queued": 0 if sources_only else 1,
         "Gemma_jobs_started": 0
     }), flush=True)
-    run_step(folder, "DISCOVERY", "ja_first_search_pilot.py",
-             ("--budget",str(search_budget),"--scope",scope))
+    search_args=("--budget",str(search_budget),"--scope",scope)
+    if retry_none_after_days is not None:
+        search_args+=("--retry-none-after-days",str(retry_none_after_days))
+    run_step(folder, "DISCOVERY", "ja_first_search_pilot.py", search_args)
     before=native_download_attempts()
     run_step(folder, "STAGE OPENSUBTITLES", "ja_first_stage_saved_batch.py",
              ("--budget",str(stage_budget),"--scope",scope,"--apply"))
@@ -367,6 +375,9 @@ def main(argv=None):
     parser.add_argument("--scope", choices=movie_scope.SCOPES,default="all")
     parser.add_argument("--sources-only", action="store_true",
                         help="search, stage and sync Japanese only; do not queue AI fallback")
+    parser.add_argument("--retry-none-after-days",type=int,default=None,
+                        help="explicit movie-scope only: recheck prior no-result searches"
+                             " after N days, 1..30; no effect on covered films")
     args = parser.parse_args(argv)
     if args.self_test:
         self_test()
@@ -384,7 +395,8 @@ def main(argv=None):
         parser.error(args.action + " requires --apply")
     if args.action == "cycle":
         cycle(folder, args.search_budget, args.stage_budget,
-              args.publish_limit, args.fallback_budget, args.sources_only, args.scope)
+              args.publish_limit, args.fallback_budget, args.sources_only,
+              args.scope, args.retry_none_after_days)
     elif args.action == "start-worker":
         job = start_existing_worker(folder)
         if args.watch and job:

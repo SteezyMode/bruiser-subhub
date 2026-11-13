@@ -303,7 +303,8 @@ def set_next_run_budget(budget):
 
 
 def once(*, request=api, action=run, search_budget=None,
-         stage_budget=200, publish_limit=200, scope=None):
+         stage_budget=200, publish_limit=200, scope=None,
+         retry_none_after_days=None):
     """Safely run a bounded source-only cycle under one host lock.
 
     Per-invocation overrides are not persisted and cannot enable AI.
@@ -318,6 +319,11 @@ def once(*, request=api, action=run, search_budget=None,
         raise RuntimeError("manual_publish_limit_outside_1_to_200")
     if scope is not None and scope not in SOURCE_SCOPES:
         raise RuntimeError("manual_scope_invalid")
+    if retry_none_after_days is not None and (
+            type(retry_none_after_days) is not int
+            or not 1 <= retry_none_after_days <= 30
+            or scope is None or not scope.startswith("movies-")):
+        raise RuntimeError("manual_no_result_retry_requires_movie_scope_1_to_30")
     ensure_installed()
     fd=lock()
     try:
@@ -337,12 +343,14 @@ def once(*, request=api, action=run, search_budget=None,
         print("SOURCE SCOPE:", actual_scope, flush=True)
         # Let output appear in systemd journal or manual terminal; don't
         # require a persistent shell or start any local translation model.
+        command=[sys.executable,"-u",str(CODE/"ja_first_cycle.py"),"cycle",
+                 "--sources-only","--apply","--search-budget",str(actual_search_budget),
+                 "--stage-budget",str(stage_budget),"--publish-limit",str(publish_limit),
+                 "--scope",actual_scope]
+        if retry_none_after_days is not None:
+            command.extend(("--retry-none-after-days",str(retry_none_after_days)))
         result=subprocess.run(
-            [sys.executable,"-u",str(CODE/"ja_first_cycle.py"),"cycle",
-             "--sources-only","--apply","--search-budget",str(actual_search_budget),
-             "--stage-budget",str(stage_budget),"--publish-limit",str(publish_limit),
-             "--scope",actual_scope],
-            stdin=subprocess.DEVNULL, timeout=8*3600, check=False)
+            command, stdin=subprocess.DEVNULL, timeout=8*3600, check=False)
         if result.returncode:
             raise RuntimeError("sources_only_cycle_failed:"+str(result.returncode))
         if custom_budget and search_budget is None:
@@ -492,35 +500,43 @@ def main(argv=None):
     parser.add_argument("--stage-budget",type=int,default=None)
     parser.add_argument("--publish-limit",type=int,default=None)
     parser.add_argument("--scope",choices=SOURCE_SCOPES,default=None)
+    parser.add_argument("--retry-none-after-days",type=int,default=None,
+                        help="manual once with explicit movie scope ONLY; opt-in"
+                             " rerun old provider no-result searches after N days")
     args=parser.parse_args(argv)
     if args.mode=="status":
         if any(v is not None for v in (
-            args.search_budget,args.stage_budget,args.publish_limit,args.scope)):
+            args.search_budget,args.stage_budget,args.publish_limit,
+            args.scope,args.retry_none_after_days)):
             parser.error("status does not accept source budgets or scope")
         return status()
     if not args.apply:
         parser.error("enable, once and next-budget require --apply")
     if args.mode=="scope":
         if (args.scope is None or any(v is not None for v in
-             (args.search_budget,args.stage_budget,args.publish_limit))):
+             (args.search_budget,args.stage_budget,args.publish_limit,
+              args.retry_none_after_days))):
             parser.error("scope requires only a supported --scope value (movies-drama, movies-horror, movies-action, movies-all, etc.)")
         return configure_source_scope(args.scope)
     if args.mode=="next-budget":
         if (args.search_budget is None or
                 any(v is not None for v in
-                    (args.scope,args.stage_budget,args.publish_limit))):
+                    (args.scope,args.stage_budget,args.publish_limit,
+                     args.retry_none_after_days))):
             parser.error("next-budget requires only --search-budget 1..600")
         return set_next_run_budget(args.search_budget)
     if args.mode=="enable":
         if any(v is not None for v in (
-            args.search_budget,args.stage_budget,args.publish_limit,args.scope)):
+            args.search_budget,args.stage_budget,args.publish_limit,
+            args.scope,args.retry_none_after_days)):
             parser.error("enable does not accept manual source budgets")
         return enable()
     if args.mode=="once":
         return once(search_budget=args.search_budget,
                     stage_budget=200 if args.stage_budget is None else args.stage_budget,
                     publish_limit=200 if args.publish_limit is None else args.publish_limit,
-                    scope=args.scope)
+                    scope=args.scope,
+                    retry_none_after_days=args.retry_none_after_days)
 
 
 if __name__=="__main__":

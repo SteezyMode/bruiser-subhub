@@ -86,6 +86,36 @@ class SourceAutofillTests(unittest.TestCase):
             self.assertIn("--sources-only",cmd)
             self.assertNotIn("start-worker",cmd)
 
+    def test_movie_no_match_retry_is_manual_scoped_and_not_daily_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            calls=[]
+            class Done:
+                returncode=0
+            with patch.object(auto,"ROOT",Path(tmp)), \
+                 patch.object(auto,"ensure_installed"), \
+                 patch.object(auto,"config",return_value=settings(0)), \
+                 patch.object(auto,"refresh_manifest"), \
+                 patch.object(auto.subprocess,"run",
+                              side_effect=lambda args,**kw:calls.append(args) or Done()):
+                auto.once(request=lambda endpoint,*args:{"is_searching":False},
+                          search_budget=8,stage_budget=2,publish_limit=2,
+                          scope="movies-drama",retry_none_after_days=7)
+            self.assertEqual(len(calls),1)
+            command=calls[0]
+            self.assertEqual(command[command.index("--retry-none-after-days")+1],"7")
+            self.assertEqual(command[command.index("--scope")+1],"movies-drama")
+            self.assertIn("--sources-only",command)
+        for kwargs in ({"scope":"all","retry_none_after_days":7},
+                       {"retry_none_after_days":7},
+                       {"scope":"movies-drama","retry_none_after_days":0},
+                       {"scope":"movies-drama","retry_none_after_days":31},
+                       {"scope":"movies-drama","retry_none_after_days":True}):
+            with patch.object(auto,"ensure_installed") as installed:
+                with self.assertRaisesRegex(RuntimeError,
+                                            "manual_no_result_retry"):
+                    auto.once(**kwargs)
+                installed.assert_not_called()
+
     def test_manual_once_rejects_oversized_or_zero_budgets_before_side_effects(self):
         for override in ({"search_budget":601},{"stage_budget":201},
                          {"publish_limit":201},{"search_budget":0},
