@@ -46,6 +46,7 @@ QUARANTINE = stage.STAGED / "review-trial-cache"
 MAX_RAW_BYTES = 2_000_000
 MAX_REPORT_BYTES = 12_000
 PROVIDERS = ("subdl", "opensubtitles")
+TRIAL_GATE_VERSION = "1"  # Bump when trial/QA policy changes.
 
 
 def acceptable(row, candidate):
@@ -157,10 +158,49 @@ def cache_raw(path,raw):
         raise
 
 
+def already_inspected(row,candidate):
+    """Advance across backlog if the same bytes passed through trial before."""
+    raw,receipt=key_path(row,candidate)
+    if receipt.is_symlink():
+        raise RuntimeError("review_receipt_symlink")
+    if not receipt.is_file():
+        return False
+    if receipt.stat().st_mode & 0o077 or receipt.stat().st_size>MAX_REPORT_BYTES:
+        raise RuntimeError("unsafe_review_receipt")
+    try:
+        doc=json.loads(receipt.read_text("utf-8"))
+    except (ValueError,UnicodeError):
+        return False
+    if not isinstance(doc,dict) or any((
+        doc.get("schema")!="bruiser-review-trial-v1",
+        doc.get("trial_gate_version")!=TRIAL_GATE_VERSION,
+        doc.get("jellyfin_id")!=row["jellyfin_id"],
+        doc.get("provider")!=candidate["provider"],
+        doc.get("subtitle_id_sha256")!=hashlib.sha256(
+            str(candidate["subtitle_id"]).encode()).hexdigest(),
+    )):
+        return False
+    if candidate["provider"]=="subdl":
+        archive=subdl.cached_zip_path(candidate)
+        if archive.is_symlink():
+            raise RuntimeError("review_archive_symlink")
+        if not archive.is_file() or not 0<archive.stat().st_size<=subdl.MAX_ARCHIVE:
+            return False
+        with archive.open("rb") as stream:
+            digest=hashlib.file_digest(stream,"sha256").hexdigest()
+    else:
+        content=read_cached(raw)
+        if content is None:
+            return False
+        digest=hashlib.sha256(content).hexdigest()
+    return digest==doc.get("source_sha256")
+
+
 def cache_receipt(path,row,candidate,source_hash,assessment):
     # Quarantine report only; NO database record in the publishable staging DB.
     doc={
         "schema":"bruiser-review-trial-v1",
+        "trial_gate_version":TRIAL_GATE_VERSION,
         "jellyfin_id":row["jellyfin_id"],
         "provider":candidate["provider"],
         "subtitle_id_sha256":hashlib.sha256(
@@ -349,6 +389,7 @@ def run(args):
             return 0
         tally=Counter()
         attempted=0
+        skipped_prior=0
         blocked=set()
         attempted_titles=set()
         for row,candidate in jobs:
@@ -357,6 +398,9 @@ def run(args):
             jid=row["jellyfin_id"]
             if (jid in attempted_titles or candidate["provider"] in blocked
                     or stage.japanese_sidecar_exists(Path(str(row.get("host_path") or "")))):
+                continue
+            if not args.retry and already_inspected(row,candidate):
+                skipped_prior+=1
                 continue
             attempted_titles.add(jid)
             attempted+=1
@@ -384,6 +428,7 @@ def run(args):
                           " downloads this run",flush=True)
         print("=== REVIEW TRIAL SUMMARY ===")
         print("Attempted:",attempted)
+        print("Skipped unchanged previous trials:",skipped_prior)
         for key,value in sorted(tally.items()):
             print(key+":",value)
         print("Publishable-stage database writes: ZERO")
@@ -399,6 +444,8 @@ def main(argv=None):
     ap.add_argument("--provider",choices=("both",*PROVIDERS),default="both")
     ap.add_argument("--limit",type=int,default=12)
     ap.add_argument("--apply",action="store_true")
+    ap.add_argument("--retry",action="store_true",
+                    help="explicitly rerun unchanged cached trials")
     args=ap.parse_args(argv)
     if not 1<=args.limit<=50:
         ap.error("--limit must be 1..50")
