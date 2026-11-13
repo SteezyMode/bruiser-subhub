@@ -19,6 +19,7 @@ import re
 import subprocess
 import sys
 import zipfile
+from urllib.error import HTTPError
 
 try:
     from . import ja_first_stage_saved_batch as stage
@@ -215,7 +216,9 @@ def download_opensubtitles(row,candidate,runtime):
     if proc.returncode or report.get("result")!="private_trial_bytes":
         reason=str(report.get("error") or report.get("error_type") or
                    "opensubtitles_trial_download_failed")
-        if saved.QUOTA.search(reason):
+        if (saved.QUOTA.search(reason) or
+                "cooling_or_exhausted" in reason or
+                "rate_limit" in reason or "HTTPError" in reason):
             raise RuntimeError("provider_download_limit")
         raise RuntimeError("opensubtitles_trial_download_failed")
     raw=base64.b64decode(report.get("content_b64") or "",validate=True)
@@ -316,7 +319,10 @@ def trial(row,candidate,*,download_subdl=subdl.cached_archive,
             report["reason"]=str(exc).split(":",1)[0][:85]
     except (RuntimeError,OSError,ValueError,zipfile.BadZipFile) as exc:
         report["status"]="held_source_or_structure"
-        report["reason"]=str(exc).split(":",1)[0][:85]
+        if isinstance(exc,HTTPError) and exc.code in (406,429):
+            report["reason"]="provider_download_limit"
+        else:
+            report["reason"]=str(exc).split(":",1)[0][:85]
     if source_hash is not None:
         cache_receipt(receipt,row,candidate,source_hash,report)
     elif report["status"]=="held_source_or_structure":
@@ -371,7 +377,7 @@ def run(args):
                 code=str(exc).split(":",1)[0][:85]
                 tally["held"]+=1
                 print("  HELD:",code,flush=True)
-                if saved.QUOTA.search(code):
+                if saved.QUOTA.search(code) or code=="provider_download_limit":
                     blocked.add(candidate["provider"])
                     print("  PROVIDER COOLDOWN; no more "+candidate["provider"]+
                           " downloads this run",flush=True)
