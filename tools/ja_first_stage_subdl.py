@@ -181,7 +181,10 @@ def archive_srt(blob,row,candidate,runtime):
                 # when the provider's higher-level candidate name matched.
                 member_years={word for word in words
                               if re.fullmatch(r"(?:19|20)\d{2}",word)}
-                if member_years and member_years!={year}:
+                # Match the established film identity rule: festival and
+                # theatrical release years may differ by ONE, not fifteen.
+                if member_years and any(abs(int(w)-int(year))>1
+                                        for w in member_years):
                     continue
                 # For multiple distinct non-forced files, retain the strict
                 # original title AND year requirement. With exactly one full
