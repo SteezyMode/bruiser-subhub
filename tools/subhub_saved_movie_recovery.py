@@ -265,6 +265,13 @@ def run(args):
                 continue
             print(f"[{index}/{len(jobs)}] {title} "
                   f"({len(candidates)} new identity-matching releases)",flush=True)
+            # Stage independent alternatives FIRST; then run the existing
+            # publisher ONCE for this movie. Previously three newly staged
+            # John Wick 4 releases each triggered a full ALASS/ffsubsync pass
+            # over the same growing stage group, with no added publication
+            # evidence. This also allows candidate ranking to see every
+            # available staged alternative before choosing any publication.
+            staged_for_film=0
             for candidate in candidates[:args.max_per_title]:
                 provider=candidate["provider"]
                 if provider in blocked:
@@ -284,10 +291,12 @@ def run(args):
                 if outcome=="quota":
                     blocked.add(provider)
                     continue  # Other provider remains independently usable
-                if outcome!="staged":
-                    continue
-                # Only a newly staged release triggers publication; avoid
-                # repeatedly rerunning 18 known failed staged movie groups.
+                if outcome=="staged":
+                    staged_for_film+=1
+            if staged_for_film:
+                print("  MOVIE STAGING COMPLETE:",staged_for_film,
+                      "new releases; evaluating all staged alternatives ONCE",
+                      flush=True)
                 try:
                     published=deep.repair_staged(jid)
                 except (OSError,RuntimeError,ValueError,subprocess.TimeoutExpired) as exc:
@@ -296,9 +305,12 @@ def run(args):
                 if published=="covered" and stage.japanese_sidecar_exists(video):
                     result["published_new"]+=1
                     print("  PUBLISHED:",title,flush=True)
-                    break
-                result["publication_"+published]+=1
-                print("  Publication:",published,flush=True)
+                else:
+                    # A source-level covered receipt without the actual JA
+                    # sidecar is not a successful newly published movie.
+                    result["publication_"+published]+=1
+                    print("  Publication:",published,flush=True)
+                result["movie_publish_batches"]+=1
             if attempts>=args.max_attempts:
                 break
         print("=== RECOVERY SUMMARY ===",flush=True)
