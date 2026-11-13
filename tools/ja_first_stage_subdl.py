@@ -159,26 +159,48 @@ def archive_srt(blob,row,candidate,runtime):
             raise RuntimeError("subdl_archive_too_many_entries")
         if not members:
             raise RuntimeError("subdl_archive_no_srt_members")
-        for item in members:
+        # A full Japanese track packaged alongside a separately labelled
+        # forced/signs track is NOT an ambiguous choice between releases.
+        # Forced-only tracks must never be accepted as full dialogue.
+        def is_forced(item):
+            words=set(stage.tokens(Path(item.filename).stem))
+            return bool(words & {"forced", "signs", "signsonly"})
+        normal_members=[m for m in members if not is_forced(m)]
+        if not normal_members:
+            raise RuntimeError("subdl_archive_only_forced_srt_members")
+        for item in normal_members:
             if not 0<item.file_size<=2_000_000:
                 continue
             if movie:
-                # Multiple SRTs in a movie ZIP are different releases; a
-                # provider's movie identity is not sufficient to choose one
-                # randomly. Require file title/year or a sole .srt member.
                 words=stage.tokens(Path(item.filename).stem)
                 title=stage.tokens(row.get("title"))
                 year=str(row.get("year") or "")
                 match=any(words[i:i+len(title)]==title
                           for i in range(len(words)-len(title)+1)) if title else False
-                if len(members)>1 and (not match or year not in words):
+                # An explicit different release year is authoritative even
+                # when the provider's higher-level candidate name matched.
+                member_years={word for word in words
+                              if re.fullmatch(r"(?:19|20)\d{2}",word)}
+                # Match the established film identity rule: festival and
+                # theatrical release years may differ by ONE, not fifteen.
+                if member_years and any(abs(int(w)-int(year))>1
+                                        for w in member_years):
                     continue
-                priority=2 if match and year in words else 1 if len(members)==1 else 0
+                # For multiple distinct non-forced files, retain the strict
+                # original title AND year requirement. With exactly one full
+                # SRT, the other ZIP member(s) were forced/sign-only and
+                # cannot make the choice ambiguous; still demand a matching
+                # movie title when the ZIP contains multiple SRTs.
+                if len(members)>1 and not match:
+                    continue
+                if len(normal_members)>1 and year not in words:
+                    continue
+                priority=2 if match and year in words else 1 if len(normal_members)==1 else 0
             else:
                 tags=stage.named_episode(Path(item.filename).stem)
                 if tags and tags!=expected:
                     continue
-                if not tags and len(members)!=1:
+                if not tags and len(normal_members)!=1:
                     continue
                 priority=1 if tags==expected else 0
             options.append((priority,item))
@@ -186,6 +208,9 @@ def archive_srt(blob,row,candidate,runtime):
             raise RuntimeError("subdl_archive_no_matching_srt_member")
         options.sort(key=lambda pair:-pair[0])
         rejected=[]
+        # Preserve the first plausibly decoded format failure instead of
+        # reporting only noisy failures from subsequent fallback encodings.
+        first_decoding_failure=None
         for _,member in options:
             try:
                 raw=arc.read(member)
@@ -215,16 +240,17 @@ def archive_srt(blob,row,candidate,runtime):
                     # private paths and arbitrary exception strings stay out
                     # of the shared progress and dashboard logs.
                     code=str(exc).split(":",1)[0]
-                    if re.fullmatch(r"[A-Za-z0-9_]{1,85}",code):
-                        rejected.append(code)
-                    else:
-                        rejected.append("content_validation_error")
+                    if not re.fullmatch(r"[A-Za-z0-9_]{1,85}",code):
+                        code="content_validation_error"
+                    if first_decoding_failure is None:
+                        first_decoding_failure=code
+                    rejected.append(code)
             if not decoded:
                 rejected.append("member_undecodable")
     # Distinguish no matching ZIP member from an identity-matching SRT that
     # fails Japanese content, duration or structural validation. This matters
     # when quota is exhausted: an error should not imply no provider result.
-    reason=",".join(sorted(set(rejected))[:3]) or "unknown"
+    reason=first_decoding_failure or (",".join(sorted(set(rejected))[:3]) or "unknown")
     raise RuntimeError("subdl_archive_srt_rejected:"+reason)
 
 
