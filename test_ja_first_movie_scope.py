@@ -126,6 +126,51 @@ class MovieScopeTests(unittest.TestCase):
         self.assertEqual({x["id"] for x in selected},
                          {r["jellyfin_id"] for r in rows if r["kind"]=="Movie"})
 
+    def test_drama_horror_action_scopes_use_real_genres_and_library_sections(self):
+        drama=scope.MOVIES_DRAMA
+        horror=scope.MOVIES_HORROR
+        action=scope.MOVIES_ACTION
+        section=media(self.four,"Drama, Suspense",jid="9"*32)
+        self.assertTrue(scope.matches(section,drama))
+        self.assertFalse(scope.matches(section,horror))
+        self.assertFalse(scope.matches(section,action))
+        self.assertTrue(scope.matches(self.horror,horror))
+        self.assertTrue(scope.matches(self.outside,action) is False)
+        action_folder=media(self.two,"Action",jid="8"*32)
+        self.assertTrue(scope.matches(action_folder,action))
+        self.assertFalse(scope.matches(action_folder,drama))
+        action_genre=media(self.two,"Comedy",jid="7"*32)
+        action_genre["genres"]=["Action & Adventure","Thriller"]
+        self.assertTrue(scope.matches(action_genre,action))
+        self.assertTrue(scope.matches(action_genre,drama))
+        self.assertFalse(scope.matches(action_genre,horror))
+        drama_genre=media(self.four,"Comedy",jid="6"*32)
+        drama_genre["genres"]=["Drama"]
+        self.assertTrue(scope.matches(drama_genre,drama))
+        self.assertFalse(scope.matches(drama_genre,horror))
+        self.assertFalse(scope.matches(self.tv,drama))
+        self.assertFalse(scope.matches(
+            media(Path("/mnt/2TB/Plex Expansion/Television"),"Drama"),drama))
+        self.assertFalse(scope.matches(
+            media(self.two,"Comedy/Drama",name="Drama.Film.mkv"),drama))
+        self.assertFalse(scope.matches(
+            media(self.two,"../Television/Drama",name="Wrong.mkv"),drama))
+        self.assertFalse(scope.matches(media(Path("/tmp"),"Drama"),drama))
+
+    def test_drama_only_search_excludes_covered_and_unrelated_films(self):
+        rows=[self.horror,self.drama,self.outside,self.tv]
+        already_ja=media(self.four,"Drama, Suspense",jid="9"*32)
+        already_ja["status"]="existing_japanese_subtitle"
+        rows.append(already_ja)
+        database=sqlite3.connect(":memory:")
+        self.addCleanup(database.close)
+        database.execute("CREATE TABLE searches (jellyfin_id TEXT, outcome TEXT,"
+                         " searched_at INTEGER, results_json TEXT)")
+        with patch.object(search.priorities,"active_coverage_queue",return_value=None), \
+             patch.object(search,"query_for",return_value={"language":"ja"}):
+            selected=search.pick(rows,database,20,scope=scope.MOVIES_DRAMA)
+        self.assertEqual([s["id"] for s in selected],[self.drama["jellyfin_id"]])
+
     def test_existing_all_scope_unchanged(self):
         self.assertTrue(scope.matches(self.outside,"all"))
         self.assertTrue(scope.matches(self.tv,"all"))

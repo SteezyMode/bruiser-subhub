@@ -23,14 +23,18 @@ import sqlite3
 import subprocess
 import sys
 import time
+try:
+    from . import ja_first_movie_scope as movie_scope
+except ImportError:
+    import ja_first_movie_scope as movie_scope
 
 ROOT = Path.home() / "bruiser-pilot/ja-first-inventory"
 NEXT_BUDGET_FILE = ROOT / ".source-next-run-budget.json"
 SCOPE_FILE = ROOT / ".source-scope.json"
-MOVIE_SCOPE = "horror-drama-folders"
-MOVIES_NO_ANIME = "movies-no-anime"
-MOVIES_ALL = "movies-all"
-SOURCE_SCOPES = ("all", MOVIE_SCOPE, MOVIES_NO_ANIME, MOVIES_ALL)
+MOVIE_SCOPE = movie_scope.SCOPE
+MOVIES_NO_ANIME = movie_scope.MOVIES_NO_ANIME
+MOVIES_ALL = movie_scope.MOVIES_ALL
+SOURCE_SCOPES = movie_scope.SCOPES
 DEFAULT_SEARCH_BUDGET = 600
 CODE = Path.home() / "bruiser-pilot/subhub-control"
 UNIT = "bruiser-ja-source-autofill"
@@ -499,7 +503,7 @@ def main(argv=None):
     if args.mode=="scope":
         if (args.scope is None or any(v is not None for v in
              (args.search_budget,args.stage_budget,args.publish_limit))):
-            parser.error("scope requires only --scope all|horror-drama-folders|movies-no-anime|movies-all")
+            parser.error("scope requires only a supported --scope value (movies-drama, movies-horror, movies-action, movies-all, etc.)")
         return configure_source_scope(args.scope)
     if args.mode=="next-budget":
         if (args.search_budget is None or

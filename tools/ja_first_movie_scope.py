@@ -14,7 +14,15 @@ except ImportError:
 SCOPE = "horror-drama-folders"
 MOVIES_NO_ANIME = "movies-no-anime"
 MOVIES_ALL = "movies-all"
-SCOPES = ("all", SCOPE, MOVIES_NO_ANIME, MOVIES_ALL)
+MOVIES_DRAMA = "movies-drama"
+MOVIES_HORROR = "movies-horror"
+MOVIES_ACTION = "movies-action"
+GENRE_SCOPES = {
+    MOVIES_DRAMA: {"drama", "suspense", "thriller"},
+    MOVIES_HORROR: {"horror"},
+    MOVIES_ACTION: {"action"},
+}
+SCOPES = ("all", SCOPE, MOVIES_NO_ANIME, MOVIES_ALL, *GENRE_SCOPES)
 ROOTS = (
     Path("/mnt/BigDisk/Video/Movies"),
     Path("/mnt/2TB/Plex Expansion/Movies"),
@@ -25,10 +33,37 @@ CATEGORIES = {"horror", "drama suspense", "drama", "suspense"}
 def matches(row, scope="all"):
     if scope == "all":
         return True
-    if scope not in (SCOPE, MOVIES_NO_ANIME, MOVIES_ALL):
+    if scope not in (SCOPE, MOVIES_NO_ANIME, MOVIES_ALL, *GENRE_SCOPES):
         raise ValueError("unsupported_japanese_source_scope")
     if not isinstance(row, dict) or row.get("kind") != "Movie":
         return False
+    if scope in GENRE_SCOPES:
+        # Both actual movie libraries, never an episode, synthetic title
+        # classification, or a path outside the configured movie mounts.
+        value = row.get("host_path")
+        if not isinstance(value, str) or not value.startswith("/"):
+            return False
+        path = Path(value)
+        if path.is_symlink() or ".." in path.parts:
+            return False
+        sections = []
+        for root in ROOTS:
+            try:
+                rel = path.relative_to(root)
+            except ValueError:
+                continue
+            if len(rel.parts) < 2:
+                return False
+            sections.append(rel.parts[0])
+        if not sections:
+            return False
+        # A Jellyfin genre is authoritative. The first actual library
+        # folder supplements missing genre metadata (e.g. "Drama, Suspense").
+        # Never infer genre from a film title, release group or nested folders.
+        labels = list(row.get("genres") or []) + sections
+        words = {token for label in labels if isinstance(label, str)
+                 for token in re.findall(r"[a-z]+", label.casefold())}
+        return bool(words & GENRE_SCOPES[scope])
     if scope == MOVIES_ALL:
         # Every Jellyfin Movie physically within either configured movie root,
         # including anime and animation. Never mix in Television or unsafe
