@@ -126,6 +126,52 @@ class ReviewTrialTests(unittest.TestCase):
                 self.assertEqual(json.loads(receipt.read_text())["status"],
                                  "held_source_or_structure")
 
+    def test_unchanged_receipt_skips_repeated_trial_but_changed_bytes_do_not(self):
+        row=movie()
+        c=hit("opensubtitles","9876543")
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)
+            with patch.object(review,"QUARANTINE",root), \
+                 patch.object(review.stage,"private_root"):
+                data=b"saved undecodable japanese bytes"
+                raw,receipt=review.key_path(row,c)
+                review.cache_raw(raw,data)
+                review.cache_receipt(receipt,row,c,
+                                     review.hashlib.sha256(data).hexdigest(),
+                                     {"status":"held_source_or_structure",
+                                      "reason":"staged_srt_block_malformed"})
+                self.assertTrue(review.already_inspected(row,c))
+                raw.unlink()
+                review.cache_raw(raw,b"changed release bytes")
+                self.assertFalse(review.already_inspected(row,c))
+                raw.unlink()
+                self.assertFalse(review.already_inspected(row,c))
+                self.assertEqual(review.TRIAL_GATE_VERSION,"1")
+
+    def test_apply_advances_past_previously_inspected_movie(self):
+        first=movie("a"*32,"Alpha Film")
+        second=movie("b"*32,"Beta Film")
+        with tempfile.TemporaryDirectory() as folder:
+            import os
+            fd=os.open(str(Path(folder)/"lock"),os.O_CREAT|os.O_RDWR,0o600)
+            with patch.object(review.saved,"check_idle"), \
+                 patch.object(review.saved.autofill,"lock",return_value=fd), \
+                 patch.object(review.stage,"read_inventory",
+                    return_value={row["jellyfin_id"]:row for row in (first,second)}), \
+                 patch.object(review,"audit_candidates",return_value=(
+                    [(first,hit("subdl","1-1111")),
+                     (second,hit("subdl","2-2222"))],{"candidate_jobs":2})), \
+                 patch.object(review.stage,"japanese_sidecar_exists",return_value=False), \
+                 patch.object(review,"already_inspected",
+                              side_effect=[True,False]), \
+                 patch.object(review,"trial",return_value=("cached",{
+                    "status":"timing_trial_held","cues":100,
+                    "japanese_characters":1000})) as trial:
+                self.assertEqual(review.run(SimpleNamespace(
+                    provider="both",limit=1,apply=True,retry=False)),0)
+                self.assertEqual(trial.call_count,1)
+                self.assertEqual(trial.call_args.args[0]["title"],"Beta Film")
+
     def test_default_preview_calls_neither_provider_nor_publisher(self):
         row=movie()
         with tempfile.TemporaryDirectory() as folder:
