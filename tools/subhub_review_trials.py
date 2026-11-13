@@ -283,17 +283,20 @@ def trial(row,candidate,*,download_subdl=subdl.cached_archive,
               else stage.identity_ok(row,candidate))
     report={"metadata_identity_verified":bool(identity)}
     origin="cached"
+    source_hash=None
     try:
         if provider=="subdl":
             archive=subdl.cached_zip_path(candidate)
-            present=read_cached(archive)
-            origin="cached" if present is not None else "downloaded"
-            blob=present if present is not None else download_subdl(candidate)
+            if archive.is_symlink():
+                raise RuntimeError("review_archive_symlink")
+            origin="cached" if archive.is_file() else "downloaded"
+            # The already existing SubDL ZIP cache accepts larger bounded ZIPs
+            # and preserves rejected originals without a second provider GET.
+            blob=download_subdl(candidate)
             if not isinstance(blob,bytes):
                 raise RuntimeError("review_zip_invalid")
-            # SubDL uses its existing hash-addressed, secure private ZIP cache.
-            raw,qa,repairs=inspect_subdl(blob,row,candidate,runtime)
             source_hash=hashlib.sha256(blob).hexdigest()
+            raw,qa,repairs=inspect_subdl(blob,row,candidate,runtime)
         else:
             raw=read_cached(path)
             if raw is None:
@@ -315,11 +318,14 @@ def trial(row,candidate,*,download_subdl=subdl.cached_archive,
         except (OSError,RuntimeError,ValueError,subprocess.TimeoutExpired) as exc:
             report["status"]="timing_trial_held"
             report["reason"]=str(exc).split(":",1)[0][:85]
-        cache_receipt(receipt,row,candidate,source_hash,report)
     except (RuntimeError,OSError,ValueError,zipfile.BadZipFile) as exc:
         report["status"]="held_source_or_structure"
         report["reason"]=str(exc).split(":",1)[0][:85]
-        raise
+    if source_hash is not None:
+        cache_receipt(receipt,row,candidate,source_hash,report)
+    elif report["status"]=="held_source_or_structure":
+        # Do not cache transient network/credential failures as rejected bytes.
+        raise RuntimeError(report["reason"]) from None
     return origin,report
 
 
@@ -363,6 +369,7 @@ def run(args):
                       "Japanese_chars="+str(result.get("japanese_characters")),
                       "identity_verified="+str(result.get("metadata_identity_verified")),
                       "ALASS="+str(result.get("alignment_reference") or "held"),
+                      "reason="+str(result.get("reason") or "-"),
                       flush=True)
             except (OSError,ValueError,RuntimeError,subprocess.TimeoutExpired) as exc:
                 code=str(exc).split(":",1)[0][:85]
