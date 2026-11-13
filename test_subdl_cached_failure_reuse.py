@@ -23,12 +23,15 @@ class CachedZipFailureTests(unittest.TestCase):
             path=Path(tmp)/"cached.zip"
             path.write_bytes(b"some provider bytes")
             path.chmod(0o600)
+            video=Path(tmp)/"synthetic.mkv"
+            video.write_bytes(b"not-a-real-video")
+            target=dict(row(),host_path=str(video))
             with patch.object(subdl,"cached_zip_path",return_value=path), \
                  patch.object(subdl,"numeric_id",return_value=("11234","idsha")), \
                  patch.object(subdl.progress,"fingerprint",return_value="f"*64) as fp, \
                  patch.object(subdl.progress,"known",
                               return_value="subdl_archive_srt_rejected:bad_clock") as known:
-                result=subdl.known_rejected_cached(row(),candidate())
+                result=subdl.known_rejected_cached(target,candidate())
             self.assertIn("bad_clock",result)
             self.assertEqual(fp.call_args.args[-1],"subdl-stage")
             self.assertEqual(known.call_args.args[2],"subdl-stage")
