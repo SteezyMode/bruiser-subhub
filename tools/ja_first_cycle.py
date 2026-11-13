@@ -238,7 +238,8 @@ def native_download_attempts():
 
 
 def cycle(folder, search_budget, stage_budget, publish_limit, fallback_budget,
-          sources_only=False, scope="all", retry_none_after_days=None):
+          sources_only=False, scope="all", retry_none_after_days=None,
+          rescan_missing=False):
     if not 1 <= search_budget <= 600:
         raise RuntimeError("search_budget_outside_1_to_600")
     if not 1 <= stage_budget <= 200:
@@ -250,6 +251,11 @@ def cycle(folder, search_budget, stage_budget, publish_limit, fallback_budget,
     required_code(folder)
     if scope not in movie_scope.SCOPES:
         raise RuntimeError("unsupported_source_scope")
+    if rescan_missing and (
+            type(rescan_missing) is not bool
+            or retry_none_after_days is not None
+            or not sources_only or not scope.startswith("movies-")):
+        raise RuntimeError("rescan_missing_requires_source_only_movie_scope")
     if retry_none_after_days is not None and (
             type(retry_none_after_days) is not int
             or not 1 <= retry_none_after_days <= 30 or scope == "all"
@@ -268,6 +274,8 @@ def cycle(folder, search_budget, stage_budget, publish_limit, fallback_budget,
     search_args=("--budget",str(search_budget),"--scope",scope)
     if retry_none_after_days is not None:
         search_args+=("--retry-none-after-days",str(retry_none_after_days))
+    if rescan_missing:
+        search_args+=("--rescan-missing",)
     run_step(folder, "DISCOVERY", "ja_first_search_pilot.py", search_args)
     before=native_download_attempts()
     run_step(folder, "STAGE OPENSUBTITLES", "ja_first_stage_saved_batch.py",
@@ -378,6 +386,9 @@ def main(argv=None):
     parser.add_argument("--retry-none-after-days",type=int,default=None,
                         help="explicit movie-scope only: recheck prior no-result searches"
                              " after N days, 1..30; no effect on covered films")
+    parser.add_argument("--rescan-missing",action="store_true",
+                        help="owner-initiated full missing-JA film-category refresh,"
+                             " preserving old source history and cooldown for same-day retries")
     args = parser.parse_args(argv)
     if args.self_test:
         self_test()
@@ -396,7 +407,7 @@ def main(argv=None):
     if args.action == "cycle":
         cycle(folder, args.search_budget, args.stage_budget,
               args.publish_limit, args.fallback_budget, args.sources_only,
-              args.scope, args.retry_none_after_days)
+              args.scope, args.retry_none_after_days, args.rescan_missing)
     elif args.action == "start-worker":
         job = start_existing_worker(folder)
         if args.watch and job:
