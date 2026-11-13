@@ -124,9 +124,14 @@ def known_rejected_cached(row,candidate):
     if (not path.is_file() or path.stat().st_mode & 0o077
             or not 0<path.stat().st_size<=MAX_ARCHIVE):
         raise RuntimeError("unsafe_private_subdl_archive")
+    # The normal media preflight will report missing/corrupt videos; don't
+    # abort the entire selector merely because an old ZIP is cached for one.
+    video=Path(str(row.get("host_path") or ""))
+    if video.is_symlink() or not video.is_file():
+        return None
     sid,_=numeric_id(str(candidate["subtitle_id"]))
     digest=hashlib.sha256(path.read_bytes()).hexdigest()
-    fingerprint=progress.fingerprint(row["host_path"],digest,"subdl-stage")
+    fingerprint=progress.fingerprint(video,digest,"subdl-stage")
     return progress.known(str(row["jellyfin_id"]),sid,"subdl-stage",fingerprint)
 
 
