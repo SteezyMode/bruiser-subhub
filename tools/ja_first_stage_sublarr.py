@@ -71,7 +71,9 @@ try:
             continue
         if (str(r.language).lower() not in ("ja","jpn","japanese")
                 or r.forced or r.kind!="full"
-                or r.format.value not in ("srt","unknown")):
+                or r.format.value not in ("srt","unknown")
+                or str(r.filename or "")!=job["filename"]
+                or str(r.release_info or "")!=job["release_info"]):
             continue
         result=r
         break
@@ -175,7 +177,9 @@ def worker_query(row):
 
 def provider_bytes(row,candidate,*,runner=subprocess.run):
     params={"query":worker_query(row),"provider":candidate["provider"],
-            "subtitle_id":str(candidate["subtitle_id"])}
+            "subtitle_id":str(candidate["subtitle_id"]),
+            "filename":str(candidate.get("filename") or ""),
+            "release_info":str(candidate.get("release_info") or "")}
     command=["docker","exec","-i","-e","PYTHONPATH=/app",
              "sublarr-pilot","python3","-c",CONTAINER_WORKER]
     result=runner(command,input=json.dumps(params),
