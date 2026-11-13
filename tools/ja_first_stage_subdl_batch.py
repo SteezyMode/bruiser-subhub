@@ -26,8 +26,13 @@ except ImportError:
 MAX_ATTEMPTS=200
 
 
-def select(inventory, searches, already, budget, scope="all", skipped=None):
-    """One saved release per uncovered title, with the normal backlog priority."""
+def select(inventory, searches, already, budget, scope="all", skipped=None,
+           *, try_alternates=False):
+    """Prefer one release per title; apply mode tries up to three alternatives.
+
+    Rejected candidate bytes never become a title-level hold. Retry other
+    independent, identity-matching saved releases in the SAME bounded pass.
+    """
     if not 1<=budget<=MAX_ATTEMPTS:
         raise ValueError("subdl_stage_budget_out_of_range")
     active=stage.priorities.active_coverage_queue()
@@ -78,11 +83,19 @@ def select(inventory, searches, already, budget, scope="all", skipped=None):
             -stage.candidate_progress.release_match(row,item),
             -int(item.get("score") or 0),
             str(item["subtitle_id"])))
-        chosen=candidates[0]
         eligible.append((priority,str(row.get("title") or
-                    row.get("series_title") or jid).casefold(),jid,row,chosen))
+                    row.get("series_title") or jid).casefold(),jid,row,candidates))
     eligible.sort(key=lambda entry:(entry[0],entry[1],entry[2]))
-    return [(row,candidate) for _,_,_,row,candidate in eligible[:budget]]
+    selected=[]
+    for _,_,_,row,items in eligible:
+        # The default search/selection API remains one row per film.
+        # Regular apply mode can exhaust three saved releases without waiting
+        # for the next full library scan after one malformed ZIP.
+        for candidate in items[:3 if try_alternates else 1]:
+            selected.append((row,candidate))
+            if len(selected)>=budget:
+                return selected
+    return selected
 
 
 def hold_code(error):
@@ -180,7 +193,8 @@ def run(*,budget=20,scope="all",apply=False):
     searches=stage.read_saved_searches()
     already=stage.read_staged()
     skipped=Counter()
-    chosen=select(inventory,searches,already,budget,scope,skipped)
+    chosen=select(inventory,searches,already,budget,scope,skipped,
+                  try_alternates=apply)
     print("=== SUBDL SAVED JAPANESE STAGING BATCH ===",flush=True)
     print("Saved searches:",len(searches),"| candidates:",len(chosen),
           "| attempt budget:",budget,"| scope:",scope,
@@ -192,7 +206,11 @@ def run(*,budget=20,scope="all",apply=False):
         return {}
     counts=Counter()
     reasons=Counter()
+    staged_titles=set()
     for index,(row,candidate) in enumerate(chosen,1):
+        if str(row["jellyfin_id"]) in staged_titles:
+            counts["alternative_skipped_after_valid_stage"]+=1
+            continue
         label=str(row.get("title") or row.get("series_title") or
                   row["jellyfin_id"])[:100]
         print(f"[{index}/{len(chosen)}] SUBDL STAGING: {label}",flush=True)
@@ -200,22 +218,30 @@ def run(*,budget=20,scope="all",apply=False):
             duration=stage.duration_if_safe(row)
             subdl.stage_one(row,candidate,duration)
             counts["staged_or_cached"]+=1
+            staged_titles.add(str(row["jellyfin_id"]))
         except HTTPError as exc:
             if exc.code in (406,429):
                 counts["provider_limited"]+=1
                 print("SUBDL_PROVIDER_LIMIT_REACHED: HTTP_"+str(exc.code),
                       "| saved stages retained",flush=True)
                 break
-            counts["held"]+=1
+            counts["temporary_provider_failure"]+=1
             reasons["HTTP_"+str(exc.code)]+=1
             print("SUBDL_HELD: HTTP_"+str(exc.code),flush=True)
         except (RuntimeError,OSError,ValueError,zipfile.BadZipFile) as exc:
-            counts["held"]+=1
             reason=hold_code(exc)
+            if reason.startswith("subdl_archive_"):
+                counts["candidate_rejected_not_title_held"]+=1
+                print("SUBDL_CANDIDATE_REJECTED:",reason,
+                      "| trying another saved release if available",flush=True)
+            else:
+                counts["media_or_system_attention"]+=1
+                print("SUBDL_HELD:",reason,flush=True)
             reasons[reason]+=1
-            print("SUBDL_HELD:",reason,flush=True)
     print("SUBDL_BATCH_RESULT:",dict(counts),flush=True)
-    print("SUBDL_HOLD_REASONS:",dict(sorted(reasons.items())),flush=True)
+    print("SUBDL_CANDIDATE_FAILURE_REASONS:",dict(sorted(reasons.items())),flush=True)
+    print("A rejected candidate does NOT mean a title is exhausted "
+          "or eligible for PLaMO.",flush=True)
     print("PRIVATE STAGING ONLY: published media unchanged.",flush=True)
     return dict(counts)
 
