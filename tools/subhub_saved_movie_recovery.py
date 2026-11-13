@@ -199,11 +199,14 @@ def run(args):
             jid=row["jellyfin_id"]
             title=str(row.get("title") or jid)[:100]
             video=Path(row["host_path"])
-            if stage.japanese_sidecar_exists(video):
-                result["covered_since_intake"]+=1
-                continue
             try:
-                # Preflight first. Corrupt MP4s must never consume a download.
+                # Preflight first. Corrupt, missing and symlinked videos must
+                # never consume a download or abort another movie's work.
+                if not video.is_file() or video.is_symlink():
+                    raise RuntimeError("video_missing_or_not_regular")
+                if stage.japanese_sidecar_exists(video):
+                    result["covered_since_intake"]+=1
+                    continue
                 stage.duration_if_safe(row)
             except (RuntimeError,OSError,ValueError,subprocess.TimeoutExpired) as exc:
                 result["media_not_safe_to_source"]+=1
@@ -249,6 +252,7 @@ def run(args):
             if attempts>=args.max_attempts:
                 break
         print("=== RECOVERY SUMMARY ===",flush=True)
+        print("New Japanese subtitle files:",result["published_new"],flush=True)
         print("Staging attempts:",attempts,flush=True)
         for key,value in sorted(result.items()):
             print(f"{key}: {value}",flush=True)
