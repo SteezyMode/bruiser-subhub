@@ -103,7 +103,10 @@ def fresh_candidates(row, document, staged, rejected, *, rejected_check=None,
 
 
 def saved_work(rows, *, skip_titles=(), search_reader=None,
-               staged=None, rejected=None, rejected_check=None):
+               staged=None, rejected=None, rejected_check=None,
+               scope="horror-drama-folders"):
+    if scope not in movie_scope.SCOPES or scope == "all":
+        raise ValueError("saved_movie_recovery_requires_movie_scope")
     search_reader = deep.search_record if search_reader is None else search_reader
     staged = stage.read_staged() if staged is None else staged
     rejected = stage.rejected_duration_candidates() if rejected is None else rejected
@@ -114,7 +117,7 @@ def saved_work(rows, *, skip_titles=(), search_reader=None,
             str(x.get("title") or "").casefold(),
             str(x.get("jellyfin_id") or ""))):
         if row.get("kind") != "Movie" or not movie_scope.matches(
-                row, "horror-drama-folders"):
+                row, scope):
             continue
         if row.get("status") != "ready_ja_search":
             continue
@@ -186,8 +189,11 @@ def run(args):
         stage.private_root()
         rows = list(stage.read_inventory().values())
         jobs, counts, samples = saved_work(
-            rows, skip_titles={x.casefold() for x in args.skip_title})
-        print("=== SAVED DRAMA/HORROR JAPANESE CANDIDATES ===", flush=True)
+            rows, skip_titles={x.casefold() for x in args.skip_title},
+            scope=getattr(args, "scope", "horror-drama-folders"))
+        print("=== SAVED MOVIE JAPANESE CANDIDATES ===", flush=True)
+        print("MOVIE SCOPE:", getattr(args, "scope", "horror-drama-folders"),
+              flush=True)
         for key,value in sorted(counts.items()):
             print(f"{key}: {value}", flush=True)
         print("Not-yet-validated examples:",samples,flush=True)
@@ -273,6 +279,11 @@ def run(args):
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply",action="store_true")
+    parser.add_argument("--scope",choices=tuple(
+        x for x in movie_scope.SCOPES if x!="all"),
+        default="horror-drama-folders",
+        help="only previously saved Japanese candidates for selected movie"
+             " genre/library scope; no fresh searches")
     parser.add_argument("--max-attempts",type=int,default=25)
     parser.add_argument("--max-per-title",type=int,default=3)
     parser.add_argument("--skip-title",action="append",default=[])
