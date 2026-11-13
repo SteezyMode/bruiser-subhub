@@ -849,6 +849,10 @@ def get(path):
 
 budget=get("system/budget")
 health=get("providers/health")
+from providers import get_provider_manager
+from services.provider_budget import get_budget_manager
+manager=get_provider_manager()
+budget_manager=get_budget_manager()
 gates={item["name"]:item.get("gate","unknown")
        for item in health.get("providers") or []
        if isinstance(item,dict) and item.get("name") in ("subdl","opensubtitles")}
@@ -856,10 +860,25 @@ result=[]
 for item in budget.get("providers") or []:
     if not isinstance(item,dict) or item.get("name") not in gates:
         continue
+    # Ask the SAME gate manager used by the Sublarr search coordinator.
+    # A raw remaining count alone cannot explain stretch pacing.
+    provider=manager._providers.get(item["name"])
+    if provider is None:
+        decision={"allowed":None,"reason":"provider_not_initialized",
+                  "wait_seconds":None}
+    else:
+        classes=getattr(type(provider),"rate_limits",{}) or {}
+        tier=getattr(provider,"tier","free")
+        limits=classes.get(tier) or classes.get("free") or {}
+        check=budget_manager.check(item["name"],limits)
+        decision={"allowed":check.allow,
+                  "reason":str(check.reason)[:160],
+                  "wait_seconds":int(check.wait_seconds)}
     # Explicit allowlist: never print key pool, API credentials, or raw config.
     result.append({k:item.get(k) for k in
                    ("name","tier","limits","usage","reset_seconds")}|{
-                   "gate":gates[item["name"]]})
+                   "gate":gates[item["name"]],
+                   "budget_decision":decision})
 print(json.dumps({
     "providers":result,
     "budget_enabled":bool(budget.get("enabled")),
@@ -902,13 +921,20 @@ def provider_budget_report(*,runner=subprocess.run):
                 if type(used) is not int or type(cap) is not int:
                     return "unknown"
                 return f"{used}/{cap} (raw remaining {max(0,cap-used)})"
+            decision=item.get("budget_decision") or {}
             print(name,"gate="+str(item.get("gate")),
                   "tier="+str(item.get("tier")),
                   "hour="+amount("hour"),
                   "day="+amount("day"),
                   "hour_reset_seconds="+str(resets.get("hour")),
                   "day_reset_seconds="+str(resets.get("day")))
+            print(" ",name,"BUDGET_GATE_DECISION:",
+                  "allow="+str(decision.get("allowed")),
+                  "reason="+str(decision.get("reason") or "none"),
+                  "wait_seconds="+str(decision.get("wait_seconds")))
         print("Raw limits do NOT account for safety margins or stretch pacing.")
+        print("Gate decision uses Sublarr's actual configured safety margin,"
+              " learned limits, and UTC pacing window at query time.")
         print("NO SEARCHES, DOWNLOADS, PLaMO OR MEDIA WRITES")
     except (OSError,ValueError,RuntimeError,subprocess.TimeoutExpired) as exc:
         print("SUBLARR_PROVIDER_BUDGET_UNAVAILABLE:",type(exc).__name__)
