@@ -156,6 +156,10 @@ for i, job in enumerate(jobs):
     if i:
         time.sleep(3.3)
     payload = dict(job["query"])
+    request_limit = job.get("request_limit",2)
+    if type(request_limit) is not int or not 1 <= request_limit <= 2:
+        raise ValueError("invalid_source_search_request_limit")
+    truncated_variant = False
     is_episode = (bool(payload.get("series_title"))
                   and type(payload.get("season")) is int
                   and type(payload.get("episode")) is int)
@@ -189,12 +193,15 @@ for i, job in enumerate(jobs):
                 and {"season","episode"}.issubset(set(hit.get("matches") or []))
                 and str(hit.get("language") or "").casefold() in ("ja","jpn")
                 for hit in first.get("results") or [])
-            if not exact:
+            if not exact and len(replies) < request_limit:
                 id_query=dict(payload,imdb_id=series_imdb_id)
                 time.sleep(3.3)
                 with_id, gates=request_search(id_query)
                 replies.append(with_id)
                 variant="title_episode_then_series_imdb_episode"
+            elif not exact:
+                truncated_variant = True
+                variant = "series_title_episode_refinement_budget_deferred"
         if (not is_episode and payload.get("imdb_id")
                 and payload.get("title") and payload.get("year")
                 and not credible_movie_hit(first, payload["title"], payload["year"])):
@@ -207,10 +214,14 @@ for i, job in enumerate(jobs):
             year = str(fallback["year"])
             title = str(fallback["title"])
             fallback["title"] = title if year in title_words(title) else title+" "+year
-            time.sleep(3.3)  # Sublarr combined search: 20 requests/minute
-            second, gates = request_search(fallback)
-            replies.append(second)
-            variant = "imdb_then_movie_title_year"
+            if len(replies) < request_limit:
+                time.sleep(3.3)  # Sublarr combined search: 20 requests/minute
+                second, gates = request_search(fallback)
+                replies.append(second)
+                variant = "imdb_then_movie_title_year"
+            else:
+                truncated_variant = True
+                variant = "imdb_movie_title_year_refinement_budget_deferred"
 
         results = unique_results(*replies)
         missing = blocked_providers(gates)
@@ -220,7 +231,7 @@ for i, job in enumerate(jobs):
             "initial_total": original,
             "strategy_version": 5, "query_variant": variant,
             "provider_gates": gates, "results": results,
-            "partial": bool(missing),
+            "partial": bool(missing or truncated_variant),
             "incomplete_providers": missing,
             "requests_made": len(replies),
         }
@@ -893,7 +904,8 @@ def main():
                           retry_none_after_days=args.retry_none_after_days,
                           rescan_missing=args.rescan_missing)
         print("Inventory:", manifest.name, "| scope:", args.scope, flush=True)
-        print("Search requests planned:", len(chosen), "| budget:", args.budget,
+        print("Movie jobs eligible:", len(chosen),
+              "| backend search-request budget:", args.budget,
               "| missing-movie refresh:", args.rescan_missing,
               "| no-result retry days:",
               args.retry_none_after_days if args.retry_none_after_days is not None
@@ -904,7 +916,13 @@ def main():
             print("No new eligible items for this run.", flush=True)
             return
         summary = Counter()
+        requests_used = 0
         for i, job in enumerate(chosen, 1):
+            if requests_used >= args.budget:
+                print("BACKEND_SEARCH_REQUEST_BUDGET_REACHED:",
+                      requests_used, "/", args.budget, flush=True)
+                break
+            request_cap = min(2, args.budget - requests_used)
             row = job["row"]
             name = row.get("series_title") if row["kind"] == "Episode" else row["title"]
             suffix = (f' S{row["season"]:02d}E{row["episode"]:02d}'
@@ -916,7 +934,8 @@ def main():
             try:
                 run = subprocess.run(
                     command, input=json.dumps([{"id": job["id"],
-                                               "query": job["query"]}]),
+                                               "query": job["query"],
+                                               "request_limit": request_cap}]),
                     text=True, capture_output=True, timeout=225
                 )
                 if run.returncode != 0:
@@ -927,13 +946,25 @@ def main():
                                  if str(r.get("id")) == job["id"]), None)
                 if not response or not response.get("ok"):
                     raise RuntimeError((response or {}).get("error", "no_response"))
+                counted = response.get("requests_made")
+                if (type(counted) is not int or
+                        not 0 <= counted <= request_cap):
+                    raise RuntimeError("unverifiable_backend_search_request_count")
+                requests_used += counted
             except (subprocess.TimeoutExpired, OSError, ValueError, RuntimeError) as exc:
+                # A failed/timeout request can still have reached providers.
+                # Charge the full possible per-film cap rather than risk
+                # silently exceeding the user-requested source budget.
+                requests_used += request_cap
                 save_attempt(db, job, "error")
                 summary["search_errors"] += 1
-                print(f"[{i}/{len(chosen)}] ERROR: {type(exc).__name__} (retry after 1 day)",
+                print(f"[{i}/{len(chosen)}] ERROR: {type(exc).__name__} (retry after 1 day)"
+                      f" backend_requests_budgeted={requests_used}/{args.budget}",
                       flush=True)
                 continue
             if response.get("deferred"):
+                print(f"BACKEND_SEARCH_REQUESTS_USED: {requests_used}/{args.budget}",
+                      flush=True)
                 partial = [(candidate_grade(row, r), r)
                            for r in response.get("results") or []
                            if isinstance(r, dict)]
@@ -982,9 +1013,13 @@ def main():
                         "release_info": candidate.get("release_info"),
                         "score": candidate.get("score"), "matches": candidate.get("matches")
                     }, ensure_ascii=False), flush=True)
-            if i < len(chosen):
+            print(f"BACKEND_SEARCH_REQUESTS_USED: {requests_used}/{args.budget}",
+                  flush=True)
+            if i < len(chosen) and requests_used < args.budget:
                 time.sleep(3.2)  # Sublarr endpoint is limited to 20 searches/minute.
         print("\n=== RESULT ===", flush=True)
+        print("BACKEND_SEARCH_REQUESTS_CHARGED:",requests_used,
+              "| hard maximum:",args.budget,flush=True)
         for name, n in sorted(summary.items()):
             print(name + ":", n, flush=True)
         print("Private repeat-safe history:", DB, flush=True)
