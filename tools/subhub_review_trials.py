@@ -375,6 +375,20 @@ def private_bytes_present(row,candidate):
     return 0<meta.st_size<=subdl.MAX_ARCHIVE and not (meta.st_mode & 0o077)
 
 
+def cached_subdl_only(candidate):
+    path=subdl.cached_zip_path(candidate)
+    if path.is_symlink() or not path.is_file():
+        raise RuntimeError("review_source_not_cached")
+    meta=path.stat()
+    if not 0<meta.st_size<=subdl.MAX_ARCHIVE or meta.st_mode & 0o077:
+        raise RuntimeError("review_cached_archive_unsafe")
+    return path.read_bytes()
+
+
+def cached_opensubtitles_only(row,candidate,runtime):
+    raise RuntimeError("review_source_not_cached")
+
+
 def trial(row,candidate,*,download_subdl=subdl.cached_archive,
           download_os=download_opensubtitles):
     """Return a private receipt; even a perfect sync cannot publish."""
@@ -508,7 +522,10 @@ def run(args):
                     tally["source_"+origin]+=1
                     print(" ",origin,"source_bytes="+str(n),flush=True)
                 else:
-                    origin,result=trial(row,candidate)
+                    origin,result=(trial(row,candidate,
+                        download_subdl=cached_subdl_only,
+                        download_os=cached_opensubtitles_only)
+                        if args.process_cache else trial(row,candidate))
                     status=result["status"]
                     tally[status]+=1
                     print(" ",origin,status,
