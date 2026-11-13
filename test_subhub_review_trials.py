@@ -40,7 +40,7 @@ class ReviewTrialTests(unittest.TestCase):
         }
         jobs,counts=review.audit_candidates(
             [m,e,dict(movie("c"*32),status="existing_japanese_subtitle")],
-            reader=lambda jid:docs.get(jid),which="all")
+            reader=lambda jid:docs.get(jid))
         self.assertEqual(len(jobs),2)
         self.assertEqual({r["kind"] for r,_ in jobs},{"Movie"})
         self.assertEqual(counts["saved_review_hits"],5)
