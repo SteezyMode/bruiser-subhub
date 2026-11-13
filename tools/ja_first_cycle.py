@@ -243,7 +243,9 @@ def cycle(folder, search_budget, stage_budget, publish_limit, fallback_budget, s
     if not 1 <= fallback_budget <= 20:
         raise RuntimeError("fallback_budget_outside_1_to_20")
     required_code(folder)
-    if scope not in ("all", "horror-drama-folders", "movies-no-anime", "movies-all"):
+    if scope not in ("all", "horror-drama-folders", "movies-no-anime",
+                     "movies-all", "movies-drama", "movies-horror",
+                     "movies-action"):
         raise RuntimeError("unsupported_source_scope")
     print("SOURCE SCOPE:", scope, flush=True)
     print("=== ONE BOUNDED JAPANESE-FIRST PROCESSING CYCLE ===", flush=True)
@@ -360,7 +362,8 @@ def main(argv=None):
     parser.add_argument("--stage-budget", type=int, default=2)
     parser.add_argument("--publish-limit", type=int, default=2)
     parser.add_argument("--fallback-budget", type=int, default=8)
-    parser.add_argument("--scope", choices=("all","horror-drama-folders","movies-no-anime","movies-all"),default="all")
+    parser.add_argument("--scope", choices=("all","horror-drama-folders","movies-no-anime","movies-all",
+                              "movies-drama","movies-horror","movies-action"),default="all")
     parser.add_argument("--sources-only", action="store_true",
                         help="search, stage and sync Japanese only; do not queue AI fallback")
     args = parser.parse_args(argv)
