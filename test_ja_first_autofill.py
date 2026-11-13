@@ -116,6 +116,38 @@ class SourceAutofillTests(unittest.TestCase):
                     auto.once(**kwargs)
                 installed.assert_not_called()
 
+    def test_fresh_missing_movie_scan_is_manual_genre_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            commands=[]
+            class Done:
+                returncode=0
+            with patch.object(auto,"ROOT",Path(tmp)), \
+                 patch.object(auto,"ensure_installed"), \
+                 patch.object(auto,"config",return_value=settings(0)), \
+                 patch.object(auto,"refresh_manifest"), \
+                 patch.object(auto.subprocess,"run",
+                              side_effect=lambda args,**kw:commands.append(args) or Done()):
+                auto.once(request=lambda *a,**kw:{"is_searching":False},
+                          search_budget=80,stage_budget=20,publish_limit=20,
+                          scope="movies-horror",rescan_missing=True)
+            self.assertEqual(len(commands),1)
+            self.assertIn("--rescan-missing",commands[0])
+            self.assertIn("--sources-only",commands[0])
+            self.assertEqual(commands[0][commands[0].index("--scope")+1],
+                             "movies-horror")
+        for kwargs in (
+            {"rescan_missing":True},
+            {"rescan_missing":True,"scope":"all"},
+            {"rescan_missing":True,"scope":"horror-drama-folders"},
+            {"rescan_missing":True,"scope":"movies-drama",
+             "retry_none_after_days":3},
+        ):
+            with patch.object(auto,"ensure_installed") as installed:
+                with self.assertRaisesRegex(RuntimeError,
+                                            "manual_rescan_missing"):
+                    auto.once(**kwargs)
+                installed.assert_not_called()
+
     def test_manual_once_rejects_oversized_or_zero_budgets_before_side_effects(self):
         for override in ({"search_budget":601},{"stage_budget":201},
                          {"publish_limit":201},{"search_budget":0},

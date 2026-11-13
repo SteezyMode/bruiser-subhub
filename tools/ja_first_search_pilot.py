@@ -452,9 +452,14 @@ def open_db():
     return db
 
 
-def pick(rows, db, budget, scope='all', retry_none_after_days=None):
+def pick(rows, db, budget, scope='all', retry_none_after_days=None,
+         rescan_missing=False):
     """Sort catalog metadata in memory; touch ONLY a few shortlisted files."""
     now = int(time.time())
+    if rescan_missing and (type(rescan_missing) is not bool
+                           or retry_none_after_days is not None
+                           or not scope.startswith("movies-")):
+        raise ValueError("rescan_missing_requires_explicit_movie_scope")
     if (retry_none_after_days is not None and
             (type(retry_none_after_days) is not int
              or not 1 <= retry_none_after_days <= 30
@@ -468,6 +473,15 @@ def pick(rows, db, budget, scope='all', retry_none_after_days=None):
                 else "NULL AS results_json")
     for jid,outcome,when,raw in db.execute(
         "SELECT jellyfin_id,outcome,searched_at,"+projection+" FROM searches"):
+        if rescan_missing:
+            # Owner-selected genre refresh: one completed provider lookup
+            # per missing movie per 20-hour allowance window. Preserve all
+            # old candidate evidence; never touch already-covered media.
+            if when >= now-20*3600:
+                done.add(str(jid))
+            elif outcome == "error" and when >= now-86400:
+                done.add(str(jid))
+            continue
         if outcome == "in_progress" and when >= now-6*3600:
             done.add(str(jid))
         elif outcome == "error" and when >= now-86400:
@@ -523,9 +537,16 @@ def pick(rows, db, budget, scope='all', retry_none_after_days=None):
             if not (row.get("series_title") and type(season) is int
                     and season >= 1 and type(episode) is int and episode >= 1):
                 continue
-        order = priorities.queue_position(row, "search", queue)
-        if order is None:
-            continue
+        if rescan_missing:
+            # This is an explicit owner-selected fresh provider scan, not
+            # coverage-queue work selection. Old held/staged/review outcomes
+            # are irrelevant to *search eligibility*, though they remain
+            # protected by the downstream staging and no-overwrite gates.
+            order = (0, priorities.priority(row))
+        else:
+            order = priorities.queue_position(row, "search", queue)
+            if order is None:
+                continue
         choices.append((order, hashlib.sha256(key.encode()).hexdigest(), row))
     choices.sort(key=lambda item: (item[0], item[1]))
     chosen = []
@@ -809,11 +830,19 @@ def main():
     ap.add_argument("--retry-none-after-days", type=int, default=None,
                     help="OWNER ONLY: retry movie no-result searches after N days (1..30),"
                          " only with a specific movie scope; not a blanket rescan")
+    ap.add_argument("--rescan-missing", action="store_true",
+                    help="OWNER ONLY: one missing-Japanese movie-category search"
+                         " refresh; prior attempts within 20 hours stay skipped")
     ap.add_argument("--apply", action="store_true",
                     help="with --recover-saved, backup and save review-only candidates")
     args = ap.parse_args()
     if args.apply and not args.recover_saved:
         ap.error("--apply requires --recover-saved")
+    if args.rescan_missing and (
+            args.retry_none_after_days is not None or args.recover_saved
+            or args.report or args.self_test or args.jellyfin_id
+            or not args.scope.startswith("movies-")):
+        ap.error("--rescan-missing requires a selected movies-* scope and no other override")
     if args.retry_none_after_days is not None and (
             args.recover_saved or args.report or args.self_test
             or args.jellyfin_id or args.scope == "all"
@@ -855,9 +884,11 @@ def main():
             chosen=[{"id":args.jellyfin_id,"row":row,"query":query}]
         else:
             chosen = pick(data["items"], db, args.budget, scope=args.scope,
-                          retry_none_after_days=args.retry_none_after_days)
+                          retry_none_after_days=args.retry_none_after_days,
+                          rescan_missing=args.rescan_missing)
         print("Inventory:", manifest.name, "| scope:", args.scope, flush=True)
         print("Search requests planned:", len(chosen), "| budget:", args.budget,
+              "| missing-movie refresh:", args.rescan_missing,
               "| no-result retry days:",
               args.retry_none_after_days if args.retry_none_after_days is not None
               else "normal cooldown", flush=True)

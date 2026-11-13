@@ -123,6 +123,32 @@ class SubdlBatchTests(unittest.TestCase):
         self.assertEqual(calls[2][2][1],"4")
         self.assertEqual(calls[3][2][1],"5")
 
+    def test_refresh_routes_only_to_source_search_and_preserves_stage_gates(self):
+        calls=[]
+        with patch.object(cycle,"required_code"), \
+             patch.object(cycle,"native_download_attempts",side_effect=[10,11]), \
+             patch.object(cycle,"run_step",
+                          side_effect=lambda _,name,file,args:calls.append((file,args))), \
+             patch.object(cycle,"status"):
+            cycle.cycle(Path("/unused"),search_budget=40,stage_budget=6,
+                        publish_limit=4,fallback_budget=1,
+                        sources_only=True,scope="movies-drama",
+                        rescan_missing=True)
+        self.assertEqual(calls[0][0],"ja_first_search_pilot.py")
+        self.assertIn("--rescan-missing",calls[0][1])
+        self.assertNotIn("--rescan-missing",calls[1][1])
+        self.assertNotIn("--rescan-missing",calls[2][1])
+        self.assertEqual([f for f,_ in calls],[
+            "ja_first_search_pilot.py","ja_first_stage_saved_batch.py",
+            "ja_first_stage_subdl_batch.py","ja_first_publish_queue.py"])
+        with patch.object(cycle,"required_code"):
+            with self.assertRaisesRegex(RuntimeError,"rescan_missing_requires"):
+                cycle.cycle(Path("/unused"),40,6,4,1,sources_only=False,
+                            scope="movies-horror",rescan_missing=True)
+            with self.assertRaisesRegex(RuntimeError,"rescan_missing_requires"):
+                cycle.cycle(Path("/unused"),40,6,4,1,sources_only=True,
+                            scope="all",rescan_missing=True)
+
     def test_subdl_skips_when_combined_budget_consumed(self):
         calls=[]
         with patch.object(cycle,"required_code"), \
