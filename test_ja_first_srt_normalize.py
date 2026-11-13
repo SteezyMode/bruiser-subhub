@@ -147,8 +147,10 @@ class StructuralNormalizationTests(unittest.TestCase):
         self.assertEqual(report["merged_blocks_repaired"],1)
         self.assertEqual(report["merged_cues_recovered"],1)
         self.assertEqual(report["retained_dialogue_cues"],4)
-        self.assertIn(b"22\n00:05:48,402",out)
-        self.assertIn(b"23\n00:05:49,637",out)
+        # Normalizer reindexes every output cue from one, preserving timing
+        # and dialogue; cue 22/23 become positions 2/3 in this short sample.
+        self.assertIn(b"2\n00:05:48,402",out)
+        self.assertIn(b"3\n00:05:49,637",out)
         for text in ("それは違う","僕らをここに引き摺り込むのをやめて！",
                      "そうだ。やめて！","終わり"):
             self.assertEqual(out.count(text.encode()),sample.count(text.encode()))
