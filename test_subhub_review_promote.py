@@ -67,6 +67,50 @@ class ReviewPromotionTests(unittest.TestCase):
         self.assertEqual(counts["alternate_cached_deferred"],1)
         self.assertEqual(counts["distinct_movies_eligible"],2)
 
+    def test_reference_audit_reads_only_cached_and_same_video_references(self):
+        row=film()
+        c=saved()
+        raw=b"original"
+        with patch.object(promote.stage,"duration_if_safe",return_value=600), \
+             patch.object(promote,"cached_source",return_value=(raw,{})), \
+             patch.object(promote.ff,"parse_cues",return_value=[
+                 {"end":1000},{"end":470000}]), \
+             patch.object(promote.gate,"safe_media_path",
+                          return_value=Path(row["host_path"])), \
+             patch.object(promote.alass,"_embedded_english",return_value=None), \
+             patch.object(promote.alass,"_intensive_external_english",
+                          return_value=None), \
+             patch.object(promote.alass,"_intensive_jellyfin_english",
+                          return_value=b"English SRT"), \
+             patch.object(promote.alass,"intensive_align") as intensive, \
+             patch.object(promote.stage,"stage_db") as db, \
+             patch.object(promote.gate,"publish") as publish:
+            report=promote.audit_references(row,c)
+        self.assertEqual(report["original_subtitle_ends_pct"],78.3)
+        self.assertTrue(report["cross_reference_available"])
+        self.assertTrue(report["english_jellyfin_indexed"])
+        self.assertFalse(report["english_embedded"])
+        intensive.assert_not_called()
+        db.assert_not_called()
+        publish.assert_not_called()
+
+    def test_reference_audit_reports_no_english_without_deeming_ja_bad(self):
+        row=film()
+        with patch.object(promote.stage,"duration_if_safe",return_value=600), \
+             patch.object(promote,"cached_source",return_value=(b"source",{})), \
+             patch.object(promote.ff,"parse_cues",return_value=[
+                 {"end":1000},{"end":570000}]), \
+             patch.object(promote.gate,"safe_media_path",
+                          return_value=Path(row["host_path"])), \
+             patch.object(promote.alass,"_embedded_english",return_value=None), \
+             patch.object(promote.alass,"_intensive_external_english",
+                          return_value=None), \
+             patch.object(promote.alass,"_intensive_jellyfin_english",
+                          return_value=None):
+            report=promote.audit_references(row,saved())
+        self.assertEqual(report["original_subtitle_ends_pct"],95.0)
+        self.assertFalse(report["cross_reference_available"])
+
     def test_cross_reference_requires_independent_english_and_audio(self):
         row=film()
         with patch.object(promote.gate,"safe_media_path",
