@@ -435,5 +435,74 @@ class AlassTests(unittest.TestCase):
             self.assertIsNone(alass._intensive_jellyfin_english(video,jid,opener=opener))
         self.assertEqual(len(calls),3)
 
+    def test_jellyfin_item_level_media_streams_with_single_source(self):
+        import io
+        import json
+        from tools import ja_first_catalog_manifest as cat
+        raw,_=fixture(lambda i:0)
+        jid="b"*32
+        video=Path("/tmp/A Film 2021.mkv")
+        doc={"Id":jid,"Type":"Movie","Path":str(video),
+             "MediaSources":[{"Id":"only-media-id"}],
+             "MediaStreams":[{"Index":7,"Type":"Subtitle",
+                              "Language":"eng","Codec":"subrip",
+                              "IsExternal":True,"IsForced":False}]}
+        visited=[]
+        def opener(req,timeout):
+            visited.append(req.full_url)
+            if req.full_url.endswith("MediaSources,MediaStreams"):
+                return io.BytesIO(json.dumps(doc).encode())
+            if req.full_url.endswith("Subtitles/7/Stream.srt"):
+                self.assertIn("only-media-id",req.full_url)
+                return io.BytesIO(raw)
+            raise AssertionError("unapproved_jellyfin_endpoint")
+        with patch.dict(sys.modules,{"ja_first_catalog_manifest":cat}), \
+             patch.object(cat,"load_auth",return_value="unused-test-token"):
+            chosen=alass._intensive_jellyfin_english(video,jid,opener=opener)
+        self.assertEqual(chosen,raw)
+        self.assertEqual(len(visited),2)
+
+    def test_item_level_streams_ambiguous_multiple_media_sources_held(self):
+        import io
+        import json
+        from tools import ja_first_catalog_manifest as cat
+        jid="c"*32
+        video=Path("/tmp/Another Film.mkv")
+        doc={"Id":jid,"Type":"Movie","Path":str(video),
+             "MediaSources":[{"Id":"source-one"},{"Id":"source-two"}],
+             "MediaStreams":[{"Index":2,"Type":"Subtitle",
+                              "Language":"eng","Codec":"subrip"}]}
+        calls=[]
+        def opener(req,timeout):
+            calls.append(req.full_url)
+            if req.full_url.endswith("MediaSources,MediaStreams"):
+                return io.BytesIO(json.dumps(doc).encode())
+            raise AssertionError("must_not_assume_source_for_item_stream")
+        with patch.dict(sys.modules,{"ja_first_catalog_manifest":cat}), \
+             patch.object(cat,"load_auth",return_value="unused-test-token"):
+            self.assertIsNone(alass._intensive_jellyfin_english(
+                video,jid,opener=opener))
+        self.assertEqual(len(calls),1)
+
+    def test_item_level_forced_english_remains_ineligible(self):
+        import io
+        import json
+        from tools import ja_first_catalog_manifest as cat
+        jid="d"*32
+        video=Path("/tmp/Film.mkv")
+        doc={"Id":jid,"Type":"Movie","Path":str(video),
+             "MediaSources":[{"Id":"only-source"}],
+             "MediaStreams":[{"Index":5,"Type":"Subtitle",
+                              "Language":"eng","Codec":"subrip","IsForced":True}]}
+        def opener(req,timeout):
+            if req.full_url.endswith("MediaSources,MediaStreams"):
+                return io.BytesIO(json.dumps(doc).encode())
+            raise AssertionError("forced_subtitle_cannot_be_reference")
+        with patch.dict(sys.modules,{"ja_first_catalog_manifest":cat}), \
+             patch.object(cat,"load_auth",return_value="unused-test-token"):
+            self.assertIsNone(alass._intensive_jellyfin_english(
+                video,jid,opener=opener))
+
+
 if __name__=="__main__":
     unittest.main()
