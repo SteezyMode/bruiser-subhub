@@ -30,7 +30,11 @@ SCOPE_FILE = ROOT / ".source-scope.json"
 MOVIE_SCOPE = "horror-drama-folders"
 MOVIES_NO_ANIME = "movies-no-anime"
 MOVIES_ALL = "movies-all"
-SOURCE_SCOPES = ("all", MOVIE_SCOPE, MOVIES_NO_ANIME, MOVIES_ALL)
+MOVIES_DRAMA = "movies-drama"
+MOVIES_HORROR = "movies-horror"
+MOVIES_ACTION = "movies-action"
+SOURCE_SCOPES = ("all", MOVIE_SCOPE, MOVIES_NO_ANIME, MOVIES_ALL,
+                 MOVIES_DRAMA, MOVIES_HORROR, MOVIES_ACTION)
 DEFAULT_SEARCH_BUDGET = 600
 CODE = Path.home() / "bruiser-pilot/subhub-control"
 UNIT = "bruiser-ja-source-autofill"
@@ -499,7 +503,7 @@ def main(argv=None):
     if args.mode=="scope":
         if (args.scope is None or any(v is not None for v in
              (args.search_budget,args.stage_budget,args.publish_limit))):
-            parser.error("scope requires only --scope all|horror-drama-folders|movies-no-anime|movies-all")
+            parser.error("scope requires only a supported --scope value (movies-drama, movies-horror, movies-action, movies-all, etc.)")
         return configure_source_scope(args.scope)
     if args.mode=="next-budget":
         if (args.search_budget is None or
