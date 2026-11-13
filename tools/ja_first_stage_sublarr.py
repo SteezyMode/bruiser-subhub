@@ -424,7 +424,9 @@ def exclusion_audit():
                     continue
                 # Do not turn repeated legacy records into artificial evidence.
                 key=(str(jid),provider,str(c.get("subtitle_id") or ""),
-                     str(c.get("filename") or ""),source)
+                     str(c.get("filename") or ""),str(c.get("format") or ""),
+                     str(c.get("language") or ""),str(c.get("forced") or ""),
+                     str(c.get("kind") or ""),source)
                 if key in seen:
                     continue
                 seen.add(key)
