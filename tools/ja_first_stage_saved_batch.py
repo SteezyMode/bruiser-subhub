@@ -433,6 +433,88 @@ def subdl_package_identity_ok(row,result):
     return True
 
 
+def numbered_sequel_alias_identity_ok(row,result):
+    """Permit only the exact alternate 'Part N' vs 'N' full title with year.
+
+    Example: Jellyfin 'A Nightmare on Elm Street Part 2: Freddy's Revenge'
+    versus release 'A.Nightmare.On.Elm.Street.2.Freddys.Revenge.1985'.
+    This never treats a franchise's shared prefix as the full identity.
+    """
+    title=tokens(row.get("title"))
+    year=str(row.get("year") or "")
+    if not re.fullmatch(r"(?:19|20)\d{2}",year):
+        return False
+    part_indexes=[i for i in range(len(title)-1)
+                  if title[i]=="part" and title[i+1].isdigit()
+                  and 1<=int(title[i+1])<=99]
+    if len(part_indexes)!=1:
+        return False
+    index=part_indexes[0]
+    alias=title[:index]+title[index+1:]
+    if len(alias)<5:
+        return False
+    sources=[str(result.get("filename") or ""),
+             str(result.get("release_info") or "")]
+    # One field reporting a wrong year invalidates the apparent correct one.
+    for source in sources:
+        years=re.findall(r"(?<!\d)(?:19|20)\d{2}(?!\d)",source)
+        if any(value!=year for value in years):
+            return False
+    for source in sources:
+        words=tokens(source)
+        for i in range(len(words)-len(alias)+1):
+            if words[i:i+len(alias)]!=alias:
+                continue
+            left=words[i-1] if i else ""
+            right=words[i+len(alias)] if i+len(alias)<len(words) else ""
+            if left==year or right==year:
+                return True
+    return False
+
+
+def subdl_concatenated_upload_identity_ok(row,result):
+    """SubDL.com::full.movie.title<upload-id>.zip is ID-backed trial identity.
+
+    Some SubDL search results supply a machine-generated filename with the
+    numeric upload ID joined directly to the final movie-title word, e.g.
+    'SUBDL.com::a.nightmare.on.elm.street.4.the.dream.master340891.zip'.
+    Require the complete movie title (not a prefix), exact numeric upload
+    suffix from the immutable remote '<movie-id>-<upload-id>', and JA language.
+    No year-identity inference from the upload number, no other provider.
+    """
+    if (result.get("provider")!="subdl" or
+            str(result.get("language") or "").casefold() not in ("ja","jpn")):
+        return False
+    remote=str(result.get("subtitle_id") or "")
+    match_id=re.fullmatch(r"\d{3,12}-(\d{4,10})",remote)
+    if not match_id:
+        return False
+    original=str(result.get("filename") or "")
+    match_name=re.fullmatch(r"(?i)subdl\.com::([a-z0-9][a-z0-9._-]{3,230})\.zip",
+                           original)
+    if not match_name:
+        return False
+    bare=match_name.group(1)
+    suffix=match_id.group(1)
+    if not bare.endswith(suffix):
+        return False
+    title_slug=bare[:-len(suffix)]
+    if not title_slug or title_slug[-1].isdigit():
+        return False
+    # Refuse an internal release-year conflict even if the filename is exact.
+    year=str(row.get("year") or "")
+    if not re.fullmatch(r"(?:19|20)\d{2}",year):
+        return False
+    for source in (original,str(result.get("release_info") or "")):
+        if any(abs(int(value)-int(year))>1 for value in
+               re.findall(r"(?<!\d)(?:19|20)\d{2}(?!\d)",source)):
+            return False
+    # Match the ENTIRE normalized title; neither a franchise prefix nor a
+    # sequel with different digits can pass.
+    expected=tokens(str(row.get("title") or "").replace("&"," and "))
+    return len(expected)>=4 and tokens(title_slug)==expected
+
+
 def movie_identity_ok(row,result):
     """Exact film-name evidence for trial staging, not a timing verdict.
 
@@ -513,7 +595,9 @@ def movie_identity_ok(row,result):
     return not contradictory and (
         matched_year or matched_yearless
         or original_title_identity_ok(row,result)
-        or subdl_package_identity_ok(row,result))
+        or subdl_package_identity_ok(row,result)
+        or subdl_concatenated_upload_identity_ok(row,result)
+        or numbered_sequel_alias_identity_ok(row,result))
 
 
 def identity_ok(row, result):
