@@ -453,6 +453,53 @@ def trial(row,candidate,*,download_subdl=subdl.cached_archive,
     return origin,report
 
 
+def one_new_download_per_movie(jobs, *, is_cached=private_bytes_present):
+    """Select ONE best uncached review release per Jellyfin movie.
+
+    Never burn many provider downloads for the same film merely because
+    search returned numerous reviews. If any private source is already
+    cached for this Jellyfin movie, acquire NO further releases until
+    a later explicit retry/fallback decision after local QA.
+    The process-cache phase remains free to inspect ALL existing sources.
+    """
+    groups={}
+    for row,candidate in jobs:
+        groups.setdefault(str(row["jellyfin_id"]),[]).append((row,candidate))
+    chosen=[]
+    counts=Counter()
+    counts["unique_review_movies"]=len(groups)
+    for jid,options in groups.items():
+        cached=0
+        for row,candidate in options:
+            if is_cached(row,candidate):
+                cached+=1
+        if cached:
+            counts["movies_already_cached"]+=1
+            counts["cached_candidate_files"]+=cached
+            continue
+        def priority(pair):
+            row,candidate=pair
+            try:
+                matching=(subdl.identity_ok(row,candidate)
+                          if candidate["provider"]=="subdl"
+                          else stage.identity_ok(row,candidate))
+            except (RuntimeError,ValueError,TypeError,KeyError):
+                matching=False
+            # Provider score is a tie breaker, not movie identity evidence.
+            try:
+                score=int(candidate.get("score") or 0)
+            except (ValueError,TypeError):
+                score=0
+            return (not matching,-score,
+                    0 if candidate["provider"]=="subdl" else 1,
+                    str(candidate.get("subtitle_id") or ""))
+        options.sort(key=priority)
+        chosen.append(options[0])
+        counts["other_candidates_deferred"]+=len(options)-1
+    counts["movie_download_jobs"]=len(chosen)
+    return chosen,counts
+
+
 def run(args):
     """Two explicit movie-wide passes: acquisition, then local inspection.
 
@@ -473,6 +520,12 @@ def run(args):
         print("Saved candidates:",len(jobs),"| phase:",phase,
               "| max attempts:",args.limit,
               "| provider:",args.provider,"| TV skipped: yes")
+        download_counts=Counter()
+        if args.download_only:
+            jobs,download_counts=one_new_download_per_movie(jobs)
+            print("ONE NEW RELEASE PER MOVIE (PROVIDER QUOTA PROTECTION)")
+            for key,n in sorted(download_counts.items()):
+                print(key+":",n)
         if not args.apply:
             cached=0
             for row,candidate in jobs:
@@ -514,8 +567,10 @@ def run(args):
                 skipped_prior+=1
                 continue
             attempted+=1
-            title=str(row.get("title") or row["jellyfin_id"])[:88]
-            print(f"[{attempted}/{args.limit}] {title} [{provider}]",flush=True)
+            title=str(row.get("title") or row["jellyfin_id"])[:76]
+            year=str(row.get("year") or "?")
+            print(f"[{attempted}/{args.limit}] {title} ({year})"
+                  f" [{jid[:8]}] [{provider}]",flush=True)
             try:
                 if args.download_only:
                     origin,n=download_to_private_cache(row,candidate)
