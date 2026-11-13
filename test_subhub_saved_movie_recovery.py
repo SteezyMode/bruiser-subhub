@@ -58,6 +58,34 @@ class SavedMovieRecoveryTests(unittest.TestCase):
         self.assertEqual(counts["saved_review_or_plausible"],1)
         self.assertEqual(counts["titles_with_new_verified_candidates"],1)
 
+    def test_saved_candidates_are_scoped_to_each_movie_library_genre(self):
+        horror=film("a"*32,"Horror Film")
+        drama=dict(film("b"*32,"Drama Film"),genres=["Drama"],
+                   host_path="/mnt/BigDisk/Video/Movies/Drama, Suspense/Drama.mkv")
+        action=dict(film("c"*32,"Action Film"),genres=["Action"],
+                    host_path="/mnt/2TB/Plex Expansion/Movies/Action/Action.mkv")
+        covered=dict(film("d"*32,"Covered Drama"),genres=["Drama"],
+                     host_path="/mnt/BigDisk/Video/Movies/Drama/Covered.mkv",
+                     status="existing_japanese_subtitle")
+        tv=dict(film("e"*32,"Drama Series"),kind="Episode",genres=["Drama"],
+                host_path="/mnt/2TB/Plex Expansion/Television/Drama/Show.mkv")
+        items=[horror,drama,action,covered,tv]
+        docs={r["jellyfin_id"]:search_record(r["jellyfin_id"]) for r in items}
+        with patch.object(saved.deep,"candidates_for",return_value=[
+             {"provider":"opensubtitles","subtitle_id":"123456"}]):
+            for scope,expected in (("movies-drama",drama),("movies-horror",horror),
+                                   ("movies-action",action)):
+                with self.subTest(scope=scope):
+                    jobs,counts,_=saved.saved_work(
+                        items,scope=scope,staged=set(),rejected=set(),
+                        search_reader=lambda jid:docs.get(jid),
+                        rejected_check=lambda *_:False)
+                    self.assertEqual([r["jellyfin_id"] for r,_ in jobs],
+                                     [expected["jellyfin_id"]])
+                    self.assertEqual(counts["titles_with_new_verified_candidates"],1)
+        with self.assertRaisesRegex(ValueError,"requires_movie_scope"):
+            saved.saved_work(items,scope="all")
+
     def test_owner_skips_the_master_without_touching_it(self):
         row=film(title="The Master")
         jobs,counts,_=saved.saved_work(
