@@ -54,6 +54,7 @@ SOURCE_FILES=(
     "subhub_jellyfin_batch.py",
     "subhub_media_categories.py",
     "subhub_deep_source.py",
+    "subhub_saved_movie_recovery.py",
     "subhub_source_failure_audit.py",
     "subhub_plamo_source_repass.py",
     "ja_first_autofill.py",
@@ -72,6 +73,7 @@ NEW_SOURCE_FILES=frozenset({
     "subhub_jellyfin_batch.py",
     "subhub_media_categories.py",
     "subhub_deep_source.py",
+    "subhub_saved_movie_recovery.py",
     "subhub_source_failure_audit.py",
     "subhub_plamo_source_repass.py",
 })
