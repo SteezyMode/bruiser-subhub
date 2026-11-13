@@ -53,7 +53,8 @@ MAX_CANDIDATES=4
 # title/episode identity, never an untrusted URL or host video path. No media
 # sidecar write, no translation and no writable output path, even on errors.
 CONTAINER_WORKER=r'''
-import base64, hashlib, json, sys
+import base64, hashlib, json, re, sys
+from urllib.parse import urljoin, urlparse
 from flask import Flask
 from config import get_settings, reload_settings
 from extensions import db as sa_db
@@ -61,21 +62,98 @@ from db.config import get_all_config_entries
 from providers import get_provider_manager
 from providers.base import VideoQuery
 
+class SourceEvidenceError(Exception):
+    pass
+
+def title_tokens(value):
+    value=re.sub(r"(?<=[a-z])['\u2019](?=[a-z])","",
+                 str(value or "").casefold())
+    return re.findall(r"[a-z]+|[0-9]+",value)
+
+def subf2m_verified_release(manager,job):
+    """Only the exact movie YEAR page may verify a historical blank release."""
+    from bs4 import BeautifulSoup
+    params=job["query"]
+    if (job.get("provider")!="subf2m"
+            or not params.get("title")
+            or type(params.get("year")) is not int
+            or not 1900<=params["year"]<=2100):
+        raise SourceEvidenceError("movie_title_year_required")
+    provider=manager.get_provider("subf2m")
+    if provider is None or provider.session is None:
+        raise SourceEvidenceError("subf2m_unavailable")
+    name=title_tokens(params["title"])
+    year=params["year"]
+    verified=[]
+    for page in provider._search_titles(params["title"]):
+        display=str(page.get("name") or "")
+        m=re.search(r"\(\s*((?:19|20)\d{2})\s*\)\s*$",display)
+        if not m or int(m.group(1))!=year or title_tokens(display[:m.start()])!=name:
+            continue
+        url=str(page.get("url") or "")
+        parsed=urlparse(url)
+        if (parsed.scheme!="https" or parsed.hostname!="subf2m.co"
+                or not parsed.path.startswith("/subtitles/")
+                or parsed.username or parsed.password or parsed.query):
+            continue
+        verified.append((url,display[:m.start()].strip()))
+    if len(verified)!=1:
+        raise SourceEvidenceError("unique_title_year_page_not_verified")
+    title_url,page_title=verified[0]
+    response=provider.session.get(title_url.rstrip("/")+"/japanese",
+                                  timeout=provider.timeout)
+    if response.status_code!=200:
+        raise SourceEvidenceError("japanese_listing_unavailable")
+    soup=BeautifulSoup(response.text,"html.parser")
+    found=[]
+    for li in soup.select("li.item")[:100]:
+        link=li.find("a",href=lambda h: h and "/subtitles/" in h)
+        if link is None:
+            continue
+        href=urljoin("https://subf2m.co",link.get("href",""))
+        url=urlparse(href)
+        if (url.scheme!="https" or url.hostname!="subf2m.co"
+                or not url.path.startswith("/subtitles/")
+                or url.username or url.password):
+            continue
+        sub_id=url.path.rstrip("/").rsplit("/",1)[-1]
+        if sub_id!=job["subtitle_id"]:
+            continue
+        text=li.get_text(" ",strip=True)
+        text=re.sub(r"^Japanese\s+","",text,flags=re.I)
+        text=re.split(r"\s+By\s+",text,maxsplit=1,flags=re.I)[0].strip()
+        # Do not replace a blank listing label with the requested title.
+        if not 5<=len(text)<=240:
+            raise SourceEvidenceError("release_label_unverified")
+        words=title_tokens(text)
+        # Require exact full title followed by the expected release year,
+        # independent of provider's untrusted "matches=title" claim.
+        joined=name+[str(year)]
+        if not any(words[i:i+len(joined)]==joined
+                   for i in range(len(words)-len(joined)+1)):
+            raise SourceEvidenceError("release_title_year_unverified")
+        if re.search(r"(?i)(?:^|[._ -])(?:forced|signs.only)(?:$|[._ -])",text):
+            raise SourceEvidenceError("forced_or_signs_release")
+        found.append(text)
+    if len(found)!=1:
+        raise SourceEvidenceError("candidate_id_not_unique_on_verified_page")
+    return {"title":page_title,"year":year,"release":found[0]}
+
 requested=False
 try:
     job=json.load(sys.stdin)
-    if job.get("mode") not in (None,"probe"):
+    if job.get("mode") not in (None,"probe","verify_subf2m"):
         raise ValueError("unsupported_operation")
-    if job.get("mode") is None:
+    if job.get("mode")!="probe":
         params=job["query"]
         allowed={"title","year","imdb_id","series_title","season","episode"}
         if not isinstance(params,dict) or set(params)-allowed:
             raise ValueError("unsupported_query_fields")
-        query=VideoQuery(**params,languages=["ja"],full_only=True)
-    # Use a minimal, DB-connected Flask context. create_app(testing=True)
-    # is NOT safe here: it can migrate/seed/change the production database,
-    # rebuild indexes or start background services. The adapter needs only
-    # the existing DB to read UI provider configuration/statistics.
+        provider_name=str(job["provider"])
+        query=VideoQuery(**params,languages=["ja"],full_only=True,
+                         allowed_providers=[provider_name])
+    # Minimal DB-connected Flask context; never run create_app(), whose
+    # startup can migrate/seed/rebuild indexes or start extra services.
     bootstrap=get_settings()
     app=Flask("subhub_sublarr_provider_read_context",static_folder=None)
     app.config["SQLALCHEMY_DATABASE_URI"]=bootstrap.get_database_url()
@@ -93,34 +171,46 @@ try:
                     "active_provider_count":len(manager._providers),
                     "subf2m_enabled":"subf2m" in manager._providers}
         else:
-            wanted=job["provider"],job["subtitle_id"]
-            result=None
-            for r in manager.search(query,early_exit=False):
-                if (r.provider_name,r.subtitle_id)!=wanted:
-                    continue
-                if (str(r.language).lower() not in ("ja","jpn","japanese")
-                        or r.forced or r.kind!="full"
-                        or r.format.value not in ("srt","unknown")
-                        or str(r.filename or "")!=job["filename"]
-                        or str(r.release_info or "")!=job["release_info"]):
-                    continue
-                result=r
-                break
-            if result is None:
-                answer={"ok":False,"attempted":False,
-                        "reason":"candidate_not_found_or_unusable"}
+            legacy=(job["provider"]=="subf2m" and
+                    job.get("filename")==".srt" and
+                    not str(job.get("release_info") or "").strip())
+            if job.get("mode")=="verify_subf2m" and not legacy:
+                raise SourceEvidenceError("blank_source_identity_not_selected")
+            proof=subf2m_verified_release(manager,job) if legacy else None
+            if job.get("mode")=="verify_subf2m":
+                answer={"ok":True,"attempted":False,"source_proof":proof}
             else:
-                requested=True
-                content=manager.download(result,raise_skips=True)
-                if type(content) is not bytes or not 0<len(content)<=2000000:
-                    raise RuntimeError("provider_bytes_invalid")
-                answer={"ok":True,"attempted":True,"length":len(content),
-                        "sha256":hashlib.sha256(content).hexdigest(),
-                        "content_b64":base64.b64encode(content).decode("ascii")}
+                wanted=job["provider"],job["subtitle_id"]
+                result=None
+                for r in manager.search(query,early_exit=False):
+                    if (r.provider_name,r.subtitle_id)!=wanted:
+                        continue
+                    if (str(r.language).lower() not in ("ja","jpn","japanese")
+                            or r.forced or r.kind!="full"
+                            or r.format.value not in ("srt","unknown")
+                            or str(r.filename or "")!=job["filename"]
+                            or str(r.release_info or "")!=job["release_info"]):
+                        continue
+                    result=r
+                    break
+                if result is None:
+                    answer={"ok":False,"attempted":False,
+                            "reason":"candidate_not_found_or_unusable"}
+                else:
+                    requested=True
+                    content=manager.download(result,raise_skips=True)
+                    if type(content) is not bytes or not 0<len(content)<=2000000:
+                        raise RuntimeError("provider_bytes_invalid")
+                    answer={"ok":True,"attempted":True,"length":len(content),
+                            "sha256":hashlib.sha256(content).hexdigest(),
+                            "content_b64":base64.b64encode(content).decode("ascii")}
+                    if proof is not None:
+                        answer["source_proof"]=proof
 except Exception as exc:
     # Never echo private URLs, tokens, subtitle dialogue or API error bodies.
-    answer={"ok":False,"attempted":requested,
-            "reason":type(exc).__name__}
+    reason=(str(exc) if isinstance(exc,SourceEvidenceError)
+            else type(exc).__name__)
+    answer={"ok":False,"attempted":requested,"reason":reason}
 sys.stdout.write(json.dumps(answer,separators=(",",":")))
 '''
 
