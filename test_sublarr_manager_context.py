@@ -78,7 +78,7 @@ class ContextTests(unittest.TestCase):
         self.assertFalse(state["in_context"])
         self.assertEqual(state["db_uri"],"sqlite:////config/sublarr.db")
         self.assertNotIn("app import",generic.CONTAINER_WORKER)
-        self.assertNotIn("create_app(",generic.CONTAINER_WORKER.split("requested=False",1)[-1])
+        self.assertNotIn("=create_app(",generic.CONTAINER_WORKER)
 
     def test_probe_cli_is_read_only_and_errors_cleanly(self):
         fake=SimpleNamespace(returncode=0,stdout=json.dumps({
