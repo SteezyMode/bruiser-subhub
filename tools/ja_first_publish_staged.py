@@ -111,7 +111,8 @@ def read_staging(jid, sid):
         raise RuntimeError("staging_format_or_size_mismatch")
     recorded_provider = str(metrics.get("provider") or "")
     actual_provider = ("jellyfin" if ".jellyfin." in staged.name else
-                       "subdl" if ".subdl." in staged.name else "opensubtitles")
+                       "subdl" if ".subdl." in staged.name else
+                       "sublarr" if ".sublarr." in staged.name else "opensubtitles")
     if (recorded_provider != actual_provider
             and not (actual_provider == "opensubtitles" and not recorded_provider)):
         # Legacy OpenSubtitles stage records were saved before a provider
@@ -132,7 +133,8 @@ def source_label(jid, sid):
         return "opensubtitles"
     staged, _, _ = read_staging(jid, sid)
     return ("jellyfin" if ".jellyfin." in staged.name else
-            "subdl" if ".subdl." in staged.name else "opensubtitles")
+            "subdl" if ".subdl." in staged.name else
+            "sublarr" if ".sublarr." in staged.name else "opensubtitles")
 
 
 def verify_search_identity(row, jid, sid):
@@ -143,6 +145,10 @@ def verify_search_identity(row, jid, sid):
         # history or lying about which subtitle provider supplied the bytes.
         from ja_first_stage_jellyfin import validate_staged_provenance
         validate_staged_provenance(row, jid, sid, metrics)
+        return
+    if metrics.get("provider") == "sublarr":
+        from ja_first_stage_sublarr import validate_staged_provenance
+        validate_staged_provenance(row,jid,sid,metrics)
         return
     if metrics.get("provider", "opensubtitles") == "subdl":
         from ja_first_stage_subdl import identity_ok as subdl_identity_ok, numeric_id
