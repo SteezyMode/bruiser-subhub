@@ -1,5 +1,8 @@
 """SubF2M blank-name recovery: true page evidence, not fabricated title matches."""
 from contextlib import contextmanager
+from pathlib import Path
+import sqlite3
+import tempfile
 import io
 import json
 from types import ModuleType, SimpleNamespace
@@ -49,6 +52,21 @@ class SourceProofTests(unittest.TestCase):
             with self.subTest(proof=proof):
                 with self.assertRaises(RuntimeError):
                     generic.verify_subf2m_proof(ROW,CAND,proof)
+
+    def test_legacy_saved_candidates_are_opt_in_until_proven(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/"search.sqlite3"
+            with sqlite3.connect(path) as db:
+                db.execute("CREATE TABLE searches (jellyfin_id TEXT, results_json TEXT)")
+                db.execute("INSERT INTO searches VALUES (?,?)",
+                           (JID,json.dumps({"candidates":[CAND]})))
+            with patch.object(generic.stage,"SEARCH_DB",path), \
+                 patch.object(generic.stage,"private_file"):
+                self.assertEqual(generic.source_candidates(ROW,provider="subf2m"),[])
+                results=generic.source_candidates(
+                    ROW,provider="subf2m",include_unverified_subf2m=True)
+                self.assertEqual(len(results),1)
+                self.assertEqual(results[0]["subtitle_id"],CAND["subtitle_id"])
 
     def test_forced_and_wrong_language_remain_blocked(self):
         for c in [dict(CAND,language="en"),
