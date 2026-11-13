@@ -276,6 +276,54 @@ class MovieScopeTests(unittest.TestCase):
                           rows[2]["jellyfin_id"],rows[0]["jellyfin_id"]])
         self.assertNotIn(rows[4]["jellyfin_id"],{x["id"] for x in remaining})
 
+    def test_host_discovery_enforces_actual_backend_request_budget(self):
+        import contextlib
+        import sys
+        import tempfile
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as temp:
+            folder=Path(temp)
+            (folder/"ja-intake-test.json").write_text("{}")
+            ids=["1"*32,"2"*32,"3"*32]
+            work=[{"id":jid,
+                   "row":{"jellyfin_id":jid,"kind":"Movie",
+                          "title":"Example","year":2020},
+                   "query":{"title":"Example","year":2020,
+                            "imdb_id":"tt1234567"}} for jid in ids]
+            for per_job_max, expected_calls in ((1,2),(2,1)):
+                calls=[]
+                def worker(command,**kwargs):
+                    job=json.loads(kwargs["input"])[0]
+                    cap=job["request_limit"]
+                    calls.append((job["id"],cap))
+                    made=min(cap,per_job_max)
+                    payload={"id":job["id"],"ok":True,
+                             "total":0,"results":[],"requests_made":made,
+                             "provider_gates":{"opensubtitles":"ok"},
+                             "incomplete_providers":[],"strategy_version":5,
+                             "query_variant":"test"}
+                    return SimpleNamespace(returncode=0,
+                                           stdout=json.dumps(payload),
+                                           stderr="")
+                with self.subTest(per_job_max=per_job_max), \
+                     patch.object(search,"ROOT",folder), \
+                     patch.object(search,"private_manifest",
+                                  return_value={"items":[]}), \
+                     patch.object(search,"open_db",
+                                  return_value=contextlib.nullcontext(None)), \
+                     patch.object(search,"save_attempt"), \
+                     patch.object(search,"pick",return_value=work), \
+                     patch.object(search.subprocess,"run",side_effect=worker), \
+                     patch.object(search.time,"sleep"), \
+                     patch.object(sys,"argv",["ja_first_search_pilot.py",
+                                             "--budget","2","--scope",
+                                             "movies-horror"]):
+                    search.main()
+                self.assertEqual(len(calls),expected_calls)
+                self.assertEqual(calls[0],(ids[0],2))
+                if expected_calls==2:
+                    self.assertEqual(calls[1],(ids[1],1))
+
     def test_existing_all_scope_unchanged(self):
         self.assertTrue(scope.matches(self.outside,"all"))
         self.assertTrue(scope.matches(self.tv,"all"))

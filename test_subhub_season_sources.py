@@ -174,6 +174,66 @@ class ScopeTests(unittest.TestCase):
             {"kind":"Movie","title":"Bride of Chucky","year":1998},
             result["results"][0]),"reject")
 
+    def test_movie_refinement_respects_one_remaining_backend_request(self):
+        import io, json, sys, types
+        from types import SimpleNamespace
+        from tools import ja_first_search_pilot as search
+        posts=[]
+        def respond(request, timeout):
+            if request.data is None:
+                return io.BytesIO(json.dumps({"providers":[
+                    {"name":"opensubtitles","enabled":True,
+                     "initialized":True,"gate":"ok"}
+                ]}).encode())
+            posts.append(json.loads(request.data))
+            return io.BytesIO(b'{"total":0,"results":[]}')
+        fake_cfg=types.ModuleType("config")
+        fake_cfg.get_settings=lambda:SimpleNamespace(api_key="test")
+        output=io.StringIO()
+        jobs=[{"id":"horror","query":{"title":"Example Horror",
+               "year":2024,"language":"ja","imdb_id":"tt1234567"},
+               "request_limit":1}]
+        with mock.patch.dict(sys.modules,{"config":fake_cfg}), \
+             mock.patch("urllib.request.urlopen",side_effect=respond), \
+             mock.patch("time.sleep"), \
+             mock.patch.object(sys,"stdin",io.StringIO(json.dumps(jobs))), \
+             mock.patch.object(sys,"stdout",output):
+            exec(search.CONTAINER_WORKER,{"__name__":"__main__"})
+        reply=json.loads(output.getvalue())
+        self.assertTrue(reply["partial"])
+        self.assertEqual(reply["requests_made"],1)
+        self.assertIn("budget_deferred",reply["query_variant"])
+        self.assertEqual(len(posts),1)
+
+    def test_worker_preserves_standard_two_refinement_requests_without_cap(self):
+        import io, json, sys, types
+        from types import SimpleNamespace
+        from tools import ja_first_search_pilot as search
+        posts=[]
+        def respond(request, timeout):
+            if request.data is None:
+                return io.BytesIO(json.dumps({"providers":[
+                    {"name":"opensubtitles","enabled":True,
+                     "initialized":True,"gate":"ok"}
+                ]}).encode())
+            posts.append(json.loads(request.data))
+            return io.BytesIO(b'{"total":0,"results":[]}')
+        fake_cfg=types.ModuleType("config")
+        fake_cfg.get_settings=lambda:SimpleNamespace(api_key="test")
+        output=io.StringIO()
+        jobs=[{"id":"horror","query":{"title":"Example Horror",
+               "year":2024,"language":"ja","imdb_id":"tt1234567"}}]
+        with mock.patch.dict(sys.modules,{"config":fake_cfg}), \
+             mock.patch("urllib.request.urlopen",side_effect=respond), \
+             mock.patch("time.sleep"), \
+             mock.patch.object(sys,"stdin",io.StringIO(json.dumps(jobs))), \
+             mock.patch.object(sys,"stdout",output):
+            exec(search.CONTAINER_WORKER,{"__name__":"__main__"})
+        reply=json.loads(output.getvalue())
+        self.assertFalse(reply["partial"])
+        self.assertEqual(reply["requests_made"],2)
+        self.assertEqual(len(posts),2)
+
     def test_movie_with_no_imdb_uses_year_narrowed_query_only(self):
         import io, json, sys, types
         from types import SimpleNamespace
