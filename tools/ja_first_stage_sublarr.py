@@ -53,7 +53,8 @@ MAX_CANDIDATES=4
 # title/episode identity, never an untrusted URL or host video path. No media
 # sidecar write, no translation and no writable output path, even on errors.
 CONTAINER_WORKER=r'''
-import base64, hashlib, json, sys
+import base64, hashlib, json, re, sys
+from urllib.parse import urljoin, urlparse
 from flask import Flask
 from config import get_settings, reload_settings
 from extensions import db as sa_db
@@ -61,21 +62,98 @@ from db.config import get_all_config_entries
 from providers import get_provider_manager
 from providers.base import VideoQuery
 
+class SourceEvidenceError(Exception):
+    pass
+
+def title_tokens(value):
+    value=re.sub(r"(?<=[a-z])['\u2019](?=[a-z])","",
+                 str(value or "").casefold())
+    return re.findall(r"[a-z]+|[0-9]+",value)
+
+def subf2m_verified_release(manager,job):
+    """Only the exact movie YEAR page may verify a historical blank release."""
+    from bs4 import BeautifulSoup
+    params=job["query"]
+    if (job.get("provider")!="subf2m"
+            or not params.get("title")
+            or type(params.get("year")) is not int
+            or not 1900<=params["year"]<=2100):
+        raise SourceEvidenceError("movie_title_year_required")
+    provider=manager.get_provider("subf2m")
+    if provider is None or provider.session is None:
+        raise SourceEvidenceError("subf2m_unavailable")
+    name=title_tokens(params["title"])
+    year=params["year"]
+    verified=[]
+    for page in provider._search_titles(params["title"]):
+        display=str(page.get("name") or "")
+        m=re.search(r"\(\s*((?:19|20)\d{2})\s*\)\s*$",display)
+        if not m or int(m.group(1))!=year or title_tokens(display[:m.start()])!=name:
+            continue
+        url=str(page.get("url") or "")
+        parsed=urlparse(url)
+        if (parsed.scheme!="https" or parsed.hostname!="subf2m.co"
+                or not parsed.path.startswith("/subtitles/")
+                or parsed.username or parsed.password or parsed.query):
+            continue
+        verified.append((url,display[:m.start()].strip()))
+    if len(verified)!=1:
+        raise SourceEvidenceError("unique_title_year_page_not_verified")
+    title_url,page_title=verified[0]
+    response=provider.session.get(title_url.rstrip("/")+"/japanese",
+                                  timeout=provider.timeout)
+    if response.status_code!=200:
+        raise SourceEvidenceError("japanese_listing_unavailable")
+    soup=BeautifulSoup(response.text,"html.parser")
+    found=[]
+    for li in soup.select("li.item")[:100]:
+        link=li.find("a",href=lambda h: h and "/subtitles/" in h)
+        if link is None:
+            continue
+        href=urljoin("https://subf2m.co",link.get("href",""))
+        url=urlparse(href)
+        if (url.scheme!="https" or url.hostname!="subf2m.co"
+                or not url.path.startswith("/subtitles/")
+                or url.username or url.password):
+            continue
+        sub_id=url.path.rstrip("/").rsplit("/",1)[-1]
+        if sub_id!=job["subtitle_id"]:
+            continue
+        text=li.get_text(" ",strip=True)
+        text=re.sub(r"^Japanese\s+","",text,flags=re.I)
+        text=re.split(r"\s+By\s+",text,maxsplit=1,flags=re.I)[0].strip()
+        # Do not replace a blank listing label with the requested title.
+        if not 5<=len(text)<=240:
+            raise SourceEvidenceError("release_label_unverified")
+        words=title_tokens(text)
+        # Require exact full title followed by the expected release year,
+        # independent of provider's untrusted "matches=title" claim.
+        joined=name+[str(year)]
+        if not any(words[i:i+len(joined)]==joined
+                   for i in range(len(words)-len(joined)+1)):
+            raise SourceEvidenceError("release_title_year_unverified")
+        if re.search(r"(?i)(?:^|[._ -])(?:forced|signs.only)(?:$|[._ -])",text):
+            raise SourceEvidenceError("forced_or_signs_release")
+        found.append(text)
+    if len(found)!=1:
+        raise SourceEvidenceError("candidate_id_not_unique_on_verified_page")
+    return {"title":page_title,"year":year,"release":found[0]}
+
 requested=False
 try:
     job=json.load(sys.stdin)
-    if job.get("mode") not in (None,"probe"):
+    if job.get("mode") not in (None,"probe","verify_subf2m"):
         raise ValueError("unsupported_operation")
-    if job.get("mode") is None:
+    if job.get("mode")!="probe":
         params=job["query"]
         allowed={"title","year","imdb_id","series_title","season","episode"}
         if not isinstance(params,dict) or set(params)-allowed:
             raise ValueError("unsupported_query_fields")
-        query=VideoQuery(**params,languages=["ja"],full_only=True)
-    # Use a minimal, DB-connected Flask context. create_app(testing=True)
-    # is NOT safe here: it can migrate/seed/change the production database,
-    # rebuild indexes or start background services. The adapter needs only
-    # the existing DB to read UI provider configuration/statistics.
+        provider_name=str(job["provider"])
+        query=VideoQuery(**params,languages=["ja"],full_only=True,
+                         allowed_providers=[provider_name])
+    # Minimal DB-connected Flask context; never run create_app(), whose
+    # startup can migrate/seed/rebuild indexes or start extra services.
     bootstrap=get_settings()
     app=Flask("subhub_sublarr_provider_read_context",static_folder=None)
     app.config["SQLALCHEMY_DATABASE_URI"]=bootstrap.get_database_url()
@@ -93,34 +171,46 @@ try:
                     "active_provider_count":len(manager._providers),
                     "subf2m_enabled":"subf2m" in manager._providers}
         else:
-            wanted=job["provider"],job["subtitle_id"]
-            result=None
-            for r in manager.search(query,early_exit=False):
-                if (r.provider_name,r.subtitle_id)!=wanted:
-                    continue
-                if (str(r.language).lower() not in ("ja","jpn","japanese")
-                        or r.forced or r.kind!="full"
-                        or r.format.value not in ("srt","unknown")
-                        or str(r.filename or "")!=job["filename"]
-                        or str(r.release_info or "")!=job["release_info"]):
-                    continue
-                result=r
-                break
-            if result is None:
-                answer={"ok":False,"attempted":False,
-                        "reason":"candidate_not_found_or_unusable"}
+            legacy=(job["provider"]=="subf2m" and
+                    job.get("filename")==".srt" and
+                    not str(job.get("release_info") or "").strip())
+            if job.get("mode")=="verify_subf2m" and not legacy:
+                raise SourceEvidenceError("blank_source_identity_not_selected")
+            proof=subf2m_verified_release(manager,job) if legacy else None
+            if job.get("mode")=="verify_subf2m":
+                answer={"ok":True,"attempted":False,"source_proof":proof}
             else:
-                requested=True
-                content=manager.download(result,raise_skips=True)
-                if type(content) is not bytes or not 0<len(content)<=2000000:
-                    raise RuntimeError("provider_bytes_invalid")
-                answer={"ok":True,"attempted":True,"length":len(content),
-                        "sha256":hashlib.sha256(content).hexdigest(),
-                        "content_b64":base64.b64encode(content).decode("ascii")}
+                wanted=job["provider"],job["subtitle_id"]
+                result=None
+                for r in manager.search(query,early_exit=False):
+                    if (r.provider_name,r.subtitle_id)!=wanted:
+                        continue
+                    if (str(r.language).lower() not in ("ja","jpn","japanese")
+                            or r.forced or r.kind!="full"
+                            or r.format.value not in ("srt","unknown")
+                            or str(r.filename or "")!=job["filename"]
+                            or str(r.release_info or "")!=job["release_info"]):
+                        continue
+                    result=r
+                    break
+                if result is None:
+                    answer={"ok":False,"attempted":False,
+                            "reason":"candidate_not_found_or_unusable"}
+                else:
+                    requested=True
+                    content=manager.download(result,raise_skips=True)
+                    if type(content) is not bytes or not 0<len(content)<=2000000:
+                        raise RuntimeError("provider_bytes_invalid")
+                    answer={"ok":True,"attempted":True,"length":len(content),
+                            "sha256":hashlib.sha256(content).hexdigest(),
+                            "content_b64":base64.b64encode(content).decode("ascii")}
+                    if proof is not None:
+                        answer["source_proof"]=proof
 except Exception as exc:
     # Never echo private URLs, tokens, subtitle dialogue or API error bodies.
-    answer={"ok":False,"attempted":requested,
-            "reason":type(exc).__name__}
+    reason=(str(exc) if isinstance(exc,SourceEvidenceError)
+            else type(exc).__name__)
+    answer={"ok":False,"attempted":requested,"reason":reason}
 sys.stdout.write(json.dumps(answer,separators=(",",":")))
 '''
 
@@ -168,7 +258,48 @@ def identity_ok(row,candidate):
     )
 
 
-def source_candidates(row,*,provider=None):
+def subf2m_missing_release(row,candidate):
+    """Legacy blank SubF2M entries are UNVERIFIED, not automatically eligible."""
+    return (isinstance(row,dict) and row.get("kind")=="Movie"
+            and isinstance(candidate,dict)
+            and candidate.get("provider")=="subf2m"
+            and candidate.get("filename")==".srt"
+            and not str(candidate.get("release_info") or "").strip()
+            and str(candidate.get("language") or "").casefold() in ALLOWED_LANGUAGES
+            and candidate.get("forced") is not True
+            and str(candidate.get("kind") or "").casefold() not in {"forced","signs"}
+            and str(candidate.get("format") or "").casefold() in {"srt","unknown",""}
+            and bool(stage.tokens(row.get("title")))
+            and bool(re.fullmatch(r"(?:19|20)\d{2}",str(row.get("year") or "")))
+            and bool(PROVIDER.fullmatch(str(candidate.get("provider") or "")))
+            and 2<=len(str(candidate.get("subtitle_id") or ""))<=250
+            and str(candidate.get("subtitle_id") or "").isprintable())
+
+
+def verify_subf2m_proof(row,candidate,proof):
+    """Verify live provider-page evidence without accepting the old blank filename.
+
+    The container reads the verified title page and release label. The host
+    independently checks that it actually proves this movie/year, and later
+    the publisher re-verifies it against the original saved candidate ID.
+    """
+    if not subf2m_missing_release(row,candidate) or not isinstance(proof,dict):
+        raise RuntimeError("subf2m_source_proof_missing")
+    if (type(proof.get("year")) is not int
+            or str(proof["year"])!=str(row.get("year"))
+            or not isinstance(proof.get("title"),str)
+            or stage.tokens(proof["title"])!=stage.tokens(row.get("title"))):
+        raise RuntimeError("subf2m_verified_title_or_year_mismatch")
+    release=proof.get("release")
+    if (not isinstance(release,str) or not 5<=len(release)<=240
+            or any(ord(c)<32 for c in release)):
+        raise RuntimeError("subf2m_verified_release_invalid")
+    if not stage.movie_identity_ok(row,{"filename":release,"release_info":release}):
+        raise RuntimeError("subf2m_verified_release_identity_mismatch")
+    return True
+
+
+def source_candidates(row,*,provider=None,include_unverified_subf2m=False):
     stage.private_file(stage.SEARCH_DB)
     uri="file:"+quote(str(stage.SEARCH_DB.resolve()),safe="/")+"?mode=ro"
     with sqlite3.connect(uri,uri=True,timeout=15) as db:
@@ -181,7 +312,8 @@ def source_candidates(row,*,provider=None):
         raise RuntimeError("invalid_saved_search_document")
     unique={}
     for item in document.get("candidates") or []:
-        if not identity_ok(row,item):
+        if not (identity_ok(row,item) or
+                include_unverified_subf2m and subf2m_missing_release(row,item)):
             continue
         if provider and item["provider"]!=provider:
             continue
@@ -205,7 +337,7 @@ def worker_query(row):
     return result
 
 
-def provider_bytes(row,candidate,*,runner=subprocess.run):
+def provider_bytes(row,candidate,*,runner=subprocess.run,return_proof=False):
     params={"query":worker_query(row),"provider":candidate["provider"],
             "subtitle_id":str(candidate["subtitle_id"]),
             "filename":str(candidate.get("filename") or ""),
@@ -248,11 +380,54 @@ def provider_bytes(row,candidate,*,runner=subprocess.run):
             or not 0<len(raw)<=MAX_BYTES
             or hashlib.sha256(raw).hexdigest()!=response.get("sha256")):
         raise RuntimeError("sublarr_provider_bytes_integrity_failed")
+    if return_proof:
+        proof=response.get("source_proof")
+        if subf2m_missing_release(row,candidate):
+            verify_subf2m_proof(row,candidate,proof)
+        elif proof is not None:
+            raise RuntimeError("unexpected_sublarr_source_proof")
+        return raw,proof
     return raw
 
 
-def stage_metadata(row,candidate,raw,runtime,qa):
+def verify_subf2m_live(row,candidate,*,runner=subprocess.run):
+    """Read exact public title/year listing: ZERO subtitle bytes downloaded."""
+    if not subf2m_missing_release(row,candidate):
+        raise RuntimeError("no_unnamed_subf2m_release_selected")
+    params={"mode":"verify_subf2m",
+            "query":worker_query(row),
+            "provider":"subf2m",
+            "subtitle_id":str(candidate["subtitle_id"]),
+            "filename":str(candidate["filename"]),
+            "release_info":str(candidate.get("release_info") or "")}
+    command=["docker","exec","-i","-e","PYTHONPATH=/app",
+             "sublarr-pilot","python3","-c",CONTAINER_WORKER]
+    result=runner(command,input=json.dumps(params),capture_output=True,
+                  text=True,timeout=100)
+    if result.returncode or len(result.stdout)>12000:
+        raise RuntimeError("subf2m_live_verification_unavailable")
+    try:
+        answer=json.loads(result.stdout)
+    except (TypeError,ValueError):
+        raise RuntimeError("subf2m_live_verification_invalid_response") from None
+    if not isinstance(answer,dict) or answer.get("ok") is not True:
+        code=str(answer.get("reason") or "source_not_verified") if isinstance(answer,dict) else "source_not_verified"
+        if not re.fullmatch(r"[A-Za-z0-9_]{1,75}",code):
+            code="source_not_verified"
+        raise RuntimeError("subf2m_live_"+code)
+    if answer.get("attempted") is not False:
+        raise RuntimeError("subf2m_unexpected_download_attempt")
+    proof=answer.get("source_proof")
+    verify_subf2m_proof(row,candidate,proof)
+    return proof
+
+
+def stage_metadata(row,candidate,raw,runtime,qa,*,proof=None):
     sid,digest=remote_identity(candidate)
+    if proof is not None:
+        verify_subf2m_proof(row,candidate,proof)
+    elif subf2m_missing_release(row,candidate):
+        raise RuntimeError("unverified_subf2m_source_not_stageable")
     return {
         "provider":SOURCE,"source_schema":SCHEMA,
         "source_jellyfin_id":row["jellyfin_id"],
@@ -265,6 +440,7 @@ def stage_metadata(row,candidate,raw,runtime,qa):
         "source_series_title":str(row.get("series_title") or "")[:160],
         "source_season":row.get("season"),"source_episode":row.get("episode"),
         "source_language":str(candidate.get("language") or ""),
+        **({"source_verified_subf2m":proof} if proof is not None else {}),
         "format":"srt","bytes":len(raw),"sha256":hashlib.sha256(raw).hexdigest(),
         "video_seconds":round(float(runtime),3),
         "cues":qa["cues"],
@@ -284,8 +460,18 @@ def validate_staged_provenance(row,jid,sid,metrics):
             or metrics.get("source_season")!=row.get("season")
             or metrics.get("source_episode")!=row.get("episode")):
         raise RuntimeError("sublarr_staged_identity_changed")
+    proof=metrics.get("source_verified_subf2m")
     matches=[]
-    for c in source_candidates(row):
+    for c in source_candidates(row,include_unverified_subf2m=proof is not None):
+        if proof is not None:
+            if not subf2m_missing_release(row,c):
+                continue
+            try:
+                verify_subf2m_proof(row,c,proof)
+            except RuntimeError:
+                continue
+        elif subf2m_missing_release(row,c):
+            continue
         csid,cdigest=remote_identity(c)
         if (csid==str(sid) and cdigest==metrics.get("source_remote_id_sha256")
                 and c["provider"]==metrics.get("source_remote_provider")
@@ -298,11 +484,11 @@ def validate_staged_provenance(row,jid,sid,metrics):
     return True
 
 
-def preserve(row,candidate,raw,runtime,qa):
+def preserve(row,candidate,raw,runtime,qa,*,proof=None):
     """Create-only private file and compatible stage DB row, never video sidecar."""
     sid,digest=remote_identity(candidate)
     jid=row["jellyfin_id"]
-    meta=stage_metadata(row,candidate,raw,runtime,qa)
+    meta=stage_metadata(row,candidate,raw,runtime,qa,proof=proof)
     validate_staged_provenance(row,jid,sid,meta)
     stage.private_root()
     stage.STAGED.mkdir(mode=0o700,exist_ok=True)
@@ -543,12 +729,20 @@ def main(argv=None):
                         help="read-only per-provider candidate rejection causes and non-animation pilots")
     parser.add_argument("--probe-manager",action="store_true",
                         help="read-only minimal Flask provider manager initialization, no searches")
+    parser.add_argument("--verify-subf2m",action="store_true",
+                        help="read-only verify one saved unnamed movie release on the public provider page")
     parser.add_argument("--provider",default=None,
                         help="one exact previously saved provider (e.g. subf2m)")
     parser.add_argument("--max-attempts",type=int,default=2)
     parser.add_argument("--apply",action="store_true",
                         help="only private-stage candidates; never publish")
     args=parser.parse_args(argv)
+    if args.verify_subf2m:
+        if args.apply or args.list_candidates or args.audit_exclusions or args.probe_manager or args.provider not in (None,"subf2m"):
+            parser.error("--verify-subf2m requires one item without --apply")
+        if not JID.fullmatch(args.jellyfin_id):
+            parser.error("--verify-subf2m requires exact Jellyfin item ID")
+        args.provider="subf2m"
     if args.probe_manager:
         if args.apply or args.jellyfin_id or args.provider or args.list_candidates or args.audit_exclusions:
             parser.error("--probe-manager cannot be combined with stage options")
@@ -573,12 +767,37 @@ def main(argv=None):
     row=stage.read_inventory().get(args.jellyfin_id)
     if not row or row.get("status")!="ready_ja_search":
         raise RuntimeError("selected_media_not_source_ready")
-    candidates=source_candidates(row,provider=args.provider)
+    candidates=source_candidates(
+        row,provider=args.provider,
+        include_unverified_subf2m=args.provider=="subf2m")
     print("=== SAVED OTHER-PROVIDER JAPANESE CANDIDATES ===",flush=True)
     print("Jellyfin ID:",args.jellyfin_id,"| Candidates:",len(candidates),
           "| provider:",args.provider or "other_supported_providers",flush=True)
     print("SUBLARR_GENERIC_MODE:","STAGE_PRIVATE" if args.apply else "READ_ONLY",
           flush=True)
+    if args.verify_subf2m:
+        if not candidates:
+            print("NO SAVED SUBF2M CANDIDATES FOR THIS ITEM")
+            return
+        blank=[c for c in candidates if subf2m_missing_release(row,c)]
+        if not blank:
+            print("NO LEGACY BLANK SUBF2M RELEASES FOR THIS ITEM")
+            return
+        for candidate in blank[:min(args.max_attempts,3)]:
+            try:
+                proof=verify_subf2m_live(row,candidate)
+            except (RuntimeError,OSError,subprocess.TimeoutExpired) as exc:
+                code=str(exc).split(":",1)[0]
+                if not re.fullmatch(r"[A-Za-z0-9_]{1,90}",code):
+                    code=type(exc).__name__
+                print("SUBF2M_SAVED_SOURCE_UNVERIFIED:",code,flush=True)
+                continue
+            print("SUBF2M_LIVE_MOVIE_IDENTITY: VERIFIED",flush=True)
+            print("Title:",proof["title"],"| Year:",proof["year"],flush=True)
+            print("Verified release:",proof["release"],flush=True)
+            print("READ ONLY: public provider listing only; no subtitle download or media write")
+            return
+        raise RuntimeError("no_verified_subf2m_saved_candidate")
     if not args.apply:
         print("NO PROVIDER CALLS, FILE WRITES, PUBLISHING OR PLaMO",flush=True)
         return
@@ -598,14 +817,14 @@ def main(argv=None):
                 if prior:
                     print("GENERIC_ALREADY_STAGED:",candidate["provider"],sid,flush=True)
                     continue
-                raw=provider_bytes(row,candidate)
+                raw,proof=provider_bytes(row,candidate,return_proof=True)
                 # Provider may return SRT with harmless formatting damage, but
                 # never infer or invent missing dialogue/timing.
                 normalized,report=structure.normalize(raw,trial_release_note=True,
                                                       trial_local_swap=True)
                 qa=publisher.validate_srt(normalized,runtime)
                 qa["structural_repair"]=report
-                numeric=preserve(row,candidate,normalized,runtime,qa)
+                numeric=preserve(row,candidate,normalized,runtime,qa,proof=proof)
                 print("STAGED_SUBLARR_PRIVATE:",candidate["provider"],numeric,flush=True)
             except (RuntimeError,OSError,ValueError,sqlite3.Error,subprocess.TimeoutExpired) as exc:
                 code=str(exc).split(":",1)[0]
