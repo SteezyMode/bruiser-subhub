@@ -29,6 +29,7 @@ try:
     from . import ja_first_srt_normalize as structure
     from . import ja_first_candidate_progress as progress
     from . import subhub_download_ledger as ledger
+    from . import ja_first_autofill as autofill
 except ImportError:
     import ja_first_stage_saved_batch as stage
     import ja_first_stage_jellyfin as jelly
@@ -37,6 +38,7 @@ except ImportError:
     import ja_first_srt_normalize as structure
     import ja_first_candidate_progress as progress
     import subhub_download_ledger as ledger
+    import ja_first_autofill as autofill
 
 SOURCE="sublarr"
 SCHEMA="sublarr-provider-manager-v1"
@@ -388,31 +390,37 @@ def main(argv=None):
         return
     if not candidates:
         return
-    runtime=stage.duration_if_safe(row)
-    for candidate in candidates[:args.max_attempts]:
-        sid,_=remote_identity(candidate)
-        try:
-            with stage.stage_db() as db:
-                prior=db.execute("SELECT status FROM staged WHERE jellyfin_id=? "
-                                 "AND subtitle_id=?",(row["jellyfin_id"],sid)).fetchone()
-            if prior:
-                print("GENERIC_ALREADY_STAGED:",candidate["provider"],sid,flush=True)
-                continue
-            raw=provider_bytes(row,candidate)
-            # Provider may return SRT with harmless formatting damage, but
-            # never infer or invent missing dialogue/timing.
-            normalized,report=structure.normalize(raw,trial_release_note=True,
-                                                  trial_local_swap=True)
-            qa=publisher.validate_srt(normalized,runtime)
-            qa["structural_repair"]=report
-            numeric=preserve(row,candidate,normalized,runtime,qa)
-            print("STAGED_SUBLARR_PRIVATE:",candidate["provider"],numeric,flush=True)
-        except (RuntimeError,OSError,ValueError,sqlite3.Error,subprocess.TimeoutExpired) as exc:
-            code=str(exc).split(":",1)[0]
-            if not re.fullmatch(r"[A-Za-z0-9_]{1,90}",code):
-                code=type(exc).__name__
-            print("GENERIC_CANDIDATE_REJECTED:",candidate["provider"],code,flush=True)
-    print("PRIVATE STAGING ONLY; NO JAPANESE SIDECARS PUBLISHED.",flush=True)
+    # The standard source cycle owns this same lock; never spend provider
+    # credits concurrently with another owner/automatic run.
+    fd=autofill.lock()
+    try:
+        runtime=stage.duration_if_safe(row)
+        for candidate in candidates[:args.max_attempts]:
+            sid,_=remote_identity(candidate)
+            try:
+                with stage.stage_db() as db:
+                    prior=db.execute("SELECT status FROM staged WHERE jellyfin_id=? "
+                                     "AND subtitle_id=?",(row["jellyfin_id"],sid)).fetchone()
+                if prior:
+                    print("GENERIC_ALREADY_STAGED:",candidate["provider"],sid,flush=True)
+                    continue
+                raw=provider_bytes(row,candidate)
+                # Provider may return SRT with harmless formatting damage, but
+                # never infer or invent missing dialogue/timing.
+                normalized,report=structure.normalize(raw,trial_release_note=True,
+                                                      trial_local_swap=True)
+                qa=publisher.validate_srt(normalized,runtime)
+                qa["structural_repair"]=report
+                numeric=preserve(row,candidate,normalized,runtime,qa)
+                print("STAGED_SUBLARR_PRIVATE:",candidate["provider"],numeric,flush=True)
+            except (RuntimeError,OSError,ValueError,sqlite3.Error,subprocess.TimeoutExpired) as exc:
+                code=str(exc).split(":",1)[0]
+                if not re.fullmatch(r"[A-Za-z0-9_]{1,90}",code):
+                    code=type(exc).__name__
+                print("GENERIC_CANDIDATE_REJECTED:",candidate["provider"],code,flush=True)
+        print("PRIVATE STAGING ONLY; NO JAPANESE SIDECARS PUBLISHED.",flush=True)
+    finally:
+        os.close(fd)
 
 
 if __name__=="__main__":
