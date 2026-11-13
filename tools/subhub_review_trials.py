@@ -218,7 +218,8 @@ def download_opensubtitles(row,candidate,runtime):
                    "opensubtitles_trial_download_failed")
         if (saved.QUOTA.search(reason) or
                 "cooling_or_exhausted" in reason or
-                "rate_limit" in reason or "HTTPError" in reason):
+                "rate_limit" in reason or
+                re.search(r"\\b(?:406|429)\\b",reason)):
             raise RuntimeError("provider_download_limit")
         raise RuntimeError("opensubtitles_trial_download_failed")
     raw=base64.b64decode(report.get("content_b64") or "",validate=True)
