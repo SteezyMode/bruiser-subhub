@@ -244,6 +244,38 @@ class MovieScopeTests(unittest.TestCase):
         self.assertEqual({x["id"] for x in all_selected},
                          {self.drama["jellyfin_id"],rows[2]["jellyfin_id"]})
 
+    def test_full_scan_resume_prioritizes_unfinished_titles_after_provider_reset(self):
+        import time
+        now=int(time.time())
+        rows=[
+            media(self.two,"Horror",name="Recently.2024.mkv",jid="1"*32),
+            media(self.two,"Horror",name="NeverSearched.2024.mkv",jid="2"*32),
+            media(self.two,"Horror",name="OldResult.2024.mkv",jid="3"*32),
+            media(self.two,"Horror",name="OlderResult.2024.mkv",jid="4"*32),
+            media(self.two,"Horror",name="StillCooling.2024.mkv",jid="5"*32),
+        ]
+        db=sqlite3.connect(":memory:")
+        self.addCleanup(db.close)
+        db.execute("CREATE TABLE searches (jellyfin_id TEXT,outcome TEXT,"
+                   "searched_at INTEGER,results_json TEXT)")
+        for index,when in ((0,now-26*3600),(2,now-7*86400),
+                           (3,now-28*86400),(4,now-2*3600)):
+            db.execute("INSERT INTO searches VALUES(?,?,?,?)",
+                       (rows[index]["jellyfin_id"],"none",when,
+                        json.dumps({"strategy_version":5})))
+        db.commit()
+        with patch.object(search.priorities,"active_coverage_queue",
+                          side_effect=AssertionError("stale queue must not be opened")), \
+             patch.object(search,"query_for",return_value={"language":"ja"}):
+            first=search.pick(rows,db,2,scope="movies-horror",rescan_missing=True)
+            remaining=search.pick(rows,db,10,scope="movies-horror",rescan_missing=True)
+        self.assertEqual([x["id"] for x in first],
+                         [rows[1]["jellyfin_id"],rows[3]["jellyfin_id"]])
+        self.assertEqual([x["id"] for x in remaining],
+                         [rows[1]["jellyfin_id"],rows[3]["jellyfin_id"],
+                          rows[2]["jellyfin_id"],rows[0]["jellyfin_id"]])
+        self.assertNotIn(rows[4]["jellyfin_id"],{x["id"] for x in remaining})
+
     def test_existing_all_scope_unchanged(self):
         self.assertTrue(scope.matches(self.outside,"all"))
         self.assertTrue(scope.matches(self.tv,"all"))
