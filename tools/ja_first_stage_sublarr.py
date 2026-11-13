@@ -336,7 +336,7 @@ def worker_query(row):
     return result
 
 
-def provider_bytes(row,candidate,*,runner=subprocess.run):
+def provider_bytes(row,candidate,*,runner=subprocess.run,return_proof=False):
     params={"query":worker_query(row),"provider":candidate["provider"],
             "subtitle_id":str(candidate["subtitle_id"]),
             "filename":str(candidate.get("filename") or ""),
@@ -379,11 +379,22 @@ def provider_bytes(row,candidate,*,runner=subprocess.run):
             or not 0<len(raw)<=MAX_BYTES
             or hashlib.sha256(raw).hexdigest()!=response.get("sha256")):
         raise RuntimeError("sublarr_provider_bytes_integrity_failed")
+    if return_proof:
+        proof=response.get("source_proof")
+        if subf2m_missing_release(row,candidate):
+            verify_subf2m_proof(row,candidate,proof)
+        elif proof is not None:
+            raise RuntimeError("unexpected_sublarr_source_proof")
+        return raw,proof
     return raw
 
 
-def stage_metadata(row,candidate,raw,runtime,qa):
+def stage_metadata(row,candidate,raw,runtime,qa,*,proof=None):
     sid,digest=remote_identity(candidate)
+    if proof is not None:
+        verify_subf2m_proof(row,candidate,proof)
+    elif subf2m_missing_release(row,candidate):
+        raise RuntimeError("unverified_subf2m_source_not_stageable")
     return {
         "provider":SOURCE,"source_schema":SCHEMA,
         "source_jellyfin_id":row["jellyfin_id"],
@@ -396,6 +407,7 @@ def stage_metadata(row,candidate,raw,runtime,qa):
         "source_series_title":str(row.get("series_title") or "")[:160],
         "source_season":row.get("season"),"source_episode":row.get("episode"),
         "source_language":str(candidate.get("language") or ""),
+        **({"source_verified_subf2m":proof} if proof is not None else {}),
         "format":"srt","bytes":len(raw),"sha256":hashlib.sha256(raw).hexdigest(),
         "video_seconds":round(float(runtime),3),
         "cues":qa["cues"],
@@ -415,8 +427,18 @@ def validate_staged_provenance(row,jid,sid,metrics):
             or metrics.get("source_season")!=row.get("season")
             or metrics.get("source_episode")!=row.get("episode")):
         raise RuntimeError("sublarr_staged_identity_changed")
+    proof=metrics.get("source_verified_subf2m")
     matches=[]
-    for c in source_candidates(row):
+    for c in source_candidates(row,include_unverified_subf2m=proof is not None):
+        if proof is not None:
+            if not subf2m_missing_release(row,c):
+                continue
+            try:
+                verify_subf2m_proof(row,c,proof)
+            except RuntimeError:
+                continue
+        elif subf2m_missing_release(row,c):
+            continue
         csid,cdigest=remote_identity(c)
         if (csid==str(sid) and cdigest==metrics.get("source_remote_id_sha256")
                 and c["provider"]==metrics.get("source_remote_provider")
@@ -429,11 +451,11 @@ def validate_staged_provenance(row,jid,sid,metrics):
     return True
 
 
-def preserve(row,candidate,raw,runtime,qa):
+def preserve(row,candidate,raw,runtime,qa,*,proof=None):
     """Create-only private file and compatible stage DB row, never video sidecar."""
     sid,digest=remote_identity(candidate)
     jid=row["jellyfin_id"]
-    meta=stage_metadata(row,candidate,raw,runtime,qa)
+    meta=stage_metadata(row,candidate,raw,runtime,qa,proof=proof)
     validate_staged_provenance(row,jid,sid,meta)
     stage.private_root()
     stage.STAGED.mkdir(mode=0o700,exist_ok=True)
