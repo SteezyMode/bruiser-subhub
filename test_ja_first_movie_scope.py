@@ -324,6 +324,63 @@ class MovieScopeTests(unittest.TestCase):
                 if expected_calls==2:
                     self.assertEqual(calls[1],(ids[1],1))
 
+    def test_verified_original_language_title_can_unlock_review_without_guessing(self):
+        film_row={**self.drama,"title":"Guilty of Romance","year":2011,
+                  "original_title":"恋の罪"}
+        japanese={"provider":"opensubtitles","subtitle_id":"123456",
+                  "language":"ja","filename":"",
+                  "release_info":"恋の罪","matches":["title"]}
+        self.assertTrue(stage.identity_ok(film_row,japanese))
+        self.assertFalse(stage.identity_ok(
+            film_row,{**japanese,"release_info":"恋の罪 2019"}))
+        self.assertFalse(stage.identity_ok(
+            film_row,{**japanese,"release_info":"恋の罪 Extended","matches":[]}))
+        self.assertFalse(stage.identity_ok(
+            {**film_row,"original_title":""},japanese))
+        self.assertFalse(stage.identity_ok(
+            film_row,{**japanese,"release_info":"罪","matches":["title"]}))
+
+        french={**self.horror,"title":"Eyes Without a Face","year":1960,
+                "original_title":"Les yeux sans visage"}
+        original={"provider":"opensubtitles","subtitle_id":"234567",
+                  "language":"ja","filename":"Les_Yeux_sans_visage_1960-720pJapanese",
+                  "release_info":"Les Yeux sans visage (1960)","matches":["title"]}
+        self.assertTrue(stage.identity_ok(french,original))
+        self.assertFalse(stage.identity_ok(
+            french,{**original,"release_info":"Les Yeux sans visage 1988",
+                    "filename":"Les Yeux sans visage"}))
+
+    def test_saved_subdl_japanese_zip_slug_matches_exact_movie_and_remote_id(self):
+        movie={**self.drama,"title":"Withnail & I","year":1987}
+        result={"provider":"subdl","subtitle_id":"123456-449088",
+                "filename":"SUBDL.com::_withnail-and-i_japanese_449088.zip",
+                "release_info":"Withnail And I","language":"ja"}
+        self.assertTrue(stage.movie_identity_ok(movie,result))
+        self.assertFalse(stage.movie_identity_ok(
+            movie,{**result,"subtitle_id":"123456-449089"}))
+        self.assertFalse(stage.movie_identity_ok(
+            movie,{**result,"filename":"SUBDL.com::_withnail-and-ii_japanese_449088.zip"}))
+        self.assertFalse(stage.movie_identity_ok(
+            movie,{**result,"release_info":"Withnail and I 2002"}))
+        self.assertFalse(stage.movie_identity_ok(
+            movie,{**result,"filename":"Withnail and I","release_info":"Withnail And I"}))
+
+    def test_catalog_keeps_real_jellyfin_original_title_without_provider_calls(self):
+        import tempfile
+        from tools import ja_first_catalog_manifest as intake
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/"Guilty.of.Romance.2011.mkv"
+            path.touch()
+            data={"Id":"a"*32,"Type":"Movie","Name":"Guilty of Romance",
+                  "OriginalTitle":"恋の罪","Path":str(path),
+                  "ProductionYear":2011,
+                  "MediaStreams":[{"Type":"Audio","Language":"en"}],
+                  "ProviderIds":{"Imdb":"tt1234567"}}
+            result=intake.classify(
+                data,{},[(Path(tmp),Path("/media/expansion-video"))],{})
+        self.assertEqual(result["original_title"],"恋の罪")
+        self.assertEqual(result["status"],"ready_ja_search")
+
     def test_existing_all_scope_unchanged(self):
         self.assertTrue(scope.matches(self.outside,"all"))
         self.assertTrue(scope.matches(self.tv,"all"))

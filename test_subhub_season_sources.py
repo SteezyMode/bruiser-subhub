@@ -77,6 +77,40 @@ class ScopeTests(unittest.TestCase):
                     "SELECT outcome FROM searches WHERE jellyfin_id=?",
                     (first["id"],)).fetchone()[0],"error")
 
+    def test_readonly_provider_budget_report_uses_live_usage_and_never_searches(self):
+        import io, contextlib, json
+        from types import SimpleNamespace
+        from tools import ja_first_search_pilot as search
+        response={"providers":[
+            {"name":"subdl","tier":"free","gate":"budget_exhausted",
+             "usage":{"second":1,"hour":80,"day":125},
+             "limits":{"second":2,"hour":100,"day":500},
+             "reset_seconds":{"hour":1400,"day":21600}},
+            {"name":"opensubtitles","tier":"free","gate":"ok",
+             "usage":{"hour":12,"day":90},
+             "limits":{"hour":50,"day":1000},
+             "reset_seconds":{"hour":1400,"day":21600}}],
+             "budget_enabled":True,"stretch_mode":"stretch"}
+        commands=[]
+        def read(cmd,**kw):
+            commands.append(cmd)
+            return SimpleNamespace(returncode=0,
+                                   stdout=json.dumps(response),stderr="")
+        out=io.StringIO()
+        with contextlib.redirect_stdout(out):
+            search.provider_budget_report(runner=read)
+        text=out.getvalue()
+        self.assertIn("hour=80/100",text)
+        self.assertIn("day=125/500",text)
+        self.assertIn("gate=budget_exhausted",text)
+        self.assertIn("pacing mode: stretch",text)
+        self.assertIn("NO SEARCHES",text)
+        self.assertEqual(len(commands),1)
+        self.assertIn("docker",commands[0])
+        self.assertNotIn("providers/search"," ".join(commands[0][:6]))
+        self.assertIn("system/budget",search.BUDGET_WORKER)
+        self.assertIn("providers/health",search.BUDGET_WORKER)
+
     def test_episode_search_does_not_send_series_imdb_as_episode_imdb(self):
         # Sublarr v1.18.0 misuses a series' IMDb ID as the episode IMDb ID.
         import io, json, sys, types

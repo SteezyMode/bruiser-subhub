@@ -86,6 +86,30 @@ class SavedMovieRecoveryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"requires_movie_scope"):
             saved.saved_work(items,scope="all")
 
+    def test_review_only_recovers_verified_review_grade_not_existing_plausible(self):
+        row=film()
+        documents={row["jellyfin_id"]:{"_outcome":"plausible","candidates":[
+            {"provider":"subdl","grade":"plausible","subtitle_id":"other"},
+            {"provider":"opensubtitles","grade":"review","subtitle_id":"123456"},
+            {"provider":"opensubtitles","grade":"review","subtitle_id":"234567"},
+        ]}}
+        with patch.object(saved.deep,"candidates_for",
+                          return_value=documents[row["jellyfin_id"]]["candidates"]):
+            jobs,counts,_=saved.saved_work(
+                [row],scope="movies-horror",staged={(row["jellyfin_id"],"234567")},
+                rejected=set(),search_reader=lambda _:documents[row["jellyfin_id"]],
+                rejected_check=lambda *_:False,review_only=True)
+        self.assertEqual(len(jobs),1)
+        self.assertEqual([x["subtitle_id"] for x in jobs[0][1]],["123456"])
+        self.assertEqual(counts["skipped_not_review_candidate"],1)
+        self.assertEqual(counts["skipped_already_staged"],1)
+        bad=dict(film("b"*32,"Covered"),status="existing_japanese_subtitle")
+        jobs,counts,_=saved.saved_work(
+            [bad],scope="movies-horror",staged=set(),rejected=set(),
+            search_reader=lambda _:{"_outcome":"review","candidates":[
+                {"grade":"review"}]},review_only=True)
+        self.assertEqual(jobs,[])
+
     def test_owner_skips_the_master_without_touching_it(self):
         row=film(title="The Master")
         jobs,counts,_=saved.saved_work(

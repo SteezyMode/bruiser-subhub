@@ -71,7 +71,7 @@ def candidate_key(jid, candidate):
 
 
 def fresh_candidates(row, document, staged, rejected, *, rejected_check=None,
-                     subdl_rejected_check=None):
+                     subdl_rejected_check=None, review_only=False):
     """Only identity-verified, untried saved releases; no new searches."""
     rejected_check = stage.known_rejected_download if rejected_check is None else rejected_check
     subdl_rejected_check = (subdl.known_rejected_cached if subdl_rejected_check is None
@@ -79,6 +79,9 @@ def fresh_candidates(row, document, staged, rejected, *, rejected_check=None,
     result = []
     skipped = Counter()
     for candidate in deep.candidates_for(row, document):
+        if review_only and candidate.get("grade")!="review":
+            skipped["not_review_candidate"] += 1
+            continue
         try:
             key = candidate_key(row["jellyfin_id"], candidate)
         except (ValueError, KeyError):
@@ -104,7 +107,7 @@ def fresh_candidates(row, document, staged, rejected, *, rejected_check=None,
 
 def saved_work(rows, *, skip_titles=(), search_reader=None,
                staged=None, rejected=None, rejected_check=None,
-               scope="horror-drama-folders"):
+               scope="horror-drama-folders", review_only=False):
     if scope not in movie_scope.SCOPES or scope == "all":
         raise ValueError("saved_movie_recovery_requires_movie_scope")
     search_reader = deep.search_record if search_reader is None else search_reader
@@ -128,13 +131,18 @@ def saved_work(rows, *, skip_titles=(), search_reader=None,
         document = search_reader(jid)
         if not document or document.get("_outcome") not in ("review", "plausible"):
             continue
+        if (review_only and not any(
+                isinstance(c,dict) and c.get("grade")=="review"
+                for c in document.get("candidates") or [])):
+            continue
         counts["saved_review_or_plausible"] += 1
         if str(row.get("title") or "").casefold() in skip_titles:
             counts["owner_skipped"] += 1
             continue
         try:
             candidates, ignored = fresh_candidates(
-                row, document, staged, rejected, rejected_check=rejected_check)
+                row, document, staged, rejected, rejected_check=rejected_check,
+                review_only=review_only)
         except (ValueError, OSError, RuntimeError, KeyError) as exc:
             counts["candidate_audit_error"] += 1
             samples.append((str(row.get("title")),type(exc).__name__))
@@ -190,10 +198,11 @@ def run(args):
         rows = list(stage.read_inventory().values())
         jobs, counts, samples = saved_work(
             rows, skip_titles={x.casefold() for x in args.skip_title},
-            scope=getattr(args, "scope", "horror-drama-folders"))
+            scope=getattr(args, "scope", "horror-drama-folders"),
+            review_only=getattr(args, "review_only", False))
         print("=== SAVED MOVIE JAPANESE CANDIDATES ===", flush=True)
         print("MOVIE SCOPE:", getattr(args, "scope", "horror-drama-folders"),
-              flush=True)
+              "| review-only:",getattr(args, "review_only", False), flush=True)
         for key,value in sorted(counts.items()):
             print(f"{key}: {value}", flush=True)
         print("Not-yet-validated examples:",samples,flush=True)
@@ -284,6 +293,9 @@ def main(argv=None):
         default="horror-drama-folders",
         help="only previously saved Japanese candidates for selected movie"
              " genre/library scope; no fresh searches")
+    parser.add_argument("--review-only",action="store_true",
+                        help="only previously saved review-grade movie releases;"
+                             " require new independent identity verification")
     parser.add_argument("--max-attempts",type=int,default=25)
     parser.add_argument("--max-per-title",type=int,default=3)
     parser.add_argument("--skip-title",action="append",default=[])
