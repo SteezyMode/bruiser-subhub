@@ -23,18 +23,18 @@ import sqlite3
 import subprocess
 import sys
 import time
+try:
+    from . import ja_first_movie_scope as movie_scope
+except ImportError:
+    import ja_first_movie_scope as movie_scope
 
 ROOT = Path.home() / "bruiser-pilot/ja-first-inventory"
 NEXT_BUDGET_FILE = ROOT / ".source-next-run-budget.json"
 SCOPE_FILE = ROOT / ".source-scope.json"
-MOVIE_SCOPE = "horror-drama-folders"
-MOVIES_NO_ANIME = "movies-no-anime"
-MOVIES_ALL = "movies-all"
-MOVIES_DRAMA = "movies-drama"
-MOVIES_HORROR = "movies-horror"
-MOVIES_ACTION = "movies-action"
-SOURCE_SCOPES = ("all", MOVIE_SCOPE, MOVIES_NO_ANIME, MOVIES_ALL,
-                 MOVIES_DRAMA, MOVIES_HORROR, MOVIES_ACTION)
+MOVIE_SCOPE = movie_scope.SCOPE
+MOVIES_NO_ANIME = movie_scope.MOVIES_NO_ANIME
+MOVIES_ALL = movie_scope.MOVIES_ALL
+SOURCE_SCOPES = movie_scope.SCOPES
 DEFAULT_SEARCH_BUDGET = 600
 CODE = Path.home() / "bruiser-pilot/subhub-control"
 UNIT = "bruiser-ja-source-autofill"
