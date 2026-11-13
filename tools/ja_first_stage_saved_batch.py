@@ -145,6 +145,17 @@ def run(job):
             path = STAGE / (STEM + "." + ext)
             if path.is_file() and not path.is_symlink():
                 data = path.read_bytes()
+                # A review trial is intentionally non-publishing. Previously
+                # staged provider bytes remain usable without spending another
+                # OpenSubtitles download. Return these before stage-only QA
+                # or the already_staged marker; host trial rechecks content.
+                if job.get("trial_only") is True:
+                    if not 0 < len(data) <= MAX_BYTES:
+                        raise RuntimeError("cached_trial_bytes_invalid")
+                    return {"result":"private_trial_bytes",
+                            "content_b64":base64.b64encode(data).decode("ascii"),
+                            "new_download":False,"length":len(data),
+                            "source":"existing_private_container_stage"}
                 meta = analyze(data, runtime, allow_duration_mismatch=True)
                 if meta["format"] != ext:
                     raise RuntimeError("cached_subtitle_format_mismatch")

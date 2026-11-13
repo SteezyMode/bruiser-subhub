@@ -254,20 +254,34 @@ def download_opensubtitles(row,candidate,runtime):
     # Count real downloads even if content later fails QA; no second GET.
     stage.record_native_download_attempt(proc.stdout,report)
     if proc.returncode or report.get("result")!="private_trial_bytes":
-        reason=str(report.get("error") or report.get("error_type") or
-                   "opensubtitles_trial_download_failed")
-        if (saved.QUOTA.search(reason) or
-                "cooling_or_exhausted" in reason or
-                "rate_limit" in reason or
-                re.search(r"\b(?:406|429)\b",reason)):
+        # Never print raw provider exception text or entire worker stdout:
+        # exceptions may contain credentials, URLs and account details.
+        detail=str(report.get("error") or "")
+        kind=str(report.get("error_type") or "")
+        if (saved.QUOTA.search(detail) or
+                "cooling_or_exhausted" in detail or
+                "rate_limit" in detail.casefold() or
+                re.search(r"\b(?:406|429)\b",detail)):
             raise RuntimeError("provider_download_limit")
-        raise RuntimeError("opensubtitles_trial_download_failed")
+        match=re.search(r"(?<![0-9])(?:40[0134]|41[0-9]|50[0-9])(?![0-9])",detail)
+        if match:
+            raise RuntimeError("opensubtitles_http_"+match.group()) from None
+        if kind in {"RuntimeError","ValueError"} and re.fullmatch(
+                r"[a-z][a-z0-9_]{2,85}",detail):
+            raise RuntimeError("opensubtitles_"+detail) from None
+        safe_kind=(kind if re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{1,40}",kind)
+                   else "no_worker_response")
+        raise RuntimeError("opensubtitles_worker_"+safe_kind) from None
     raw=base64.b64decode(report.get("content_b64") or "",validate=True)
     if type(report.get("length")) is not int or len(raw)!=report["length"]:
         raise RuntimeError("review_download_length_mismatch")
     if not 0<len(raw)<=MAX_RAW_BYTES:
         raise RuntimeError("review_download_size_invalid")
-    return raw
+    # The native Sublarr worker can reuse a pre-existing private provider
+    # stage without another HTTP GET. Preserve that distinction in reports.
+    source=("reused_container_stage" if report.get("new_download") is False
+            else "downloaded")
+    return raw,source
 
 
 def inspect_srt(raw,runtime):
@@ -312,6 +326,69 @@ def trial_alignment(row,text,runtime):
                                           assessment["shift_max_s"]]}
 
 
+
+def download_to_private_cache(row,candidate,*,download_subdl=subdl.cached_archive,
+                              download_os=download_opensubtitles):
+    """Acquire one saved JA review source. No normalization, ALASS or publishing.
+
+    Original bytes are retained in the same cache already used by private
+    trials. This function is safe for a broad, resumable download-only sweep.
+    """
+    if not acceptable(row,candidate):
+        raise RuntimeError("invalid_movie_review_candidate")
+    runtime=stage.duration_if_safe(row)
+    quarantine_root()
+    path,_=key_path(row,candidate)
+    provider=candidate["provider"]
+    if provider=="subdl":
+        archive=subdl.cached_zip_path(candidate)
+        if archive.is_symlink():
+            raise RuntimeError("review_archive_symlink")
+        existed=archive.is_file()
+        blob=download_subdl(candidate)  # native owner-only ZIP cache, no re-GET
+        if not isinstance(blob,bytes) or not 0<len(blob)<=subdl.MAX_ARCHIVE:
+            raise RuntimeError("review_subdl_archive_invalid")
+        return ("cached" if existed else "downloaded"),len(blob)
+    raw=read_cached(path)
+    if raw is not None:
+        return "cached",len(raw)
+    acquired=download_os(row,candidate,runtime)
+    if isinstance(acquired,tuple) and len(acquired)==2:
+        raw,source=acquired
+    else:
+        raw,source=acquired,"downloaded"
+    cache_raw(path,raw)
+    return source,len(raw)
+
+
+def private_bytes_present(row,candidate):
+    """No provider call; used to build offline processing queue."""
+    path,_=key_path(row,candidate)
+    if candidate["provider"]=="opensubtitles":
+        return read_cached(path) is not None
+    archive=subdl.cached_zip_path(candidate)
+    if archive.is_symlink():
+        raise RuntimeError("review_archive_symlink")
+    if not archive.is_file():
+        return False
+    meta=archive.stat()
+    return 0<meta.st_size<=subdl.MAX_ARCHIVE and not (meta.st_mode & 0o077)
+
+
+def cached_subdl_only(candidate):
+    path=subdl.cached_zip_path(candidate)
+    if path.is_symlink() or not path.is_file():
+        raise RuntimeError("review_source_not_cached")
+    meta=path.stat()
+    if not 0<meta.st_size<=subdl.MAX_ARCHIVE or meta.st_mode & 0o077:
+        raise RuntimeError("review_cached_archive_unsafe")
+    return path.read_bytes()
+
+
+def cached_opensubtitles_only(row,candidate,runtime):
+    raise RuntimeError("review_source_not_cached")
+
+
 def trial(row,candidate,*,download_subdl=subdl.cached_archive,
           download_os=download_opensubtitles):
     """Return a private receipt; even a perfect sync cannot publish."""
@@ -341,7 +418,11 @@ def trial(row,candidate,*,download_subdl=subdl.cached_archive,
             raw=read_cached(path)
             if raw is None:
                 origin="downloaded"
-                raw=download_os(row,candidate,runtime)
+                retrieved=download_os(row,candidate,runtime)
+                if isinstance(retrieved,tuple) and len(retrieved)==2:
+                    raw,origin=retrieved
+                else:
+                    raw=retrieved
                 cache_raw(path,raw)
             source_hash=hashlib.sha256(raw).hexdigest()
             raw,qa,repairs=inspect_srt(raw,runtime)
@@ -373,67 +454,111 @@ def trial(row,candidate,*,download_subdl=subdl.cached_archive,
 
 
 def run(args):
+    """Two explicit movie-wide passes: acquisition, then local inspection.
+
+    Download-only never calls ALASS. Process-cache never calls any provider.
+    Both skip TV, stage DB, media publication and PLaMO by construction.
+    """
     saved.check_idle()
     fd=saved.autofill.lock()
     try:
         records=list(stage.read_inventory().values())
         jobs,counts=audit_candidates(records,provider=args.provider)
-        print("=== ALL MOVIES: PRIVATE REVIEW TRIALS (NO TV) ===")
+        phase=("DOWNLOAD TO PRIVATE CACHE" if args.download_only else
+               "PROCESS CACHED SOURCES" if args.process_cache else
+               "LEGACY INLINE PRIVATE TRIAL")
+        print("=== ALL MOVIES:",phase,"(NO TV) ===")
         for key,n in sorted(counts.items()):
             print(key+":",n)
-        print("Selected:",min(len(jobs),args.limit),
-              "| max downloads:",args.limit,
+        print("Saved candidates:",len(jobs),"| phase:",phase,
+              "| max attempts:",args.limit,
               "| provider:",args.provider,"| TV skipped: yes")
         if not args.apply:
-            print("PREVIEW ONLY: --apply enables private capped downloads, no publication")
+            cached=0
+            for row,candidate in jobs:
+                try:
+                    if private_bytes_present(row,candidate):
+                        cached+=1
+                except (OSError,ValueError,RuntimeError):
+                    continue
+            print("Private original files already cached:",cached)
+            print("PREVIEW ONLY; use --apply to run the selected phase")
             return 0
         tally=Counter()
         attempted=0
-        skipped_prior=0
         blocked=set()
-        attempted_titles=set()
+        skipped_prior=0
+        skipped_uncached=0
         for row,candidate in jobs:
             if attempted>=args.limit:
                 break
-            jid=row["jellyfin_id"]
-            if (jid in attempted_titles or candidate["provider"] in blocked
-                    or stage.japanese_sidecar_exists(Path(str(row.get("host_path") or "")))):
+            provider=candidate["provider"]
+            if provider in blocked:
                 continue
-            if not args.retry and already_inspected(row,candidate):
+            if stage.japanese_sidecar_exists(Path(str(row.get("host_path") or ""))):
+                tally["skipped_already_covered"]+=1
+                continue
+            if args.process_cache:
+                if not private_bytes_present(row,candidate):
+                    skipped_uncached+=1
+                    continue
+                if not args.retry and already_inspected(row,candidate):
+                    skipped_prior+=1
+                    continue
+            elif not args.retry and already_inspected(row,candidate):
+                if args.download_only:
+                    # Already cached and inspected. Avoid re-downloading even
+                    # if the original quarantine entry later disappeared.
+                    skipped_prior+=1
+                    continue
                 skipped_prior+=1
                 continue
-            attempted_titles.add(jid)
             attempted+=1
-            label=str(row.get("title") or row.get("series_title") or jid)[:90]
-            print(f"[{attempted}/{args.limit}] {label} [{candidate['provider']}]",
-                  flush=True)
+            title=str(row.get("title") or row["jellyfin_id"])[:88]
+            print(f"[{attempted}/{args.limit}] {title} [{provider}]",flush=True)
             try:
-                origin,result=trial(row,candidate)
-                key=result["status"]
-                tally[key]+=1
-                print(" ",origin,key,
-                      "cues="+str(result.get("cues")),
-                      "Japanese_chars="+str(result.get("japanese_characters")),
-                      "identity_verified="+str(result.get("metadata_identity_verified")),
-                      "ALASS="+str(result.get("alignment_reference") or "held"),
-                      "reason="+str(result.get("reason") or "-"),
-                      flush=True)
+                if args.download_only:
+                    origin,n=download_to_private_cache(row,candidate)
+                    tally["source_"+origin]+=1
+                    print(" ",origin,"source_bytes="+str(n),flush=True)
+                else:
+                    origin,result=(trial(row,candidate,
+                        download_subdl=cached_subdl_only,
+                        download_os=cached_opensubtitles_only)
+                        if args.process_cache else trial(row,candidate))
+                    status=result["status"]
+                    tally[status]+=1
+                    print(" ",origin,status,
+                          "cues="+str(result.get("cues")),
+                          "Japanese_chars="+str(result.get("japanese_characters")),
+                          "identity_verified="+str(result.get("metadata_identity_verified")),
+                          "ALASS="+str(result.get("alignment_reference") or "held"),
+                          "reason="+str(result.get("reason") or "-"),
+                          flush=True)
             except (OSError,ValueError,RuntimeError,subprocess.TimeoutExpired) as exc:
-                code=str(exc).split(":",1)[0][:85]
-                tally["held"]+=1
-                print("  HELD:",code,flush=True)
-                if saved.QUOTA.search(code) or code=="provider_download_limit":
-                    blocked.add(candidate["provider"])
-                    print("  PROVIDER COOLDOWN; no more "+candidate["provider"]+
-                          " downloads this run",flush=True)
-        print("=== REVIEW TRIAL SUMMARY ===")
+                reason=str(exc).split(":",1)[0][:85]
+                tally["download_or_trial_held"]+=1
+                print("  HELD:",reason,flush=True)
+                if saved.QUOTA.search(reason) or reason=="provider_download_limit":
+                    blocked.add(provider)
+                    print("  DOWNLOAD QUOTA/COLDOWN:",provider,
+                          "remaining candidates postponed",flush=True)
+                elif reason in ("opensubtitles_http_401","opensubtitles_http_403",
+                                "opensubtitles_worker_HTTPError",
+                                "opensubtitles_native_opensubtitles_key_missing_in_saved_config"):
+                    blocked.add(provider)
+                    print("  PROVIDER ERROR:",provider,
+                          "remaining candidates postponed",flush=True)
+        print("=== MOVIE REVIEW",phase,"SUMMARY ===")
         print("Attempted:",attempted)
-        print("Skipped unchanged previous trials:",skipped_prior)
-        for key,value in sorted(tally.items()):
-            print(key+":",value)
-        print("Publishable-stage database writes: ZERO")
-        print("Japanese sidecars published: ZERO")
-        print("No new provider searches or PLaMO")
+        print("Skipped prior verified cache/receipts:",skipped_prior)
+        print("Skipped not yet cached:",skipped_uncached)
+        for key,n in sorted(tally.items()):
+            print(key+":",n)
+        if blocked:
+            print("Providers paused:",", ".join(sorted(blocked)))
+        print("Publishable-stage DB writes: ZERO | sidecars published: ZERO")
+        print("TV work: ZERO | new searches: ZERO | PLaMo: ZERO")
         return 0
     finally:
         os.close(fd)
@@ -442,13 +567,19 @@ def run(args):
 def main(argv=None):
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--provider",choices=("both",*PROVIDERS),default="both")
-    ap.add_argument("--limit",type=int,default=12)
+    phases=ap.add_mutually_exclusive_group()
+    phases.add_argument("--download-only",action="store_true",
+                        help="acquire all saved movie reviews to private cache, no ALASS")
+    phases.add_argument("--process-cache",action="store_true",
+                        help="run lossless repair and ALASS only on cached bytes; no provider calls")
+    ap.add_argument("--limit",type=int,default=250,
+                    help="maximum candidate attempts this invocation, not an artificial daily quota")
     ap.add_argument("--apply",action="store_true")
     ap.add_argument("--retry",action="store_true",
-                    help="explicitly rerun unchanged cached trials")
+                    help="reinspect previously processed cached originals")
     args=ap.parse_args(argv)
-    if not 1<=args.limit<=50:
-        ap.error("--limit must be 1..50")
+    if not 1<=args.limit<=500:
+        ap.error("--limit must be 1..500")
     return run(args)
 
 

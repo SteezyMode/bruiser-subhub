@@ -168,7 +168,8 @@ class ReviewTrialTests(unittest.TestCase):
                     "status":"timing_trial_held","cues":100,
                     "japanese_characters":1000})) as trial:
                 self.assertEqual(review.run(SimpleNamespace(
-                    provider="both",limit=1,apply=True,retry=False)),0)
+                    provider="both",limit=1,apply=True,retry=False,
+                    download_only=False,process_cache=False)),0)
                 self.assertEqual(trial.call_count,1)
                 self.assertEqual(trial.call_args.args[0]["title"],"Beta Film")
 
@@ -185,20 +186,66 @@ class ReviewTrialTests(unittest.TestCase):
                      [(row,hit())],{"candidate_jobs":1})), \
                  patch.object(review,"trial") as trial:
                 rc=review.run(SimpleNamespace(
-                    provider="both",limit=6,apply=False))
+                    provider="both",limit=6,apply=False,
+                    download_only=False,process_cache=False))
                 self.assertEqual(rc,0)
                 trial.assert_not_called()
+
+    def test_private_download_pass_caches_without_alass_or_publisher(self):
+        row=movie()
+        candidate=hit("opensubtitles","9876543")
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)
+            data="1\\n00:00:01,000 --> 00:00:03,000\\nこんにちは\\n".encode()
+            fetch=Mock(return_value=(data,"downloaded"))
+            with patch.object(review,"QUARANTINE",root), \
+                 patch.object(review.stage,"private_root"), \
+                 patch.object(review.stage,"duration_if_safe",return_value=5400), \
+                 patch.object(review,"trial_alignment") as alass, \
+                 patch.object(review,"trial") as trial, \
+                 patch.object(review.publisher,"preflight") as pub:
+                origin,n=review.download_to_private_cache(
+                    row,candidate,download_os=fetch)
+                self.assertEqual((origin,n),("downloaded",len(data)))
+                origin2,n2=review.download_to_private_cache(
+                    row,candidate,download_os=fetch)
+                self.assertEqual((origin2,n2),("cached",len(data)))
+                self.assertEqual(fetch.call_count,1)
+                alass.assert_not_called()
+                trial.assert_not_called()
+                pub.assert_not_called()
+
+    def test_process_cache_never_calls_provider_even_when_missing(self):
+        row=movie()
+        candidate=hit("opensubtitles","9876543")
+        with tempfile.TemporaryDirectory() as folder:
+            with patch.object(review,"QUARANTINE",Path(folder)), \
+                 patch.object(review.stage,"private_root"), \
+                 patch.object(review.stage,"duration_if_safe",return_value=5400):
+                self.assertFalse(review.private_bytes_present(row,candidate))
+                with self.assertRaisesRegex(RuntimeError,"review_source_not_cached"):
+                    review.trial(row,candidate,download_subdl=review.cached_subdl_only,
+                                 download_os=review.cached_opensubtitles_only)
+
+    def test_new_worker_returns_existing_stage_bytes_without_new_get(self):
+        code=review.stage.WORKER
+        marker=code.index('"source":"existing_private_container_stage"')
+        download=code.index("raw = provider.download(candidate)")
+        self.assertLess(marker,download)
+        self.assertIn('"new_download":False',code[:marker])
 
     def test_opensubtitles_transport_can_only_return_bytes_before_staging(self):
         worker=review.stage.WORKER
         self.assertIn('if job.get("trial_only") is True:',worker)
         self.assertIn('"result":"private_trial_bytes"',worker)
+        # The first trial-only branch reuses cached staged bytes; the
+        # SECOND branch safely returns newly downloaded bytes before staging.
+        after_get=worker.index('if job.get("trial_only") is True:',
+                               worker.index("raw = provider.download(candidate)"))
         self.assertLess(worker.index("raw = provider.download(candidate)"),
-                        worker.index('if job.get("trial_only") is True:'))
-        self.assertLess(worker.index('if job.get("trial_only") is True:'),
-                        worker.index("metrics = analyze(raw, runtime"))
-        self.assertLess(worker.index('if job.get("trial_only") is True:'),
-                        worker.index("STAGE.mkdir(mode=0o700)"))
+                        after_get)
+        self.assertLess(after_get,worker.index("metrics = analyze(raw, runtime"))
+        self.assertLess(after_get,worker.index("STAGE.mkdir(mode=0o700)"))
 
 
 if __name__=="__main__":
