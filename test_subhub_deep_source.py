@@ -40,7 +40,7 @@ class DeepSourceTests(unittest.TestCase):
         out=StringIO()
         receipt={"jellyfin_id":self.JID,"result":"held",
                  "reason":"RuntimeError: no_candidate_passed_trusted_sync_correction"}
-        report=("TITLE_FAILURE_NOT_CACHED: pending source check\\n"
+        report=("TITLE_FAILURE_NOT_CACHED: pending source check\n"
                 "BRUISER_PUBLISH_ITEM: "+json.dumps(receipt))
         with mock.patch.object(deep,"call",return_value=(0,report,"")), \
              redirect_stdout(out):
