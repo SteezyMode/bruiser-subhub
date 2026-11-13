@@ -1,6 +1,8 @@
 """SubDL: candidate failure is not a title hold; fallback candidates remain eligible."""
 from collections import Counter
 import json
+from pathlib import Path
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -58,6 +60,31 @@ class BatchReliabilityTests(unittest.TestCase):
         self.assertEqual(skipped["unchanged_bad_cached_zip"],1)
         self.assertEqual({c["subtitle_id"] for r,c in chosen},
                          {"def","ghi","jkl"})
+
+    def test_wide_cache_audit_is_read_only_and_reports_unique_titles(self):
+        row=movie()
+        doc={"candidates":[release("abc")]}
+        with tempfile.TemporaryDirectory() as tmp:
+            archive=Path(tmp)/"cache.zip"
+            archive.write_bytes(b"synthetic-cached-zip")
+            archive.chmod(0o600)
+            with patch.object(batch.stage,"read_inventory",
+                              return_value={row["jellyfin_id"]:row}), \
+                 patch.object(batch.stage,"read_saved_searches",
+                              return_value=[(row["jellyfin_id"],json.dumps(doc))]), \
+                 patch.object(batch.subdl,"identity_ok",return_value=True), \
+                 patch.object(batch.subdl,"cached_zip_path",return_value=archive), \
+                 patch.object(batch.stage,"duration_if_safe",return_value=1200.0), \
+                 patch.object(batch.subdl,"archive_srt",return_value=(
+                     b"correct Japanese",{}, "subtitle.srt")) as validate, \
+                 patch.object(batch.subdl,"download") as download, \
+                 patch.object(batch.subdl,"cached_archive") as cached:
+                totals=batch.audit_cached(scope="horror-drama-folders",limit=20)
+                self.assertEqual(totals["cached_releases_found"],1)
+                self.assertEqual(totals["content_valid_sync_not_checked"],1)
+                validate.assert_called_once()
+                download.assert_not_called()
+                cached.assert_not_called()
 
     def test_cause_groups_not_one_undifferentiated_hold(self):
         self.assertEqual(batch.hold_code(
