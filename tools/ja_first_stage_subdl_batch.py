@@ -124,6 +124,9 @@ def audit_cached(*,scope="all",limit=250):
     sample=defaultdict(list)
     checked=0
     duration_cache={}
+    unique_titles=set()
+    inspected_titles=set()
+    content_valid_titles=set()
     print("=== FULL-LIBRARY CACHED SUBDL AUDIT (READ ONLY) ===",flush=True)
     print("Scope:",scope,"| max inspected cached ZIPs:",limit,flush=True)
     for jid,raw in searches:
@@ -134,6 +137,7 @@ def audit_cached(*,scope="all",limit=250):
             continue
         if row.get("status")!="ready_ja_search":
             continue
+        unique_titles.add(str(jid))
         try:
             doc=json.loads(raw)
         except (ValueError,TypeError):
@@ -154,6 +158,7 @@ def audit_cached(*,scope="all",limit=250):
                 totals["cached_not_inspected_limit"]+=1
                 continue
             checked+=1
+            inspected_titles.add(str(jid))
             try:
                 if (archive.is_symlink() or not archive.is_file()
                         or archive.stat().st_mode&0o077
@@ -172,13 +177,23 @@ def audit_cached(*,scope="all",limit=250):
                     if isinstance(runtime,Exception):
                         raise runtime
                     subdl.archive_srt(archive.read_bytes(),row,candidate,runtime)
+                    content_valid_titles.add(str(jid))
                     reason="content_valid_sync_not_checked"
             except (RuntimeError,OSError,ValueError,zipfile.BadZipFile) as exc:
                 reason=hold_code(exc)
             totals[reason]+=1
             if len(sample[reason])<4:
                 sample[reason].append(str(row.get("title") or row.get("series_title") or jid)[:75])
+    print("Missing Japanese titles in selected library scope:",
+          len(unique_titles),flush=True)
+    print("Titles with a cached ZIP inspected:",len(inspected_titles),flush=True)
+    print("Titles with at least one content-valid cached ZIP:",
+          len(content_valid_titles),flush=True)
     print("Cached ZIPs actually inspected:",checked,flush=True)
+    if checked:
+        print("Candidate structural/content pass rate among inspected ZIPs:",
+              f'{100*totals["content_valid_sync_not_checked"]/checked:.1f}%',
+              "| NOT subtitle publication rate",flush=True)
     for reason,num in sorted(totals.items()):
         print("AUDIT:",reason,"=",num,flush=True)
         if reason in sample:
