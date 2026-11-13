@@ -570,7 +570,7 @@ def run(args):
             title=str(row.get("title") or row["jellyfin_id"])[:76]
             year=str(row.get("year") or "?")
             print(f"[{attempted}/{args.limit}] {title} ({year})"
-                  f" [{jid[:8]}] [{provider}]",flush=True)
+                  f" [{str(row['jellyfin_id'])[:8]}] [{provider}]",flush=True)
             try:
                 if args.download_only:
                     origin,n=download_to_private_cache(row,candidate)
