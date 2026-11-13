@@ -452,9 +452,14 @@ def open_db():
     return db
 
 
-def pick(rows, db, budget, scope='all'):
+def pick(rows, db, budget, scope='all', retry_none_after_days=None):
     """Sort catalog metadata in memory; touch ONLY a few shortlisted files."""
     now = int(time.time())
+    if (retry_none_after_days is not None and
+            (type(retry_none_after_days) is not int
+             or not 1 <= retry_none_after_days <= 30
+             or scope == "all")):
+        raise ValueError("retry_none_requires_explicit_movie_scope_and_days_1_to_30")
     done=set()
     # Read legacy search DBs too; absence of strategy metadata simply means
     # a no-result entry needs one recheck, not a database migration failure.
@@ -484,7 +489,14 @@ def pick(rows, db, budget, scope='all'):
                 except (TypeError,ValueError):
                     legacy_zero=True
             if not legacy_zero:
-                done.add(str(jid))
+                # Explicit, bounded owner retry for completed *movie* misses.
+                # This does NOT bypass recent provider limits or stage held
+                # candidates, and is never enabled in the daily source timer.
+                retry_none = (outcome == "none" and
+                              retry_none_after_days is not None and
+                              when <= now-retry_none_after_days*86400)
+                if not retry_none:
+                    done.add(str(jid))
     # The persistent coverage queue ranks missing Japanese subtitle work;
     # never burn provider calls on titles already staged, held or headed to AI.
     # A new library item not yet in the last matrix is eligible only AFTER
@@ -668,7 +680,7 @@ def offline_report(limit=10):
 
 
 
-def recover_saved_reviews(*, apply=False):
+def recover_saved_reviews(*, apply=False, scope="all"):
     """Reclassify saved Japanese movie evidence; NEVER contact providers.
 
     Exact-title subtitles differing by one calendar year (festival premiere
@@ -713,7 +725,9 @@ def recover_saved_reviews(*, apply=False):
             pending = []
             for jid, title, outcome, count, plausible, raw in rows:
                 identity = identities.get(str(jid))
-                if not identity or identity.get("title") != title:
+                if (not identity or identity.get("title") != title
+                        or identity.get("status") != "ready_ja_search"
+                        or not movie_scope.matches(identity,scope)):
                     continue
                 try:
                     data = json.loads(raw)
@@ -789,12 +803,20 @@ def main():
     ap.add_argument("--self-test", action="store_true")
     ap.add_argument("--report", action="store_true", help="print stored results; no provider searches")
     ap.add_argument("--recover-saved", action="store_true",
-                    help="audit recoverable one-year movie subtitle matches; no provider requests")
+                    help="audit recoverable saved Japanese movie candidates; no provider requests")
+    ap.add_argument("--retry-none-after-days", type=int, default=None,
+                    help="OWNER ONLY: retry movie no-result searches after N days (1..30),"
+                         " only with a specific movie scope; not a blanket rescan")
     ap.add_argument("--apply", action="store_true",
                     help="with --recover-saved, backup and save review-only candidates")
     args = ap.parse_args()
     if args.apply and not args.recover_saved:
         ap.error("--apply requires --recover-saved")
+    if args.retry_none_after_days is not None and (
+            args.recover_saved or args.report or args.self_test
+            or args.jellyfin_id or args.scope == "all"
+            or not 1 <= args.retry_none_after_days <= 30):
+        ap.error("--retry-none-after-days requires scoped movie discovery, 1..30")
     if args.self_test:
         checks()
         return
@@ -802,7 +824,7 @@ def main():
         offline_report()
         return
     if args.recover_saved:
-        recover_saved_reviews(apply=args.apply)
+        recover_saved_reviews(apply=args.apply, scope=args.scope)
         return
     if not 1 <= args.budget <= MAX_SEARCHES_PER_RUN:
         ap.error("--budget must be 1..600")
@@ -830,9 +852,13 @@ def main():
                 raise RuntimeError("explicit_item_not_source_ready")
             chosen=[{"id":args.jellyfin_id,"row":row,"query":query}]
         else:
-            chosen = pick(data["items"], db, args.budget, scope=args.scope)
+            chosen = pick(data["items"], db, args.budget, scope=args.scope,
+                          retry_none_after_days=args.retry_none_after_days)
         print("Inventory:", manifest.name, "| scope:", args.scope, flush=True)
-        print("Search requests planned:", len(chosen), "| budget:", args.budget, flush=True)
+        print("Search requests planned:", len(chosen), "| budget:", args.budget,
+              "| no-result retry days:",
+              args.retry_none_after_days if args.retry_none_after_days is not None
+              else "normal cooldown", flush=True)
         print("Movie / Episode:", dict(Counter(j["row"]["kind"] for j in chosen)),
               flush=True)
         if not chosen:
