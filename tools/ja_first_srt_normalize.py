@@ -126,7 +126,43 @@ def _opening_credit(text, start_ms):
         return False
     return True
 
-def _separate_merged_timed_block(block):
+# A non-time punctuation mark sometimes appears immediately before otherwise
+# intact seconds, e.g. 00:54:？46,150. Never invent a missing digit.
+STRAY_TIMESTAMP_MARK = re.compile(
+    r"(?m)^(?P<left>(?:[0-9]{1,3}:)?[0-9]{2}:[0-9]{2}[,.][0-9]{2,3})"
+    r"(?P<arrow>[ \t]*-->[ \t]*)"
+    r"(?P<right>(?:[0-9]{1,3}:)?[0-9]{2}:)"
+    r"？(?P<seconds>[0-5][0-9][,.][0-9]{3})[ \t]*$"
+)
+
+
+def _repair_intact_seconds_mark(original):
+    """Remove one extraneous fullwidth mark, without filling in any clock digit."""
+    matches=list(STRAY_TIMESTAMP_MARK.finditer(original))
+    if len(matches)>1:
+        raise RuntimeError("staged_srt_multiple_corrupted_clock_marks")
+    if not matches:
+        return original,0
+    match=matches[0]
+    fixed=(match.group("left")+match.group("arrow")+
+           match.group("right")+match.group("seconds"))
+    if not STAMP.fullmatch(fixed):
+        raise RuntimeError("staged_srt_corrupted_clock_unverifiable")
+    a,b=STAMP.fullmatch(fixed).groups()
+    if _milliseconds(a)>=_milliseconds(b):
+        raise RuntimeError("staged_srt_corrupted_clock_interval_invalid")
+    return original[:match.start()]+fixed+original[match.end():],1
+
+
+def _block_index(block):
+    """A cue number is corroboration only if followed by a real timestamp."""
+    lines=block.strip(" \t\r\n").splitlines()
+    if len(lines)>=2 and lines[0].strip().isdigit() and STAMP.fullmatch(lines[1].strip()):
+        return int(lines[0].strip())
+    return None
+
+
+def _separate_merged_timed_block(block, *, preceding_index=None,following_index=None):
     """Recover cues whose separator blank line is missing.
 
     Never invent time ranges or discard text. Every embedded clock must be
@@ -140,15 +176,35 @@ def _separate_merged_timed_block(block):
         raise RuntimeError("staged_srt_merged_block_invalid_first_timestamp")
     portions=[]
     current=lines[:ix+1]
+    initial_index=int(lines[0].strip()) if ix else None
+    clock_count=len(ARROWS.findall(block))
     for line in lines[ix+1:]:
         if STAMP.fullmatch(line.strip()):
             text_lines=current[(1 if current[0].strip().isdigit() else 0)+1:]
             if not any(x.strip() for x in text_lines):
                 raise RuntimeError("staged_srt_merged_block_missing_dialogue")
+            next_number=None
             if text_lines[-1].strip().isdigit():
-                raise RuntimeError("staged_srt_merged_block_ambiguous_index")
+                # Interpret a trailing bare number as the next cue index ONLY
+                # if it is consecutive and corroborated by an adjacent block.
+                # Without that evidence, it could be spoken numeric dialogue.
+                previous=(int(current[0].strip())
+                          if current[0].strip().isdigit() else None)
+                proposed=int(text_lines[-1].strip())
+                before_ok=(preceding_index is not None and initial_index is not None
+                           and preceding_index==initial_index-1)
+                after_ok=(following_index is not None and initial_index is not None
+                          and following_index==initial_index+clock_count)
+                if (previous is None or proposed!=previous+1
+                        or not (before_ok or after_ok)
+                        or (preceding_index is not None and not before_ok)
+                        or (following_index is not None and not after_ok)
+                        or not any(t.strip() for t in text_lines[:-1])):
+                    raise RuntimeError("staged_srt_merged_block_ambiguous_index")
+                next_number=text_lines[-1].strip()
+                current=current[:-1]
             portions.append("\n".join(current))
-            current=[line]
+            current=[next_number,line] if next_number else [line]
         elif "-->" in line and ARROWS.fullmatch(line.strip()) is None:
             raise RuntimeError("staged_srt_merged_block_invalid_timestamp")
         else:
@@ -179,6 +235,9 @@ def normalize(raw,*,expected_timestamps=None,
         raise RuntimeError("staged_srt_not_utf8") from None
     if "\ufffd" in original or "\x00" in original:
         raise RuntimeError("staged_srt_invalid_characters")
+    # Repair an intact clock with a stray punctuation mark BEFORE counting
+    # timestamps. Original provider bytes remain unchanged on disk.
+    original,repaired_marks=_repair_intact_seconds_mark(original)
     stamp_total=len(ARROWS.findall(original))
     if (expected_timestamps is not None and
             stamp_total!=int(expected_timestamps)):
@@ -189,10 +248,15 @@ def normalize(raw,*,expected_timestamps=None,
                original.strip(" \t\r\n")) if b.strip(" \t\r\n")]
     blocks=[]
     merged_blocks=0
-    for block in original_blocks:
+    for block_no,block in enumerate(original_blocks):
         stamps=len(ARROWS.findall(block))
         if stamps>1:
-            pieces=_separate_merged_timed_block(block)
+            previous=(_block_index(original_blocks[block_no-1])
+                      if block_no else None)
+            following=(_block_index(original_blocks[block_no+1])
+                       if block_no+1<len(original_blocks) else None)
+            pieces=_separate_merged_timed_block(
+                block,preceding_index=previous,following_index=following)
             if len(pieces)!=stamps:
                 raise RuntimeError("staged_srt_merged_block_cue_count_mismatch")
             blocks.extend(pieces)
@@ -262,7 +326,7 @@ def normalize(raw,*,expected_timestamps=None,
         if any(parsed[j][0]<parsed[j-1][0] for j in range(1,len(parsed))):
             raise RuntimeError("staged_srt_cue_order_invalid")
         reordered=[{"original_cues":[i,i+1],"jump_ms":jump}]
-    changed=bool(empty or invalid_controls or release_notes or opening_credits or reordered or merged_blocks
+    changed=bool(repaired_marks or empty or invalid_controls or release_notes or opening_credits or reordered or merged_blocks
                  or canonicalized_timestamps or raw.startswith(b"\xef\xbb\xbf"))
     changed=changed or "\r" in original or any(
         not block.strip(" \t\r\n").startswith(str(i))
@@ -273,6 +337,7 @@ def normalize(raw,*,expected_timestamps=None,
         "retained_dialogue_cues":len(parsed),
         "empty_cues_removed":empty,
         "merged_blocks_repaired":merged_blocks,
+        "intact_seconds_stray_marks_removed":repaired_marks,
         "merged_cues_recovered":len(blocks)-len(original_blocks),
         "control_characters_removed":invalid_controls,
         "technical_release_notes_excluded":release_notes,

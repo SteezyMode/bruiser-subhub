@@ -106,6 +106,70 @@ class StructuralNormalizationTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError,"merged_block_ambiguous_index"):
             norm.normalize(numbered,expected_timestamps=2)
 
+    def test_real_nightmare_3_stray_fullwidth_mark_before_intact_seconds(self):
+        raw=(cue(599,"00:54:40,000","00:54:42,000","前の台詞")+
+             "600\n00:54:44,010 --> 00:54:？46,150\nどんな所だった\n\n".encode()+
+             cue(601,"00:54:47,100","00:54:49,200","次の台詞"))
+        saved=raw[:]
+        out,report=norm.normalize(raw,expected_timestamps=3)
+        self.assertEqual(raw,saved)
+        self.assertIn(b"00:54:44,010 --> 00:54:46,150",out)
+        self.assertEqual(report["intact_seconds_stray_marks_removed"],1)
+        self.assertEqual(report["retained_dialogue_cues"],3)
+        for line in ("前の台詞","どんな所だった","次の台詞"):
+            self.assertEqual(out.count(line.encode()),raw.count(line.encode()))
+        self.assertEqual(len(norm.ARROWS.findall(out.decode())),3)
+
+    def test_stray_mark_missing_digits_or_multiple_marked_clocks_stay_held(self):
+        missing="1\n00:54:44,010 --> 00:54:？6,150\n行こう".encode()
+        with self.assertRaisesRegex(RuntimeError,"staged_srt_no_timestamps"):
+            norm.normalize(missing)
+        two=(cue(1,"00:00:01,000","00:00:02,000","はい")+
+             "2\n00:00:03,000 --> 00:00:？04,000\n待って\n\n".encode()+
+             "3\n00:00:05,000 --> 00:00:？06,000\n先に\n".encode())
+        with self.assertRaisesRegex(RuntimeError,"multiple_corrupted_clock_marks"):
+            norm.normalize(two)
+        dialogue="1\n00:00:01,000 --> 00:00:02,000\n答えは 00:54:？46,150 だ\n".encode()
+        out,report=norm.normalize(dialogue)
+        self.assertIs(out,dialogue)
+        self.assertEqual(report["intact_seconds_stray_marks_removed"],0)
+
+    def test_real_nightmare_4_sequential_indices_use_neighbouring_proof(self):
+        sample=(cue(21,"00:05:45,000","00:05:46,000","それは違う")+
+                "22\n00:05:48,402 --> 00:05:49,602\n"
+                "僕らをここに引き摺り込むのをやめて！\n"
+                "23\n00:05:49,637 --> 00:05:50,802\n"
+                "そうだ。やめて！\n\n".encode()+
+                cue(24,"00:05:51,100","00:05:52,000","終わり"))
+        saved=sample[:]
+        out,report=norm.normalize(sample,expected_timestamps=4)
+        self.assertEqual(sample,saved)
+        self.assertEqual(report["merged_blocks_repaired"],1)
+        self.assertEqual(report["merged_cues_recovered"],1)
+        self.assertEqual(report["retained_dialogue_cues"],4)
+        # Normalizer reindexes every output cue from one, preserving timing
+        # and dialogue; cue 22/23 become positions 2/3 in this short sample.
+        self.assertIn(b"2\n00:05:48,402",out)
+        self.assertIn(b"3\n00:05:49,637",out)
+        for text in ("それは違う","僕らをここに引き摺り込むのをやめて！",
+                     "そうだ。やめて！","終わり"):
+            self.assertEqual(out.count(text.encode()),sample.count(text.encode()))
+
+    def test_merged_numeric_dialogue_or_mismatched_neighbours_remain_held(self):
+        merged=("22\n00:05:48,402 --> 00:05:49,602\n待って！\n"
+                "23\n00:05:49,637 --> 00:05:50,802\n走れ！").encode()
+        with self.assertRaisesRegex(RuntimeError,"merged_block_ambiguous_index"):
+            norm.normalize(merged,expected_timestamps=2)
+        bad=(cue(21,"00:05:45,000","00:05:46,000","前")+
+             merged+b"\n\n"+cue(99,"00:05:51,100","00:05:52,000","後"))
+        with self.assertRaisesRegex(RuntimeError,"merged_block_ambiguous_index"):
+            norm.normalize(bad,expected_timestamps=4)
+        wrong=(cue(21,"00:05:45,000","00:05:46,000","前")+
+              merged.replace(b"\n23\n",b"\n42\n")+b"\n\n"+
+              cue(24,"00:05:51,100","00:05:52,000","後"))
+        with self.assertRaisesRegex(RuntimeError,"merged_block_ambiguous_index"):
+            norm.normalize(wrong,expected_timestamps=4)
+
     def test_out_of_order_detected_with_exact_cue_numbers_and_no_mutation(self):
         source=(cue(1,"00:00:10,000","00:00:11,000","はじめ")+
                 cue(2,"00:00:30,000","00:00:31,000","次の場面")+
