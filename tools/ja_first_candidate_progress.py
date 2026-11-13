@@ -21,6 +21,10 @@ DB=ROOT/"japanese-candidate-failures.sqlite3"
 SEARCH_DB=ROOT/"japanese-search.sqlite3"
 MODULES={
     "stage":("ja_first_stage_saved_batch.py",),
+    # Saved SubDL ZIP-byte failures are implementation-specific and should
+    # never invalidate (or be confused with) OpenSubtitles download receipts.
+    "subdl-stage":("ja_first_stage_subdl.py","ja_first_srt_normalize.py",
+                   "ja_first_publish_staged.py"),
     "alass":("ja_first_alass.py","ja_first_ffsubsync.py",
              "ja_first_srt_normalize.py","ja_first_publish_staged.py",
              "ja_first_obvious_quality.py"),
@@ -195,7 +199,11 @@ def stable_failure(exc):
     if not isinstance(exc,(RuntimeError,ValueError)):
         return False
     message=str(exc).split(":",1)[0]
-    return message.startswith(("too_few_subtitle_cues",
+    return message.startswith(("subdl_archive_srt_rejected",
+         "subdl_archive_no_matching_srt_member",
+         "subdl_archive_only_forced_srt_members",
+         "subdl_archive_no_srt_members",
+         "too_few_subtitle_cues",
          "too_few_japanese_characters", "unrecognized_subtitle_timing_or_encoding",
          "timing_out_of_order", "subtitle_empty_or_oversize",
          "alass_reordered_cues","alass_out_of_video",

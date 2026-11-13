@@ -97,6 +97,25 @@ The owner's entire point is functional playback: the measured result is **2 newl
 4. Investigate the **221 missing** in-scope Drama/Horror movies and 42 coverage-queue holds; don't blindly reset 30-day search history or consume quota re-querying all 221.
 5. Review newly published tracks in Jellyfin; a pass from timing/structural checks isn't a subjective translation-quality grade or verified playback.
 
+## General-purpose repair, retry, and measurement policy (2026-11-13)
+
+**Normal case: do not hold an entire title because one candidate is unusable.** The source-only cycle must treat a bad SRT as a **rejected release**, try other saved identity-matching candidates within the bounded provider allowance, and continue to the next media item. A title remains **pending Japanese sourcing** until actual Japanese sidecar/audio coverage is verified or *all* viable acquisition paths are reasonably exhausted. Quota/cooldown/network errors mean **retry later**; they are not a negative result. A malformed source cannot be made publishable by loosening the dialogue identity, density, sync/timing, no-overwrite, or provenance gates.
+
+**PLaMO is a later processing state, not the only "hold".** It becomes a legitimate next action only after sufficient Japanese provider/search/alternate-release evidence and a matching English source suitable for synchronization. An old "none" search, 429, failed container, unparseable SRT, or one failed release is not proof of source exhaustion and should never automatically force PLaMO. Truly unreadable/partial video, ambiguous movie identity, unsafe or changed staging media, and unverified matching English source may require an exceptional **needs-attention** state rather than a fabricated subtitle or endless loop; these must not stall unrelated titles.
+
+**Reusable code, not a one-off success script.** General SubDL ZIP forced-track handling, SRT timestamp normalization, multiple saved-release fallthrough, and deterministic bad-ZIP cache invalidation all belong to the **existing installed source workers** (not merely `subhub_saved_movie_recovery.py`). No independent cron/service, separate package, or hand-copied host patch. A cached structurally bad ZIP is skipped on subsequent runs while its bytes, target-video identity and validator implementation are unchanged; the next validation-code change invalidates that specific failure receipt automatically. The normal daily batch prints stable release failure reasons separately from *title-level coverage*.
+
+**Read-only wide-library audit (no provider quota, no file writes):**
+
+```bash
+ssh optiplex@100.121.156.34 \
+  'python3 -B -u ~/bruiser-pilot/subhub-control/ja_first_stage_subdl_batch.py --audit-cached --scope all --audit-limit 2000'
+```
+
+For Drama/Horror only, use `--scope horror-drama-folders`. The report distinguishes missing titles, cached provider releases available, ZIPs inspected, subtitle content structurally valid, known invalid formats and uncovered errors. **Structural/content passing is not a published subtitle, good timing, good translation or Jellyfin playback.** Measure actual coverage independently with the existing dashboard counts; never compute a supposed 80% title failure rate using a denominator of repeated skipped candidates or quota-limited searches. No broad live API scan is authorized by this audit.
+
+**Regression gates:** cached full Japanese SRT paired with forced tracks, explicit year mismatch, other distinct editions, full Japanese text density, malformed timestamps, canonical Unicode spacing and clock fractions, genuinely missing timestamps, 3-candidate same-title fallback, memoized bad cached ZIP skipped while later good candidates remain eligible, read-only audit invariants. Focused tests must pass on GitHub before merge, and `main` must be installed via the guarded pinned installer for behavior to change on OptiPlex. Until then, host still runs the prior code.
+
 ## Development and documentation discipline
 
 - One `main` branch as the install source. PRs are intermediate review surfaces, not separate installed versions.

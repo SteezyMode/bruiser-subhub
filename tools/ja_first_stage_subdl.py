@@ -25,12 +25,14 @@ try:
     from . import ja_first_publish_staged as publisher
     from . import subhub_download_ledger as ledger
     from . import ja_first_srt_normalize as structure
+    from . import ja_first_candidate_progress as progress
 except ImportError:
     import ja_first_stage_saved_batch as stage
     import ja_first_stage_jellyfin as jelly
     import ja_first_publish_staged as publisher
     import subhub_download_ledger as ledger
     import ja_first_srt_normalize as structure
+    import ja_first_candidate_progress as progress
 
 PROVIDER="subdl"
 SCHEMA="sublarr-subdl-v1"
@@ -90,6 +92,57 @@ def numeric_id(remote):
     digest=hashlib.sha256(("subdl:"+remote).encode("utf-8")).hexdigest()
     sid=str(jelly.MIN_ID+int(digest,16)%jelly.ID_RANGE)
     return sid,digest
+
+
+DETERMINISTIC_ZIP_HOLDS = frozenset({
+    "subdl_archive_srt_rejected",
+    "subdl_archive_no_matching_srt_member",
+    "subdl_archive_only_forced_srt_members",
+    "subdl_archive_no_srt_members",
+})
+
+
+def cached_zip_path(candidate):
+    remote=str(candidate.get("subtitle_id") or "")
+    if not SUBDL_ID.fullmatch(remote):
+        raise RuntimeError("unsafe_subdl_id")
+    _,digest=numeric_id(remote)
+    return stage.STAGED/"subdl-source-zips"/(digest+".zip")
+
+
+def known_rejected_cached(row,candidate):
+    """One cached ZIP/validator version is tried at most once per movie.
+
+    Any parser change or ZIP byte change invalidates the receipt. Never
+    contact the provider just to establish a known rejection.
+    """
+    path=cached_zip_path(candidate)
+    if path.is_symlink():
+        raise RuntimeError("unsafe_private_subdl_archive_symlink")
+    if not path.exists():
+        return None
+    if (not path.is_file() or path.stat().st_mode & 0o077
+            or not 0<path.stat().st_size<=MAX_ARCHIVE):
+        raise RuntimeError("unsafe_private_subdl_archive")
+    # The normal media preflight will report missing/corrupt videos; don't
+    # abort the entire selector merely because an old ZIP is cached for one.
+    video=Path(str(row.get("host_path") or ""))
+    if video.is_symlink() or not video.is_file():
+        return None
+    sid,_=numeric_id(str(candidate["subtitle_id"]))
+    digest=hashlib.sha256(path.read_bytes()).hexdigest()
+    fingerprint=progress.fingerprint(video,digest,"subdl-stage")
+    return progress.known(str(row["jellyfin_id"]),sid,"subdl-stage",fingerprint)
+
+
+def remember_cached_rejection(row,candidate,blob,error):
+    reason=str(error).split(":",1)[0]
+    if reason not in DETERMINISTIC_ZIP_HOLDS:
+        return
+    sid,_=numeric_id(str(candidate["subtitle_id"]))
+    key=progress.fingerprint(
+        row["host_path"],hashlib.sha256(blob).hexdigest(),"subdl-stage")
+    progress.remember(str(row["jellyfin_id"]),sid,"subdl-stage",key,error)
 
 
 def cached_archive(candidate):
@@ -284,7 +337,13 @@ def stage_one(row,candidate,runtime):
         print("STAGED_SUBDL:",jid,"source_id:",sid,"cached",flush=True)
         return
     blob=cached_archive(candidate)
-    raw,qa,member=archive_srt(blob,row,candidate,runtime)
+    try:
+        raw,qa,member=archive_srt(blob,row,candidate,runtime)
+    except RuntimeError as exc:
+        # A structurally invalid saved ZIP must not be counted as new work on
+        # every daily scan. Cache only stable, byte-backed validation failures.
+        remember_cached_rejection(row,candidate,blob,exc)
+        raise
     stage.STAGED.mkdir(mode=0o700,exist_ok=True)
     if stage.STAGED.is_symlink() or stage.STAGED.stat().st_mode & 0o077:
         raise RuntimeError("unsafe_private_staging_folder")

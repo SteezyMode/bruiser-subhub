@@ -70,9 +70,12 @@ def candidate_key(jid, candidate):
     raise ValueError("unsupported_saved_provider")
 
 
-def fresh_candidates(row, document, staged, rejected, *, rejected_check=None):
+def fresh_candidates(row, document, staged, rejected, *, rejected_check=None,
+                     subdl_rejected_check=None):
     """Only identity-verified, untried saved releases; no new searches."""
     rejected_check = stage.known_rejected_download if rejected_check is None else rejected_check
+    subdl_rejected_check = (subdl.known_rejected_cached if subdl_rejected_check is None
+                            else subdl_rejected_check)
     result = []
     skipped = Counter()
     for candidate in deep.candidates_for(row, document):
@@ -90,6 +93,10 @@ def fresh_candidates(row, document, staged, rejected, *, rejected_check=None):
         if (candidate["provider"] == "opensubtitles" and
                 rejected_check(row, candidate)):
             skipped["known_invalid_download"] += 1
+            continue
+        if (candidate["provider"] == "subdl" and
+                subdl_rejected_check(row, candidate)):
+            skipped["unchanged_bad_cached_subdl_zip"] += 1
             continue
         result.append(candidate)
     return result, skipped
