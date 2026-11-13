@@ -354,17 +354,150 @@ def list_candidates():
     print("READ ONLY: no provider search, downloads, video writes or PLaMO")
 
 
+def exclusion_reason(row,candidate):
+    """Explain the exact existing staging filter, without relaxing it."""
+    if not isinstance(candidate,dict):
+        return "invalid_record"
+    try:
+        remote_identity(candidate)
+    except RuntimeError:
+        return "not_generic_or_invalid_provider_id"
+    if str(candidate.get("language") or "").casefold() not in ALLOWED_LANGUAGES:
+        return "language_not_japanese"
+    if candidate.get("forced") is True or str(
+            candidate.get("kind") or "").casefold() in {"forced","signs"}:
+        return "forced_or_signs_only"
+    if str(candidate.get("format") or "").casefold() not in {"srt","unknown",""}:
+        return "unsupported_format"
+    if not isinstance(row,dict) or row.get("status")!="ready_ja_search":
+        return "media_not_pending_japanese"
+    if identity_ok(row,candidate):
+        return "eligible"
+    if row.get("kind")=="Movie":
+        return "unverified_movie_title_or_year"
+    if row.get("kind")=="Episode":
+        return "unverified_series_or_episode"
+    return "unsupported_media_kind"
+
+
+def is_animation(row):
+    """Genre indicator for pilot ordering, not a claim about original audio."""
+    genres=row.get("genres") or []
+    return any(str(g).casefold().strip() in {"anime","animation"}
+               for g in genres)
+
+
+def exclusion_audit():
+    """Full saved-results audit, no provider calls, no filesystem mutation.
+
+    Count candidate-level evidence separately from unique titles.
+    Rejected search hits are never silently promoted into stage eligibility.
+    """
+    from collections import Counter,defaultdict
+    inventory=stage.read_inventory()
+    state=Counter()
+    by_provider=defaultdict(Counter)
+    examples=defaultdict(list)
+    viable_titles=set()
+    live_action_examples=[]
+    seen=set()
+    for jid,raw in stage.read_saved_searches():
+        row=inventory.get(str(jid))
+        if not row:
+            state["search_not_in_current_inventory"]+=1
+            continue
+        try:
+            doc=json.loads(raw)
+        except (TypeError,ValueError):
+            state["invalid_saved_json"]+=1
+            continue
+        if not isinstance(doc,dict):
+            state["invalid_saved_json"]+=1
+            continue
+        for source in ("candidates","rejected_candidates"):
+            for c in doc.get(source) or []:
+                if not isinstance(c,dict):
+                    state["invalid_candidate_entry"]+=1
+                    continue
+                provider=str(c.get("provider") or "").casefold()
+                if provider in OWN_HANDLERS:
+                    continue
+                # Do not turn repeated legacy records into artificial evidence.
+                key=(str(jid),provider,str(c.get("subtitle_id") or ""),
+                     str(c.get("filename") or ""),str(c.get("format") or ""),
+                     str(c.get("language") or ""),str(c.get("forced") or ""),
+                     str(c.get("kind") or ""),source)
+                if key in seen:
+                    continue
+                seen.add(key)
+                reason=exclusion_reason(row,c)
+                # Discovery rejects may happen for reasons our simpler stage
+                # filter cannot infer. NEVER call one of those stage-eligible.
+                bucket=reason if source=="candidates" else "discovery_rejected_"+reason
+                summary=by_provider[provider or "missing_provider"]
+                summary[source+"_total"]+=1
+                summary[bucket]+=1
+                state["releases_examined"]+=1
+                if source=="candidates" and reason=="eligible":
+                    viable_titles.add(str(jid))
+                    summary["unique_title_"+str(jid)]=1
+                if bucket!="eligible" and len(examples[(provider,bucket)])<2:
+                    examples[(provider,bucket)].append(
+                        (str(row.get("title") or row.get("series_title") or "Untitled")[:64],
+                         str(row.get("kind") or "unknown")))
+                if (source=="candidates" and
+                        row.get("status")=="ready_ja_search" and
+                        not is_animation(row) and
+                        len(live_action_examples)<14 and
+                        reason in ("eligible","unverified_movie_title_or_year",
+                                   "unverified_series_or_episode","unsupported_format")):
+                    live_action_examples.append((
+                        str(jid),str(row.get("title") or row.get("series_title") or "")[:60],
+                        provider,reason,str(c.get("format") or "unknown"),
+                        str(c.get("grade") or "unknown")))
+    print("=== SAVED NON-CORE PROVIDER FILTER AUDIT ===")
+    print("Retained/rejected are distinct saved-search classes, not provider failures.")
+    print("No actual provider participation or recent availability is proven.")
+    print("Release records examined:",state["releases_examined"])
+    print("Titles with eligible saved non-core releases:",len(viable_titles))
+    for provider,c in sorted(by_provider.items()):
+        unique=sum(1 for name in c if name.startswith("unique_title_"))
+        print("PROVIDER:",provider,
+              "| retained:",c["candidates_total"],
+              "| rejected_by_discovery:",c["rejected_candidates_total"],
+              "| eligible:",c["eligible"],
+              "| unique_eligible_titles:",unique)
+        for reason,n in sorted(c.items()):
+            if reason in ("eligible","candidates_total","rejected_candidates_total"
+                          ) or reason.startswith("unique_title_"):
+                continue
+            print("  EXCLUDED:",reason,n,
+                  "| examples:",examples.get((provider,reason),[]))
+    print("NON-ANIMATION GENRE PILOT REVIEW (not verified live-action):")
+    for jid,title,provider,reason,fmt,grade in live_action_examples:
+        print("PILOT:",jid,title,"|",provider,
+              "|",reason,"| format:",fmt,"| prior grade:",grade)
+    print("READ ONLY: ZERO searches, downloads, stages, AI, or publication.")
+
+
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--jellyfin-id",default="")
     parser.add_argument("--list-candidates",action="store_true",
                         help="read-only saved candidate census across media catalog")
+    parser.add_argument("--audit-exclusions",action="store_true",
+                        help="read-only per-provider candidate rejection causes and non-animation pilots")
     parser.add_argument("--provider",default=None,
                         help="one exact previously saved provider (e.g. subf2m)")
     parser.add_argument("--max-attempts",type=int,default=2)
     parser.add_argument("--apply",action="store_true",
                         help="only private-stage candidates; never publish")
     args=parser.parse_args(argv)
+    if args.audit_exclusions:
+        if args.apply or args.jellyfin_id or args.provider or args.list_candidates:
+            parser.error("--audit-exclusions cannot be combined with stage options")
+        exclusion_audit()
+        return
     if args.list_candidates:
         if args.apply or args.jellyfin_id or args.provider:
             parser.error("--list-candidates cannot be combined with stage options")
