@@ -14,6 +14,35 @@
 
 **Live API safety finding (2026-11-13, Sublarr 1.20.1):** Host OpenAPI lists combined `/providers/search`, interactive wanted/episode `search-providers`, and `download-specific`. At upstream 1.20.1, combined search returns at most **50** releases per request (even if `total` is larger). The `download-specific` API writes the chosen subtitle to a video-side path and may trigger further processing; **never call it for private SubHub staging on production media**. Sublarr's internal `ProviderManager.download(SubtitleResult)` instead returns provider subtitle **bytes** without an output-library write. Reusing that requires a guarded generic stage adapter **and** generalization of SubHub's `ja_first_stage_timing_audit.py` and `ja_first_publish_staged.py`, which currently accept only OpenSubtitles, SubDL and Jellyfin stage names/provenance. The existing publisher also stops at the first verified ALASS/ffsubsync candidate instead of comparing every suitable, verified track. This is a pending coordinated engineering change, **not deployed**. Exact v1.20.1 source and acceptance criteria are recorded in [issue #101](https://github.com/SteezyMode/bruiser-subhub/issues/101). Do not silently bypass no-overwrite, title identity, timing or Japanese-text QA in order to support new providers.
 
+## Generic Sublarr provider private-stage pilot (reviewed code, host install pending)
+
+The candidate-only path in `tools/ja_first_stage_sublarr.py` reuses the **actual Sublarr 1.20.1 `ProviderManager.search(...,early_exit=False)` + `ProviderManager.download(result)`** from inside the running Sublarr container for **saved, strictly identity-matching Japanese SRT candidates** from other providers (SubF2M, AnimeTosho etc.). It does not invoke the write-capable `download-specific` API, write into Jellyfin folders, start PLaMO or run publication. The host caps and hashes the returned bytes, validates Japanese SRT content/clock preservation, and creates a `0600` private stage entry with actual provider identity, original saved candidate metadata and movie/episode identity. The shared timing auditor and publisher now recognize precisely one new `sublarr` stage class and recheck its saved-release provenance before any existing ALASS/ffsubsync/QA/publisher action. Existing three stage classes retain their original rules. The provider download ledger recognizes individual provider names only on this approved route.
+
+**Find eligible saved candidates from the host without API requests or downloads:**
+
+```bash
+ssh optiplex@100.121.156.34 \
+ 'python3 -B -u ~/bruiser-pilot/subhub-control/ja_first_stage_sublarr.py --list-candidates'
+```
+
+**Inspect a specific exact media item, no API call:**
+
+```bash
+ssh optiplex@100.121.156.34 \
+ 'python3 -B -u ~/bruiser-pilot/subhub-control/ja_first_stage_sublarr.py --jellyfin-id <32-hex-jellyfin-item-id>'
+```
+
+**Owner-initiated bounded acquisition only after reviewing the candidate and ensuring no workers run:**
+
+```bash
+ssh optiplex@100.121.156.34 \
+ 'python3 -B -u ~/bruiser-pilot/subhub-control/ja_first_stage_sublarr.py --jellyfin-id <32-hex-jellyfin-item-id> --max-attempts 1 --apply'
+```
+
+This **stages only**; a normal trusted publisher would still need to validate timing and create the JA sidecar in a **separate explicit step**. Do not start the source cycle or turn on scheduled retries as part of this test. Saved Search DB may contain candidates from non-core providers, but source availability can expire; candidate re-search failures are not proof subtitles don't exist.
+
+**Not yet implemented:** a verified per-provider search-participation matrix for all enabled JA-capable sources; newly discovered provider candidate preservation into the search DB; a global best-verified-candidate choice after synchronization; routine use by new-arrival or backlog pipelines; host proof of actual non-core subtitle publication. Keep [P0 issue #101](https://github.com/SteezyMode/bruiser-subhub/issues/101) open, and do not label this a complete all-provider solution.
+
 ## What is installed, and where
 
 - **Bruiser SubHub** is an existing collection of Python scripts, an owner dashboard, systemd user services, Jellyfin/Sublarr adapters and local state on **the OptiPlex**. **It is not currently distributed as a `.deb`.**

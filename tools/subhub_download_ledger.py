@@ -24,7 +24,7 @@ LEDGER=ROOT/"subhub-provider-download-ledger.sqlite3"
 JST=ZoneInfo("Asia/Tokyo")
 PROVIDERS={"opensubtitles","subdl","yify","other","unknown"}
 ROUTES={"jellyfin_subbuzz","jellyfin_native","sublarr_native",
-        "sublarr_native_subdl","other"}
+        "sublarr_native_subdl","sublarr_provider_manager","other"}
 RESULTS={"pending","downloaded","quota_blocked","failed"}
 
 
@@ -78,7 +78,13 @@ def connect(path=None):
 
 def begin(provider,route,*,at=None,path=None):
     """Commit intent BEFORE the external request so crashes stay visible."""
-    if provider not in PROVIDERS or route not in ROUTES:
+    # Only the private Sublarr-manager adapter can attribute arbitrary
+    # enabled provider slugs. Existing Jellyfin/native routes stay whitelisted.
+    generic=(route=="sublarr_provider_manager" and
+             isinstance(provider,str) and
+             bool(re.fullmatch(r"[a-z][a-z0-9_-]{1,63}",provider)))
+    if (route not in ROUTES or
+            not (provider in PROVIDERS or generic)):
         raise ValueError("download_ledger_invalid_provider_or_route")
     at=int(time.time()) if at is None else int(at)
     if at<0:
