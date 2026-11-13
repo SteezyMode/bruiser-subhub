@@ -783,12 +783,21 @@ def main(argv=None):
         if not blank:
             print("NO LEGACY BLANK SUBF2M RELEASES FOR THIS ITEM")
             return
-        proof=verify_subf2m_live(row,blank[0])
-        print("SUBF2M_LIVE_MOVIE_IDENTITY: VERIFIED",flush=True)
-        print("Title:",proof["title"],"| Year:",proof["year"],flush=True)
-        print("Verified release:",proof["release"],flush=True)
-        print("READ ONLY: public provider listing only; no subtitle download or media write")
-        return
+        for candidate in blank[:min(args.max_attempts,3)]:
+            try:
+                proof=verify_subf2m_live(row,candidate)
+            except (RuntimeError,OSError,subprocess.TimeoutExpired) as exc:
+                code=str(exc).split(":",1)[0]
+                if not re.fullmatch(r"[A-Za-z0-9_]{1,90}",code):
+                    code=type(exc).__name__
+                print("SUBF2M_SAVED_SOURCE_UNVERIFIED:",code,flush=True)
+                continue
+            print("SUBF2M_LIVE_MOVIE_IDENTITY: VERIFIED",flush=True)
+            print("Title:",proof["title"],"| Year:",proof["year"],flush=True)
+            print("Verified release:",proof["release"],flush=True)
+            print("READ ONLY: public provider listing only; no subtitle download or media write")
+            return
+        raise RuntimeError("no_verified_subf2m_saved_candidate")
     if not args.apply:
         print("NO PROVIDER CALLS, FILE WRITES, PUBLISHING OR PLaMO",flush=True)
         return
