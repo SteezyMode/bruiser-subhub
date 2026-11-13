@@ -193,6 +193,59 @@ class MovieScopeTests(unittest.TestCase):
             selected=search.pick(rows,db,600,scope=scope.SCOPE)
         self.assertEqual([x["id"] for x in selected],[self.drama["jellyfin_id"]])
 
+    def test_opt_in_genre_only_no_match_retry_preserves_all_other_holds(self):
+        import time
+        rows=[self.drama,self.outside,self.horror,self.tv]
+        db=sqlite3.connect(":memory:")
+        self.addCleanup(db.close)
+        db.execute("CREATE TABLE searches (jellyfin_id TEXT,outcome TEXT,"
+                   "searched_at INTEGER,results_json TEXT)")
+        ago=int(time.time())-8*86400
+        for row in rows:
+            db.execute("INSERT INTO searches VALUES(?,?,?,?)",
+                       (row["jellyfin_id"],"none",ago,
+                        json.dumps({"strategy_version":5})))
+        db.commit()
+        with patch.object(search.priorities,"active_coverage_queue",return_value=None), \
+             patch.object(search,"query_for",return_value={"language":"ja"}):
+            normal=search.pick(rows,db,20,scope=scope.MOVIES_DRAMA)
+            retry=search.pick(rows,db,20,scope=scope.MOVIES_DRAMA,
+                              retry_none_after_days=7)
+            too_early=search.pick(rows,db,20,scope=scope.MOVIES_DRAMA,
+                                  retry_none_after_days=9)
+        self.assertEqual(normal,[])
+        self.assertEqual([entry["id"] for entry in retry],
+                         [self.drama["jellyfin_id"]])
+        self.assertEqual(too_early,[])
+        for invalid in (0,31,True):
+            with self.assertRaises(ValueError):
+                search.pick(rows,db,20,scope=scope.MOVIES_DRAMA,
+                            retry_none_after_days=invalid)
+        with self.assertRaises(ValueError):
+            search.pick(rows,db,20,scope="all",retry_none_after_days=7)
+
+    def test_opt_in_no_match_retry_does_not_repeat_recent_no_match_or_reviews(self):
+        import time
+        old=int(time.time())-9*86400
+        rows=[self.drama,self.horror,self.outside]
+        rows[0]["status"]="existing_japanese_subtitle"
+        db=sqlite3.connect(":memory:")
+        self.addCleanup(db.close)
+        db.execute("CREATE TABLE searches (jellyfin_id TEXT,outcome TEXT,"
+                   "searched_at INTEGER,results_json TEXT)")
+        for row,outcome,when in zip(rows,
+                                    ("none","review","none"),
+                                    (old,old,int(time.time())-3600)):
+            db.execute("INSERT INTO searches VALUES(?,?,?,?)",
+                       (row["jellyfin_id"],outcome,when,
+                        json.dumps({"strategy_version":5})))
+        db.commit()
+        with patch.object(search.priorities,"active_coverage_queue",return_value=None), \
+             patch.object(search,"query_for",return_value={"language":"ja"}):
+            selected=search.pick(rows,db,20,scope="movies-all",
+                                 retry_none_after_days=7)
+        self.assertEqual(selected,[])
+
     def test_staging_excludes_other_folders(self):
         rows=[self.horror,self.drama,self.outside]
         db={x["jellyfin_id"]:x for x in rows}
