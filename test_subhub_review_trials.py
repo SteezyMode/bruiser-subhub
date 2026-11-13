@@ -191,6 +191,75 @@ class ReviewTrialTests(unittest.TestCase):
                 self.assertEqual(rc,0)
                 trial.assert_not_called()
 
+    def test_bug_sixteen_saved_releases_only_one_new_provider_download(self):
+        bug=movie("a"*32,"Bug")
+        other=movie("b"*32,"Another Film")
+        options=[(bug,hit("opensubtitles",str(100000+i)))
+                 for i in range(16)]
+        options.append((other,hit("opensubtitles","201000")))
+        selections,counts=review.one_new_download_per_movie(
+            options,is_cached=lambda *_:False)
+        self.assertEqual(len(selections),2)
+        self.assertEqual(counts["unique_review_movies"],2)
+        self.assertEqual(counts["other_candidates_deferred"],15)
+        self.assertEqual([r["title"] for r,_ in selections],
+                         ["Bug","Another Film"])
+
+    def test_bug_with_any_cached_release_must_not_download_another(self):
+        bug=movie("a"*32,"Bug")
+        other=movie("b"*32,"Other Film")
+        options=[(bug,hit("opensubtitles",str(100000+i))) for i in range(15)]
+        options.append((other,hit("subdl","2010-9090")))
+        result,counts=review.one_new_download_per_movie(
+            options,
+            is_cached=lambda row,c:
+                row["title"]=="Bug" and c["subtitle_id"]=="100009")
+        self.assertEqual(len(result),1)
+        self.assertEqual(result[0][0]["title"],"Other Film")
+        self.assertEqual(counts["movies_already_cached"],1)
+        self.assertEqual(counts["movie_download_jobs"],1)
+
+    def test_movie_candidate_identity_ranked_before_unverified_filename(self):
+        film=movie()
+        first=hit("opensubtitles","100000")
+        trusted=hit("opensubtitles","200000")
+        with patch.object(review.stage,"identity_ok",
+                          side_effect=lambda row,c:c["subtitle_id"]=="200000"):
+            selected,counts=review.one_new_download_per_movie(
+                [(film,first),(film,trusted)],is_cached=lambda *_:False)
+        self.assertEqual(len(selected),1)
+        self.assertEqual(selected[0][1]["subtitle_id"],"200000")
+        self.assertEqual(counts["other_candidates_deferred"],1)
+
+    def test_process_cache_does_not_use_download_per_movie_filter(self):
+        row=movie()
+        c1=hit("opensubtitles","100001")
+        c2=hit("opensubtitles","100002")
+        jobs=[(row,c1),(row,c2)]
+        with tempfile.TemporaryDirectory() as folder:
+            import os
+            fd=os.open(str(Path(folder)/"lock"),os.O_CREAT|os.O_RDWR,0o600)
+            with patch.object(review.saved,"check_idle"), \
+                 patch.object(review.saved.autofill,"lock",return_value=fd), \
+                 patch.object(review.stage,"read_inventory",
+                              return_value={row["jellyfin_id"]:row}), \
+                 patch.object(review,"audit_candidates",
+                              return_value=(jobs,{"candidate_jobs":2})), \
+                 patch.object(review.stage,"japanese_sidecar_exists",
+                              return_value=False), \
+                 patch.object(review,"private_bytes_present",return_value=True), \
+                 patch.object(review,"already_inspected",return_value=False), \
+                 patch.object(review,"one_new_download_per_movie") as select, \
+                 patch.object(review,"trial",return_value=("cached",{
+                    "status":"timing_trial_held","cues":100,
+                    "japanese_characters":1000})) as trial:
+                code=review.run(SimpleNamespace(
+                    provider="both",limit=5,apply=True,retry=False,
+                    download_only=False,process_cache=True))
+                self.assertEqual(code,0)
+                self.assertEqual(trial.call_count,2)
+                select.assert_not_called()
+
     def test_private_download_pass_caches_without_alass_or_publisher(self):
         row=movie()
         candidate=hit("opensubtitles","9876543")
