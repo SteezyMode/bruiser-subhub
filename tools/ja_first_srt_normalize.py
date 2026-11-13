@@ -18,12 +18,12 @@ RELEASE_DURATION=re.compile(r"(?<![0-9])(?:[0-9]{1,2}[:：]){2}[0-9]{2}(?![0-9])
 
 MAX_BYTES=2_000_000
 STAMP=re.compile(
-    r"\A((?:\d{1,3}:)?\d{2}:\d{2}[,.]\d{2,3})\s*-->\s*"
+    r"\A((?:\d{1,3}:)?\d{2}:\d{2}[,.]\d{2,3})[^\S\r\n]*-->[^\S\r\n]*"
     r"((?:\d{1,3}:)?\d{2}:\d{2}[,.]\d{2,3})\Z"
 )
 ARROWS=re.compile(
-    r"(?m)^[ \t]*(?:\d{1,3}:)?\d{2}:\d{2}[,.]\d{2,3}"
-    r"[ \t]*-->[ \t]*(?:\d{1,3}:)?\d{2}:\d{2}[,.]\d{2,3}"
+    r"(?m)^[^\S\r\n]*(?:\d{1,3}:)?\d{2}:\d{2}[,.]\d{2,3}"
+    r"[^\S\r\n]*-->[^\S\r\n]*(?:\d{1,3}:)?\d{2}:\d{2}[,.]\d{2,3}"
 )
 
 
@@ -38,6 +38,14 @@ def _milliseconds(token):
         raise RuntimeError("invalid_staged_srt_clock")
     return ((int(hours)*3600+int(minute)*60+int(sec))*1000+
             int(millis.ljust(3,"0")))
+
+
+def _canonical_clock(milliseconds):
+    """Exact SRT clock: a format change must never move a cue in time."""
+    hours, rest = divmod(milliseconds, 3600000)
+    minutes, rest = divmod(rest, 60000)
+    seconds, fraction = divmod(rest, 1000)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d},{fraction:03d}"
 
 
 def _remove_controls(dialogue):
@@ -143,6 +151,7 @@ def normalize(raw,*,expected_timestamps=None,
     invalid_controls=0
     release_notes=0
     reordered=[]
+    canonicalized_timestamps=0
     for k,block in enumerate(blocks,1):
         if len(ARROWS.findall(block))>1:
             raise RuntimeError("staged_srt_multiple_timestamps_per_block")
@@ -157,6 +166,9 @@ def normalize(raw,*,expected_timestamps=None,
         start,end=map(_milliseconds,m.groups())
         if start>=end:
             raise RuntimeError("staged_srt_interval_invalid:"+str(k))
+        canonical=(_canonical_clock(start)+" --> "+_canonical_clock(end))
+        if timing!=canonical:
+            canonicalized_timestamps+=1
         dialogue="\n".join(lines[ix+1:])
         clean,removed=_remove_controls(dialogue)
         invalid_controls+=removed
@@ -168,7 +180,7 @@ def normalize(raw,*,expected_timestamps=None,
             # the working trial. The provider original remains immutable.
             release_notes+=1
             continue
-        parsed.append((start,end,timing,clean))
+        parsed.append((start,end,canonical,clean))
     if len(blocks)!=stamp_total:
         # Never normalize a block which silently combines multiple cues,
         # even if the parser happened to accept its first timestamp.
@@ -191,7 +203,7 @@ def normalize(raw,*,expected_timestamps=None,
             raise RuntimeError("staged_srt_cue_order_invalid")
         reordered=[{"original_cues":[i,i+1],"jump_ms":jump}]
     changed=bool(empty or invalid_controls or release_notes or reordered or merged_blocks
-                 or raw.startswith(b"\xef\xbb\xbf"))
+                 or canonicalized_timestamps or raw.startswith(b"\xef\xbb\xbf"))
     changed=changed or "\r" in original or any(
         not block.strip(" \t\r\n").startswith(str(i))
         for i,block in enumerate(blocks,1) if block.strip(" \t\r\n").splitlines()[0].strip().isdigit()
@@ -205,6 +217,7 @@ def normalize(raw,*,expected_timestamps=None,
         "control_characters_removed":invalid_controls,
         "technical_release_notes_excluded":release_notes,
         "local_timestamp_swaps":reordered,
+        "timestamp_formats_normalized":canonicalized_timestamps,
         "structural_repair":changed
     }
     if not changed:
