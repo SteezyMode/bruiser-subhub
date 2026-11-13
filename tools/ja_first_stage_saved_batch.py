@@ -418,7 +418,10 @@ def subdl_package_identity_ok(row,result):
     remote=str(result.get("subtitle_id") or "")
     if not remote.endswith("-"+match.group(2)):
         return False
-    if tokens(match.group(1))!=tokens(row.get("title")):
+    # SubDL slugs spell out ampersands (Withnail & I -> withnail-and-i).
+    # Require equality of every other token; never use substring matching.
+    canonical=str(row.get("title") or "").replace("&"," and ")
+    if tokens(match.group(1))!=tokens(canonical):
         return False
     year=str(row.get("year") or "")
     if not re.fullmatch(r"(?:19|20)\d{2}",year):
