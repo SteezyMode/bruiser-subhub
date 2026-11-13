@@ -2,6 +2,14 @@
 
 **Maintained on `main`.** This is the canonical source of truth for deploying and operating the existing OptiPlex SubHub installation. Historical experiments and dated notes remain in Git but are **not** alternate installation or operation instructions. See [README](../README.md), [GOAL](../GOAL.md), and [correction-first rules](SUBHUB_CORRECTION_FIRST_POLICY_2026-11-10.md).
 
+## P0 multi-provider gap — clarified 2026-11-13
+
+**Not yet a guaranteed all-provider / best-of-all-subtitles pipeline.** The normal source-only cycle uses Sublarr's combined provider search but its saved provider health receipts inspect only **OpenSubtitles and SubDL**. A healthy provider is **not** proof it returned a result for an individual movie/episode. The daily cycle stages OpenSubtitles first, then SubDL, and can publish the first subtitle that passes trusted sync/QA without comparing every viable release across all enabled Japanese-capable providers. The separate owner-triggered Jellyfin batch can use Jellyfin's `provider any` path before Sublarr fallback; deep recovery only exhausts saved OpenSubtitles/SubDL evidence. Neither proves every enabled provider was individually checked for every title.
+
+**Requirement:** collect all usable Japanese-provider candidates through existing providers and adapters, record per-item/per-provider confirmed participation and quotas, rank viable releases against the actual video, repair and synchronize, then choose the **best verified** Japanese sidecar before create-only publication. Rejection of one release must not halt the movie or batch; temporary quota is a **deferred** provider, not a negative subtitle search. PLaMO is a last-resort stage only after supported source routes and alternatives are genuinely exhausted. NEW media fully automatic; BACKLOG remains owner-selected.
+
+**Track as [issue #101](https://github.com/SteezyMode/bruiser-subhub/issues/101)** (also [#89](https://github.com/SteezyMode/bruiser-subhub/issues/89) for source recall and [#90](https://github.com/SteezyMode/bruiser-subhub/issues/90) for new-media/backlog behavior). Do not mistake the cached SubDL structural pass rate (14 ZIPs inspected on Nov 13) for overall Japanese subtitle coverage or proof of actual all-provider participation. **This is a documented unresolved product gap, not an installed fix.**
+
 ## What is installed, and where
 
 - **Bruiser SubHub** is an existing collection of Python scripts, an owner dashboard, systemd user services, Jellyfin/Sublarr adapters and local state on **the OptiPlex**. **It is not currently distributed as a `.deb`.**
