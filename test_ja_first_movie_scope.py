@@ -365,6 +365,53 @@ class MovieScopeTests(unittest.TestCase):
         self.assertFalse(stage.movie_identity_ok(
             movie,{**result,"filename":"Withnail and I","release_info":"Withnail And I"}))
 
+    def test_numbered_sequel_full_title_alias_recovers_saved_opensubtitles(self):
+        row={**self.horror,
+             "title":"A Nightmare on Elm Street Part 2: Freddy's Revenge",
+             "year":1985}
+        release={"provider":"opensubtitles","subtitle_id":"123456",
+                 "language":"ja","matches":["title"],
+                 "filename":"A.Nightmare.On.Elm.Street.2.Freddys.Revenge.1985.720p.BrRip.x264",
+                 "release_info":""}
+        self.assertTrue(stage.identity_ok(row,release))
+        self.assertFalse(stage.identity_ok(row,{
+            **release,"filename":"A.Nightmare.On.Elm.Street.3.Freddys.Revenge.1985"}))
+        self.assertFalse(stage.identity_ok(row,{
+            **release,"filename":"A.Nightmare.On.Elm.Street.2.1985"}))
+        self.assertFalse(stage.identity_ok(row,{
+            **release,"filename":"A.Nightmare.On.Elm.Street.2.Freddys.Revenge.1986"}))
+        self.assertFalse(stage.identity_ok(row,{
+            **release,"release_info":"A.Nightmare.On.Elm.Street.2.1988"}))
+        self.assertFalse(stage.identity_ok(row,{
+            **release,"filename":"A.Nightmare.On.Elm.Street.2.Freddys.Revenge.720p"}))
+        self.assertFalse(stage.identity_ok(row,{
+            **release,"language":"en"}))
+
+    def test_subdl_concatenated_zip_upload_suffix_is_exact_and_ja_only(self):
+        row={**self.horror,
+             "title":"A Nightmare on Elm Street 4: The Dream Master",
+             "year":1988}
+        release={"provider":"subdl","subtitle_id":"1234567-340891",
+                 "language":"ja","filename":
+                 "SUBDL.com::a.nightmare.on.elm.street.4.the.dream.master340891.zip",
+                 "release_info":""}
+        self.assertTrue(stage.movie_identity_ok(row,release))
+        self.assertFalse(stage.movie_identity_ok(row,{
+            **release,"subtitle_id":"1234567-340892"}))
+        self.assertFalse(stage.movie_identity_ok(row,{
+            **release,"filename":
+            "SUBDL.com::a.nightmare.on.elm.street.3.the.dream.master340891.zip"}))
+        self.assertFalse(stage.movie_identity_ok(row,{
+            **release,"filename":"SUBDL.com::a.nightmare.on.elm.street.4340891.zip"}))
+        self.assertFalse(stage.movie_identity_ok(row,{
+            **release,"filename":"unrelated.nightmare.on.elm.street.4.the.dream.master340891.zip"}))
+        self.assertFalse(stage.movie_identity_ok(row,{
+            **release,"release_info":"The Dream Master 1999"}))
+        self.assertFalse(stage.movie_identity_ok(row,{
+            **release,"language":"en"}))
+        self.assertFalse(stage.movie_identity_ok(row,{
+            **release,"provider":"opensubtitles"}))
+
     def test_catalog_keeps_real_jellyfin_original_title_without_provider_calls(self):
         import tempfile
         from tools import ja_first_catalog_manifest as intake
