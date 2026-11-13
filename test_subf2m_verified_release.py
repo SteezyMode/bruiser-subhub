@@ -33,7 +33,7 @@ class SourceProofTests(unittest.TestCase):
         self.assertTrue(generic.subf2m_missing_release(ROW,CAND))
         self.assertFalse(generic.identity_ok(ROW,CAND))
         self.assertTrue(generic.verify_subf2m_proof(ROW,CAND,PROOF))
-        with self.assertRaisesRegex(RuntimeError,"source_proof_missing"):
+        with self.assertRaisesRegex(RuntimeError,"unverified_subf2m_source_not_stageable"):
             generic.stage_metadata(ROW,CAND,b"a",1200,
                 {"cues":40,"japanese_characters":100,
                  "japanese_cue_fraction":0.95})
