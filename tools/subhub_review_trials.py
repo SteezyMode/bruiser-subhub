@@ -254,20 +254,34 @@ def download_opensubtitles(row,candidate,runtime):
     # Count real downloads even if content later fails QA; no second GET.
     stage.record_native_download_attempt(proc.stdout,report)
     if proc.returncode or report.get("result")!="private_trial_bytes":
-        reason=str(report.get("error") or report.get("error_type") or
-                   "opensubtitles_trial_download_failed")
-        if (saved.QUOTA.search(reason) or
-                "cooling_or_exhausted" in reason or
-                "rate_limit" in reason or
-                re.search(r"\b(?:406|429)\b",reason)):
+        # Never print raw provider exception text or entire worker stdout:
+        # exceptions may contain credentials, URLs and account details.
+        detail=str(report.get("error") or "")
+        kind=str(report.get("error_type") or "")
+        if (saved.QUOTA.search(detail) or
+                "cooling_or_exhausted" in detail or
+                "rate_limit" in detail.casefold() or
+                re.search(r"\b(?:406|429)\b",detail)):
             raise RuntimeError("provider_download_limit")
-        raise RuntimeError("opensubtitles_trial_download_failed")
+        match=re.search(r"(?<![0-9])(?:40[0134]|41[0-9]|50[0-9])(?![0-9])",detail)
+        if match:
+            raise RuntimeError("opensubtitles_http_"+match.group()) from None
+        if kind in {"RuntimeError","ValueError"} and re.fullmatch(
+                r"[a-z][a-z0-9_]{2,85}",detail):
+            raise RuntimeError("opensubtitles_"+detail) from None
+        safe_kind=(kind if re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{1,40}",kind)
+                   else "no_worker_response")
+        raise RuntimeError("opensubtitles_worker_"+safe_kind) from None
     raw=base64.b64decode(report.get("content_b64") or "",validate=True)
     if type(report.get("length")) is not int or len(raw)!=report["length"]:
         raise RuntimeError("review_download_length_mismatch")
     if not 0<len(raw)<=MAX_RAW_BYTES:
         raise RuntimeError("review_download_size_invalid")
-    return raw
+    # The native Sublarr worker can reuse a pre-existing private provider
+    # stage without another HTTP GET. Preserve that distinction in reports.
+    source=("reused_container_stage" if report.get("new_download") is False
+            else "downloaded")
+    return raw,source
 
 
 def inspect_srt(raw,runtime):
@@ -341,7 +355,11 @@ def trial(row,candidate,*,download_subdl=subdl.cached_archive,
             raw=read_cached(path)
             if raw is None:
                 origin="downloaded"
-                raw=download_os(row,candidate,runtime)
+                retrieved=download_os(row,candidate,runtime)
+                if isinstance(retrieved,tuple) and len(retrieved)==2:
+                    raw,origin=retrieved
+                else:
+                    raw=retrieved
                 cache_raw(path,raw)
             source_hash=hashlib.sha256(raw).hexdigest()
             raw,qa,repairs=inspect_srt(raw,runtime)
