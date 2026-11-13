@@ -168,7 +168,47 @@ def identity_ok(row,candidate):
     )
 
 
-def source_candidates(row,*,provider=None):
+def subf2m_missing_release(row,candidate):
+    """Legacy blank SubF2M entries are UNVERIFIED, not automatically eligible."""
+    return (isinstance(row,dict) and row.get("kind")=="Movie"
+            and isinstance(candidate,dict)
+            and candidate.get("provider")=="subf2m"
+            and candidate.get("filename")==".srt"
+            and not str(candidate.get("release_info") or "").strip()
+            and str(candidate.get("language") or "").casefold() in ALLOWED_LANGUAGES
+            and candidate.get("forced") is not True
+            and str(candidate.get("kind") or "").casefold() not in {"forced","signs"}
+            and str(candidate.get("format") or "").casefold() in {"srt","unknown",""}
+            and bool(stage.tokens(row.get("title")))
+            and bool(re.fullmatch(r"(?:19|20)\d{2}",str(row.get("year") or "")))
+            and bool(PROVIDER.fullmatch(str(candidate.get("provider") or "")))
+            and 2<=len(str(candidate.get("subtitle_id") or ""))<=250)
+
+
+def verify_subf2m_proof(row,candidate,proof):
+    """Verify live provider-page evidence without accepting the old blank filename.
+
+    The container reads the verified title page and release label. The host
+    independently checks that it actually proves this movie/year, and later
+    the publisher re-verifies it against the original saved candidate ID.
+    """
+    if not subf2m_missing_release(row,candidate) or not isinstance(proof,dict):
+        raise RuntimeError("subf2m_source_proof_missing")
+    if (type(proof.get("year")) is not int
+            or str(proof["year"])!=str(row.get("year"))
+            or not isinstance(proof.get("title"),str)
+            or stage.tokens(proof["title"])!=stage.tokens(row.get("title"))):
+        raise RuntimeError("subf2m_verified_title_or_year_mismatch")
+    release=proof.get("release")
+    if (not isinstance(release,str) or not 5<=len(release)<=240
+            or any(ord(c)<32 for c in release)):
+        raise RuntimeError("subf2m_verified_release_invalid")
+    if not stage.movie_identity_ok(row,{"filename":release,"release_info":release}):
+        raise RuntimeError("subf2m_verified_release_identity_mismatch")
+    return True
+
+
+def source_candidates(row,*,provider=None,include_unverified_subf2m=False):
     stage.private_file(stage.SEARCH_DB)
     uri="file:"+quote(str(stage.SEARCH_DB.resolve()),safe="/")+"?mode=ro"
     with sqlite3.connect(uri,uri=True,timeout=15) as db:
@@ -181,7 +221,8 @@ def source_candidates(row,*,provider=None):
         raise RuntimeError("invalid_saved_search_document")
     unique={}
     for item in document.get("candidates") or []:
-        if not identity_ok(row,item):
+        if not (identity_ok(row,item) or
+                include_unverified_subf2m and subf2m_missing_release(row,item)):
             continue
         if provider and item["provider"]!=provider:
             continue
