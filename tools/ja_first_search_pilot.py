@@ -832,7 +832,8 @@ def recover_saved_reviews(*, apply=False, scope="all"):
 
 
 BUDGET_WORKER = r"""
-import json
+import json, math
+from datetime import datetime, timezone
 from urllib.request import Request, urlopen
 from config import get_settings
 
@@ -847,52 +848,52 @@ def get(path):
     with urlopen(req,timeout=15) as response:
         return json.load(response)
 
+# These HTTP endpoints execute inside the *running Sublarr server*, where
+# provider counters and health reflect active searches. Never initialize a
+# second ProviderManager in this standalone diagnostic subprocess.
 budget=get("system/budget")
 health=get("providers/health")
-from providers import get_provider_manager
-from services.provider_budget import get_budget_manager
-manager=get_provider_manager()
-budget_manager=get_budget_manager()
 gates={item["name"]:item.get("gate","unknown")
        for item in health.get("providers") or []
        if isinstance(item,dict) and item.get("name") in ("subdl","opensubtitles")}
+stretch_mode=str(getattr(settings,"provider_budget_stretch_mode","unknown"))[:20]
+hour=datetime.now(timezone.utc).hour
 result=[]
 for item in budget.get("providers") or []:
     if not isinstance(item,dict) or item.get("name") not in gates:
         continue
-    # Ask the SAME gate manager used by the Sublarr search coordinator.
-    # A raw remaining count alone cannot explain stretch pacing.
-    provider=manager._providers.get(item["name"])
-    if provider is None:
-        decision={"allowed":None,"reason":"provider_not_initialized",
-                  "wait_seconds":None}
-    else:
-        classes=getattr(type(provider),"rate_limits",{}) or {}
-        tier=getattr(provider,"tier","free")
-        limits=classes.get(tier) or classes.get("free") or {}
-        check=budget_manager.check(item["name"],limits)
-        decision={"allowed":check.allow,
-                  "reason":str(check.reason)[:160],
-                  "wait_seconds":int(check.wait_seconds)}
-    # Explicit allowlist: never print key pool, API credentials, or raw config.
+    limits=item.get("limits") or {}
+    usage=item.get("usage") or {}
+    # Read-only estimate, NOT a fresh query of the provider gate. Actual
+    # availability still comes from the running server's /providers/health.
+    # Sublarr stretch mode divides its day limit across 24 UTC hours.
+    pace=None
+    day_cap=limits.get("day")
+    day_used=usage.get("day")
+    if (stretch_mode=="stretch" and type(day_cap) is int and day_cap>0
+            and type(day_used) is int):
+        threshold=math.ceil(day_cap*(hour+1)/24)
+        pace={"used":day_used,"threshold":threshold,
+              "remaining_to_pace":max(0,threshold-day_used),
+              "utc_hour":hour}
+    # Explicit allowlist: never expose key pool, API credentials or raw config.
     result.append({k:item.get(k) for k in
                    ("name","tier","limits","usage","reset_seconds")}|{
                    "gate":gates[item["name"]],
-                   "budget_decision":decision})
+                   "stretch_estimate":pace})
 print(json.dumps({
     "providers":result,
     "budget_enabled":bool(budget.get("enabled")),
-    "stretch_mode":str(getattr(settings,"provider_budget_stretch_mode",
-                               "unknown"))[:20]
+    "stretch_mode":stretch_mode
 },sort_keys=True))
 """
 
 
 def provider_budget_report(*,runner=subprocess.run):
-    """Read Sublarr's actual second/hour/day budgets, zero provider calls.
+    """Read the actual live server's provider budgets, zero provider calls.
 
-    An open gate reports availability only. This API makes reset times and
-    hour/day counters visible without speculative quotas or leaked credentials.
+    We must not initialize a separate provider manager here: its app context
+    and in-memory counters can differ from the running Sublarr server.
     """
     cmd=["docker","exec","-i","-e","PYTHONPATH=/app",
          "sublarr-pilot","python3","-c",BUDGET_WORKER]
@@ -900,7 +901,7 @@ def provider_budget_report(*,runner=subprocess.run):
         proc=runner(cmd,text=True,capture_output=True,timeout=50,
                     stdin=subprocess.DEVNULL)
         if proc.returncode:
-            raise RuntimeError("provider_budget_worker_failed")
+            raise RuntimeError("budget_endpoint_worker_failed")
         response=json.loads(proc.stdout)
         providers=response.get("providers")
         if not isinstance(providers,list):
@@ -921,23 +922,28 @@ def provider_budget_report(*,runner=subprocess.run):
                 if type(used) is not int or type(cap) is not int:
                     return "unknown"
                 return f"{used}/{cap} (raw remaining {max(0,cap-used)})"
-            decision=item.get("budget_decision") or {}
             print(name,"gate="+str(item.get("gate")),
                   "tier="+str(item.get("tier")),
                   "hour="+amount("hour"),
                   "day="+amount("day"),
                   "hour_reset_seconds="+str(resets.get("hour")),
                   "day_reset_seconds="+str(resets.get("day")))
-            print(" ",name,"BUDGET_GATE_DECISION:",
-                  "allow="+str(decision.get("allowed")),
-                  "reason="+str(decision.get("reason") or "none"),
-                  "wait_seconds="+str(decision.get("wait_seconds")))
-        print("Raw limits do NOT account for safety margins or stretch pacing.")
-        print("Gate decision uses Sublarr's actual configured safety margin,"
-              " learned limits, and UTC pacing window at query time.")
+            pace=item.get("stretch_estimate")
+            if isinstance(pace,dict):
+                print(" ",name,"UTC_STRETCH_ESTIMATE:",
+                      f"{pace.get('used')}/{pace.get('threshold')}",
+                      "remaining_before_pacing="+str(pace.get("remaining_to_pace")),
+                      "utc_hour="+str(pace.get("utc_hour")))
+        print("Raw limits and stretch estimates do NOT include safety margins,"
+              " learned limits or every provider gate.")
+        print("Live gate is from Sublarr's running /providers/health endpoint.")
         print("NO SEARCHES, DOWNLOADS, PLaMO OR MEDIA WRITES")
     except (OSError,ValueError,RuntimeError,subprocess.TimeoutExpired) as exc:
-        print("SUBLARR_PROVIDER_BUDGET_UNAVAILABLE:",type(exc).__name__)
+        # Never print raw container stderr: it may include private credentials.
+        reason=str(exc).split(":",1)[0]
+        if not re.fullmatch(r"[a-z_]{1,90}",reason):
+            reason=type(exc).__name__
+        print("SUBLARR_PROVIDER_BUDGET_UNAVAILABLE:",reason,flush=True)
         raise RuntimeError("cannot_read_live_provider_budget") from None
 
 
