@@ -41,7 +41,7 @@ EN_LANGS = {"en", "eng", "english"}
 JA_LANGS = {"ja", "jpn", "jp", "japanese"}
 ID = re.compile(r"[a-f0-9]{32}\Z")
 STAGE_NAME = re.compile(
-    r"([a-f0-9]{32})\.(?:opensubtitles|jellyfin|subdl)\.([1-9][0-9]{3,13})\.ja\.(srt|ass)\Z"
+    r"([a-f0-9]{32})\.(?:opensubtitles|jellyfin|subdl|sublarr)\.([1-9][0-9]{3,13})\.ja\.(srt|ass)\Z"
 )
 
 # Accept standard SRT/VTT clocks (with optional hours) and ASS Dialogue clocks.
