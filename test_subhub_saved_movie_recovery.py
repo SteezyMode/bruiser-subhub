@@ -159,6 +159,66 @@ class SavedMovieRecoveryTests(unittest.TestCase):
                 candidate.assert_not_called()
                 publish.assert_not_called()
 
+    def test_multiple_new_releases_one_publication_pass_per_film(self):
+        row=film(title="Several Releases")
+        candidates=[
+            {"provider":"subdl","subtitle_id":"source1"},
+            {"provider":"subdl","subtitle_id":"source2"},
+            {"provider":"subdl","subtitle_id":"source3"},
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            fd=os.open(str(Path(tmp)/"lock"),os.O_CREAT|os.O_RDWR,0o600)
+            with patch.object(saved,"check_idle"), \
+                 patch.object(saved.autofill,"lock",return_value=fd), \
+                 patch.object(saved.stage,"private_root"), \
+                 patch.object(saved.stage,"read_inventory",return_value={
+                     row["jellyfin_id"]:row}), \
+                 patch.object(saved,"saved_work",return_value=(
+                     [(row,candidates)],{"saved_review_or_plausible":1},[])), \
+                 patch.object(saved.Path,"is_file",return_value=True), \
+                 patch.object(saved.Path,"is_symlink",return_value=False), \
+                 patch.object(saved.stage,"japanese_sidecar_exists",
+                              return_value=False), \
+                 patch.object(saved.stage,"duration_if_safe",return_value=5000), \
+                 patch.object(saved,"stage_candidate",
+                              return_value=("staged","validated")) as stage, \
+                 patch.object(saved.deep,"repair_staged",
+                              return_value="held") as publish:
+                self.assertEqual(saved.run(SimpleNamespace(
+                    skip_title=[],apply=True,max_attempts=20,
+                    max_per_title=3,scope="movies-all",review_only=False)),0)
+                self.assertEqual(stage.call_count,3)
+                publish.assert_called_once_with(row["jellyfin_id"])
+
+    def test_attempt_cap_still_publishes_new_stages_before_stopping(self):
+        a=film(title="A Film")
+        b=film("b"*32,"B Film")
+        alternatives=[{"provider":"subdl","subtitle_id":str(i)}
+                      for i in range(4)]
+        with tempfile.TemporaryDirectory() as tmp:
+            fd=os.open(str(Path(tmp)/"lock"),os.O_CREAT|os.O_RDWR,0o600)
+            with patch.object(saved,"check_idle"), \
+                 patch.object(saved.autofill,"lock",return_value=fd), \
+                 patch.object(saved.stage,"private_root"), \
+                 patch.object(saved.stage,"read_inventory",return_value={
+                     a["jellyfin_id"]:a,b["jellyfin_id"]:b}), \
+                 patch.object(saved,"saved_work",return_value=(
+                     [(a,alternatives),(b,alternatives)],{},[])), \
+                 patch.object(saved.Path,"is_file",return_value=True), \
+                 patch.object(saved.Path,"is_symlink",return_value=False), \
+                 patch.object(saved.stage,"japanese_sidecar_exists",
+                              return_value=False), \
+                 patch.object(saved.stage,"duration_if_safe",return_value=5000), \
+                 patch.object(saved,"stage_candidate",
+                              return_value=("staged","validated")) as stage, \
+                 patch.object(saved.deep,"repair_staged",
+                              return_value="retry") as publish:
+                self.assertEqual(saved.run(SimpleNamespace(
+                    skip_title=[],apply=True,max_attempts=2,
+                    max_per_title=4,scope="movies-all",review_only=False)),0)
+                self.assertEqual(stage.call_count,2)
+                publish.assert_called_once_with(a["jellyfin_id"])
+
     def test_quotas_and_stage_receipts_are_classified(self):
         with patch.object(saved.subprocess,"run") as run:
             run.return_value=SimpleNamespace(
