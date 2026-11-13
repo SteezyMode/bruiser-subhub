@@ -127,27 +127,39 @@ def publish(jid, intensive=False):
           "intensive_ALASS_timing_repair" if intensive else
           "normal_timing_alignment_and_publication",flush=True)
     rc, out, err = call(cmd, timeout=14*3600)
+    receipt=None
     for line in out.splitlines():
         if not line.startswith("BRUISER_PUBLISH_ITEM:"):
             continue
         try:
-            report = json.loads(line.split(":", 1)[1])
-        except (TypeError, ValueError):
+            report=json.loads(line.split(":",1)[1])
+        except (TypeError,ValueError):
             continue
-        if report.get("jellyfin_id") == jid and report.get("result") in (
-                "published", "already_published"):
+        if not isinstance(report,dict) or report.get("jellyfin_id")!=jid:
+            continue
+        receipt=report
+        if report.get("result") in ("published","already_published"):
             print("DEEP_SOURCE_PUBLISHED:",jid,
                   "intensive" if intensive else "normal",flush=True)
             return "covered"
-    if (rc or "QUEUE STOPPED:" in err or
-            "TITLE_FAILURE_NOT_CACHED:" in out or
-            "intensive_alass_unavailable" in out or
-            "alass_command_failed" in out):
-        # Incomplete engine attempts, transient audio/docker or absent ALASS
-        # are not evidence that this Japanese release cannot be recovered.
-        print("DEEP_SOURCE_PUBLISH_RETRY:",jid,(err or
-              "incomplete_or_transient_alignment")[:160],flush=True)
+    # A nonzero process result or a missing exact-media receipt is UNKNOWN,
+    # never a deterministic subtitle rejection. Preserve safe retry behavior.
+    # But never mask the concrete last-held reason as merely "incomplete".
+    phase="intensive" if intensive else "normal"
+    reason=str((receipt or {}).get("reason") or "no_publish_receipt")
+    reason=reason.replace("\n"," ").replace("\r"," ")[:125]
+    incomplete=("TITLE_FAILURE_NOT_CACHED:" in out)
+    if (rc or "QUEUE STOPPED:" in err or not receipt or incomplete
+            or "intensive_alass_unavailable" in out
+            or "alass_command_failed" in out):
+        cause=("nonzero_exit" if rc else "missing_receipt" if not receipt
+               else "incomplete_engine_validation" if incomplete
+               else "engine_unavailable_or_failed")
+        print("DEEP_SOURCE_PUBLISH_RETRY:",jid,phase,
+              "cause="+cause,"last_held="+reason,flush=True)
         return "retry"
+    print("DEEP_SOURCE_PUBLISH_HELD:",jid,phase,
+          "last_held="+reason,flush=True)
     return "held"
 
 
