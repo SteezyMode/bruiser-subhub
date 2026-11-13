@@ -40,6 +40,20 @@ class GenericSublarrTests(unittest.TestCase):
         english=dict(candidate(),language="en")
         self.assertFalse(generic.identity_ok(r,english))
 
+    def test_episode_identity_requires_correct_series_and_episode(self):
+        row={"jellyfin_id":"b"*32,"kind":"Episode","status":"ready_ja_search",
+             "series_title":"Example Television","season":2,"episode":4,
+             "host_path":"/mnt/2TB/Plex Expansion/Television/Example Television/S02E04.mkv"}
+        c=dict(candidate(),filename="Example.Television.S02E04.Japanese.srt",
+               release_info="Example.Television.S02E04.WEB-DL")
+        self.assertTrue(generic.identity_ok(row,c))
+        different=dict(c,filename="Example.Television.S02E05.Japanese.srt",
+                       release_info="Example.Television.S02E05.WEB-DL")
+        self.assertFalse(generic.identity_ok(row,different))
+        different_series=dict(c,filename="Other.Television.S02E04.Japanese.srt",
+                              release_info="Other.Television.S02E04.WEB-DL")
+        self.assertFalse(generic.identity_ok(row,different_series))
+
     def test_provider_ids_are_origin_scoped(self):
         a,b=generic.remote_identity(candidate("subf2m","shared-555")), \
              generic.remote_identity(candidate("animetosho","shared-555"))
