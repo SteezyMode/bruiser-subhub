@@ -81,7 +81,7 @@ class ReviewTrialTests(unittest.TestCase):
                  patch.object(review.subdl,"cached_zip_path",return_value=path), \
                  patch.object(review.subdl,"identity_ok",return_value=False), \
                  patch.object(review,"inspect_subdl",return_value=(
-                     b"1\\n00:00:01,000 --> 00:00:02,000\\nこんにちは\\n",
+                     "1\\n00:00:01,000 --> 00:00:02,000\\nこんにちは\\n".encode("utf-8"),
                      {"cues":908,"japanese_characters":6195},{})), \
                  patch.object(review,"trial_alignment",return_value={
                      "alignment_reference":"same_video_embedded_english",
