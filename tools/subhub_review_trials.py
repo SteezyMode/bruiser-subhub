@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Review-grade Japanese subtitle acquisition and private QA, library-wide.
+"""Review-grade Japanese MOVIE subtitle acquisition and private QA.
 
-No new provider SEARCHES. Only previously saved JA review-grade results are
-eligible. Download into owner-only quarantine, inspect/repair temporary bytes,
-trial ALASS, and report. NEVER write stage DB or media, NEVER run publisher.
-Neither provider metadata nor successful ALASS alone proves film identity.
+No new provider SEARCHES. Only previously saved JA review-grade movie results
+are eligible. Download into owner-only quarantine, inspect/repair temporary
+bytes, trial ALASS, and report. Never write stage DB or media or run publisher.
+No episodes, no PLaMO. Successful ALASS alone cannot prove movie identity.
 """
 from __future__ import annotations
 
@@ -51,7 +51,7 @@ def acceptable(row, candidate):
     """Admit unknown names for quarantine ONLY, never publication."""
     if not isinstance(row, dict) or not isinstance(candidate, dict):
         return False
-    if row.get("kind") not in ("Movie", "Episode") or row.get("status") != "ready_ja_search":
+    if row.get("kind") != "Movie" or row.get("status") != "ready_ja_search":
         return False
     if candidate.get("grade") != "review" or candidate.get("provider") not in PROVIDERS:
         return False
@@ -65,7 +65,7 @@ def acceptable(row, candidate):
     return bool(saved.OPEN_ID.fullmatch(remote))
 
 
-def audit_candidates(rows, reader=history.search_record, *, which="all", provider="both"):
+def audit_candidates(rows, reader=history.search_record, *, provider="both"):
     """Select once per (Jellyfin ID, provider, remote ID), without identity gate."""
     jobs=[]
     counts=Counter()
@@ -73,14 +73,10 @@ def audit_candidates(rows, reader=history.search_record, *, which="all", provide
     for row in sorted(rows,key=lambda r:(str(r.get("kind")),str(r.get("title") or
                                r.get("series_title") or "").casefold(),
                                str(r.get("jellyfin_id") or ""))):
-        if row.get("status")!="ready_ja_search" or row.get("kind") not in ("Movie","Episode"):
+        if row.get("status")!="ready_ja_search" or row.get("kind")!="Movie":
             continue
-        if which=="movies" and row["kind"]!="Movie":
-            continue
-        if which=="episodes" and row["kind"]!="Episode":
-            continue
-        if not scope.matches(row, "movies-all") and row["kind"]=="Movie":
-            # Use actual approved Jellyfin movie-library roots, not arbitrary paths.
+        if not scope.matches(row,"movies-all"):
+            # Use approved Jellyfin movie-library roots, never TV paths.
             continue
         jid=str(row.get("jellyfin_id") or "")
         if not history.JID.fullmatch(jid):
@@ -334,13 +330,13 @@ def run(args):
     fd=saved.autofill.lock()
     try:
         records=list(stage.read_inventory().values())
-        jobs,counts=audit_candidates(records,which=args.media,provider=args.provider)
-        print("=== LIBRARY-WIDE PRIVATE REVIEW TRIALS ===")
+        jobs,counts=audit_candidates(records,provider=args.provider)
+        print("=== ALL MOVIES: PRIVATE REVIEW TRIALS (NO TV) ===")
         for key,n in sorted(counts.items()):
             print(key+":",n)
         print("Selected:",min(len(jobs),args.limit),
               "| max downloads:",args.limit,
-              "| media:",args.media,"| provider:",args.provider)
+              "| provider:",args.provider,"| TV skipped: yes")
         if not args.apply:
             print("PREVIEW ONLY: --apply enables private capped downloads, no publication")
             return 0
@@ -393,7 +389,6 @@ def run(args):
 
 def main(argv=None):
     ap=argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--media",choices=("all","movies","episodes"),default="all")
     ap.add_argument("--provider",choices=("both",*PROVIDERS),default="both")
     ap.add_argument("--limit",type=int,default=12)
     ap.add_argument("--apply",action="store_true")
