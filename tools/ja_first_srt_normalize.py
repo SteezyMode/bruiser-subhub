@@ -482,7 +482,9 @@ def _audit_staged(jids):
         metrics=json.loads(raw_metrics)
         try:
             revised,report=normalize(
-                raw,expected_timestamps=metrics.get("cues"))
+                raw,expected_timestamps=metrics.get("cues"),
+                trial_release_note=True,trial_local_swap=True,
+                trial_chronological_reorder=True)
             decoded=revised.decode("utf-8-sig")
             ends=[]
             for match in ARROWS.finditer(decoded):
