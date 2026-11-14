@@ -426,6 +426,15 @@ def run(series=None, seasons=(), *, movie_ids=(), movie_scope=None,
                        on_heartbeat=heartbeat)
             receipt.update(worker_pid=0,heartbeat_at=int(time.time()))
             decision=result.get("result") if not rc else "retry_source"
+            # A zero exit or a source controller's "covered" claim is not
+            # proof. Only a real Japanese subtitle on this exact video (or
+            # authoritative existing-JA inventory) is a successful result.
+            if decision=="covered" and jid not in initial_covered(
+                    [(season,ep,jid)]):
+                print("FINISH_FALSE_COVERED:",jid,
+                      "no_japanese_subtitle_on_media",flush=True)
+                result["reason"]="source_claimed_covered_without_ja"
+                decision="retry_source"
             if decision=="covered":
                 finished.add(jid)
                 del pending[jid]
@@ -488,13 +497,16 @@ def run(series=None, seasons=(), *, movie_ids=(), movie_scope=None,
                        "plamo_"+jid[:8],on_line=plamo_output,
                        on_heartbeat=plamo_heartbeat)
             receipt.update(worker_pid=0,heartbeat_at=int(time.time()))
-            if rc==0:
+            if rc==0 and jid in initial_covered([(season,ep,jid)]):
                 plamo.remove(jid)
                 finished.add(jid)
-                titles.update(jid,"published_plamo","PLaMO job completed")
+                titles.update(jid,"published_plamo",
+                              "Verified Japanese subtitle on media")
                 print("FINISH_PLAMO_PUBLISHED:",jid,flush=True)
             else:
-                receipt["last_issue"]="plamo_attempt_held_"+jid[:8]
+                receipt["last_issue"]=(
+                    "plamo_reported_success_but_no_japanese_subtitle"
+                    if rc==0 else "plamo_attempt_held_"+jid[:8])
                 titles.update(jid,"plamo_queued",receipt["last_issue"])
                 print("FINISH_PLAMO_RETRY:",jid,flush=True)
             receipt.update(covered_exact_files=len(finished),
