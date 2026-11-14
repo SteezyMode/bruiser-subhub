@@ -277,16 +277,24 @@ def cycle(folder, search_budget, stage_budget, publish_limit, fallback_budget,
     if rescan_missing:
         search_args+=("--rescan-missing",)
     run_step(folder, "DISCOVERY", "ja_first_search_pilot.py", search_args)
+    # A user-initiated full missing-movie rescan is not just discovery:
+    # search and BOTH stage providers must consider the whole selected film
+    # library, not only rows in the old pending coverage queue. Retain the
+    # normal "don't redownload before prior stage was tested" gate.
+    sweep_args=("--library-sweep",) if rescan_missing else ()
+    if sweep_args:
+        print("EXPLICIT_MOVIE_LIBRARY_SWEEP: source and staging share scope",
+              scope,flush=True)
     before=native_download_attempts()
     run_step(folder, "STAGE OPENSUBTITLES", "ja_first_stage_saved_batch.py",
-             ("--budget",str(stage_budget),"--scope",scope,"--apply"))
+             ("--budget",str(stage_budget),"--scope",scope,"--apply")+sweep_args)
     used=max(0,native_download_attempts()-before)
     remaining=max(0,stage_budget-used)
     print("COMBINED_STAGE_ATTEMPTS:",used,"| remaining:",remaining,
           "| provider balances remain independent",flush=True)
     if remaining:
         run_step(folder, "STAGE SAVED SUBDL", "ja_first_stage_subdl_batch.py",
-                 ("--budget",str(remaining),"--scope",scope,"--apply"))
+                 ("--budget",str(remaining),"--scope",scope,"--apply")+sweep_args)
     else:
         print("SUBDL STAGING DEFERRED: combined attempt budget consumed",
               flush=True)
