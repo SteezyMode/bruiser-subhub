@@ -271,7 +271,8 @@ def prepare(jid,sid,*,aligner=align_in_container):
     # No relaxation of cue/text identity, health, or audio-timing acceptance.
     source,repair=structure.normalize(
         raw,expected_timestamps=int(metrics.get("cues") or -1),
-        trial_release_note=True,trial_local_swap=True)
+        trial_release_note=True,trial_local_swap=True,
+        trial_chronological_reorder=True)
     qa=gate.validate_srt(source,runtime)
     # Cheap, high-recall corruption screen before the expensive audio sync.
     # It does not grade idiom choice, fluent machine translation, or meaning.
