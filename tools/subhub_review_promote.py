@@ -30,6 +30,7 @@ try:
     from . import ja_first_obvious_quality as quality
     from . import ja_first_ffsubsync as ff
     from . import ja_first_candidate_progress as progress
+    from . import ja_first_movie_scope as movie_scope
 except ImportError:
     import subhub_review_trials as review
     import subhub_saved_movie_recovery as recovery
@@ -41,6 +42,7 @@ except ImportError:
     import ja_first_obvious_quality as quality
     import ja_first_ffsubsync as ff
     import ja_first_candidate_progress as progress
+    import ja_first_movie_scope as movie_scope
 
 # Never interpret a preliminary ALASS pass as film-identity evidence.
 TRIAL_PASS=("timing_trial_pass_identity_eligible",
@@ -113,6 +115,9 @@ def select(rows, *, source_reader=review.audit_candidates,
     examples=[]
     ids_with_cached=set()
     for row,candidate in entries:
+        if not movie_scope.matches(row, movie_scope.MOVIES_NO_ANIME):
+            counts["outside_non_anime_movie_scope"]+=1
+            continue
         if not review.private_bytes_present(row,candidate):
             counts["not_cached"]+=1
             continue
