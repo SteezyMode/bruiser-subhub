@@ -464,7 +464,7 @@ def open_db():
 
 
 def pick(rows, db, budget, scope='all', retry_none_after_days=None,
-         rescan_missing=False):
+         rescan_missing=False, resume_incomplete=False):
     """Sort catalog metadata in memory; touch ONLY a few shortlisted files."""
     now = int(time.time())
     if rescan_missing and (type(rescan_missing) is not bool
@@ -476,8 +476,13 @@ def pick(rows, db, budget, scope='all', retry_none_after_days=None,
              or not 1 <= retry_none_after_days <= 30
              or scope == "all")):
         raise ValueError("retry_none_requires_explicit_movie_scope_and_days_1_to_30")
+    if resume_incomplete and (
+            rescan_missing or retry_none_after_days is not None
+            or not scope.startswith("movies-")):
+        raise ValueError("resume_incomplete_requires_explicit_movies_scope")
     done=set()
     history_timestamps={}
+    incomplete_ids=set()
     # Read legacy search DBs too; absence of strategy metadata simply means
     # a no-result entry needs one recheck, not a database migration failure.
     columns={str(col[1]) for col in db.execute("PRAGMA table_info(searches)")}
@@ -485,6 +490,26 @@ def pick(rows, db, budget, scope='all', retry_none_after_days=None,
                 else "NULL AS results_json")
     for jid,outcome,when,raw in db.execute(
         "SELECT jellyfin_id,outcome,searched_at,"+projection+" FROM searches"):
+        if resume_incomplete:
+            # Explicit owner-initiated retry after a provider allowance reset:
+            # use historical participation evidence, not a blind rescan of
+            # successful titles. One-hour minimum prevents tight retry loops.
+            try:
+                doc=json.loads(raw) if raw else {}
+                if not isinstance(doc,dict):
+                    doc={}
+            except (TypeError,ValueError):
+                doc={}
+            gates=doc.get("provider_gates")
+            incomplete=(outcome in ("partial","deferred") or
+                        bool(doc.get("incomplete_providers")) or
+                        isinstance(gates,dict) and bool(gates) and
+                        any(v!="ok" for v in gates.values()))
+            if (incomplete and outcome!="in_progress" and
+                    now-30*86400<=int(when or 0)<=now-3600):
+                incomplete_ids.add(str(jid))
+                history_timestamps[str(jid)]=int(when)
+            continue
         if rescan_missing:
             # Preserve chronological priority across allowance resets:
             # unfinished films (older history) before movies already
@@ -531,7 +556,8 @@ def pick(rows, db, budget, scope='all', retry_none_after_days=None,
     # never burn provider calls on titles already staged, held or headed to AI.
     # A new library item not yet in the last matrix is eligible only AFTER
     # known pending queue items. No arbitrary Movie/Episode quota.
-    queue = None if rescan_missing else priorities.active_coverage_queue()
+    queue = (None if (rescan_missing or resume_incomplete)
+             else priorities.active_coverage_queue())
     choices = []
     for row in rows:
         if not movie_scope.matches(row, scope):
@@ -539,7 +565,8 @@ def pick(rows, db, budget, scope='all', retry_none_after_days=None,
         kind = row.get("kind")
         key = str(row.get("jellyfin_id") or "")
         if (kind not in ("Movie", "Episode") or not key or key in done
-                or row.get("status") != "ready_ja_search"):
+                or row.get("status") != "ready_ja_search"
+                or (resume_incomplete and key not in incomplete_ids)):
             continue
         if not isinstance(row.get("host_path"), str):
             continue
@@ -553,8 +580,8 @@ def pick(rows, db, budget, scope='all', retry_none_after_days=None,
             if not (row.get("series_title") and type(season) is int
                     and season >= 1 and type(episode) is int and episode >= 1):
                 continue
-        if rescan_missing:
-            # This is an explicit owner-selected fresh provider scan, not
+        if rescan_missing or resume_incomplete:
+            # These are explicit owner-selected recovery scans, not
             # coverage-queue work selection. Old held/staged/review outcomes
             # are irrelevant to *search eligibility*, though they remain
             # protected by the downstream staging and no-overwrite gates.
@@ -563,7 +590,8 @@ def pick(rows, db, budget, scope='all', retry_none_after_days=None,
             order = priorities.queue_position(row, "search", queue)
             if order is None:
                 continue
-        age = history_timestamps.get(key,-1) if rescan_missing else 0
+        age=(history_timestamps.get(key,-1)
+             if (rescan_missing or resume_incomplete) else 0)
         choices.append((order, age, hashlib.sha256(key.encode()).hexdigest(), row))
     choices.sort(key=lambda item: (item[0], item[1], item[2]))
     chosen = []
@@ -968,12 +996,16 @@ def main():
     ap.add_argument("--rescan-missing", action="store_true",
                     help="OWNER ONLY: one missing-Japanese movie-category search"
                          " refresh; prior attempts within 20 hours stay skipped")
+    ap.add_argument("--resume-incomplete", action="store_true",
+                    help="OWNER ONLY: recheck only saved movie searches with incomplete"
+                         " provider participation after quota reset, once >=1h old")
     ap.add_argument("--apply", action="store_true",
                     help="with --recover-saved, backup and save review-only candidates")
     args = ap.parse_args()
     if args.provider_budget:
         if (args.apply or args.recover_saved or args.report or args.self_test
                 or args.jellyfin_id or args.rescan_missing
+                or args.resume_incomplete
                 or args.retry_none_after_days is not None
                 or args.scope!="all"):
             ap.error("--provider-budget is read-only and must be used alone")
@@ -986,6 +1018,11 @@ def main():
             or args.report or args.self_test or args.jellyfin_id
             or not args.scope.startswith("movies-")):
         ap.error("--rescan-missing requires a selected movies-* scope and no other override")
+    if args.resume_incomplete and (
+            args.rescan_missing or args.retry_none_after_days is not None
+            or args.recover_saved or args.report or args.self_test
+            or args.apply or args.jellyfin_id or not args.scope.startswith("movies-")):
+        ap.error("--resume-incomplete needs only a specific movies-* scope")
     if args.retry_none_after_days is not None and (
             args.recover_saved or args.report or args.self_test
             or args.jellyfin_id or args.scope == "all"
@@ -1028,11 +1065,13 @@ def main():
         else:
             chosen = pick(data["items"], db, args.budget, scope=args.scope,
                           retry_none_after_days=args.retry_none_after_days,
-                          rescan_missing=args.rescan_missing)
+                          rescan_missing=args.rescan_missing,
+                          resume_incomplete=args.resume_incomplete)
         print("Inventory:", manifest.name, "| scope:", args.scope, flush=True)
         print("Movie jobs eligible:", len(chosen),
               "| backend search-request budget:", args.budget,
               "| missing-movie refresh:", args.rescan_missing,
+              "| resume incomplete:", args.resume_incomplete,
               "| no-result retry days:",
               args.retry_none_after_days if args.retry_none_after_days is not None
               else "normal cooldown", flush=True)
