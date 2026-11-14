@@ -213,11 +213,22 @@ def classify(rows,searches,staged,outcomes,*,now=None,scope_match=movie_scope.ma
     search_counts=Counter(r["search_evidence"] for r in missing)
     last_holds=Counter(r["last_publisher_result"] for r in missing
                        if r["last_publisher_result"] in ("held","held_unchanged"))
+    eligible_ids={str(row.get("jellyfin_id")) for row in rows
+                  if isinstance(row,dict)
+                  and row.get("kind")=="Movie"
+                  and scope_match(row,"movies-no-anime")}
+    target=[r for r in details if r["jellyfin_id"] in eligible_ids]
+    target_present=sum(r["subtitle_coverage"]=="present" for r in target)
+    target_missing=sum(r["subtitle_coverage"]=="missing" for r in target)
     summary={
         "schema":"bruiser-movie-census-v1",
         "generated_utc":datetime.fromtimestamp(now,timezone.utc).isoformat(),
         "scope":"movies-all",
         "movies":len(details),
+        "non_anime_target_movies":len(target),
+        "non_anime_present":target_present,
+        "non_anime_missing":target_missing,
+        "anime_or_excluded_movie_entries":len(details)-len(target),
         "movie_entries_outside_known_roots":out_of_scope,
         "subtitle_coverage":dict(sorted(by_coverage.items())),
         "mutually_exclusive_source_buckets":dict(sorted(by_bucket.items())),
@@ -285,6 +296,11 @@ def report(*,export=False):
     print("MOVIES:",summary["movies"],
           "| outside configured movie roots:",
           summary["movie_entries_outside_known_roots"],flush=True)
+    print("NON-ANIME MOVIE TARGET:",summary["non_anime_target_movies"],
+          "| Japanese subtitles present:",summary["non_anime_present"],
+          "| missing:",summary["non_anime_missing"],
+          "| excluded movies:",summary["anime_or_excluded_movie_entries"],
+          flush=True)
     print("SUBTITLE COVERAGE (ONE MOVIE = ONE COUNT):",flush=True)
     for name in ("present","missing","unverified"):
         print(" ",name+":",summary["subtitle_coverage"].get(name,0),flush=True)
