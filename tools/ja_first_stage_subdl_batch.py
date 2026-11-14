@@ -27,7 +27,7 @@ MAX_ATTEMPTS=200
 
 
 def select(inventory, searches, already, budget, scope="all", skipped=None,
-           *, try_alternates=False):
+           *, try_alternates=False, library_sweep=False):
     """Prefer one release per title; apply mode tries up to three alternatives.
 
     Rejected candidate bytes never become a title-level hold. Retry other
@@ -45,7 +45,8 @@ def select(inventory, searches, already, budget, scope="all", skipped=None,
                 or row.get("kind") not in ("Movie","Episode")
                 or not stage.movie_scope.matches(row,scope)):
             continue
-        priority=stage.priorities.queue_position(row,"stage",active)
+        priority=((0,stage.priorities.priority(row)) if library_sweep else
+                  stage.priorities.queue_position(row,"stage",active))
         if priority is None:
             continue
         try:
@@ -203,13 +204,13 @@ def audit_cached(*,scope="all",limit=250):
     return dict(totals)
 
 
-def run(*,budget=20,scope="all",apply=False):
+def run(*,budget=20,scope="all",apply=False,library_sweep=False):
     inventory=stage.read_inventory()
     searches=stage.read_saved_searches()
     already=stage.read_staged()
     skipped=Counter()
     chosen=select(inventory,searches,already,budget,scope,skipped,
-                  try_alternates=apply)
+                  try_alternates=apply,library_sweep=library_sweep)
     print("=== SUBDL SAVED JAPANESE STAGING BATCH ===",flush=True)
     print("Saved searches:",len(searches),"| candidates:",len(chosen),
           "| attempt budget:",budget,"| scope:",scope,
@@ -266,6 +267,8 @@ def main():
     parser.add_argument("--budget",type=int,default=20)
     parser.add_argument("--scope",choices=stage.movie_scope.SCOPES,default="all")
     parser.add_argument("--apply",action="store_true")
+    parser.add_argument("--library-sweep",action="store_true",
+                        help="explicit movie-wide recovery outside stale coverage queue")
     parser.add_argument("--audit-cached",action="store_true",
                         help="inspect cached SubDL ZIPs across the selected library scope, no download or write")
     parser.add_argument("--audit-limit",type=int,default=250,
@@ -280,7 +283,10 @@ def main():
         return
     if not 1<=args.budget<=MAX_ATTEMPTS:
         parser.error("--budget must be 1..200")
-    run(budget=args.budget,scope=args.scope,apply=args.apply)
+    if args.library_sweep and not args.scope.startswith("movies-"):
+        parser.error("--library-sweep requires explicit movies-* scope")
+    run(budget=args.budget,scope=args.scope,apply=args.apply,
+        library_sweep=args.library_sweep)
 
 
 if __name__=="__main__":
