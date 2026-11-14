@@ -397,8 +397,14 @@ def private_manifest(path):
     return data
 
 
-def query_for(row):
-    if row.get("status") != "ready_ja_search":
+def query_for(row,*,coverage_census=False):
+    # A movie with a known file/title/year does not need an IMDb ID just
+    # to run discovery. This is only for the owner's explicit census pass;
+    # the existing daily workflow and final publication gates are unchanged.
+    allowed={"ready_ja_search"}
+    if coverage_census and row.get("kind")=="Movie":
+        allowed.add("review_no_movie_imdb")
+    if row.get("status") not in allowed:
         return None
     # Unknown audio-language tags are not proof a title lacks Japanese
     # subtitles. Search is safe; downstream identity, embedded-track and
@@ -464,7 +470,7 @@ def open_db():
 
 
 def pick(rows, db, budget, scope='all', retry_none_after_days=None,
-         rescan_missing=False, resume_incomplete=False):
+         rescan_missing=False, resume_incomplete=False, coverage_census=False):
     """Sort catalog metadata in memory; touch ONLY a few shortlisted files."""
     now = int(time.time())
     if rescan_missing and (type(rescan_missing) is not bool
@@ -480,6 +486,10 @@ def pick(rows, db, budget, scope='all', retry_none_after_days=None,
             rescan_missing or retry_none_after_days is not None
             or not scope.startswith("movies-")):
         raise ValueError("resume_incomplete_requires_explicit_movies_scope")
+    if coverage_census and (
+            scope!="movies-all" or rescan_missing or resume_incomplete
+            or retry_none_after_days is not None):
+        raise ValueError("coverage_census_requires_movies_all_only")
     done=set()
     history_timestamps={}
     incomplete_ids=set()
@@ -490,6 +500,34 @@ def pick(rows, db, budget, scope='all', retry_none_after_days=None,
                 else "NULL AS results_json")
     for jid,outcome,when,raw in db.execute(
         "SELECT jellyfin_id,outcome,searched_at,"+projection+" FROM searches"):
+        if coverage_census:
+            # Survey ALL missing movies, not just the old coverage queue.
+            # A healthy recent search is done regardless of candidate grade;
+            # a held/staged title is not omitted from the census. Partial
+            # searches are retried after the 20-hour allowance window, not
+            # hammered repeatedly when one provider is paced.
+            history_timestamps[str(jid)]=int(when or 0)
+            if when>=now-20*3600:
+                done.add(str(jid))
+                continue
+            try:
+                doc=json.loads(raw) if raw else {}
+                if not isinstance(doc,dict):
+                    doc={}
+            except (TypeError,ValueError):
+                doc={}
+            gates=doc.get("provider_gates")
+            core_ok=(isinstance(gates,dict)
+                     and gates.get("opensubtitles")=="ok"
+                     and gates.get("subdl")=="ok")
+            unfinished=(outcome in ("partial","deferred","error","in_progress")
+                        or bool(doc.get("incomplete_providers"))
+                        or not core_ok
+                        or (isinstance(gates,dict) and
+                            any(v!="ok" for v in gates.values())))
+            if (not unfinished and when>=now-30*86400):
+                done.add(str(jid))
+            continue
         if resume_incomplete:
             # Explicit owner-initiated retry after a provider allowance reset:
             # use historical participation evidence, not a blind rescan of
@@ -556,7 +594,7 @@ def pick(rows, db, budget, scope='all', retry_none_after_days=None,
     # never burn provider calls on titles already staged, held or headed to AI.
     # A new library item not yet in the last matrix is eligible only AFTER
     # known pending queue items. No arbitrary Movie/Episode quota.
-    queue = (None if (rescan_missing or resume_incomplete)
+    queue = (None if (rescan_missing or resume_incomplete or coverage_census)
              else priorities.active_coverage_queue())
     choices = []
     for row in rows:
@@ -564,8 +602,11 @@ def pick(rows, db, budget, scope='all', retry_none_after_days=None,
             continue
         kind = row.get("kind")
         key = str(row.get("jellyfin_id") or "")
+        source_ready=(row.get("status")=="ready_ja_search" or
+                      coverage_census and kind=="Movie"
+                      and row.get("status")=="review_no_movie_imdb")
         if (kind not in ("Movie", "Episode") or not key or key in done
-                or row.get("status") != "ready_ja_search"
+                or not source_ready
                 or (resume_incomplete and key not in incomplete_ids)):
             continue
         if not isinstance(row.get("host_path"), str):
@@ -580,8 +621,8 @@ def pick(rows, db, budget, scope='all', retry_none_after_days=None,
             if not (row.get("series_title") and type(season) is int
                     and season >= 1 and type(episode) is int and episode >= 1):
                 continue
-        if rescan_missing or resume_incomplete:
-            # These are explicit owner-selected recovery scans, not
+        if rescan_missing or resume_incomplete or coverage_census:
+            # These are explicit owner-selected discovery scans, not
             # coverage-queue work selection. Old held/staged/review outcomes
             # are irrelevant to *search eligibility*, though they remain
             # protected by the downstream staging and no-overwrite gates.
@@ -591,14 +632,14 @@ def pick(rows, db, budget, scope='all', retry_none_after_days=None,
             if order is None:
                 continue
         age=(history_timestamps.get(key,-1)
-             if (rescan_missing or resume_incomplete) else 0)
+             if (rescan_missing or resume_incomplete or coverage_census) else 0)
         choices.append((order, age, hashlib.sha256(key.encode()).hexdigest(), row))
     choices.sort(key=lambda item: (item[0], item[1], item[2]))
     chosen = []
     for _, _, _, row in choices:
         if len(chosen) >= budget:
             break
-        query = query_for(row)  # Only short-listed files get media access.
+        query = query_for(row,coverage_census=coverage_census)  # shortlist only
         if query is not None:
             chosen.append({"id": str(row["jellyfin_id"]), "row": row,
                            "query": query})
@@ -999,13 +1040,16 @@ def main():
     ap.add_argument("--resume-incomplete", action="store_true",
                     help="OWNER ONLY: recheck only saved movie searches with incomplete"
                          " provider participation after quota reset, once >=1h old")
+    ap.add_argument("--coverage-census", action="store_true",
+                    help="OWNER ONLY: one all-movies survey: skip recent healthy searches,"
+                         " revisit incomplete work only after 20h; discovery only")
     ap.add_argument("--apply", action="store_true",
                     help="with --recover-saved, backup and save review-only candidates")
     args = ap.parse_args()
     if args.provider_budget:
         if (args.apply or args.recover_saved or args.report or args.self_test
                 or args.jellyfin_id or args.rescan_missing
-                or args.resume_incomplete
+                or args.resume_incomplete or args.coverage_census
                 or args.retry_none_after_days is not None
                 or args.scope!="all"):
             ap.error("--provider-budget is read-only and must be used alone")
@@ -1023,6 +1067,12 @@ def main():
             or args.recover_saved or args.report or args.self_test
             or args.apply or args.jellyfin_id or not args.scope.startswith("movies-")):
         ap.error("--resume-incomplete needs only a specific movies-* scope")
+    if args.coverage_census and (
+            args.scope!="movies-all" or args.rescan_missing
+            or args.resume_incomplete or args.retry_none_after_days is not None
+            or args.recover_saved or args.report or args.self_test
+            or args.apply or args.jellyfin_id):
+        ap.error("--coverage-census is movie-only, scope movies-all, no other overrides")
     if args.retry_none_after_days is not None and (
             args.recover_saved or args.report or args.self_test
             or args.jellyfin_id or args.scope == "all"
@@ -1066,12 +1116,14 @@ def main():
             chosen = pick(data["items"], db, args.budget, scope=args.scope,
                           retry_none_after_days=args.retry_none_after_days,
                           rescan_missing=args.rescan_missing,
-                          resume_incomplete=args.resume_incomplete)
+                          resume_incomplete=args.resume_incomplete,
+                          coverage_census=args.coverage_census)
         print("Inventory:", manifest.name, "| scope:", args.scope, flush=True)
         print("Movie jobs eligible:", len(chosen),
               "| backend search-request budget:", args.budget,
               "| missing-movie refresh:", args.rescan_missing,
               "| resume incomplete:", args.resume_incomplete,
+              "| all-movies coverage census:", args.coverage_census,
               "| no-result retry days:",
               args.retry_none_after_days if args.retry_none_after_days is not None
               else "normal cooldown", flush=True)
@@ -1180,6 +1232,15 @@ def main():
                     }, ensure_ascii=False), flush=True)
             print(f"BACKEND_SEARCH_REQUESTS_USED: {requests_used}/{args.budget}",
                   flush=True)
+            if args.coverage_census and response.get("incomplete_providers"):
+                # There is no point spending every other provider allowance
+                # producing known-partial rows after e.g. SubDL stretches.
+                # Keep the exact partial evidence and resume after reset.
+                print("CENSUS PAUSED: core provider gate unavailable:",
+                      ",".join(response["incomplete_providers"]),
+                      "| completed history retained; no false no-hit verdict",
+                      flush=True)
+                break
             if i < len(chosen) and requests_used < args.budget:
                 time.sleep(3.2)  # Sublarr endpoint is limited to 20 searches/minute.
         print("\n=== RESULT ===", flush=True)
