@@ -377,9 +377,9 @@ class StructuralNormalizationTests(unittest.TestCase):
         raw=(cue(1,"00:00:01,000","00:00:02,000","早い")+
              cue(2,"00:00:22,000","00:00:23,000","遅い")+
              cue(3,"00:00:12,000","00:00:13,000","真ん中"))
-        missing_index=raw.replace(b"3\\n00:00:12",b"00:00:12")
+        missing_index=raw.replace(b"3\n00:00:12",b"00:00:12")
         for candidate in (missing_index,
-                          raw.replace(b"3\\n00:00:12",b"2\\n00:00:12")):
+                          raw.replace(b"3\n00:00:12",b"2\\n00:00:12")):
             with self.subTest(candidate=candidate):
                 with self.assertRaisesRegex(RuntimeError,"cue_order_invalid"):
                     norm.normalize(candidate,trial_chronological_reorder=True)
