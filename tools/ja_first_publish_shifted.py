@@ -204,7 +204,8 @@ def preparation(jid):
             # timestamp count must match its database record before repair.
             source, repair = structure.normalize(
                 raw, expected_timestamps=int(metrics.get("cues") or -1),
-                trial_release_note=True, trial_local_swap=True)
+                trial_release_note=True,trial_local_swap=True,
+                trial_chronological_reorder=True)
             initial_qa = gate.validate_srt(source, runtime)
             before = audit.inspect(row, source)
             detail = {
