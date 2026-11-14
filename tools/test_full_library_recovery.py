@@ -102,5 +102,89 @@ class PublisherReceiptTests(unittest.TestCase):
         ])
 
 
+
+class LibrarySweepTests(unittest.TestCase):
+    def setUp(self):
+        self.jid = "a" * 32
+        self.row = {
+            "jellyfin_id": self.jid, "kind": "Movie",
+            "title": "Live action", "year": 1990,
+            "host_path": "/mnt/2TB/Plex Expansion/Movies/Horror/film.mkv",
+            "status": "ready_ja_search", "genres": ["Horror"],
+        }
+        self.search = [(self.jid, json.dumps({"candidates": [{
+            "provider": "opensubtitles", "subtitle_id": "12345",
+            "filename": "film.ja.srt", "grade": "plausible",
+            "score": 99,
+        }]}) )]
+
+    def test_opensubtitles_sweep_not_blocked_by_old_queue(self):
+        import ja_first_stage_saved_batch as stage
+        with mock.patch.object(stage.priorities, "active_coverage_queue",
+                               return_value={}), \
+             mock.patch.object(stage.priorities, "queue_position",
+                               return_value=None), \
+             mock.patch.object(stage, "rejected_duration_candidates",
+                               return_value=set()), \
+             mock.patch.object(stage, "identity_ok", return_value=True), \
+             mock.patch.object(stage, "known_rejected_download",
+                               return_value=False), \
+             mock.patch.object(stage, "alternate_ready",
+                               return_value=True):
+            normal = stage.choices({self.jid: self.row}, self.search,
+                                   set(), 10, "movie",
+                                   scope="movies-no-anime")
+            sweep = stage.choices({self.jid: self.row}, self.search,
+                                  set(), 10, "movie",
+                                  scope="movies-no-anime",
+                                  library_sweep=True)
+        self.assertEqual(len(normal), 0)
+        self.assertEqual(len(sweep), 1)
+
+    def test_subdl_sweep_not_blocked_by_old_queue(self):
+        import ja_first_stage_subdl_batch as subdl_batch
+        from ja_first_stage_subdl_batch import stage, subdl
+        saved = [(self.jid, json.dumps({"candidates": [{
+            "provider": "subdl", "subtitle_id": "99999",
+            "filename": "film.ja.srt", "score": 99,
+        }]}) )]
+        with mock.patch.object(stage.priorities, "active_coverage_queue",
+                               return_value={}), \
+             mock.patch.object(stage.priorities, "queue_position",
+                               return_value=None), \
+             mock.patch.object(stage, "rejected_duration_candidates",
+                               return_value=set()), \
+             mock.patch.object(subdl, "identity_ok", return_value=True), \
+             mock.patch.object(subdl, "numeric_id", return_value=("99999", None)), \
+             mock.patch.object(subdl, "known_rejected_cached",
+                               return_value=False), \
+             mock.patch.object(stage, "alternate_ready", return_value=True):
+            normal = subdl_batch.select({self.jid: self.row}, saved,
+                                        set(), 10, scope="movies-no-anime")
+            sweep = subdl_batch.select({self.jid: self.row}, saved,
+                                       set(), 10, scope="movies-no-anime",
+                                       library_sweep=True)
+        self.assertEqual(len(normal), 0)
+        self.assertEqual(len(sweep), 1)
+
+    def test_cycle_passes_sweep_to_both_stage_workers(self):
+        import ja_first_cycle as cycle
+        calls = []
+        def record(folder, label, filename, args):
+            calls.append((filename, args))
+        with mock.patch.object(cycle, "required_code"), \
+             mock.patch.object(cycle, "run_step", side_effect=record), \
+             mock.patch.object(cycle, "native_download_attempts", return_value=0), \
+             mock.patch.object(cycle, "status"):
+            cycle.cycle(Path("/unused"), 10, 10, 10, 8,
+                        sources_only=True, scope="movies-no-anime",
+                        rescan_missing=True)
+        staging = [args for filename,args in calls if filename in (
+            "ja_first_stage_saved_batch.py",
+            "ja_first_stage_subdl_batch.py")]
+        self.assertEqual(len(staging), 2)
+        self.assertTrue(all("--library-sweep" in args for args in staging))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
