@@ -494,13 +494,15 @@ def main():
             and 1 <= args.max_titles <= MAX_TITLES):
         parser.error("limit must be 1..200, max-titles 1..1000")
     records = stages()
-    if args.scope != "all":
-        from benchmark_subtitle_search_paths import load_latest_manifest
-        eligible = {str(row.get("jellyfin_id")) for row in
-                    load_latest_manifest() if movie_scope.matches(row,args.scope)}
-        records = [record for record in records if str(record[0]) in eligible]
-        print("SELECTED_STAGED_SCOPE:", args.scope,
-              "eligible_catalog_titles:", len(eligible), flush=True)
+    # Apply owner exclusions to EVERY publisher, including default "all".
+    # Previously default "all" bypassed this filter and could publish anime
+    # stages even after the search/stage workers excluded anime.
+    from benchmark_subtitle_search_paths import load_latest_manifest
+    eligible = {str(row.get("jellyfin_id")) for row in
+                load_latest_manifest() if movie_scope.matches(row,args.scope)}
+    records = [record for record in records if str(record[0]) in eligible]
+    print("SELECTED_STAGED_SCOPE:", args.scope,
+          "eligible_catalog_titles:", len(eligible), flush=True)
     if args.jellyfin_id:
         records = [record for record in records if record[0] == args.jellyfin_id]
         print("EXACT_JELLYFIN_ITEM_FILTER:",args.jellyfin_id,
@@ -547,6 +549,14 @@ def main():
                         jid,row,candidates,"held_unchanged",
                         reason="unchanged_deterministic_hold",
                         action=action)
+                # The source-first recovery controller REQUIRES one receipt
+                # per exact film. No receipt was interpreted as a transient
+                # error, so a deterministic hold looped forever instead of
+                # trying the next saved release or PLaMO after exhaustion.
+                print("BRUISER_PUBLISH_ITEM:", json.dumps({
+                    "jellyfin_id": jid, "result": "held",
+                    "reason": "unchanged_deterministic_hold"
+                }, sort_keys=True), flush=True)
                 continue
             if kind.startswith("published_"):
                 if args.apply:
