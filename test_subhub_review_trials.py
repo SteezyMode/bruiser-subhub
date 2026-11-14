@@ -53,6 +53,32 @@ class ReviewTrialTests(unittest.TestCase):
             [e],reader=lambda jid:docs.get(jid))
         self.assertEqual(no_tv,[])
 
+    def test_unstaged_only_filters_whole_movies_without_changing_candidates(self):
+        first=movie("a"*32,"Already staged")
+        second=movie("b"*32,"Needs Japanese")
+        jobs=[(first,hit("opensubtitles","9999888")),
+              (second,hit("opensubtitles","9999777")),
+              (second,hit("subdl","12345-340891"))]
+        chosen,skipped=review.unstaged_only(
+            jobs,{("a"*32,"11111"),("a"*32,"22222")})
+        self.assertEqual(skipped,1)
+        self.assertEqual(chosen,jobs[1:])
+        self.assertEqual(review.unstaged_only(jobs,set()),(jobs,0))
+        self.assertEqual(review.unstaged_only(jobs,{("c"*32,"321")}),
+                         (jobs,0))
+
+    def test_unstaged_scope_applied_before_new_download_selection(self):
+        staged=movie("a"*32,"Already staged")
+        open_movie=movie("b"*32,"Unstaged")
+        jobs=[(staged,hit("opensubtitles","4444444")),
+              (open_movie,hit("subdl","98765-43210"))]
+        filtered,_=review.unstaged_only(jobs,{("a"*32,"123456")})
+        with patch.object(review,"private_bytes_present",return_value=False):
+            chosen,_=review.one_new_download_per_movie(
+                filtered,is_cached=lambda *_:False)
+        self.assertEqual([row["jellyfin_id"] for row,_ in chosen],
+                         ["b"*32])
+
     def test_review_selection_rejects_forced_and_invalid_provider_id(self):
         row=movie()
         bad=[
