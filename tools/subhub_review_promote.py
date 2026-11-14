@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Promote independently cross-aligned, identity-verified cached movie JA.
+"""Promote identity-verified cached movie JA after cross-engine timing QA.
 
-This is deliberately NOT the source-review experiment. It uses originals
-cached by subhub_review_trials, existing stage provenance, ALASS's intensive
-cross-reference (audio AND an English text reference), and the existing
-create-only publisher. Default audit never writes anything. No downloads,
-new provider searches, episodes or PLaMO. Unverified film identities HELD.
+Uses cached originals, existing stage provenance, and the same create-only
+publisher. Prefer ALASS English-text+audio cross-reference; if no English
+reference exists, require ALASS and ffsubsync AUDIO alignment to agree in all
+three film thirds, with unchanged ffsubsync shift/coverage guards. Never
+override a disagreeing English reference. No new searches or PLaMo.
 """
 from __future__ import annotations
 
@@ -219,11 +219,56 @@ def stage_cached_opensubtitles(row,candidate,text,runtime,qa):
     return sid
 
 
-def cross_check(row,candidate,text,runtime):
-    """Independent same-video English/audio ALASS references must agree.
+def audio_consensus(video,text,runtime):
+    """No-English fallback: independently run both established AUDIO aligners.
 
-    Critically this runs BEFORE touching the live publication stage database.
-    This accepts neither metadata alone nor a single ALASS fit as proof.
+    Two audio aligners are not independent dialogue/identity evidence: exact
+    film identity was checked by the cached review selector. This method only
+    checks whether both different timing engines converge across the opening,
+    middle AND ending. It is never used to override a disagreeing English
+    text reference or accept a large ffsubsync timing correction.
+    """
+    original_health=gate.validate_srt(text,runtime)
+
+    def alass_trial(candidate):
+        corrected=ff.keep_source_dialogue(text,candidate)
+        if gate.validate_srt(corrected,runtime)!=original_health:
+            raise RuntimeError("audio_consensus_alass_japanese_health_changed")
+        alass.assess(text,corrected,runtime)
+        return corrected
+
+    aligned,reference=alass.align(video,text,validator=alass_trial)
+    # An English reference newly appearing during this pass is not audio
+    # consensus. Resume the more informative two-reference route instead.
+    if reference!="video_audio":
+        raise RuntimeError("audio_consensus_reference_changed")
+
+    synced=ff.align_in_container(video,text)
+    synced=ff.keep_source_dialogue(text,synced)
+    synced,_=ff.repair_minor_overlaps(synced,runtime)
+    if gate.validate_srt(synced,runtime)!=original_health:
+        raise RuntimeError("audio_consensus_ffsubsync_japanese_health_changed")
+    # Retain all of ffsubsync's existing safety rules: max 30-s absolute shift,
+    # max 5-s variation, cue identity, audio coverage and overlap health.
+    ff.check_alignment(text,synced,runtime)
+    thirds=alass._intensive_agreement(aligned,synced)
+    if thirds is None:
+        raise RuntimeError("audio_consensus_alass_ffsubsync_disagree")
+    return aligned,{
+        "alignment_reference":"video_audio",
+        "audio_engine_consensus":"ffsubsync_video_audio",
+        "audio_consensus_thirds":thirds,
+        "audio_consensus_limitations":"timing_only_not_dialogue_or_identity_proof",
+    }
+
+
+def cross_check(row,candidate,text,runtime):
+    """Match exact-media Japanese against independent timing references.
+
+    Prefer a verified EN text and audio comparison. Only when the exact
+    movie has NO available English reference, compare the existing ALASS
+    and ffsubsync video-audio aligners. If either comparison fails, hold;
+    no stage DB or media write occurs here.
     """
     video=gate.safe_media_path(str(row.get("host_path") or ""))
     actual=gate.subprocess_duration(video)
@@ -233,15 +278,30 @@ def cross_check(row,candidate,text,runtime):
     if error or not isinstance(streams,list):
         raise RuntimeError("movie_subtitle_probe_failed")
     gate.check_no_existing_ja(video,streams)
-    aligned,evidence=alass.intensive_align(
-        video,text,jid=row["jellyfin_id"])
+    try:
+        aligned,evidence=alass.intensive_align(
+            video,text,jid=row["jellyfin_id"])
+    except RuntimeError as exc:
+        if str(exc)!="alass_intensive_missing_english_reference":
+            # A reference that exists but disagrees with the video is a
+            # substantive QA signal. Never bypass it via audio-only fallback.
+            raise
+        aligned,evidence=audio_consensus(video,text,runtime)
+    dual_reference=(
+        evidence.get("intensive_cross_reference")=="video_audio"
+        and evidence.get("alignment_reference")!="video_audio"
+        and len(evidence.get("intensive_agreement_thirds") or [])==3
+    )
+    audio_reference=(
+        evidence.get("alignment_reference")=="video_audio"
+        and evidence.get("audio_engine_consensus")=="ffsubsync_video_audio"
+        and len(evidence.get("audio_consensus_thirds") or [])==3
+    )
+    if not (dual_reference or audio_reference):
+        raise RuntimeError("no_independent_timing_agreement")
     corrected=ff.keep_source_dialogue(text,aligned)
     metrics=alass.assess(text,corrected,runtime,
-                         independently_verified_tail=True)
-    if not (evidence.get("intensive_cross_reference")=="video_audio"
-            and evidence.get("alignment_reference")!="video_audio"
-            and len(evidence.get("intensive_agreement_thirds") or [])==3):
-        raise RuntimeError("no_independent_audio_english_agreement")
+                         independently_verified_tail=dual_reference)
     return corrected,evidence,metrics
 
 
@@ -272,11 +332,15 @@ def promote(row,candidate,*,dry_run=False):
     # and duration with the shared, existing ALASS publication preparation.
     ready=alass.prepare(
         jid,sid,aligner=lambda video,source:aligned,
-        independently_verified_tail=True)
+        independently_verified_tail=(
+            evidence.get("intensive_cross_reference")=="video_audio"))
     if ready["chosen"]!=aligned:
         raise RuntimeError("review_alignment_changed_after_staging")
     ready["assessment"].update(evidence)
-    ready["assessment"]["engine"]="review_cross_verified_alass_v1"
+    ready["assessment"]["engine"]=(
+        "review_cross_verified_alass_v1"
+        if evidence.get("intensive_cross_reference")=="video_audio"
+        else "review_alass_ffsubsync_audio_consensus_v1")
     # All on-disk publication uses pre-existing create-only primitives.
     alass.preserve(ready)
     gate.publish(ready["row"],ready["video"],ready["target"],ready["chosen"])
