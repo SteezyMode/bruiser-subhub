@@ -128,6 +128,149 @@ class ReviewPromotionTests(unittest.TestCase):
                                         "no_independent_audio_english_agreement"):
                 promote.cross_check(row,saved(),b"source",5400)
 
+    def test_missing_english_uses_two_audio_engines_with_unchanged_guards(self):
+        video=Path(film()["host_path"])
+        source=b"source Japanese"
+        aligned=b"aligned Japanese"
+        subaligned=b"ffsubsync Japanese"
+        with patch.object(promote.gate,"validate_srt",return_value={"cues":100}), \
+             patch.object(promote.ff,"keep_source_dialogue",
+                          side_effect=lambda _, candidate:candidate), \
+             patch.object(promote.alass,"align",
+                          return_value=(aligned,"video_audio")) as ala, \
+             patch.object(promote.alass,"assess",return_value={}), \
+             patch.object(promote.ff,"align_in_container",
+                          return_value=subaligned) as ff_engine, \
+             patch.object(promote.ff,"repair_minor_overlaps",
+                          return_value=(subaligned,{})), \
+             patch.object(promote.ff,"check_alignment",
+                          return_value={"mode":"corrected"}) as guard, \
+             patch.object(promote.alass,"_intensive_agreement",
+                          return_value=[0.96,0.94,0.98]) as agree:
+            output,evidence=promote.audio_consensus(video,source,5400)
+        self.assertEqual(output,aligned)
+        self.assertEqual(evidence["audio_engine_consensus"],
+                         "ffsubsync_video_audio")
+        self.assertEqual(evidence["audio_consensus_thirds"],
+                         [0.96,0.94,0.98])
+        ala.assert_called_once()
+        ff_engine.assert_called_once_with(video,source)
+        guard.assert_called_once_with(source,subaligned,5400)
+        agree.assert_called_once_with(aligned,subaligned)
+
+    def test_audio_consensus_rejects_disagreement(self):
+        with patch.object(promote.gate,"validate_srt",return_value={}), \
+             patch.object(promote.ff,"keep_source_dialogue",
+                          side_effect=lambda _,candidate:candidate), \
+             patch.object(promote.alass,"align",
+                          return_value=(b"ALASS","video_audio")), \
+             patch.object(promote.alass,"assess",return_value={}), \
+             patch.object(promote.ff,"align_in_container",
+                          return_value=b"FFSUBSYNC"), \
+             patch.object(promote.ff,"repair_minor_overlaps",
+                          return_value=(b"FFSUBSYNC",{})), \
+             patch.object(promote.ff,"check_alignment"), \
+             patch.object(promote.alass,"_intensive_agreement",
+                          return_value=None):
+            with self.assertRaisesRegex(RuntimeError,
+                                        "audio_consensus_alass_ffsubsync_disagree"):
+                promote.audio_consensus(Path(film()["host_path"]),b"original",5400)
+
+    def test_audio_consensus_rejects_unverified_ffsubsync_correction(self):
+        with patch.object(promote.gate,"validate_srt",return_value={}), \
+             patch.object(promote.ff,"keep_source_dialogue",
+                          side_effect=lambda _,candidate:candidate), \
+             patch.object(promote.alass,"align",
+                          return_value=(b"ALASS","video_audio")), \
+             patch.object(promote.alass,"assess",return_value={}), \
+             patch.object(promote.ff,"align_in_container",
+                          return_value=b"FFSUBSYNC"), \
+             patch.object(promote.ff,"repair_minor_overlaps",
+                          return_value=(b"FFSUBSYNC",{})), \
+             patch.object(promote.ff,"check_alignment",
+                          side_effect=RuntimeError("ffsubsync_shift_or_variation_excessive")), \
+             patch.object(promote.alass,"_intensive_agreement") as agree:
+            with self.assertRaisesRegex(RuntimeError,
+                                        "ffsubsync_shift_or_variation_excessive"):
+                promote.audio_consensus(Path(film()["host_path"]),b"original",5400)
+            agree.assert_not_called()
+
+    def test_missing_english_reference_falls_back_before_staging(self):
+        row=film()
+        evidence={"alignment_reference":"video_audio",
+                  "audio_engine_consensus":"ffsubsync_video_audio",
+                  "audio_consensus_thirds":[0.96,0.97,0.99]}
+        with patch.object(promote.gate,"safe_media_path",
+                          return_value=Path(row["host_path"])), \
+             patch.object(promote.gate,"subprocess_duration",return_value=5400), \
+             patch.object(promote.gate,"ffprobe_streams",return_value=([],None)), \
+             patch.object(promote.gate,"check_no_existing_ja"), \
+             patch.object(promote.alass,"intensive_align",
+                          side_effect=RuntimeError(
+                              "alass_intensive_missing_english_reference")), \
+             patch.object(promote,"audio_consensus",
+                          return_value=(b"ALASS",evidence)) as audio, \
+             patch.object(promote.ff,"keep_source_dialogue",
+                          return_value=b"ALASS"), \
+             patch.object(promote.alass,"assess",
+                          return_value={"mode":"aligned"}) as assess:
+            output,proof,decision=promote.cross_check(
+                row,saved(),b"original",5400)
+        self.assertEqual(output,b"ALASS")
+        self.assertEqual(proof,evidence)
+        self.assertEqual(decision["mode"],"aligned")
+        audio.assert_called_once()
+        self.assertFalse(assess.call_args.kwargs["independently_verified_tail"])
+
+    def test_disagreeing_english_never_falls_back_to_audio(self):
+        row=film()
+        with patch.object(promote.gate,"safe_media_path",
+                          return_value=Path(row["host_path"])), \
+             patch.object(promote.gate,"subprocess_duration",return_value=5400), \
+             patch.object(promote.gate,"ffprobe_streams",return_value=([],None)), \
+             patch.object(promote.gate,"check_no_existing_ja"), \
+             patch.object(promote.alass,"intensive_align",
+                          side_effect=RuntimeError(
+                              "alass_intensive_no_independent_reference_agreement")), \
+             patch.object(promote,"audio_consensus") as fallback:
+            with self.assertRaisesRegex(RuntimeError,
+                                        "alass_intensive_no_independent_reference_agreement"):
+                promote.cross_check(row,saved(),b"original",5400)
+            fallback.assert_not_called()
+
+    def test_audio_consensus_publication_disallows_tail_exception(self):
+        row=film()
+        c=saved()
+        evidence={"alignment_reference":"video_audio",
+                  "audio_engine_consensus":"ffsubsync_video_audio",
+                  "audio_consensus_thirds":[0.97,0.95,0.98]}
+        ready={"chosen":b"aligned","assessment":{"mode":"aligned"},
+               "row":row,"video":Path(row["host_path"]),
+               "target":Path(row["host_path"]+".ja.srt")}
+        with patch.object(promote.review,"acceptable",return_value=True), \
+             patch.object(promote,"identity_ok",return_value=True), \
+             patch.object(promote,"read_receipt",return_value=receipt()), \
+             patch.object(promote.stage,"duration_if_safe",return_value=5400), \
+             patch.object(promote,"cached_source",return_value=(
+                 b"source",{"cues":100,"japanese_characters":1500,
+                            "japanese_cue_fraction":0.9})), \
+             patch.object(promote,"cross_check",
+                          return_value=(b"aligned",evidence,{})), \
+             patch.object(promote,"stage_cached_opensubtitles",
+                          return_value="123456"), \
+             patch.object(promote.alass,"prepare",
+                          return_value=ready) as prepare, \
+             patch.object(promote.alass,"preserve") as preserve, \
+             patch.object(promote.gate,"publish") as publish, \
+             patch.object(promote.queue,"mark_completed"):
+            result,_=promote.promote(row,c)
+        self.assertEqual(result,"published")
+        self.assertFalse(prepare.call_args.kwargs["independently_verified_tail"])
+        self.assertEqual(ready["assessment"]["engine"],
+                         "review_alass_ffsubsync_audio_consensus_v1")
+        preserve.assert_called_once()
+        publish.assert_called_once()
+
     def test_no_stage_or_publication_when_cross_check_refuses(self):
         row=film()
         c=saved()
