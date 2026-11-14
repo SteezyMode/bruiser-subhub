@@ -283,7 +283,8 @@ def archive_srt(blob,row,candidate,runtime):
                     # lossless, strictly validated defects; the original
                     # bytes remain in the private ZIP cache as provenance.
                     working,repair=structure.normalize(
-                        content,trial_release_note=True,trial_local_swap=True)
+                        content,trial_release_note=True,trial_local_swap=True,
+                trial_chronological_reorder=True)
                     qa=publisher.validate_srt(working,runtime)
                     qa["original_zip_member_sha256"]=hashlib.sha256(raw).hexdigest()
                     qa["structural_repair"]=repair
