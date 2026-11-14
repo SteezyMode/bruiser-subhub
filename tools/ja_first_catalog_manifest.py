@@ -158,7 +158,7 @@ def page_items(header, kind):
     for page in range(MAX_PAGES):
         query = urlencode({
             "Recursive": "true", "IncludeItemTypes": kind,
-            "Fields": "Path,ProviderIds,MediaStreams,MediaSources",
+            "Fields": "Path,ProviderIds,MediaStreams,MediaSources,Studios,ProductionLocations,OriginalTitle",
             "StartIndex": page * PAGE, "Limit": PAGE,
         })
         req = Request(BASE + "/Items?" + query, headers={"Authorization": header})
@@ -197,6 +197,14 @@ def classify(item, series, mounts, sidecache):
         "season": None, "episode": None, "year": item.get("ProductionYear"),
         "genres": [str(v) for v in (item.get("Genres") or [])[:20]
                    if isinstance(v, str)][:20],
+        # Keep animation origin metadata for the shared anime exclusion.
+        # A Japanese dub or an Animation genre alone does not mean anime.
+        "production_locations": [
+            str(v)[:100] for v in (item.get("ProductionLocations") or [])[:20]
+            if isinstance(v, str)],
+        "studios": [
+            str(v.get("Name") or "")[:100] for v in
+            (item.get("Studios") or [])[:20] if isinstance(v, dict)],
     }
     # Populate series/season identity before the coverage short circuit.
     # Previously every already-subtitled TV episode returned with an empty
