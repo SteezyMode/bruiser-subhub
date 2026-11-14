@@ -296,8 +296,8 @@ def inspect_srt(raw,runtime):
             continue
         try:
             text,repairs=normalize.normalize(original.encode("utf-8"),
-                                            trial_release_note=True,
-                                            trial_local_swap=True)
+                                            trial_release_note=True,trial_local_swap=True,
+                trial_chronological_reorder=True)
             qa=publisher.validate_srt(text,runtime)
             return text,qa,repairs
         except (ValueError,RuntimeError) as exc:
