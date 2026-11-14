@@ -31,6 +31,8 @@ DASH=Path.home()/".local/share/bruiser-subhub-dashboard"
 AI=Path.home()/"bruiser-pilot/plamo3-ab"
 SOURCE_FILES=(
     "ja_first_search_pilot.py",
+    "subhub_movie_census.py",
+    "subhub_library_coverage.py",
     "ja_first_movie_scope.py",
     "ja_first_cycle.py",
     "ja_first_priority.py",
@@ -63,6 +65,8 @@ SOURCE_FILES=(
     "ja_first_autofill.py",
 )
 NEW_SOURCE_FILES=frozenset({
+    "subhub_movie_census.py",
+    "subhub_library_coverage.py",
     "ja_first_movie_scope.py",
     "ja_first_srt_normalize.py",
     "ja_first_candidate_progress.py",
