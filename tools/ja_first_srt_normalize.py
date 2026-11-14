@@ -355,6 +355,8 @@ def normalize(raw,*,expected_timestamps=None,
             starts=[parsed[i][0] for i in range(lo,hi)]
             if len(set(starts))!=len(starts):
                 raise RuntimeError("staged_srt_cue_order_invalid")
+            maximum_time_displacement=max(
+                abs(parsed[i][0]-parsed[order[i]][0]) for i in moved)
             parsed=[parsed[i] for i in order]
             if any(parsed[i][0]<parsed[i-1][0]
                    for i in range(1,len(parsed))):
@@ -362,12 +364,7 @@ def normalize(raw,*,expected_timestamps=None,
             chronological_reorder={
                 "moved_cues":len(moved),
                 "max_index_displacement":max(abs(i-order[i]) for i in moved),
-                "max_position_time_displacement_ms":max(
-                    abs(starts0-starts1) for starts0,starts1 in (
-                        (parsed[i][0],parsed[order.index(i)][0])
-                        for i in moved
-                    )
-                )
+                "max_position_time_displacement_ms":maximum_time_displacement,
             }
     changed=bool(repaired_marks or empty or invalid_controls or release_notes or opening_credits or reordered or chronological_reorder or merged_blocks
                  or canonicalized_timestamps or raw.startswith(b"\xef\xbb\xbf"))
