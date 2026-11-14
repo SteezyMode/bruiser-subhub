@@ -29,13 +29,60 @@ ROOTS = (
 )
 CATEGORIES = {"horror", "drama suspense", "drama", "suspense"}
 
+# Default source jobs cover every episode and non-anime film. An explicit
+# movies-all scope remains available for an owner who wants anime included.
+# Check authoritative Jellyfin metadata and directory categories, not a
+# hard-coded movie-title blacklist. In particular, "Animation" alone is
+# insufficient: Western animated movies remain eligible.
+JAPANESE_ANIMATION_STUDIOS = (
+    "studio ghibli", "toei animation", "kyoto animation",
+    "madhouse", "production i.g", "wit studio", "studio trigger",
+    "a-1 pictures", "ufotable", "studio bones",
+)
+
+
+def is_anime_movie(row):
+    if not isinstance(row, dict) or row.get("kind") != "Movie":
+        return False
+    genres = row.get("genres") or []
+    labels = {word for g in genres if isinstance(g, str)
+              for word in re.findall(r"[a-z]+", g.casefold())}
+    if "anime" in labels:
+        return True
+    value = row.get("host_path")
+    if isinstance(value, str) and value.startswith("/"):
+        path = Path(value)
+        for root in ROOTS:
+            try:
+                parts = path.relative_to(root).parts[:-1]
+            except ValueError:
+                continue
+            if any(re.search(r"(?i)(?<![a-z])anime", part) for part in parts):
+                return True
+    if "animation" not in labels and "animated" not in labels:
+        return False
+    # OriginalTitle is Japanese for many anime even when the media has
+    # an English dub. This does not exclude Japanese live-action films.
+    original = str(row.get("original_title") or "")
+    if re.search(r"[\u3040-\u30ff\u3400-\u9fff]", original):
+        return True
+    places = row.get("production_locations") or []
+    if any(isinstance(place, str) and place.strip().casefold() in
+           {"japan", "日本"} for place in places):
+        return True
+    studios = " ".join(str(studio).casefold()
+                       for studio in row.get("studios") or [])
+    return any(studio in studios for studio in JAPANESE_ANIMATION_STUDIOS)
+
 
 def matches(row, scope="all"):
-    if scope == "all":
-        return True
-    if scope not in (SCOPE, MOVIES_NO_ANIME, MOVIES_ALL, *GENRE_SCOPES):
+    if scope not in SCOPES:
         raise ValueError("unsupported_japanese_source_scope")
+    if scope == "all":
+        return not is_anime_movie(row)
     if not isinstance(row, dict) or row.get("kind") != "Movie":
+        return False
+    if scope != MOVIES_ALL and is_anime_movie(row):
         return False
     if scope in GENRE_SCOPES:
         # Both actual movie libraries, never an episode, synthetic title
@@ -76,32 +123,16 @@ def matches(row, scope="all"):
             return False
         return any(path != root and path.is_relative_to(root) for root in ROOTS)
     if scope == MOVIES_NO_ANIME:
-        # Anime is a specific Japanese media category. Do not exclude all
-        # animation: that would also discard Western animated films.
-        genres = row.get("genres") or []
-        if any(isinstance(g, str) and "anime" in
-               {t for t in re.split(r"[^a-z]+", g.casefold()) if t}
-               for g in genres):
-            return False
+        # Only approved movie roots; anime was excluded above for all
+        # ordinary scopes. An explicit movies-all is the sole opt-in.
         value = row.get("host_path")
         if not isinstance(value, str) or not value.startswith("/"):
             return False
         path = Path(value)
-        if path.is_symlink():
+        if path.is_symlink() or ".." in path.parts:
             return False
-        # Folder names identify an Anime section; the filename (movie title)
-        # must not accidentally exclude unrelated films.
-        for root in ROOTS:
-            try:
-                relative = path.relative_to(root)
-            except ValueError:
-                continue
-            # Folder release groups can prefix the anime marker without a
-            # separator, e.g. "[AnimeRG] Studio Ghibli". Keep testing only
-            # directories, never the media filename; "Animated" stays valid.
-            return not any(re.search(r"(?i)(?<![a-z])anime", part)
-                           for part in relative.parts[:-1])
-        return True
+        return any(path != root and path.is_relative_to(root)
+                   for root in ROOTS)
     value = row.get("host_path")
     if not isinstance(value, str) or not value.startswith("/"):
         return False
