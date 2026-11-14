@@ -111,7 +111,7 @@ class ReviewPromotionTests(unittest.TestCase):
         self.assertEqual(report["original_subtitle_ends_pct"],95.0)
         self.assertFalse(report["cross_reference_available"])
 
-    def test_cross_reference_requires_independent_english_and_audio(self):
+    def test_cross_reference_rejects_unverified_timing_evidence(self):
         row=film()
         with patch.object(promote.gate,"safe_media_path",
                           return_value=Path(row["host_path"])), \
@@ -125,7 +125,7 @@ class ReviewPromotionTests(unittest.TestCase):
                            "intensive_cross_reference":None,
                            "intensive_agreement_thirds":[]})):
             with self.assertRaisesRegex(RuntimeError,
-                                        "no_independent_audio_english_agreement"):
+                                        "no_independent_timing_agreement"):
                 promote.cross_check(row,saved(),b"source",5400)
 
     def test_missing_english_uses_two_audio_engines_with_unchanged_guards(self):
