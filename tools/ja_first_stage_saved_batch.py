@@ -747,7 +747,7 @@ def alternate_ready(row):
 
 
 def choices(inventory, searches, already, budget, kind, only_id=None, scope="all",
-            subtitle_id=None, exhaustive=False):
+            subtitle_id=None, exhaustive=False, library_sweep=False):
     queue = priorities.active_coverage_queue()
     already = set(already) | rejected_duration_candidates()
     possible = []
@@ -761,7 +761,8 @@ def choices(inventory, searches, already, budget, kind, only_id=None, scope="all
             continue
         if row.get("kind") not in ("Movie", "Episode"):
             continue
-        order = priorities.queue_position(row, "stage", queue)
+        order = (0, priorities.priority(row)) if library_sweep else (
+            priorities.queue_position(row, "stage", queue))
         if order is None and not only_id:
             continue
         if only_id:
@@ -1123,6 +1124,8 @@ def main():
                      help="one exact saved OpenSubtitles release; requires --jellyfin-id")
     cli.add_argument("--exhaustive",action="store_true",
                      help="owner-selected deep recovery: permit alternate releases while previous stages are held")
+    cli.add_argument("--library-sweep",action="store_true",
+                     help="explicit movie-library recovery: stage saved candidates outside the stale coverage queue")
     cli.add_argument("--kind", choices=("all", "movie", "episode"),
                      default="all")
     cli.add_argument("--require-embedded-en", action="store_true",
@@ -1135,6 +1138,10 @@ def main():
     if opts.self_test:
         self_test()
         return
+    if opts.library_sweep and (
+            not opts.scope.startswith("movies-") or opts.jellyfin_id
+            or opts.subtitle_id or opts.exhaustive):
+        cli.error("--library-sweep requires a movies-* scope and no exact-item/exhaustive overrides")
     if not 1 <= opts.budget <= 200:
         cli.error("--budget must be 1..200")
     if opts.jellyfin_id and not re.fullmatch(r"[a-f0-9]{32}",opts.jellyfin_id):
@@ -1150,7 +1157,8 @@ def main():
         # thousands of media files for a small acquisition budget.
         pool = choices(inventory, history, already, 24, opts.kind,
                        only_id=opts.jellyfin_id or None, scope=opts.scope,
-                       subtitle_id=opts.subtitle_id or None, exhaustive=opts.exhaustive)
+                       subtitle_id=opts.subtitle_id or None, exhaustive=opts.exhaustive,
+                           library_sweep=opts.library_sweep)
         selected = []
         considered = 0
         for option in pool:
@@ -1172,7 +1180,8 @@ def main():
     else:
         selected = choices(inventory, history, already, opts.budget, opts.kind,
                            only_id=opts.jellyfin_id or None, scope=opts.scope,
-                           subtitle_id=opts.subtitle_id or None, exhaustive=opts.exhaustive)
+                           subtitle_id=opts.subtitle_id or None, exhaustive=opts.exhaustive,
+                           library_sweep=opts.library_sweep)
     print("=== JAPANESE SUBTITLE STAGING BATCH ===", flush=True)
     print("Available saved search entries:", len(history), "| scope:",opts.scope,flush=True)
     print("Selected:", len(selected), "| budget:", opts.budget, flush=True)
