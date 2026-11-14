@@ -219,7 +219,8 @@ def _separate_merged_timed_block(block, *, preceding_index=None,following_index=
 
 
 def normalize(raw,*,expected_timestamps=None,
-              trial_release_note=False,trial_local_swap=False):
+              trial_release_note=False,trial_local_swap=False,
+              trial_chronological_reorder=False):
     """Return (working SRT bytes, change report) without modifying raw.
 
     No dialogue is dropped: only empty slots, explicit opening metadata credits,
@@ -313,20 +314,59 @@ def normalize(raw,*,expected_timestamps=None,
         raise RuntimeError("staged_srt_no_dialogue")
     reversals=[i for i in range(1,len(parsed))
                if parsed[i][0]<parsed[i-1][0]]
+    chronological_reorder=None
     if reversals:
-        if not trial_local_swap or len(reversals)!=1:
-            raise RuntimeError("staged_srt_cue_order_invalid")
-        i=reversals[0]
-        jump=parsed[i-1][0]-parsed[i][0]
-        if jump>2000 or jump<=0:
-            raise RuntimeError("staged_srt_cue_order_invalid")
-        # Swap full time/text pairs (never exchange dialogue between times).
-        # Only a one-adjacent-pair correction; any remaining reversal holds.
-        parsed[i-1],parsed[i]=parsed[i],parsed[i-1]
-        if any(parsed[j][0]<parsed[j-1][0] for j in range(1,len(parsed))):
-            raise RuntimeError("staged_srt_cue_order_invalid")
-        reordered=[{"original_cues":[i,i+1],"jump_ms":jump}]
-    changed=bool(repaired_marks or empty or invalid_controls or release_notes or opening_credits or reordered or merged_blocks
+        # Keep the established one-adjacent-pair <=2s recovery unchanged.
+        local_fixed=False
+        if trial_local_swap and len(reversals)==1:
+            i=reversals[0]
+            jump=parsed[i-1][0]-parsed[i][0]
+            if 0<jump<=2000:
+                trial=list(parsed)
+                trial[i-1],trial[i]=trial[i],trial[i-1]
+                if all(trial[j][0]>=trial[j-1][0]
+                       for j in range(1,len(trial))):
+                    parsed=trial
+                    reordered=[{"original_cues":[i,i+1],"jump_ms":jump}]
+                    local_fixed=True
+        if not local_fixed:
+            if not trial_chronological_reorder:
+                raise RuntimeError("staged_srt_cue_order_invalid")
+            # Old provider SRTs occasionally contain intact cue blocks in a
+            # slightly wrong order. We may move only COMPLETE timestamp/text
+            # pairs, without editing a single clock or Japanese character.
+            # Require consecutive explicit source indexes, no removed cues,
+            # a tiny rearrangement (<=8 cues, <=3 index positions), and
+            # <=30s displacement at each position. Larger or ambiguous
+            # scrambling stays private for manual inspection.
+            if (len(parsed)!=len(blocks) or
+                    any(_block_index(block)!=i
+                        for i,block in enumerate(blocks,1))):
+                raise RuntimeError("staged_srt_cue_order_invalid")
+            order=sorted(range(len(parsed)),key=lambda i:(parsed[i][0],i))
+            moved=[i for i,source_i in enumerate(order) if i!=source_i]
+            if (not moved or len(moved)>8
+                    or max(abs(i-order[i]) for i in moved)>3
+                    or any(abs(parsed[i][0]-parsed[order[i]][0])>30000
+                           for i in moved)):
+                raise RuntimeError("staged_srt_cue_order_invalid")
+            lo=max(0,min(moved)-1)
+            hi=min(len(parsed),max(moved)+2)
+            starts=[parsed[i][0] for i in range(lo,hi)]
+            if len(set(starts))!=len(starts):
+                raise RuntimeError("staged_srt_cue_order_invalid")
+            maximum_time_displacement=max(
+                abs(parsed[i][0]-parsed[order[i]][0]) for i in moved)
+            parsed=[parsed[i] for i in order]
+            if any(parsed[i][0]<parsed[i-1][0]
+                   for i in range(1,len(parsed))):
+                raise RuntimeError("staged_srt_cue_order_invalid")
+            chronological_reorder={
+                "moved_cues":len(moved),
+                "max_index_displacement":max(abs(i-order[i]) for i in moved),
+                "max_position_time_displacement_ms":maximum_time_displacement,
+            }
+    changed=bool(repaired_marks or empty or invalid_controls or release_notes or opening_credits or reordered or chronological_reorder or merged_blocks
                  or canonicalized_timestamps or raw.startswith(b"\xef\xbb\xbf"))
     changed=changed or "\r" in original or any(
         not block.strip(" \t\r\n").startswith(str(i))
@@ -343,6 +383,7 @@ def normalize(raw,*,expected_timestamps=None,
         "technical_release_notes_excluded":release_notes,
         "opening_credit_cues_excluded":opening_credits,
         "local_timestamp_swaps":reordered,
+        "chronological_cue_reorder":chronological_reorder,
         "timestamp_formats_normalized":canonicalized_timestamps,
         "structural_repair":changed
     }
@@ -441,7 +482,9 @@ def _audit_staged(jids):
         metrics=json.loads(raw_metrics)
         try:
             revised,report=normalize(
-                raw,expected_timestamps=metrics.get("cues"))
+                raw,expected_timestamps=metrics.get("cues"),
+                trial_release_note=True,trial_local_swap=True,
+                trial_chronological_reorder=True)
             decoded=revised.decode("utf-8-sig")
             ends=[]
             for match in ARROWS.finditer(decoded):

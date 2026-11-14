@@ -101,7 +101,8 @@ def prepare(jid,sid,*,aligner=None,independently_verified_tail=False):
     # Final publication still requires independent ALASS timing validation.
     source,repair=structure.normalize(
         raw,expected_timestamps=int(record.get("cues") or -1),
-        trial_release_note=True,trial_local_swap=True)
+        trial_release_note=True,trial_local_swap=True,
+        trial_chronological_reorder=True)
     src_metrics=gate.validate_srt(source,runtime)
     quality.require_not_garbage(source)
     if aligner is None:

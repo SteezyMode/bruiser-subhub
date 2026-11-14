@@ -340,6 +340,74 @@ class StructuralNormalizationTests(unittest.TestCase):
             norm.normalize(nested,expected_timestamps=4,
                            trial_local_swap=True)
 
+    def test_strict_chronological_trial_repairs_two_local_reversals_losslessly(self):
+        raw=b"".join([
+            cue(1,"00:00:01,000","00:00:02,000","まず話します"),
+            cue(2,"00:00:20,000","00:00:21,000","二つ目の言葉"),
+            cue(3,"00:00:12,000","00:00:13,000","三つ目の言葉"),
+            cue(4,"00:00:35,000","00:00:36,000","四つ目の言葉"),
+            cue(5,"00:00:50,000","00:00:51,000","五つ目の言葉"),
+            cue(6,"00:00:42,000","00:00:43,000","六つ目の言葉"),
+            cue(7,"00:01:05,000","00:01:06,000","七つ目の言葉"),
+        ])
+        original_bytes=raw[:]
+        with self.assertRaisesRegex(RuntimeError,"cue_order_invalid"):
+            norm.normalize(raw,expected_timestamps=7,trial_local_swap=True)
+        repaired,report=norm.normalize(
+            raw,expected_timestamps=7,trial_local_swap=True,
+            trial_chronological_reorder=True)
+        self.assertEqual(raw,original_bytes)
+        self.assertEqual(report["source_timestamp_cues"],7)
+        self.assertEqual(report["retained_dialogue_cues"],7)
+        self.assertEqual(report["chronological_cue_reorder"]["moved_cues"],4)
+        self.assertEqual(report["chronological_cue_reorder"]["max_index_displacement"],1)
+        self.assertLess(repaired.index("三つ目の言葉".encode()),
+                        repaired.index("二つ目の言葉".encode()))
+        self.assertLess(repaired.index("六つ目の言葉".encode()),
+                        repaired.index("五つ目の言葉".encode()))
+        # No cue changes its associated clock and text, only its position.
+        for clock,text in (("00:00:20,000","二つ目の言葉"),
+                           ("00:00:12,000","三つ目の言葉"),
+                           ("00:00:50,000","五つ目の言葉"),
+                           ("00:00:42,000","六つ目の言葉")):
+            self.assertIn((clock+" --> ").encode(),repaired)
+            self.assertEqual(raw.count(text.encode()),repaired.count(text.encode()))
+
+    def test_strict_chronological_trial_rejects_missing_sequential_indices(self):
+        raw=(cue(1,"00:00:01,000","00:00:02,000","早い")+
+             cue(2,"00:00:22,000","00:00:23,000","遅い")+
+             cue(3,"00:00:12,000","00:00:13,000","真ん中"))
+        third=cue(3,"00:00:12,000","00:00:13,000","真ん中")
+        missing_index=raw.replace(third,third[2:])
+        duplicate_index=raw.replace(third,cue(2,"00:00:12,000",
+                                                    "00:00:13,000","真ん中"))
+        for candidate in (missing_index,duplicate_index):
+            with self.subTest(candidate=candidate):
+                with self.assertRaisesRegex(RuntimeError,"cue_order_invalid"):
+                    norm.normalize(candidate,trial_chronological_reorder=True)
+
+    def test_strict_chronological_trial_rejects_big_clock_or_large_scramble(self):
+        distant=(cue(1,"00:00:01,000","00:00:02,000","最初")+
+                 cue(2,"00:02:30,000","00:02:31,000","後")+
+                 cue(3,"00:00:12,000","00:00:13,000","前"))
+        with self.assertRaisesRegex(RuntimeError,"cue_order_invalid"):
+            norm.normalize(distant,trial_chronological_reorder=True)
+        many=[]
+        for n in range(12):
+            second=n if n%2 else n+2
+            many.append(cue(n+1,f"00:00:{second:02d},000",
+                            f"00:00:{second:02d},500","同じではない"))
+        with self.assertRaisesRegex(RuntimeError,"cue_order_invalid"):
+            norm.normalize(b"".join(many),trial_chronological_reorder=True)
+
+    def test_strict_chronological_trial_rejects_ambiguous_duplicate_starts(self):
+        raw=(cue(1,"00:00:01,000","00:00:02,000","最初")+
+             cue(2,"00:00:20,000","00:00:21,000","長い")+
+             cue(3,"00:00:10,000","00:00:11,000","同時")+
+             cue(4,"00:00:10,000","00:00:12,000","重複"))
+        with self.assertRaisesRegex(RuntimeError,"cue_order_invalid"):
+            norm.normalize(raw,trial_chronological_reorder=True)
+
     def test_invalid_clock_and_truncated_bytes_fail_closed(self):
         with self.assertRaisesRegex(RuntimeError,"invalid_staged_srt_clock"):
             norm.normalize(cue(1,"00:99:01,000","00:99:03,000","はい"))
