@@ -500,6 +500,18 @@ def one_new_download_per_movie(jobs, *, is_cached=private_bytes_present):
     return chosen,counts
 
 
+def unstaged_only(jobs, staged_pairs):
+    """Keep films with NO already-staged Japanese candidate, by Jellyfin ID.
+
+    This is a batch scope choice, not an assessment of the staged subtitle.
+    The separate staged-movie recovery phase owns those films.
+    """
+    seen={str(jid) for jid,_ in staged_pairs}
+    selected=[pair for pair in jobs if str(pair[0]["jellyfin_id"]) not in seen]
+    return selected, len({str(row["jellyfin_id"]) for row,_ in jobs
+                          if str(row["jellyfin_id"]) in seen})
+
+
 def run(args):
     """Two explicit movie-wide passes: acquisition, then local inspection.
 
@@ -511,6 +523,10 @@ def run(args):
     try:
         records=list(stage.read_inventory().values())
         jobs,counts=audit_candidates(records,provider=args.provider)
+        if getattr(args,"unstaged_only",False):
+            jobs,skipped_movies=unstaged_only(jobs,stage.read_staged())
+            counts["skipped_movies_with_existing_stages"]=skipped_movies
+            counts["candidate_jobs_after_scope"]=len(jobs)
         phase=("DOWNLOAD TO PRIVATE CACHE" if args.download_only else
                "PROCESS CACHED SOURCES" if args.process_cache else
                "LEGACY INLINE PRIVATE TRIAL")
@@ -632,6 +648,10 @@ def main(argv=None):
     ap.add_argument("--apply",action="store_true")
     ap.add_argument("--retry",action="store_true",
                     help="reinspect previously processed cached originals")
+    ap.add_argument("--unstaged-only",action="store_true",
+                    help="movie-wide source backlog: skip any movie already"
+                         " holding a staged Japanese subtitle; no other"
+                         " review behavior changed")
     args=ap.parse_args(argv)
     if not 1<=args.limit<=500:
         ap.error("--limit must be 1..500")
