@@ -377,9 +377,11 @@ class StructuralNormalizationTests(unittest.TestCase):
         raw=(cue(1,"00:00:01,000","00:00:02,000","早い")+
              cue(2,"00:00:22,000","00:00:23,000","遅い")+
              cue(3,"00:00:12,000","00:00:13,000","真ん中"))
-        missing_index=raw.replace(b"3\n00:00:12",b"00:00:12")
-        for candidate in (missing_index,
-                          raw.replace(b"3\n00:00:12",b"2\\n00:00:12")):
+        third=cue(3,"00:00:12,000","00:00:13,000","真ん中")
+        missing_index=raw.replace(third,third[2:])
+        duplicate_index=raw.replace(third,cue(2,"00:00:12,000",
+                                                    "00:00:13,000","真ん中"))
+        for candidate in (missing_index,duplicate_index):
             with self.subTest(candidate=candidate):
                 with self.assertRaisesRegex(RuntimeError,"cue_order_invalid"):
                     norm.normalize(candidate,trial_chronological_reorder=True)
@@ -392,7 +394,7 @@ class StructuralNormalizationTests(unittest.TestCase):
             norm.normalize(distant,trial_chronological_reorder=True)
         many=[]
         for n in range(12):
-            second=n+1 if n%2 else n+2
+            second=n if n%2 else n+2
             many.append(cue(n+1,f"00:00:{second:02d},000",
                             f"00:00:{second:02d},500","同じではない"))
         with self.assertRaisesRegex(RuntimeError,"cue_order_invalid"):
