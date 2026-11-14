@@ -60,7 +60,10 @@ def queue_position(row, action, tasks):
     # alternative when the old coverage snapshot calls the title held.
     held_alternate=(action=="stage" and state=="held" and
                     queued_action in ("align_existing_staged_ja",
-                                      "download_saved_ja","review_saved_ja"))
+                                      "download_saved_ja","review_saved_ja",
+                                      "search_ja",
+                                      "validate_english_for_ja_fallback",
+                                      "recover_english_for_ja_fallback"))
     if state != "pending" and not held_alternate:
         return None
     if str(row.get("host_path") or "") != path:
