@@ -159,7 +159,7 @@ def eligible(row, scope="all"):
     if not video.is_absolute() or video.suffix.lower() not in VIDEO:
         return False
     genres=row.get("genres") or []
-    if any(isinstance(g,str) and re.search(r"(?i)\\banime\\b",g)
+    if any(isinstance(g,str) and re.search(r"(?i)\banime\b",g)
            for g in genres):
         return False
     if any(re.search(r"(?i)(?<![a-z])anime",part)
@@ -204,8 +204,12 @@ def ordered(rows, db, phase, deep, scope="all", timestamp=None):
             old=None
         if old and old["retry_after"]>timestamp:
             continue
-        proven=source_proven(row,deep)
-        if phase=="source" and proven or phase=="translation" and not proven:
+        try:
+            proven=source_proven(row,deep)
+        except (OSError,ValueError,RuntimeError,sqlite3.Error) as exc:
+            print("SUBHUB_AUTO_PROOF_UNAVAILABLE",jid,type(exc).__name__,flush=True)
+            proven=False
+        if (phase=="source" and proven) or (phase=="translation" and not proven):
             continue
         # No title is permanently retired based on an old receipt: a fresh
         # manifest says it is missing. Fresh titles precede old failures.
@@ -245,14 +249,14 @@ def dispatch(rows, db, phase, deep, *, scope="all", limit=40,
         jid=row["jellyfin_id"]
         video=Path(row["host_path"])
         print("SUBHUB_AUTO_SELECTED",phase,jid,row.get("title"),flush=True)
-        if video.is_file() and not video.is_symlink() and deep.stage.japanese_sidecar_exists(video):
-            update(db,row,"covered")
-            counts["covered"]+=1
-            continue
-        update(db,row,"sourcing" if phase=="source" else "translating",
-               retry_after=clock()+INTERRUPTED_DELAY)
         stop=False
         try:
+            if video.is_file() and not video.is_symlink() and deep.stage.japanese_sidecar_exists(video):
+                update(db,row,"covered")
+                counts["covered"]+=1
+                continue
+            update(db,row,"sourcing" if phase=="source" else "translating",
+                   retry_after=clock()+INTERRUPTED_DELAY)
             if phase=="source":
                 report=deep.run(jid)
                 outcome=report.get("result")
@@ -318,7 +322,7 @@ def once(phase,limit):
         source.check_scheduler_idle()
         path=catalog_path()
         if path is None or now()-int(path.stat().st_mtime)>CATALOG_TTL:
-            source.refresh_manifest()
+            source.run([sys.executable,str(CODE),"--save"],timeout=1200)
             path=catalog_path()
         if phase=="translation" and (not AI.is_file() or AI.is_symlink()):
             raise RuntimeError("subhub_ai_handoff_not_installed")
