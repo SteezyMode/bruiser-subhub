@@ -113,6 +113,7 @@ class DeepSourceTests(unittest.TestCase):
                  mock.patch.object(deep.stage,"japanese_sidecar_exists",
                                    return_value=False), \
                  mock.patch.object(deep,"search_record",return_value=doc), \
+                 mock.patch.object(deep,"staged_fingerprint",return_value=[["1","hash","staged"]]), \
                  mock.patch.object(deep,"repair_staged",
                                    side_effect=["held","held","covered"]), \
                  mock.patch.object(deep,"candidates_for",
@@ -144,6 +145,23 @@ class DeepSourceTests(unittest.TestCase):
                 output=deep.run(self.JID)
             self.assertEqual(output["result"],"retry_source")
             saved.assert_not_called()
+
+    def test_fresh_title_without_staged_candidates_reaches_discovery(self):
+        with tempfile.TemporaryDirectory() as root:
+            video=Path(root)/"Example Film 2024.mkv"
+            video.write_bytes(b"video")
+            row=self.row(video)
+            doc=self.search()
+            with mock.patch.object(deep.inventory,"load_latest_manifest",return_value=[row]), \
+                 mock.patch.object(deep.stage,"japanese_sidecar_exists",return_value=False), \
+                 mock.patch.object(deep,"staged_fingerprint",return_value=[]), \
+                 mock.patch.object(deep,"repair_staged") as repair, \
+                 mock.patch.object(deep,"search_record",side_effect=[None,doc,doc]), \
+                 mock.patch.object(deep,"refresh_search",return_value=True) as search, \
+                 mock.patch.object(deep,"save_exhausted"):
+                self.assertEqual(deep.run(self.JID)["result"],"plamo")
+            repair.assert_not_called()
+            search.assert_called_once_with(self.JID)
 
     def test_completed_no_match_can_be_handed_to_plamo(self):
         with tempfile.TemporaryDirectory() as root:
