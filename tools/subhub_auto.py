@@ -25,6 +25,7 @@ ROOT=HOME/"bruiser-pilot"
 STATE=ROOT/"subhub-auto"
 DB=STATE/"jobs.sqlite3"
 INTAKE=ROOT/"ja-first-inventory"
+SEARCH=INTAKE/"japanese-search.sqlite3"
 SOURCE_LOCK=INTAKE/".autofill.lock"
 CODE=ROOT/"subhub-control"/"ja_first_catalog_manifest.py"
 AI=HOME/".local/bin/subhub-ai"
@@ -190,7 +191,17 @@ def source_proven(row, deep):
                    for c in search.get("candidates") or [])
 
 
-def ordered(rows, db, phase, deep, scope="all", timestamp=None):
+def known_searches(path=None):
+    path=SEARCH if path is None else Path(path)
+    if not path.exists() and not path.is_symlink():
+        return set()
+    if path.is_symlink() or not path.is_file() or path.stat().st_mode & 0o077:
+        raise RuntimeError("unsafe_search_history")
+    with sqlite3.connect(path.resolve().as_uri()+"?mode=ro",uri=True,timeout=10) as db:
+        return {str(r[0]) for r in db.execute("SELECT jellyfin_id FROM searches")}
+
+
+def ordered(rows, db, phase, deep, scope="all", timestamp=None, searched=()):
     timestamp=now() if timestamp is None else timestamp
     previous={r["jellyfin_id"]:r for r in db.execute("SELECT * FROM jobs")}
     result=[]
@@ -216,6 +227,7 @@ def ordered(rows, db, phase, deep, scope="all", timestamp=None):
         if phase=="source":
             key=(0 if old is None else 1,
                  0 if row["kind"]=="Movie" else 1,
+                 0 if jid not in searched else 1,
                  old["updated_at"] if old else 0,
                  str(row.get("title") or "").casefold(),jid)
         else:
@@ -236,8 +248,8 @@ def quiet_hours():
 
 
 def dispatch(rows, db, phase, deep, *, scope="all", limit=40,
-             runner=invoke, clock=now, quiet=quiet_hours):
-    selected=ordered(rows,db,phase,deep,scope,clock())
+             runner=invoke, clock=now, quiet=quiet_hours, searched=()):
+    selected=ordered(rows,db,phase,deep,scope,clock(),searched)
     counts={"selected":min(len(selected),limit),"covered":0,
             "source_ready":0,"published":0,"retry":0}
     print("SUBHUB_AUTO_PLAN",phase,"eligible",len(selected),
@@ -328,7 +340,8 @@ def once(phase,limit):
             raise RuntimeError("subhub_ai_handoff_not_installed")
         rows=load_catalog(path)
         with connection() as db:
-            dispatch(rows,db,phase,deep,scope=source.selected_source_scope(),limit=limit)
+            dispatch(rows,db,phase,deep,scope=source.selected_source_scope(),limit=limit,
+                     searched=known_searches() if phase=="source" else ())
 
 
 def status(db):
