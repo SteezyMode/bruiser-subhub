@@ -334,7 +334,10 @@ def run(jid):
     if row.get("status")!="ready_ja_search":
         return {"result":"retry_source","reason":"inventory_not_source_ready"}
     # Never search/download when a previously staged track may already work.
-    existing=repair_staged(jid)
+    # With no pending stage, the exact publisher emits no per-item receipt.
+    # That is not a transient error: proceed to discovery for fresh titles.
+    existing=(repair_staged(jid) if any(r[2]=="staged"
+                  for r in staged_fingerprint(jid)) else "held")
     if existing=="covered":
         return {"result":"covered","reason":"existing_stage_repaired"}
     if existing=="retry":
