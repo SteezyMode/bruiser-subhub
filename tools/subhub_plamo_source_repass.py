@@ -39,6 +39,7 @@ MAX_PUBLISH_ATTEMPTS=300
 # Mirrors install_global_ja_sourcing.BUSY_UNITS. The installer is fetched to
 # a temporary file, never installed in HERE; keep this gate self-contained.
 BUSY_UNITS=(
+    "subhub-household.service", "subhub-bulk-publisher.service",
     "bruiser-ja-source-autofill.service",
     "bruiser-subhub-season-sources.service",
     "bruiser-subhub-batch.service",

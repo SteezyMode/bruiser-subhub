@@ -63,8 +63,10 @@ SOURCE_FILES=(
     "subhub_source_failure_audit.py",
     "subhub_plamo_source_repass.py",
     "ja_first_autofill.py",
+    "subhub_auto.py",
 )
 NEW_SOURCE_FILES=frozenset({
+    "subhub_auto.py",
     "subhub_movie_census.py",
     "subhub_library_coverage.py",
     "ja_first_movie_scope.py",
@@ -122,6 +124,7 @@ DASH_OVERRIDE_BYTES=(
     b"# Keep ProtectSystem=strict and ProtectHome=read-only; permit only receipts\n"
     b"ReadWritePaths=%h/bruiser-pilot/ja-first-inventory\n")
 BUSY_UNITS=(
+    "subhub-household.service", "subhub-bulk-publisher.service",
     SOURCE_UNIT, "bruiser-subhub-season-sources.service",
     "bruiser-subhub-batch.service", "bruiser-subhub-translation-batch.service",
     "bruiser-subhub-movie-ja.service",
@@ -199,6 +202,114 @@ def state_summary():
         fail("Post-install library-wide and Jellyfin dashboard controls missing")
     print("INTEGRITY: library search strategy and full-library dashboard control present")
 
+
+def consolidate_dispatcher(backup):
+    """Replace the two old ExecStart routes, not their timers or engines.
+
+    Stop timers before the switch, never interrupt a running media job.
+    Preserve their enablement and original unit files. The old publisher
+    timer is superseded by the create-only PLaMo handoff; its service and
+    all cached work remain available for explicit recovery.
+    """
+    worker=HOST/"subhub_auto.py"
+    handoff=Path.home()/".local/bin/subhub-ai"
+    for path in (worker,handoff):
+        secure_file(path)
+    if not os.access(handoff,os.X_OK):
+        fail("Existing PLaMo command is not executable")
+    services={
+        SOURCE_UNIT: ("ja_first_autofill.py","source",60),
+        "subhub-household.service": ("subhub_household.py","translation",3),
+    }
+    timers=(SOURCE_TIMER,"subhub-household.timer","subhub-bulk-publisher.timer")
+    legacy=timers[-1]
+    snapshots={}
+    overrides={}
+    created_dirs=[]
+    stopped=[]
+    installed=[]
+    # Read all state before changing anything. Unknown unit variants fail safe.
+    for timer in timers:
+        p=systemctl("is-enabled",timer,check=False)
+        enabled=p.stdout.strip()
+        if enabled not in ("enabled","disabled"):
+            fail("Unrecognized timer enablement: "+timer)
+        a=systemctl("is-active",timer,check=False)
+        if a.stdout.strip() not in ("active","inactive"):
+            fail("Unrecognized timer state: "+timer)
+        snapshots[timer]={"enabled":enabled=="enabled","active":a.stdout.strip()=="active"}
+    for name,(old,phase,limit) in services.items():
+        command=systemctl("show",name,"--property=ExecStart","--value").stdout
+        if old not in command and not ("subhub_auto.py" in command and phase in command):
+            fail("Unrecognized existing service command: "+name)
+        folder=DASH_UNIT_DIR/(name+".d")
+        if folder.exists():
+            secure_directory(folder)
+        target=folder/"30-consolidated-dispatcher.conf"
+        secure_file(target,allow_new=True)
+        data=("[Service]\nExecStart=\n"
+              "ExecStart=/usr/bin/python3 -B -u %h/bruiser-pilot/subhub-control/subhub_auto.py "
+              +phase+" --limit "+str(limit)+"\n"
+              "UMask=0077\nNice=10\nIOSchedulingClass=idle\n").encode()
+        if phase=="translation":
+            data+=b"TimeoutStartSec=3h\n"
+        prior=target.read_bytes() if target.exists() else None
+        if prior is not None and prior!=data:
+            fail("Unrecognized dispatcher override: "+name)
+        overrides[target]=(data,prior)
+    receipt=backup/"dispatcher-timers.json"
+    receipt.write_text(json.dumps({"timers":snapshots,"overrides":{
+        str(p.relative_to(DASH_UNIT_DIR)):old is not None
+        for p,(_,old) in overrides.items()}},indent=2)+"\n")
+    receipt.chmod(0o600)
+    try:
+        for timer in timers:
+            if snapshots[timer]["active"]:
+                systemctl("stop",timer)
+                stopped.append(timer)
+        for unit in BUSY_UNITS:
+            p=systemctl("is-active",unit,check=False)
+            if p.stdout.strip() in ("active","activating","reloading","deactivating"):
+                fail("Worker became busy during migration: "+unit)
+            if p.returncode not in (0,3,4):
+                fail("Cannot verify idle state: "+unit)
+        for target,(data,prior) in overrides.items():
+            if not target.parent.exists():
+                target.parent.mkdir(mode=0o700)
+                created_dirs.append(target.parent)
+            if prior is None:
+                atomic_install(target,data,0o600)
+                installed.append(target)
+        systemctl("daemon-reload")
+        for name,(_,phase,_) in services.items():
+            actual=systemctl("show",name,"--property=ExecStart","--value").stdout
+            if "subhub_auto.py" not in actual or phase not in actual:
+                fail("Dispatcher override not active: "+name)
+        if snapshots[legacy]["enabled"]:
+            systemctl("disable",legacy)
+        for timer in timers[:-1]:
+            if snapshots[timer]["active"]:
+                systemctl("start",timer)
+        print("CONSOLIDATED: existing daily source and nightly translation timers; old bulk publisher disabled")
+        print("SCHEDULE BACKUP:",receipt)
+        print("No media jobs started; existing source/translation checkpoints retained")
+    except BaseException:
+        for timer in timers:
+            systemctl("stop",timer,check=False)
+        for target in installed:
+            target.unlink(missing_ok=True)
+        for folder in reversed(created_dirs):
+            try: folder.rmdir()
+            except OSError: pass
+        systemctl("daemon-reload",check=False)
+        if snapshots[legacy]["enabled"]:
+            systemctl("enable",legacy,check=False)
+        for timer in timers:
+            if snapshots[timer]["active"]:
+                systemctl("start",timer,check=False)
+        print("DISPATCHER MIGRATION ROLLED BACK:",receipt,file=sys.stderr)
+        raise
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--commit",required=True)
@@ -207,7 +318,11 @@ def main():
     parser.add_argument("--install-only",action="store_true",
                         help="install code with rollback backup only: no catalog refresh,"
                              " queue reconcile, source run or timer changes")
+    parser.add_argument("--consolidate",action="store_true",
+                        help="explicitly replace old automation routes after guarded install")
     args=parser.parse_args()
+    if args.consolidate and not args.install_only:
+        parser.error("--consolidate requires --install-only")
     if args.install_only and args.start:
         parser.error("--install-only and --start are mutually exclusive")
     if not re.fullmatch("[0-9a-f]{40}",args.commit):
@@ -351,7 +466,10 @@ def main():
                 fail("Dashboard progress API failed: "+type(exc).__name__)
             print("DASHBOARD STATUS: actual /api/status endpoint PASS")
         if args.install_only:
-            print("INSTALL ONLY: catalog, queue, timers and source workers unchanged")
+            if args.consolidate:
+                consolidate_dispatcher(backup)
+            else:
+                print("INSTALL ONLY: catalog, queue, timers and source workers unchanged")
         else:
             # Catalog refresh catches newly eligible movies and untagged audio;
             # it writes ONLY private inventory JSON, never the production library.

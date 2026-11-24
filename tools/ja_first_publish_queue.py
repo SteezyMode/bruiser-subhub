@@ -541,6 +541,10 @@ def main():
             print("RESULT:", report_title(row), "|", kind, flush=True)
             counts[kind] += 1
             if kind=="held_unchanged":
+                print("BRUISER_PUBLISH_ITEM:", json.dumps({
+                    "jellyfin_id": jid, "result": "held",
+                    "reason": "unchanged_deterministic_hold"}, sort_keys=True),
+                    flush=True)
                 action=report_next_action(jid,candidates)
                 if args.apply:
                     retain_movie_outcome(
