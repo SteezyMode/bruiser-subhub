@@ -1,21 +1,15 @@
 #!/usr/bin/env python3
-"""Durable, one-at-a-time source-first EN->JA dispatcher for Bruiser SubHub.
-
-Operates on Jellyfin-authoritative movie inventory. Existing Japanese source
-provider acquisition remains the responsibility of the single installed source
-worker; this translates only source-exhausted items, or provider-quota-paused
-items without a cached plausible Japanese result and with an actual English
-SRT on disk. No provider calls, changes to media bytes, or new accounts.
-
-Run by one user systemd timer, after installation/enable; no cron, no daemon
-or background subprocesses. A kernel lock prevents collisions with JA sourcing.
-PLaMo stores every completed cue in its existing SQLite progress database.
+"""One dispatcher, two existing scheduled phases: Japanese sourcing and PLaMo.
+Reuse the existing exact-item source/QA engines, source lock, exhaustion
+receipts, PLaMo checkpoints and dispatcher state. No new timers or databases.
+A quota pause, a rejected release, or a missing receipt never authorizes AI.
+The source phase gives unattempted movies priority and moves past exceptions.
 """
 from __future__ import annotations
 
 import argparse
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime
 import fcntl
 import json
 import os
@@ -33,15 +27,12 @@ DB=STATE/"jobs.sqlite3"
 INTAKE=ROOT/"ja-first-inventory"
 SOURCE_LOCK=INTAKE/".autofill.lock"
 CODE=ROOT/"subhub-control"/"ja_first_catalog_manifest.py"
-BATCH=ROOT/"batch-control"/"current.json"
-SEARCH=INTAKE/"japanese-search.sqlite3"
-STAGES=INTAKE/"japanese-stage.sqlite3"
 AI=HOME/".local/bin/subhub-ai"
 JID=re.compile(r"[a-f0-9]{32}\Z")
 EN={"en","eng","english"}
 VIDEO={".mkv",".mp4",".avi",".m4v",".mov",".webm",".m2ts",".ts"}
-SOURCE_WAIT=6*3600
-HOLD_DELAY=12*3600
+HOLD_DELAY=24*3600
+INTERRUPTED_DELAY=2*3600
 CATALOG_TTL=6*3600
 MAX_ITEMS=30000
 
@@ -84,6 +75,8 @@ def connection(path=DB):
     if path.is_symlink() or (path.exists() and
             (not path.is_file() or path.stat().st_mode & 0o077)):
         raise RuntimeError("unsafe_dispatcher_database")
+    fd=os.open(path,os.O_CREAT|os.O_RDWR|getattr(os,"O_NOFOLLOW",0),0o600)
+    os.close(fd)
     db=sqlite3.connect(path,timeout=20)
     db.row_factory=sqlite3.Row
     db.executescript("""
@@ -155,234 +148,214 @@ def load_catalog(path):
     return rows
 
 
-def source_quota_paused(path=BATCH):
-    path=Path(path)
-    if not path.is_file() or path.is_symlink() or path.stat().st_mode & 0o077:
+def eligible(row, scope="all"):
+    """Exclude Japanese-covered items and anime, not Western animation."""
+    if not isinstance(row,dict) or row.get("kind") not in ("Movie","Episode"):
         return False
-    data=json.loads(path.read_text("utf-8"))
-    if not data.get("quota_exhausted"):
+    if row.get("status")!="ready_ja_search" or not JID.fullmatch(
+            str(row.get("jellyfin_id") or "")):
         return False
-    # Old batch status is NOT permission to bypass the source-first order.
-    # Only accept a quota flag observed in the last 24 hours.
-    raw=data.get("updated_utc") or ""
-    try:
-        stamp=datetime.fromisoformat(raw.replace("Z","+00:00"))
-        age=datetime.now(timezone.utc)-stamp.astimezone(timezone.utc)
-        return 0<=age.total_seconds()<=86400
-    except (TypeError,ValueError):
+    video=Path(str(row.get("host_path") or ""))
+    if not video.is_absolute() or video.suffix.lower() not in VIDEO:
         return False
-
-
-def read_searches(path=SEARCH):
-    if not path.is_file() or path.is_symlink() or path.stat().st_mode & 0o077:
-        return {}
-    with sqlite3.connect("file:"+str(path.resolve())+"?mode=ro",uri=True,timeout=8) as db:
-        return {str(j):(str(outcome),int(searched)) for j,outcome,searched in
-                db.execute("SELECT jellyfin_id,outcome,searched_at FROM searches")}
-
-
-def read_staged(path=STAGES):
-    if not path.is_file() or path.is_symlink() or path.stat().st_mode & 0o077:
-        return set()
-    with sqlite3.connect("file:"+str(path.resolve())+"?mode=ro",uri=True,timeout=8) as db:
-        return {str(j) for (j,) in db.execute(
-            "SELECT DISTINCT jellyfin_id FROM staged WHERE status IN ('staged','published')")}
-
-
-def local_en(video):
-    """A real, language-tagged source, not catalog's speculative EN flag."""
-    prefix=video.stem.casefold()+"."
-    try:
-        for item in video.parent.iterdir():
-            if item.is_symlink() or not item.is_file() or item.suffix.casefold()!=".srt":
-                continue
-            if not item.name.casefold().startswith(prefix):
-                continue
-            tokens={t for t in re.findall(r"[a-z0-9]+",
-                    item.name[len(video.stem)+1:-4].casefold())}
-            if tokens & EN and not tokens & {"ja","jp","jpn","forced"}:
-                if 0<item.stat().st_size<=2_000_000:
-                    return True
-    except OSError:
+    genres=row.get("genres") or []
+    if any(isinstance(g,str) and re.search(r"(?i)\\banime\\b",g)
+           for g in genres):
         return False
-    return False
+    if any(re.search(r"(?i)(?<![a-z])anime",part)
+           for part in video.parts[:-1]):
+        return False
+    if scope!="all":
+        try:
+            from . import ja_first_movie_scope as movie_scope
+        except ImportError:
+            import ja_first_movie_scope as movie_scope
+        if not movie_scope.matches(row,scope):
+            return False
+    return True
 
 
-def local_ja(video):
-    prefix=video.stem.casefold()+"."
-    try:
-        for item in video.parent.iterdir():
-            if item.name.casefold().startswith(prefix) and (
-                    item.is_symlink() or item.is_file()):
-                if item.suffix.casefold() not in {".srt",".vtt",".ass",".ssa"}:
-                    continue
-                tokens={t for t in re.findall(r"[a-z0-9]+",
-                        item.name[len(video.stem)+1:-len(item.suffix)].casefold())}
-                if tokens & {"ja","jp","jpn","japanese","editorial"}:
-                    return True
-    except OSError:
-        return True
-    return False
+def source_proven(row, deep):
+    """Existing exact-video proof; never ignore a saved non-core JA release."""
+    jid=row["jellyfin_id"]
+    if not deep.validate_exhausted(jid,row):
+        return False
+    search=deep.search_record(jid)
+    if not isinstance(search,dict):
+        return False
+    # The current deep engine only exhausts the two core stage adapters.
+    # Known additional-provider candidates still need their source recovery.
+    return not any(isinstance(c,dict) and
+                   c.get("provider") not in deep.REQUIRED_PROVIDERS
+                   for c in search.get("candidates") or [])
 
 
-def candidates(rows, searches, staged, quota_paused, timestamp=None):
-    """Select movies with verified metadata and a real EN source; fail closed."""
+def ordered(rows, db, phase, deep, scope="all", timestamp=None):
     timestamp=now() if timestamp is None else timestamp
-    good=[]
+    previous={r["jellyfin_id"]:r for r in db.execute("SELECT * FROM jobs")}
+    result=[]
     for row in rows:
-        if not isinstance(row,dict) or row.get("kind")!="Movie" or (
-                row.get("status")!="ready_ja_search"):
+        if not eligible(row,scope):
             continue
-        jid=str(row.get("jellyfin_id") or "")
-        audio=str(row.get("audio_language") or "").strip().lower()
-        path=str(row.get("host_path") or "")
-        if not JID.fullmatch(jid) or audio not in EN or jid in staged:
+        jid=row["jellyfin_id"]
+        old=previous.get(jid)
+        # A different path is new evidence and not subject to the old cooldown.
+        if old and old["video"]!=row["host_path"]:
+            old=None
+        if old and old["retry_after"]>timestamp:
             continue
-        video=Path(path)
-        if not video.is_absolute() or video.suffix.lower() not in VIDEO or (
-                video.is_symlink() or not video.is_file()):
+        proven=source_proven(row,deep)
+        if phase=="source" and proven or phase=="translation" and not proven:
             continue
-        if local_ja(video) or not local_en(video):
-            continue
-        history=searches.get(jid)
-        if history:
-            outcome,when=history
-            if outcome in ("plausible","review","in_progress"):
-                continue
-            if outcome=="none" and when>timestamp-30*86400:
-                pass
-            elif quota_paused and outcome in ("none","error"):
-                pass
-            else:
-                continue
-        elif not quota_paused:
-            continue
-        good.append(row)
-    good.sort(key=lambda x:(
-        0 if x.get("kind")=="Movie" and "horror" in (
-            str(x.get("genres") or "")+" "+str(x.get("host_path") or "")).lower() else 1,
-        str(x.get("title") or "").casefold(),str(x["jellyfin_id"])))
-    return good
-
-
-def choose(rows, db, searches, staged, quota_paused, timestamp=None):
-    timestamp=now() if timestamp is None else timestamp
-    listing=candidates(rows,searches,staged,quota_paused,timestamp)
-    recover=[]
-    fresh=[]
-    for row in listing:
-        previous=state_for(db,row["jellyfin_id"])
-        if previous and previous["state"]=="published":
-            continue
-        if previous and previous["retry_after"]>timestamp:
-            continue
-        if previous and previous["state"] in ("preparing","translating"):
-            recover.append(row)
+        # No title is permanently retired based on an old receipt: a fresh
+        # manifest says it is missing. Fresh titles precede old failures.
+        if phase=="source":
+            key=(0 if old is None else 1,
+                 0 if row["kind"]=="Movie" else 1,
+                 old["updated_at"] if old else 0,
+                 str(row.get("title") or "").casefold(),jid)
         else:
-            fresh.append(row)
-    return (recover+fresh)[0] if recover or fresh else None
+            key=(0 if old and old["state"]=="translating" else 1,
+                 0 if row["kind"]=="Movie" else 1,
+                 old["updated_at"] if old else 0,jid)
+        result.append((key,row))
+    return [r for _,r in sorted(result,key=lambda x:x[0])]
 
 
-def invoke(command, on_line=None, runner=None):
-    """Stream model events into journal, no shell command or secrets in logs."""
-    if runner is not None:
-        return runner(command)
-    process=subprocess.Popen(command,stdin=subprocess.DEVNULL,
-                              stdout=subprocess.PIPE,stderr=subprocess.STDOUT,
-                              text=True,bufsize=1)
-    assert process.stdout is not None
-    for line in process.stdout:
-        line=line.rstrip()
-        if (line.startswith("SUBHUB_AI_") or line.startswith("SUBHUB_AI_HELD")):
-            print(line,flush=True)
-            if on_line:
-                on_line(line)
-    return process.wait()
+def invoke(command):
+    # Inherit the service journal, including actual publication receipts.
+    return subprocess.run(command,stdin=subprocess.DEVNULL,check=False).returncode
 
 
-def once(db=None, *, runner=invoke, clock=now, refresh=True):
-    """One media item per invocation. A user timer handles reboot and retries."""
+def quiet_hours():
+    return 2<=datetime.now().hour<5
+
+
+def dispatch(rows, db, phase, deep, *, scope="all", limit=40,
+             runner=invoke, clock=now, quiet=quiet_hours):
+    selected=ordered(rows,db,phase,deep,scope,clock())
+    counts={"selected":min(len(selected),limit),"covered":0,
+            "source_ready":0,"published":0,"retry":0}
+    print("SUBHUB_AUTO_PLAN",phase,"eligible",len(selected),
+          "budget",limit,flush=True)
+    for row in selected[:limit]:
+        if phase=="translation" and not quiet():
+            print("SUBHUB_AUTO_QUIET_WINDOW_ENDED",flush=True)
+            break
+        jid=row["jellyfin_id"]
+        video=Path(row["host_path"])
+        print("SUBHUB_AUTO_SELECTED",phase,jid,row.get("title"),flush=True)
+        if video.is_file() and not video.is_symlink() and deep.stage.japanese_sidecar_exists(video):
+            update(db,row,"covered")
+            counts["covered"]+=1
+            continue
+        update(db,row,"sourcing" if phase=="source" else "translating",
+               retry_after=clock()+INTERRUPTED_DELAY)
+        stop=False
+        try:
+            if phase=="source":
+                report=deep.run(jid)
+                outcome=report.get("result")
+                reason=str(report.get("reason") or "unknown_source_result")
+                if outcome=="covered":
+                    update(db,row,"covered")
+                    counts["covered"]+=1
+                    continue
+                if outcome=="plamo" and source_proven(row,deep):
+                    update(db,row,"source_ready")
+                    counts["source_ready"]+=1
+                    continue
+                if outcome=="plamo":
+                    reason="source_proof_incomplete_or_other_provider_pending"
+                search=deep.search_record(jid) or {}
+                stop=(search.get("_outcome")=="deferred" or
+                      "quota" in reason.casefold() or "cooldown" in reason.casefold())
+            else:
+                # Revalidate immediately before invoking the exact-media
+                # handoff; its own identity, GPU and QA checks still apply.
+                if not source_proven(row,deep):
+                    reason="source_proof_changed"
+                else:
+                    rc=runner([str(AI),"--apply","--source-exhausted-auto",
+                               "--jellyfin-id",jid])
+                    expected=video.with_name(video.stem+".ja.PLaMo8B.srt")
+                    if not rc and expected.is_file() and not expected.is_symlink():
+                        update(db,row,"published",published_path=str(expected))
+                        counts["published"]+=1
+                        print("SUBHUB_AUTO_PUBLISHED",jid,str(expected),flush=True)
+                        continue
+                    reason="translation_rc_"+str(rc) if rc else "publication_missing"
+        except (OSError,ValueError,RuntimeError,sqlite3.Error,
+                subprocess.SubprocessError) as exc:
+            reason=type(exc).__name__+":"+str(exc)[:120]
+        update(db,row,phase+"_retry",reason,clock()+HOLD_DELAY,count_attempt=True)
+        counts["retry"]+=1
+        print("SUBHUB_AUTO_RETRY",phase,jid,reason,flush=True)
+        if stop:
+            print("SUBHUB_AUTO_PROVIDER_PAUSED",flush=True)
+            break
+    print("SUBHUB_AUTO_SUMMARY",phase,json.dumps(counts,sort_keys=True),flush=True)
+    return counts
+
+
+def once(phase,limit):
+    try:
+        from . import subhub_deep_source as deep
+        from . import ja_first_autofill as source
+    except ImportError:
+        import subhub_deep_source as deep
+        import ja_first_autofill as source
     private_dir(INTAKE)
     private_dir(STATE)
-    with mutex(STATE/".runner.lock"):
-        # Same source lock as the existing source-only user timer / manual batch.
-        with mutex(SOURCE_LOCK):
-            if refresh:
-                path=catalog_path()
-                if path is None or clock()-int(path.stat().st_mtime)>CATALOG_TTL:
-                    if not CODE.is_file() or CODE.is_symlink():
-                        raise RuntimeError("catalog_refresh_component_missing")
-                    print("SUBHUB_AUTO_CATALOG_REFRESH",flush=True)
-                    subprocess.run([sys.executable,"-u",str(CODE),"--save"],
-                                   stdin=subprocess.DEVNULL,timeout=1800,check=True)
-            items=load_catalog(catalog_path())
-            histories=read_searches()
-            staged=read_staged()
-            paused=source_quota_paused()
-            if not AI.is_file() or AI.is_symlink():
-                raise RuntimeError("subhub_ai_handoff_not_installed")
-            managed=db is None
-            connection_db=db if db is not None else connection()
-            try:
-                row=choose(items,connection_db,histories,staged,paused,clock())
-                if row is None:
-                    print("SUBHUB_AUTO_NO_READY_ENGLISH_MOVIES",
-                          "quota_paused="+str(paused),flush=True)
-                    return None
-                jid=row["jellyfin_id"]
-                video=row["host_path"]
-                print("SUBHUB_AUTO_SELECTED",jid,row.get("title"),flush=True)
-                common=["--explicit-movie-pilot","--jellyfin-id",jid,
-                        "--movie-path",video]
-                update(connection_db,row,"preparing")
-                prep=runner([str(AI),"--prepare",*common])
-                if prep:
-                    update(connection_db,row,"held","english_prepare_rc_"+str(prep),
-                           clock()+HOLD_DELAY,count_attempt=True)
-                    print("SUBHUB_AUTO_HELD",jid,"english_prepare_rc",prep,flush=True)
-                    return jid
-                update(connection_db,row,"translating")
-                rc=runner([str(AI),"--apply",*common])
-                if rc:
-                    update(connection_db,row,"held","translation_rc_"+str(rc),
-                           clock()+HOLD_DELAY,count_attempt=True)
-                    print("SUBHUB_AUTO_HELD",jid,"translation_rc",rc,flush=True)
-                    return jid
-                expected=Path(video).with_name(Path(video).stem+".ja.PLaMo8B.srt")
-                if not expected.is_file() or expected.is_symlink():
-                    update(connection_db,row,"held","publication_missing",
-                           clock()+HOLD_DELAY,count_attempt=True)
-                    return jid
-                update(connection_db,row,"published",published_path=str(expected))
-                print("SUBHUB_AUTO_PUBLISHED",jid,str(expected),flush=True)
-                return jid
-            finally:
-                if managed:
-                    connection_db.close()
+    with mutex(STATE/".runner.lock"),mutex(SOURCE_LOCK):
+        if phase=="translation" and not quiet_hours():
+            print("SUBHUB_AUTO_OUTSIDE_QUIET_HOURS",flush=True)
+            return
+        settings=source.config()
+        source.safe_source_settings(settings)
+        if not source.native_search_disabled(settings):
+            raise RuntimeError("native_duplicate_provider_search_enabled")
+        source.check_scheduler_idle()
+        path=catalog_path()
+        if path is None or now()-int(path.stat().st_mtime)>CATALOG_TTL:
+            source.refresh_manifest()
+            path=catalog_path()
+        if phase=="translation" and (not AI.is_file() or AI.is_symlink()):
+            raise RuntimeError("subhub_ai_handoff_not_installed")
+        rows=load_catalog(path)
+        with connection() as db:
+            dispatch(rows,db,phase,deep,scope=source.selected_source_scope(),limit=limit)
 
 
 def status(db):
     print("SUBHUB_AUTO_STATUS")
-    for row in db.execute(
-        "SELECT state,COUNT(*) FROM jobs GROUP BY state ORDER BY state"):
+    for row in db.execute("SELECT state,COUNT(*) FROM jobs GROUP BY state ORDER BY state"):
         print("STATE",row[0],row[1])
     for row in db.execute("""SELECT jellyfin_id,title,state,attempts,
-                                  retry_after,last_error FROM jobs
-                             ORDER BY updated_at DESC LIMIT 12"""):
+                               retry_after,last_error FROM jobs
+                            ORDER BY updated_at DESC LIMIT 12"""):
         print("JOB",*row)
 
 
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action",choices=("status","once"),nargs="?",default="status")
+    parser.add_argument("action",choices=("status","source","translation","once"),
+                        nargs="?",default="status")
+    parser.add_argument("--limit",type=int)
     args=parser.parse_args(argv)
-    if args.action=="once":
-        return once()
-    with connection() as db:
-        status(db)
+    if args.action=="status":
+        with connection() as db:
+            status(db)
+        return
+    phase="translation" if args.action=="once" else args.action
+    limit=args.limit if args.limit is not None else (60 if phase=="source" else 3)
+    if not 1<=limit<=(100 if phase=="source" else 10):
+        parser.error("phase limit out of range")
+    once(phase,limit)
 
 
 if __name__=="__main__":
+    os.umask(0o077)
     try:
         main()
     except (OSError,ValueError,RuntimeError,sqlite3.Error,
