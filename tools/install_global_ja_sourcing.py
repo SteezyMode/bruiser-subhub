@@ -63,8 +63,10 @@ SOURCE_FILES=(
     "subhub_source_failure_audit.py",
     "subhub_plamo_source_repass.py",
     "ja_first_autofill.py",
+    "subhub_auto.py",
 )
 NEW_SOURCE_FILES=frozenset({
+    "subhub_auto.py",
     "subhub_movie_census.py",
     "subhub_library_coverage.py",
     "ja_first_movie_scope.py",
@@ -122,6 +124,7 @@ DASH_OVERRIDE_BYTES=(
     b"# Keep ProtectSystem=strict and ProtectHome=read-only; permit only receipts\n"
     b"ReadWritePaths=%h/bruiser-pilot/ja-first-inventory\n")
 BUSY_UNITS=(
+    "subhub-household.service", "subhub-bulk-publisher.service",
     SOURCE_UNIT, "bruiser-subhub-season-sources.service",
     "bruiser-subhub-batch.service", "bruiser-subhub-translation-batch.service",
     "bruiser-subhub-movie-ja.service",
