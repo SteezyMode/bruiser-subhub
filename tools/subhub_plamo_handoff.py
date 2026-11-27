@@ -498,8 +498,144 @@ def synchronize_external_english(video, original, source, sync):
                            type(exc).__name__) from None
 
 
+# Reuse the isolated CPU Whisper environment. No installation, audio upload,
+# model download or media-sidecar writes from an unattended worker.
+ASR_PYTHON = HOME / "bruiser-pilot/american-dad-asr-venv/bin/python"
+ASR_CACHE = HOME / "bruiser-pilot/american-dad-asr-state/models"
+WHISPER_CHILD = r'''
+import sys
+import wave
+import numpy as np
+from faster_whisper import WhisperModel
+mode, wav, cache = sys.argv[1:]
+# FFmpeg has already decoded and resampled this exact audio track.
+# Passing float32 PCM directly avoids PyAV API/version incompatibilities.
+with wave.open(wav, "rb") as pcm:
+    if (pcm.getnchannels(), pcm.getsampwidth(), pcm.getframerate(),
+            pcm.getcomptype()) != (1, 2, 16000, "NONE"):
+        raise ValueError("Expected mono 16 kHz signed 16-bit PCM WAV")
+    audio = np.frombuffer(pcm.readframes(pcm.getnframes()),
+                          dtype="<i2").astype(np.float32)
+audio /= 32768.0
+if not audio.size:
+    raise ValueError("Empty decoded audio")
+model = WhisperModel("tiny" if mode == "detect" else "small.en",
+                     device="cpu", compute_type="int8", cpu_threads=4,
+                     num_workers=1, download_root=cache, local_files_only=True)
+if mode == "detect":
+    import json
+    _, info = model.transcribe(audio, language=None, vad_filter=True)
+    print(json.dumps([info.language, info.language_probability]))
+else:
+    segments, _ = model.transcribe(audio, language="en", beam_size=4,
+                                    vad_filter=True, word_timestamps=True,
+                                    condition_on_previous_text=False)
+    def stamp(sec):
+        ms = max(0, round(sec * 1000))
+        h, ms = divmod(ms, 3600000)
+        m, ms = divmod(ms, 60000)
+        s, ms = divmod(ms, 1000)
+        return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+    words = []
+    number = 0
+    def flush():
+        global number
+        if not words:
+            return
+        text = "".join(w.word for w in words).strip()
+        start, end = words[0].start, words[-1].end
+        if text and end > start:
+            number += 1
+            print(f"{number}\n{stamp(start)} --> {stamp(end)}\n{text}\n")
+        words.clear()
+    for segment in segments:
+        for word in segment.words or []:
+            if not word.word.strip() or word.start is None or word.end is None:
+                continue
+            if words and (word.start - words[-1].end > 0.8
+                          or word.end - words[0].start > 6
+                          or len("".join(w.word for w in words) + word.word) > 84):
+                flush()
+            words.append(word)
+            if word.word.rstrip().endswith((".", "!", "?")) and word.end-words[0].start >= 1:
+                flush()
+    flush()
+'''
+
+
+def movie_audio_track(video):
+    run = subprocess.run(
+        ["ffprobe","-v","error","-select_streams","a",
+         "-show_entries","stream=index:stream_tags=language:stream_disposition=default:format=duration",
+         "-of","json",str(video)],capture_output=True,text=True,timeout=40,check=True)
+    data = json.loads(run.stdout)
+    tracks = data.get("streams") or []
+    if not tracks:
+        raise RuntimeError("movie_audio_track_missing")
+    track = next((a for a in tracks if a.get("disposition",{}).get("default")==1),tracks[0])
+    lang = str(track.get("tags",{}).get("language") or "").strip().lower()
+    duration = float(data["format"]["duration"])
+    if not 600 <= duration <= 4*3600 or type(track.get("index")) is not int:
+        raise RuntimeError("movie_asr_duration_or_track_invalid")
+    return track["index"], lang, duration
+
+
+def whisper_movie(video, mode, *, track=None):
+    """Local, private exact-track evidence; no persistent raw audio."""
+    if not ASR_PYTHON.is_file() or not ASR_CACHE.is_dir():
+        raise RuntimeError("movie_whisper_environment_or_cache_missing")
+    index, lang, duration = track or movie_audio_track(video)
+    def run_one(folder, start, length):
+        wav = Path(folder)/"audio.wav"
+        cmd = ["ffmpeg","-nostdin","-hide_banner","-loglevel","error","-y"]
+        if start:
+            cmd += ["-ss",str(start)]
+        cmd += ["-i",str(video),"-map",f"0:{index}","-vn","-sn","-ac","1",
+                "-ar","16000","-c:a","pcm_s16le","-t",str(length),str(wav)]
+        subprocess.run(cmd,capture_output=True,check=True,timeout=600)
+        run = subprocess.run([str(ASR_PYTHON),"-B","-c",WHISPER_CHILD,
+                              mode,str(wav),str(ASR_CACHE)],
+                             capture_output=True,check=False,
+                             timeout=180 if mode=="detect" else 6600)
+        if run.returncode:
+            # Local-only child: expose the actionable failure, never print
+            # the audio transcript (stdout) or any provider credentials.
+            detail = run.stderr.decode("utf-8",errors="replace").strip()
+            print("SUBHUB_AI_WHISPER_ERROR",mode,"exit="+str(run.returncode),
+                  detail[-1800:] or "no stderr",file=sys.stderr,flush=True)
+            raise RuntimeError("movie_whisper_local_model_unavailable_or_failed")
+        return run.stdout
+    with tempfile.TemporaryDirectory(prefix="subhub-movie-audio-") as folder:
+        if mode=="detect":
+            results=[]
+            for fraction in (.2,.5,.8):
+                result=json.loads(run_one(folder,round(duration*fraction),35))
+                results.append(result)
+            if sum(lang=="en" and float(prob)>=.85 for lang,prob in results)<2:
+                raise RuntimeError("movie_spoken_english_not_verified")
+            # A confident contradictory sample is not an English approval.
+            if any(lang!="en" and float(prob)>=.85 for lang,prob in results):
+                raise RuntimeError("movie_spoken_language_conflict")
+            print("SUBHUB_AI_AUDIO_VERIFIED whisper_samples",flush=True)
+            return None
+        print("SUBHUB_AI_ENGLISH_ASR local_cpu",flush=True)
+        raw=run_one(folder,0,duration)
+        if not raw or len(raw)>2_000_000:
+            raise RuntimeError("movie_asr_empty_or_oversized")
+        return raw
+
+
+def verify_automatic_movie_audio(video):
+    track=movie_audio_track(video)
+    if track[1] in ("en","eng","english"):
+        return
+    if track[1] not in ("","und","unknown","mul","zxx"):
+        raise RuntimeError("movie_known_non_english_audio")
+    whisper_movie(video,"detect",track=track)
+
+
 def saved_media(video, jid, info, daily, source, small, sync, safe_media_path,
-                *, kind="Episode", allow_unlabeled_audio=False):
+                *, kind="Episode", allow_unlabeled_audio=False, automatic_movie=False):
     """Exact-file EN only; hold bad external sync, missing EN, unexpected audio."""
     video = safe_media_path(str(video))
     if video.is_symlink() or not video.is_file():
@@ -507,21 +643,31 @@ def saved_media(video, jid, info, daily, source, small, sync, safe_media_path,
     if daily.already_ja(video) or info["ja"]:
         raise RuntimeError("japanese_already_present_skip")
     if not info["audio_en"]:
-        if not allow_unlabeled_audio:
+        if automatic_movie and kind=="Movie":
+            verify_automatic_movie_audio(video)
+        elif allow_unlabeled_audio:
+            verify_owner_unlabeled_audio(video)
+        else:
             raise RuntimeError("english_audio_not_verified")
-        verify_owner_unlabeled_audio(video)
     indexed_raw=None
+    asr_raw=None
     if info["embedded_en"] is None and daily.english_srt(video) is None:
         # Jellyfin may already hold a saved EN subtitle in its own metadata
         # rather than beside the video. Do not waste a second provider credit.
         indexed_raw=indexed_jellyfin_english(video,jid)
         if indexed_raw is None:
             print("SUBHUB_AI_ENGLISH_MISSING source_search_for_exact_video",flush=True)
-            acquire_exact_english(video,jid,kind,source)
+            try:
+                acquire_exact_english(video,jid,kind,source)
+            except RuntimeError as exc:
+                if not (automatic_movie and kind=="Movie" and
+                        str(exc)=="no_exact_video_hash_english_srt_found"):
+                    raise
+                asr_raw=whisper_movie(video,"transcribe")
             # The RemoteSearch POST may store the subtitle in Jellyfin
             # metadata instead of the media folder. Both are valid sources;
             # neither is trusted for timing until exact-video audio sync.
-            for attempt in range(12):
+            for attempt in range(12 if asr_raw is None else 0):
                 if daily.english_srt(video) is not None:
                     break
                 indexed_raw=indexed_jellyfin_english(video,jid)
@@ -529,10 +675,14 @@ def saved_media(video, jid, info, daily, source, small, sync, safe_media_path,
                     break
                 if attempt<11:
                     time.sleep(1)
-            if daily.english_srt(video) is None and indexed_raw is None:
+            if asr_raw is None and daily.english_srt(video) is None and indexed_raw is None:
                 raise RuntimeError(
                     "english_download_not_available_as_sidecar_or_indexed_stream")
-    if info["embedded_en"] is not None:
+    if asr_raw is not None:
+        raw=aligned=asr_raw
+        provenance="local_whisper_exact_audio"
+        timing={"mode":"same_video_word_timestamps"}
+    elif info["embedded_en"] is not None:
         result = subprocess.run(
             ["ffmpeg","-nostdin","-hide_banner","-loglevel","error",
              "-i",str(video),"-map",f"0:{info['embedded_en']}",
@@ -609,7 +759,9 @@ def prepared_source(row, folder, mod):
     info=daily.probe(video)
     video,cues,sha,origin,timing=saved_media(
         video,row["jellyfin_id"],info,daily,source,small,sync,safe_media_path,
-        kind=row["kind"], allow_unlabeled_audio=(
+        kind=row["kind"], automatic_movie=(row.get("action")=="source_exhausted_auto"
+                                           and row["kind"]=="Movie"),
+        allow_unlabeled_audio=(
             (row.get("action")=="review_uncertain"
              and row.get("target")=="review") or
             (row.get("target")=="ja" and row.get("state")=="held"
@@ -977,7 +1129,7 @@ if __name__=="__main__":
     try:
         main()
     except (OSError,ValueError,RuntimeError,sqlite3.Error,
-            subprocess.TimeoutExpired) as exc:
+            subprocess.SubprocessError) as exc:
         print("SUBHUB_AI_HELD",type(exc).__name__,str(exc)[:220],
               file=sys.stderr)
         raise SystemExit(1) from None

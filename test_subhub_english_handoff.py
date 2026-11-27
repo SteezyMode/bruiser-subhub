@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -88,6 +89,56 @@ class EnglishHandoffTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError,"english_audio_alignment_failed"):
                 handoff.synchronize_external_english(
                     Path("/tmp/film.mkv"),b"bad english",source,None)
+
+
+    def test_automatic_movie_untagged_audio_uses_local_detection(self):
+        video=Path("/tmp/film.mkv")
+        with patch.object(handoff,"movie_audio_track",return_value=(1,"und",3600)), \
+             patch.object(handoff,"whisper_movie") as whisper:
+            handoff.verify_automatic_movie_audio(video)
+            whisper.assert_called_once_with(video,"detect",track=(1,"und",3600))
+
+    def test_automatic_movie_known_foreign_audio_not_overridden(self):
+        with patch.object(handoff,"movie_audio_track",return_value=(1,"jpn",3600)), \
+             patch.object(handoff,"whisper_movie") as whisper:
+            with self.assertRaisesRegex(RuntimeError,"known_non_english"):
+                handoff.verify_automatic_movie_audio(Path("/tmp/film.mkv"))
+            whisper.assert_not_called()
+
+    def test_automatic_movie_no_hash_falls_back_to_private_asr(self):
+        raw=b"generated English"
+        cues=[{"number":i} for i in range(1,151)]
+        daily=SimpleNamespace(already_ja=lambda v:False,english_srt=lambda v:None)
+        small=SimpleNamespace(parse_srt=lambda *a,**kw:cues)
+        info={"audio_en":True,"ja":False,"embedded_en":None}
+        with tempfile.TemporaryDirectory() as folder:
+            video=Path(folder)/"movie.mkv"
+            video.write_bytes(b"fixture")
+            with patch.object(handoff,"indexed_jellyfin_english",return_value=None), \
+                 patch.object(handoff,"acquire_exact_english",side_effect=RuntimeError(
+                     "no_exact_video_hash_english_srt_found")), \
+                 patch.object(handoff,"whisper_movie",return_value=raw) as whisper:
+                out=handoff.saved_media(video,"a"*32,info,daily,None,small,None,
+                    Path,kind="Movie",automatic_movie=True)
+                whisper.assert_called_once_with(video,"transcribe")
+                self.assertEqual(out[3],"local_whisper_exact_audio")
+                self.assertEqual(out[1],cues)
+                self.assertEqual(list(Path(folder).iterdir()),[video])
+
+    def test_automatic_movie_provider_failure_does_not_authorize_asr(self):
+        daily=SimpleNamespace(already_ja=lambda v:False,english_srt=lambda v:None)
+        info={"audio_en":True,"ja":False,"embedded_en":None}
+        with tempfile.TemporaryDirectory() as folder:
+            video=Path(folder)/"movie.mkv"
+            video.write_bytes(b"fixture")
+            with patch.object(handoff,"indexed_jellyfin_english",return_value=None), \
+                 patch.object(handoff,"acquire_exact_english",side_effect=RuntimeError(
+                     "provider_unavailable")), \
+                 patch.object(handoff,"whisper_movie") as whisper:
+                with self.assertRaisesRegex(RuntimeError,"provider_unavailable"):
+                    handoff.saved_media(video,"a"*32,info,daily,None,None,None,
+                        Path,kind="Movie",automatic_movie=True)
+                whisper.assert_not_called()
 
 
 if __name__=="__main__":
