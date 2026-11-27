@@ -90,6 +90,23 @@ class DispatchTests(unittest.TestCase):
                              runner=publish,quiet=lambda:True)
         self.assertEqual(result["published"],1)
 
+    def test_translation_failures_do_not_consume_publication_target(self):
+        rows=[self.row(c*32) for c in "abcd"]
+        self.deep.validate_exhausted.return_value=True
+        self.deep.search_record.return_value={"candidates":[]}
+        def run(cmd):
+            jid=cmd[-1]
+            if jid in ("a"*32,"b"*32,"c"*32):
+                return 1
+            video=Path(rows[-1]["host_path"])
+            video.with_name(video.stem+".ja.PLaMo8B.srt").write_text("subtitles")
+            return 0
+        result=auto.dispatch(rows,self.db,"translation",self.deep,limit=1,
+                             runner=run,quiet=lambda:True)
+        self.assertEqual(result["selected"],4)
+        self.assertEqual(result["retry"],3)
+        self.assertEqual(result["published"],1)
+
     def test_no_translation_outside_quiet_window(self):
         row=self.row("a"*32)
         self.deep.validate_exhausted.return_value=True
