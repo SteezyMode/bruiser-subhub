@@ -250,14 +250,19 @@ def quiet_hours():
 def dispatch(rows, db, phase, deep, *, scope="all", limit=40,
              runner=invoke, clock=now, quiet=quiet_hours, searched=()):
     selected=ordered(rows,db,phase,deep,scope,clock(),searched)
-    counts={"selected":min(len(selected),limit),"covered":0,
+    counts={"selected":0,"covered":0,
             "source_ready":0,"published":0,"retry":0}
+    # Source budget remains an attempt cap (provider quotas). Translation
+    # gets up to ten attempts to meet its publication target within quiet hours.
+    attempt_cap=limit if phase=="source" else max(10,limit)
     print("SUBHUB_AUTO_PLAN",phase,"eligible",len(selected),
-          "budget",limit,flush=True)
-    for row in selected[:limit]:
-        if phase=="translation" and not quiet():
-            print("SUBHUB_AUTO_QUIET_WINDOW_ENDED",flush=True)
+          "budget",limit,"attempt_cap",attempt_cap,flush=True)
+    for row in selected[:attempt_cap]:
+        if phase=="translation" and (counts["published"]>=limit or not quiet()):
+            if not quiet():
+                print("SUBHUB_AUTO_QUIET_WINDOW_ENDED",flush=True)
             break
+        counts["selected"]+=1
         jid=row["jellyfin_id"]
         video=Path(row["host_path"])
         print("SUBHUB_AUTO_SELECTED",phase,jid,row.get("title"),flush=True)
