@@ -504,17 +504,30 @@ ASR_PYTHON = HOME / "bruiser-pilot/american-dad-asr-venv/bin/python"
 ASR_CACHE = HOME / "bruiser-pilot/american-dad-asr-state/models"
 WHISPER_CHILD = r'''
 import sys
+import wave
+import numpy as np
 from faster_whisper import WhisperModel
 mode, wav, cache = sys.argv[1:]
+# FFmpeg has already decoded and resampled this exact audio track.
+# Passing float32 PCM directly avoids PyAV API/version incompatibilities.
+with wave.open(wav, "rb") as pcm:
+    if (pcm.getnchannels(), pcm.getsampwidth(), pcm.getframerate(),
+            pcm.getcomptype()) != (1, 2, 16000, "NONE"):
+        raise ValueError("Expected mono 16 kHz signed 16-bit PCM WAV")
+    audio = np.frombuffer(pcm.readframes(pcm.getnframes()),
+                          dtype="<i2").astype(np.float32)
+audio /= 32768.0
+if not audio.size:
+    raise ValueError("Empty decoded audio")
 model = WhisperModel("tiny" if mode == "detect" else "small.en",
                      device="cpu", compute_type="int8", cpu_threads=4,
                      num_workers=1, download_root=cache, local_files_only=True)
 if mode == "detect":
     import json
-    _, info = model.transcribe(wav, language=None, vad_filter=True)
+    _, info = model.transcribe(audio, language=None, vad_filter=True)
     print(json.dumps([info.language, info.language_probability]))
 else:
-    segments, _ = model.transcribe(wav, language="en", beam_size=4,
+    segments, _ = model.transcribe(audio, language="en", beam_size=4,
                                     vad_filter=True, word_timestamps=True,
                                     condition_on_previous_text=False)
     def stamp(sec):
