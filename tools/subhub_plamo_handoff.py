@@ -585,6 +585,11 @@ def whisper_movie(video, mode, *, track=None):
                              capture_output=True,check=False,
                              timeout=180 if mode=="detect" else 6600)
         if run.returncode:
+            # Local-only child: expose the actionable failure, never print
+            # the audio transcript (stdout) or any provider credentials.
+            detail = run.stderr.decode("utf-8",errors="replace").strip()
+            print("SUBHUB_AI_WHISPER_ERROR",mode,"exit="+str(run.returncode),
+                  detail[-1800:] or "no stderr",file=sys.stderr,flush=True)
             raise RuntimeError("movie_whisper_local_model_unavailable_or_failed")
         return run.stdout
     with tempfile.TemporaryDirectory(prefix="subhub-movie-audio-") as folder:
